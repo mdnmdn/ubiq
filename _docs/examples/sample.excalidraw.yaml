@@ -1,0 +1,62 @@
+# Sample diagram in the simple Excalidraw format.
+# Render:   uv run _tools/excalidraw.py to-image -i _docs/examples/sample.excalidraw.yaml -o /tmp/out.png
+# Convert:  uv run _tools/excalidraw.py to-excalidraw -i _docs/examples/sample.excalidraw.yaml -o /tmp/out.excalidraw
+version: 1
+
+canvas:
+  background: "#ffffff"
+  theme: light
+
+defaults:
+  roughness: 1
+  strokeWidth: bold
+
+elements:
+  # A frame that visually groups the flow.
+  - frame: flow
+    at: [20, 20]
+    size: [760, 260]
+    name: "Login flow"
+
+  # Three boxes laid out by hand inside the frame.
+  - rect: start
+    at: [60, 100]
+    size: [160, 70]
+    text: Start
+    bg: "#a5d8ff"
+    roundness: true
+    frame: flow
+
+  - diamond: check
+    at: [320, 85]
+    size: [180, 100]
+    text: "Valid?"
+    bg: "#ffec99"
+    frame: flow
+
+  - rect: done
+    at: [600, 100]
+    size: [160, 70]
+    text: Dashboard
+    bg: "#b2f2bb"
+    roundness: true
+    frame: flow
+
+  # An ellipse error state below the diamond.
+  - ellipse: err
+    at: [330, 320]
+    size: [160, 90]
+    text: "Error"
+    bg: "#ffc9c9"
+
+  # A free-standing caption (the type-key value holds the text content).
+  - text: "sample.excalidraw.yaml"
+    id: caption
+    at: [60, 320]
+    fontSize: 16
+    fontFamily: code
+
+  # Connectors bind to the shapes by id.
+  - arrow: { from: start, to: check }
+  - arrow: { from: check, to: done }
+  - arrow: { from: check, to: err, strokeStyle: dashed, stroke: "#e03131" }

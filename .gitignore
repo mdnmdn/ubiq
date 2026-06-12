@@ -28,3 +28,9 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+
+# Obsidian
+.obsidian/
+
+# Tools
+_tools/

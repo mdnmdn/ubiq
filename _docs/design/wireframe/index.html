@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ubiq — Wireframe Mockup</title>
+<style>
+:root {
+  --bg: #f7f9fc;
+  --grid: #d5dfed;
+  --border: #c8d6e5;
+  --accent: #4a90d9;
+  --accent-dark: #3a7bc8;
+  --text: #2c3e50;
+  --text-secondary: #7f8c8d;
+  --sidebar-bg: #eef1f5;
+  --status-green: #27ae60;
+  --status-yellow: #f39c12;
+  --status-red: #e74c3c;
+  --window-bg: #ffffff;
+  --bp-line: #b0c4de;
+  --annotation-line: #4a90d9;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 15px;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.4;
+  padding: 2rem;
+  min-height: 100vh;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 20px 20px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ===== Blueprint Page Frame ===== */
+.blueprint-frame {
+  max-width: 1060px;
+  margin: 0 auto;
+  background: var(--window-bg);
+  border: 2px solid var(--border);
+  padding: 1.75rem;
+  position: relative;
+  box-shadow: 0 4px 24px rgba(44, 62, 80, 0.08);
+}
+
+.blueprint-frame::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px solid var(--bp-line);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Corner marks */
+.corner-mark {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-color: var(--accent);
+  border-style: solid;
+  opacity: 0.6;
+}
+.corner-mark--tl { top: 4px; left: 4px; border-width: 2px 0 0 2px; }
+.corner-mark--tr { top: 4px; right: 4px; border-width: 2px 2px 0 0; }
+.corner-mark--bl { bottom: 4px; left: 4px; border-width: 0 0 2px 2px; }
+.corner-mark--br { bottom: 4px; right: 4px; border-width: 0 2px 2px 0; }
+
+/* ===== Document Header ===== */
+.doc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--border);
+}
+.doc-header h1 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.doc-header h1 span {
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+.doc-header .doc-meta {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-align: right;
+  line-height: 1.5;
+  font-family: var(--font-mono);
+}
+
+/* ===== Screen Section ===== */
+.screen {
+  margin-bottom: 1.75rem;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.screen:last-child {
+  margin-bottom: 0;
+}
+
+.screen-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.screen-label::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 1px;
+  background: var(--accent);
+}
+.screen-label .badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.6rem;
+  padding: 0.1em 0.5em;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+/* ===== App Window ===== */
+.app-window {
+  border: 1.5px dashed var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--window-bg);
+  position: relative;
+}
+
+/* ===== Top Menu Bar ===== */
+.top-bar {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  background: var(--sidebar-bg);
+  border-bottom: 1.5px dashed var(--border);
+}
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.top-bar-logo {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent);
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.top-bar-logo svg {
+  width: 16px;
+  height: 16px;
+}
+.top-bar-nav {
+  display: flex;
+  gap: 12px;
+  margin-left: 8px;
+}
+.top-bar-nav a {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+.top-bar-nav a:hover,
+.top-bar-nav a.active {
+  color: var(--accent);
+  background: rgba(74, 144, 217, 0.08);
+}
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.top-bar-right svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.top-bar-right svg:hover {
+  color: var(--accent);
+}
+
+/* ===== App Body ===== */
+.app-body {
+  display: flex;
+  min-height: 0;
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  width: 260px;
+  min-height: 200px;
+  background: var(--sidebar-bg);
+  border-right: 1.5px dashed var(--border);
+  padding: 10px;
+  flex-shrink: 0;
+}
+.sidebar-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 6px 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: background 0.15s ease;
+}
+.sidebar-add-btn:hover {
+  background: var(--accent-dark);
+}
+.sidebar-add-btn svg {
+  width: 12px;
+  height: 12px;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  font-size: 0.65rem;
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: all 0.15s ease;
+}
+.sidebar-item:hover {
+  background: rgba(74, 144, 217, 0.08);
+}
+.sidebar-item.active {
+  background: rgba(74, 144, 217, 0.12);
+  border: 1px dashed var(--accent);
+}
+.sidebar-item .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sidebar-item .status-dot.green { background: var(--status-green); }
+.sidebar-item .status-dot.yellow { background: var(--status-yellow); }
+.sidebar-item .status-dot.red { background: var(--status-red); }
+.sidebar-item-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-section-label {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  padding: 8px 6px 3px;
+  font-weight: 600;
+}
+
+/* ===== Main Content ===== */
+.main-content {
+  flex: 1;
+  padding: 12px 14px;
+  overflow: hidden;
+}
+.page-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+.page-title .title-annotation {
+  font-weight: 400;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-left: 6px;
+}
+
+/* ===== Status Bar ===== */
+.status-bar {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--sidebar-bg);
+  border-top: 1.5px dashed var(--border);
+  font-size: 0.58rem;
+  color: var(--text-secondary);
+}
+.status-bar-left, .status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-indicator .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-green);
+}
+
+/* ===== Screen 1: Project Cards ===== */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+.project-card {
+  border: 1.5px dashed var(--border);
+  border-radius: 3px;
+  padding: 10px;
+  background: var(--window-bg);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  position: relative;
+}
+.project-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 1px 6px rgba(74, 144, 217, 0.15);
+}
+.project-card-new {
+  border-style: dashed;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  border-color: var(--border);
+  min-height: 90px;
+}
+.project-card-new svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+.project-card-new span {
+  font-size: 0.65rem;
+}
+.project-card-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.project-card-select {
+  width: 100%;
+  font-size: 0.6rem;
+  padding: 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--window-bg);
+  color: var(--text);
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+}
+.project-card-btn {
+  width: 100%;
+  padding: 4px 0;
+  font-size: 0.6rem;
+  font-weight: 500;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.project-card-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ===== Screen 2: Agent View ===== */
+.agent-layout {
+  display: flex;
+  gap: 8px;
+  min-height: 160px;
+}
+.agent-main-panel {
+  flex: 3;
+  border: 1.5px dashed var(--border);
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+}
+.agent-sub-panels {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sub-panel {
+  border: 1.5px dashed var(--border);
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.pane-header {
+  padding: 5px 10px;
+  background: var(--sidebar-bg);
+  border-bottom: 1.5px dashed var(--border);
+}
+.pane-header-row1 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.pane-header-row1 .agent-icon {
+  width: 12px;
+  height: 12px;
+}
+.pane-header-row2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.58rem;
+  color: var(--text-secondary);
+}
+.pane-header-row2 .status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.pane-header-row2 .status-dot.green { background: var(--status-green); }
+.pane-header-row2 .status-dot.yellow { background: var(--status-yellow); }
+.pane-header-row2 .pane-btn {
+  font-size: 0.55rem;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.pane-header-row2 .pane-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pane-header-row2 .pane-btn.danger:hover {
+  border-color: var(--status-red);
+  color: var(--status-red);
+}
+.pane-content {
+  flex: 1;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text);
+  line-height: 1.6;
+  overflow: hidden;
+}
+.pane-content .terminal-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-content .terminal-prompt {
+  color: var(--accent);
+}
+.pane-content .terminal-output {
+  color: var(--text-secondary);
+}
+.pane-content .terminal-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  background: var(--accent);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ===== Screen 3: Settings ===== */
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-section {
+  border: 1.5px dashed var(--border);
+  border-radius: 3px;
+  padding: 10px 12px;
+}
+.settings-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.68rem;
+}
+.settings-row:last-child {
+  margin-bottom: 0;
+}
+.settings-row label {
+  width: 70px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+}
+.settings-row select,
+.settings-row input {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--window-bg);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+.settings-row input[type="text"] {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+.settings-row .hint {
+  font-size: 0.58rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ===== Annotations ===== */
+.annotation {
+  position: relative;
+  margin-top: 6px;
+  padding-left: 14px;
+}
+.annotation::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 10px;
+  height: 1px;
+  background: var(--annotation-line);
+}
+.annotation p {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.annotation strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Annotation callouts */
+.callout {
+  position: absolute;
+  font-size: 0.7rem;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  background: var(--window-bg);
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+/* ===== Title Block (Blueprint style) ===== */
+.title-block {
+  margin-top: 1.75rem;
+  padding-top: 0.75rem;
+  border-top: 2px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+}
+.title-block-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.5rem;
+  font-family: var(--font-mono);
+}
+.title-block-grid dt {
+  color: var(--accent);
+  font-weight: 600;
+}
+.title-block-logo {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+.title-block-logo strong {
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+/* ===== Legend ===== */
+.legend {
+  display: flex;
+  gap: 16px;
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--sidebar-bg);
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+}
+.legend-item .legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.legend-item .legend-line {
+  width: 20px;
+  height: 0;
+  border-top: 1.5px dashed var(--border);
+}
+
+/* ===== Print Styles ===== */
+@page {
+  size: letter;
+  margin: 0.4in;
+}
+
+@media print {
+  body {
+    padding: 0.4in;
+    background: white;
+    background-image: none;
+    font-size: 9px;
+  }
+  .blueprint-frame {
+    max-width: none;
+    box-shadow: none;
+    padding: 0.3in;
+    border-width: 1px;
+  }
+  .blueprint-frame::before {
+    inset: 4px;
+  }
+  .corner-mark {
+    width: 14px;
+    height: 14px;
+  }
+  .screen {
+    margin-bottom: 0.35in;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .screen:last-child {
+    margin-bottom: 0;
+  }
+  .screen-label {
+    font-size: 0.55rem;
+    margin-bottom: 0.15in;
+  }
+  .top-bar {
+    height: 30px;
+    padding: 0 8px;
+  }
+  .top-bar-logo {
+    font-size: 0.6rem;
+  }
+  .top-bar-logo svg { width: 11px; height: 11px; }
+  .top-bar-nav a { font-size: 0.5rem; }
+  .top-bar-right svg { width: 11px; height: 11px; }
+  .sidebar {
+    width: 180px;
+    padding: 6px;
+    min-height: 120px;
+  }
+  .sidebar-item { font-size: 0.48rem; padding: 3px 4px; }
+  .sidebar-add-btn { font-size: 0.5rem; padding: 4px 0; }
+  .main-content { padding: 8px; }
+  .page-title { font-size: 0.7rem; margin-bottom: 6px; }
+  .project-grid { gap: 5px; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+  .project-card { padding: 6px; }
+  .project-card-name { font-size: 0.55rem; }
+  .project-card-select { font-size: 0.48rem; padding: 2px; }
+  .project-card-btn { font-size: 0.48rem; padding: 3px 0; }
+  .project-card-new { min-height: 60px; }
+  .project-card-new svg { width: 16px; height: 16px; }
+  .agent-layout { min-height: 100px; }
+  .pane-header { padding: 3px 6px; }
+  .pane-header-row1 { font-size: 0.52rem; }
+  .pane-header-row2 { font-size: 0.45rem; }
+  .pane-content { padding: 4px 6px; font-size: 0.45rem; }
+  .settings-section { padding: 6px 8px; }
+  .settings-section-title { font-size: 0.55rem; margin-bottom: 4px; }
+  .settings-row { font-size: 0.5rem; margin-bottom: 3px; }
+  .settings-row label { width: 55px; font-size: 0.48rem; }
+  .settings-row select, .settings-row input { font-size: 0.48rem; padding: 2px 4px; }
+  .status-bar { height: 15px; font-size: 0.45rem; padding: 0 8px; }
+  .doc-header { margin-bottom: 0.3in; }
+  .doc-header h1 { font-size: 0.9rem; }
+  .doc-header .doc-meta { font-size: 0.5rem; }
+  .title-block { margin-top: 0.3in; font-size: 0.45rem; }
+  .title-block-logo strong { font-size: 0.65rem; }
+  .annotation p { font-size: 0.45rem; }
+  .callout { width: 15px; height: 15px; font-size: 0.55rem; }
+  .legend { margin-top: 0.3in; padding: 0.2in 0.15in; }
+  .legend-item { font-size: 0.45rem; }
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  body { padding: 1rem; }
+  .blueprint-frame { padding: 1rem; }
+  .sidebar { width: 130px; }
+  .project-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .agent-layout { flex-direction: column; }
+  .agent-sub-panels { flex-direction: row; }
+}
+</style>
+</head>
+<body>
+
+<div class="blueprint-frame">
+  <div class="corner-mark corner-mark--tl"></div>
+  <div class="corner-mark corner-mark--tr"></div>
+  <div class="corner-mark corner-mark--bl"></div>
+  <div class="corner-mark corner-mark--br"></div>
+
+  <!-- Document Header -->
+  <header class="doc-header">
+    <h1>UBIQ <span>— Application Wireframe</span></h1>
+    <div class="doc-meta">
+      <div>Rev 1.0</div>
+      <div>2026-06-12</div>
+    </div>
+  </header>
+
+  <!-- =============================== -->
+  <!-- SCREEN 1: Projects Dashboard    -->
+  <!-- =============================== -->
+  <section class="screen" id="screen-1">
+    <div class="screen-label">
+      <span class="badge">01</span>
+      Projects Dashboard
+    </div>
+
+    <div class="app-window" style="position:relative;">
+      <!-- Callout markers -->
+      <div class="callout" style="top:12px;left:195px;">①</div>
+      <div class="callout" style="top:52px;left:6px;">②</div>
+      <div class="callout" style="bottom:30px;right:120px;">③</div>
+
+      <!-- Top Bar -->
+      <div class="top-bar">
+        <div class="top-bar-left">
+          <div class="top-bar-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
+            Ubiq
+          </div>
+          <nav class="top-bar-nav">
+            <a href="#" class="active">Projects</a>
+            <a href="#">Sessions</a>
+          </nav>
+        </div>
+        <div class="top-bar-right">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="app-body">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+          <button class="sidebar-add-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Session
+          </button>
+          <div class="sidebar-section-label">Active Sessions</div>
+          <div class="sidebar-item active">
+            <span class="status-dot green"></span>
+            <span class="sidebar-item-name">claude — api-design</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot green"></span>
+            <span class="sidebar-item-name">gemini — db-schema</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot yellow"></span>
+            <span class="sidebar-item-name">codex — test-suite</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot red"></span>
+            <span class="sidebar-item-name">opencode — config</span>
+          </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main-content">
+          <div class="page-title">
+            Projects
+            <span class="title-annotation">/ 4 projects</span>
+          </div>
+
+          <div class="project-grid">
+            <div class="project-card">
+              <div class="project-card-name">api-design</div>
+              <select class="project-card-select">
+                <option>Claude Code</option>
+                <option selected>Gemini CLI</option>
+                <option>Codex</option>
+                <option>opencode</option>
+              </select>
+              <button class="project-card-btn">Launch</button>
+            </div>
+            <div class="project-card">
+              <div class="project-card-name">db-schema</div>
+              <select class="project-card-select">
+                <option>Claude Code</option>
+                <option selected>Gemini CLI</option>
+                <option>Codex</option>
+                <option>opencode</option>
+              </select>
+              <button class="project-card-btn">Launch</button>
+            </div>
+            <div class="project-card">
+              <div class="project-card-name">test-suite</div>
+              <select class="project-card-select">
+                <option>Claude Code</option>
+                <option>Gemini CLI</option>
+                <option selected>Codex</option>
+                <option>opencode</option>
+              </select>
+              <button class="project-card-btn">Launch</button>
+            </div>
+            <div class="project-card project-card-new">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <circle cx="12" cy="12" r="9"/>
+                <line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+              <span>New Project</span>
+            </div>
+          </div>
+
+          <div class="annotation" style="margin-top:10px;">
+            <p><strong>Project cards</strong> show agent selection and launch controls. The <strong>New Project</strong> card invites creation. Sidebar reflects active sessions with color-coded status dots.</p>
+          </div>
+        </main>
+      </div>
+
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <div class="status-bar-left">
+          <span class="status-indicator">
+            <span class="dot"></span>
+            Connected
+          </span>
+          <span>4 sessions</span>
+        </div>
+        <div class="status-bar-right">
+          <span>1 active project</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <p><strong>① Top bar</strong> — persistent navigation with app logo, page links, and settings gear.</p>
+      <p><strong>② Sidebar</strong> — always-visible 260px panel with "Add Session" button and session list. Active session has a dashed highlight.</p>
+      <p><strong>③ Project cards</strong> — each card selects an agent harness and launches a session. Cards show project name, agent picker, and action button.</p>
+    </div>
+  </section>
+
+  <!-- =============================== -->
+  <!-- SCREEN 2: Agent Session View    -->
+  <!-- =============================== -->
+  <section class="screen" id="screen-2">
+    <div class="screen-label">
+      <span class="badge">02</span>
+      Agent Session View
+    </div>
+
+    <div class="app-window">
+      <!-- Callout markers -->
+      <div class="callout" style="top:12px;right:50px;">④</div>
+      <div class="callout" style="top:75px;right:240px;">⑤</div>
+      <div class="callout" style="top:50px;right:80px;">⑥</div>
+
+      <!-- Top Bar -->
+      <div class="top-bar">
+        <div class="top-bar-left">
+          <div class="top-bar-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
+            Ubiq
+          </div>
+          <nav class="top-bar-nav">
+            <a href="#">Projects</a>
+            <a href="#" class="active">Sessions</a>
+          </nav>
+        </div>
+        <div class="top-bar-right">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="app-body">
+        <aside class="sidebar">
+          <button class="sidebar-add-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Session
+          </button>
+          <div class="sidebar-section-label">Active Sessions</div>
+          <div class="sidebar-item active">
+            <span class="status-dot green"></span>
+            <span class="sidebar-item-name">claude — api-design</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot green"></span>
+            <span class="sidebar-item-name">gemini — db-schema</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot yellow"></span>
+            <span class="sidebar-item-name">codex — test-suite</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot red"></span>
+            <span class="sidebar-item-name">opencode — config</span>
+          </div>
+        </aside>
+
+        <!-- Main Agent + Sub Panels -->
+        <main class="main-content" style="padding:8px 10px;">
+          <div class="agent-layout">
+            <!-- Main Agent Panel (60%) -->
+            <div class="agent-main-panel">
+              <div class="pane-header">
+                <div class="pane-header-row1">
+                  <svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+                  </svg>
+                  Claude Code — api-design
+                </div>
+                <div class="pane-header-row2">
+                  <span class="status-dot green"></span>
+                  <span>Running</span>
+                  <button class="pane-btn danger">Stop</button>
+                  <button class="pane-btn">Restart</button>
+                </div>
+              </div>
+              <div class="pane-content">
+                <div class="terminal-line"><span class="terminal-prompt">claude@api-design:~$</span> npx @anthropic-ai/claude-code .</div>
+                <div class="terminal-line" style="color:var(--accent);">▸ Initializing Claude Code environment...</div>
+                <div class="terminal-line terminal-output">▸ Loading project context (1,247 files scanned)</div>
+                <div class="terminal-line terminal-output">▸ Analyzing project structure...</div>
+                <div class="terminal-line"><span class="terminal-prompt">claude@api-design:~$</span> I'm ready to help with your project. What would you like to work on?<span class="terminal-cursor"></span></div>
+              </div>
+            </div>
+
+            <!-- Subagent Panels (40%) -->
+            <div class="agent-sub-panels">
+              <div class="sub-panel">
+                <div class="pane-header">
+                  <div class="pane-header-row1">
+                    <svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                    Gemini CLI — reviewer
+                  </div>
+                  <div class="pane-header-row2">
+                    <span class="status-dot green"></span>
+                    <span>Idle</span>
+                  </div>
+                </div>
+                <div class="pane-content">
+                  <div class="terminal-line terminal-output">▸ Review complete — 3 files checked</div>
+                  <div class="terminal-line terminal-output">▸ Awaiting next task...</div>
+                </div>
+              </div>
+              <div class="sub-panel">
+                <div class="pane-header">
+                  <div class="pane-header-row1">
+                    <svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    Codex — test-watcher
+                  </div>
+                  <div class="pane-header-row2">
+                    <span class="status-dot yellow"></span>
+                    <span>Running tests</span>
+                  </div>
+                </div>
+                <div class="pane-content">
+                  <div class="terminal-line terminal-output">PASS  src/__tests__/api.test.ts (12.4s)</div>
+                  <div class="terminal-line terminal-output">PASS  src/__tests__/db.test.ts (8.1s)</div>
+                  <div class="terminal-line terminal-output" style="color:var(--status-red);">FAIL  src/__tests__/auth.test.ts (6.3s)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="annotation" style="margin-top:8px;">
+            <p><strong>⑥ All agent panes</strong> follow the consistent 2-row header pattern: agent name / session name on row 1, status indicator and controls on row 2.</p>
+          </div>
+        </main>
+      </div>
+
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <div class="status-bar-left">
+          <span class="status-indicator">
+            <span class="dot"></span>
+            Connected
+          </span>
+          <span>4 sessions</span>
+        </div>
+        <div class="status-bar-right">
+          <span>Focus: claude — api-design</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <p><strong>④ Main agent pane</strong> occupies ~60% width with full terminal output. Includes Stop/Restart controls in the header.</p>
+      <p><strong>⑤ Subagent panes</strong> share ~40% width, stacked vertically. Each has the same 2-row header structure for visual consistency.</p>
+      <p><strong>⑥ 2-row header</strong> pattern applied consistently across all agent panes: agent name + session name on row 1, status + controls on row 2.</p>
+    </div>
+  </section>
+
+  <!-- =============================== -->
+  <!-- SCREEN 3: Settings Page         -->
+  <!-- =============================== -->
+  <section class="screen" id="screen-3">
+    <div class="screen-label">
+      <span class="badge">03</span>
+      Settings Page
+    </div>
+
+    <div class="app-window">
+      <!-- Top Bar -->
+      <div class="top-bar">
+        <div class="top-bar-left">
+          <div class="top-bar-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
+            Ubiq
+          </div>
+          <nav class="top-bar-nav">
+            <a href="#">Projects</a>
+            <a href="#">Sessions</a>
+          </nav>
+        </div>
+        <div class="top-bar-right">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="app-body">
+        <aside class="sidebar">
+          <button class="sidebar-add-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Session
+          </button>
+          <div class="sidebar-section-label">Active Sessions</div>
+          <div class="sidebar-item">
+            <span class="status-dot green"></span>
+            <span class="sidebar-item-name">claude — api-design</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot green"></span>
+            <span class="sidebar-item-name">gemini — db-schema</span>
+          </div>
+          <div class="sidebar-item active">
+            <span class="status-dot yellow"></span>
+            <span class="sidebar-item-name">codex — test-suite</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="status-dot red"></span>
+            <span class="sidebar-item-name">opencode — config</span>
+          </div>
+        </aside>
+
+        <main class="main-content">
+          <div class="page-title">
+            Settings
+            <span class="title-annotation">/ configure application</span>
+          </div>
+
+          <div class="settings-sections">
+            <div class="settings-section">
+              <div class="settings-section-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                General
+              </div>
+              <div class="settings-row">
+                <label>Theme</label>
+                <select>
+                  <option>System Default</option>
+                  <option selected>Light</option>
+                  <option>Dark</option>
+                  <option>Blueprint</option>
+                </select>
+                <span class="hint">matches system preference</span>
+              </div>
+              <div class="settings-row">
+                <label>Font Size</label>
+                <select>
+                  <option>Small (12px)</option>
+                  <option selected>Medium (14px)</option>
+                  <option>Large (16px)</option>
+                  <option>Extra Large (18px)</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label>Font Family</label>
+                <select>
+                  <option selected>System Default</option>
+                  <option>SF Mono</option>
+                  <option>JetBrains Mono</option>
+                  <option>Fira Code</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+                </svg>
+                Agents
+              </div>
+              <div class="settings-row">
+                <label>Claude Code</label>
+                <input type="text" value="npx @anthropic-ai/claude-code ." readonly>
+              </div>
+              <div class="settings-row">
+                <label>Gemini CLI</label>
+                <input type="text" value="gemini-cli --project-dir ." readonly>
+              </div>
+              <div class="settings-row">
+                <label>Codex</label>
+                <input type="text" value="codex --chat --context ." readonly>
+              </div>
+              <div class="settings-row">
+                <label>opencode</label>
+                <input type="text" value="opencode ." readonly>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-title">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7"/>
+                  <rect x="14" y="3" width="7" height="7"/>
+                  <rect x="14" y="14" width="7" height="7"/>
+                  <rect x="3" y="14" width="7" height="7"/>
+                </svg>
+                Appearance
+              </div>
+              <div class="settings-row">
+                <label>Sidebar Width</label>
+                <select>
+                  <option>Narrow (160px)</option>
+                  <option selected>Default (260px)</option>
+                  <option>Wide (320px)</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label>Show Status Bar</label>
+                <select>
+                  <option selected>Yes</option>
+                  <option>No</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label>Pane Borders</label>
+                <select>
+                  <option selected>Dashed</option>
+                  <option>Solid</option>
+                  <option>None</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="annotation" style="margin-top:10px;">
+            <p>Settings are grouped into <strong>sections</strong>. Agent commands use monospace input fields. The Blueprint theme option in General extends the wireframe aesthetic to the full application.</p>
+          </div>
+        </main>
+      </div>
+
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <div class="status-bar-left">
+          <span class="status-indicator">
+            <span class="dot"></span>
+            Connected
+          </span>
+          <span>4 sessions</span>
+        </div>
+        <div class="status-bar-right">
+          <span>Settings autosave</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <p><strong>Settings form</strong> organized into three sections: General (theme, font), Agents (command paths), and Appearance (layout preferences). Monospace inputs for agent commands. All changes autosave.</p>
+    </div>
+  </section>
+
+  <!-- ===== Legend ===== -->
+  <div class="legend">
+    <span class="legend-item">
+      <span class="legend-swatch" style="background:var(--status-green);"></span>
+      Running / Connected
+    </span>
+    <span class="legend-item">
+      <span class="legend-swatch" style="background:var(--status-yellow);"></span>
+      Busy / Pending
+    </span>
+    <span class="legend-item">
+      <span class="legend-swatch" style="background:var(--status-red);"></span>
+      Error / Disconnected
+    </span>
+    <span class="legend-item">
+      <span class="legend-line"></span>
+      Wireframe / blueprint border
+    </span>
+    <span class="legend-item">
+      <span style="width:10px;height:10px;border-radius:2px;background:var(--sidebar-bg);border:1px solid var(--border);"></span>
+      Sidebar surface
+    </span>
+  </div>
+
+  <!-- ===== Title Block ===== -->
+  <div class="title-block">
+    <dl class="title-block-grid">
+      <dt>Project</dt>
+      <dd>Ubiq — Harness Multiplexer</dd>
+      <dt>Document</dt>
+      <dd>Application Wireframe — Rev 1.0</dd>
+      <dt>Date</dt>
+      <dd>2026-06-12</dd>
+      <dt>Author</dt>
+      <dd>Design Implementation Agent</dd>
+      <dt>Status</dt>
+      <dd>For Review</dd>
+    </dl>
+    <div class="title-block-logo">
+      <strong>UBIQ</strong>
+      <span>wireframe / v1</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

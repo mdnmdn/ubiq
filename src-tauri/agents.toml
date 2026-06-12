@@ -1,0 +1,33 @@
+# Agent type definitions for Ubiq
+# Each entry defines a harness that can be spawned in a workspace.
+
+[claude]
+name = "claude"
+command = "claude"
+description = "Claude Code"
+default_args = []
+# default_args = ["--dangerously-skip-permissions"]
+
+[opencode]
+name = "opencode"
+command = "opencode"
+description = "OpenCode — open-source AI coding agent"
+default_args = []
+
+[gemini]
+name = "gemini"
+command = "gemini"
+description = "Google Gemini CLI — AI coding assistant"
+default_args = []
+
+[codex]
+name = "codex"
+command = "codex"
+description = "OpenAI Codex CLI — AI coding agent"
+default_args = []
+
+[copilot]
+name = "copilot"
+command = "copilot"
+description = "GitHub Copilot CLI — AI pair programmer"
+default_args = []
