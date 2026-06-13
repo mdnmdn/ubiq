@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/agent-manager",
+]
+
+# The standalone agent-manager binary and the Tauri app share a single
+# workspace so the harness-management library is the one source of truth
+# for both. See crates/agent-manager/_docs/ for the harness reference material.
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

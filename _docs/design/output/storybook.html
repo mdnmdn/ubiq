@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ubiq — Design System Storybook</title>
+<script>(function(){var m=localStorage.getItem('ubiq-theme-mode'),t=localStorage.getItem('ubiq-theme');var e=m==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(m||t||'dark');document.documentElement.dataset.theme=e==='light'?'light':'dark';})();</script>
+<link rel="stylesheet" href="css/ubiq.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<style>
+/* ---- storybook scaffold only (everything below uses ubiq.css classes) ---- */
+html,body{height:auto;overflow:auto}
+body{background:var(--bg)}
+.sb-top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:13px 26px;background:color-mix(in oklab,var(--surface) 86%,transparent);backdrop-filter:saturate(1.6) blur(10px);border-bottom:1px solid var(--border)}
+.sb-top .mark{width:24px;height:24px;border-radius:7px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:14px}
+.sb-top b{font-family:var(--display);font-size:15px;font-weight:680;letter-spacing:-.01em}
+.sb-top .kbd-tip{font-size:11px;color:var(--faint);font-family:var(--mono)}
+.sb-wrap{display:grid;grid-template-columns:212px 1fr;gap:0;max-width:1280px;margin:0 auto}
+.sb-nav{position:sticky;top:53px;align-self:start;height:max-content;padding:26px 14px;display:flex;flex-direction:column;gap:2px}
+.sb-nav a{font-size:12.5px;color:var(--muted);padding:6px 11px;border-radius:7px;cursor:pointer}
+.sb-nav a:hover{background:var(--surface-2);color:var(--fg)}
+.sb-main{padding:26px 34px 120px;min-width:0}
+.sb-sec{padding:26px 0 6px;border-top:1px solid var(--border)}
+.sb-sec:first-child{border-top:none;padding-top:6px}
+.sb-sec > h2{font-family:var(--display);font-size:18px;font-weight:680;letter-spacing:-.02em;margin:0 0 4px}
+.sb-sec > .desc{color:var(--muted);font-size:13px;margin:0 0 20px;max-width:62ch}
+.sb-h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:600;margin:26px 0 12px}
+.sb-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.sb-card{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);padding:18px}
+.sb-grid{display:grid;gap:12px}
+.sb-swatches{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.sb-tile{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
+.sb-tile .chip{height:54px;border-radius:0;border:none;cursor:default}
+.sb-tile .meta{padding:8px 10px}
+.sb-tile .meta .nm{font-size:12px;font-weight:600}
+.sb-tile .meta .var{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.sb-type span{display:block}
+.sb-note{font-size:12px;color:var(--muted);font-family:var(--mono);margin-top:10px}
+.sb-mock{display:flex;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;height:240px;background:var(--bg)}
+.sb-mock .sidebar{height:100%}
+.sb-mock .main{min-width:0}
+code.tok{font-family:var(--mono);font-size:11.5px;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+</style>
+</head>
+<body>
+  <header class="sb-top">
+    <span class="mark">◇</span><b>Ubiq Design System</b>
+    <span class="pill">storybook</span>
+    <span class="kbd-tip">single source · css/ubiq.css + js/ubiq.js</span>
+    <div class="spacer"></div>
+    <div class="seg" id="themeSeg"><button data-t="light">Light</button><button data-t="dark">Dark</button><button data-t="system">System</button></div>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+    </button>
+  </header>
+
+  <div class="sb-wrap">
+    <nav class="sb-nav">
+      <a href="#colors">Color tokens</a>
+      <a href="#type">Typography</a>
+      <a href="#shape">Radius &amp; shadow</a>
+      <a href="#buttons">Buttons</a>
+      <a href="#status">Pills &amp; status</a>
+      <a href="#forms">Inputs &amp; toggles</a>
+      <a href="#keys">Keycaps &amp; tags</a>
+      <a href="#cards">Cards &amp; table</a>
+      <a href="#modal">Modal</a>
+      <a href="#terminal">Terminal</a>
+      <a href="#chat">Chat</a>
+      <a href="#tasks">Tasks</a>
+      <a href="#shell">App shell</a>
+    </nav>
+
+    <main class="sb-main">
+
+      <!-- COLORS -->
+      <section class="sb-sec" id="colors">
+        <h2>Color tokens</h2>
+        <p class="desc">Every surface, line, and accent is an OKLch CSS variable that flips automatically between light and dark via <code class="tok">[data-theme]</code>. Reference tokens — never hard-code hex.</p>
+        <div class="sb-h3">Surfaces &amp; text</div>
+        <div class="sb-grid sb-swatches" id="sw-base"></div>
+        <div class="sb-h3">Accent &amp; status</div>
+        <div class="sb-grid sb-swatches" id="sw-accent"></div>
+        <div class="sb-h3">Agent identity</div>
+        <div class="sb-grid sb-swatches" id="sw-agent"></div>
+      </section>
+
+      <!-- TYPE -->
+      <section class="sb-sec" id="type">
+        <h2>Typography</h2>
+        <p class="desc">System display + text faces, monospace for numerics, IDs, code and terminals. Tight tracking on display sizes.</p>
+        <div class="sb-card sb-type" style="display:flex;flex-direction:column;gap:14px">
+          <span style="font-family:var(--display);font-size:34px;font-weight:700;letter-spacing:-.03em">Display · 34 / 680</span>
+          <span style="font-family:var(--display);font-size:22px;font-weight:680;letter-spacing:-.02em">Heading · 22 / 680</span>
+          <span style="font-size:14px">Body · 14 — the quick brown fox jumps over the lazy dog.</span>
+          <span style="font-size:12.5px;color:var(--muted)">Muted body · 12.5 — secondary descriptive copy.</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--muted)">Mono · 12 — pid 48213 · main@a3f91c2 · 1.4s</span>
+        </div>
+      </section>
+
+      <!-- SHAPE -->
+      <section class="sb-sec" id="shape">
+        <h2>Radius &amp; shadow</h2>
+        <div class="sb-row">
+          <div style="width:90px;height:60px;border-radius:var(--r);background:var(--surface);border:1px solid var(--border)"></div>
+          <div style="width:90px;height:60px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border)"></div>
+          <div style="width:90px;height:60px;border-radius:var(--r-lg);background:var(--surface);box-shadow:var(--shadow)"></div>
+          <div style="width:90px;height:60px;border-radius:var(--r-lg);background:var(--surface);box-shadow:var(--shadow-lg)"></div>
+        </div>
+        <p class="sb-note">--r 9px · --r-lg 12px · --shadow · --shadow-lg</p>
+      </section>
+
+      <!-- BUTTONS -->
+      <section class="sb-sec" id="buttons">
+        <h2>Buttons</h2>
+        <p class="desc">One accent. Primary for the single most important action per view; ghost for chrome; <code class="tok">.sm</code> for dense bars.</p>
+        <div class="sb-row">
+          <button class="btn primary">Primary</button>
+          <button class="btn">Secondary</button>
+          <button class="btn ghost">Ghost</button>
+          <button class="btn sm primary">Small primary</button>
+          <button class="btn sm">Small</button>
+          <button class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div class="sb-row" style="margin-top:12px">
+          <button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> With icon</button>
+          <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg> Split</button>
+        </div>
+      </section>
+
+      <!-- STATUS -->
+      <section class="sb-sec" id="status">
+        <h2>Pills &amp; status</h2>
+        <div class="sb-row">
+          <span class="pill">default</span>
+          <span class="pill run"><span class="dot run"></span>running</span>
+          <span class="pill">agent 1 / 1</span>
+          <span class="pill git"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 3-3 3.5-6 3.5"/></svg>main</span>
+        </div>
+        <div class="sb-h3">Status dots</div>
+        <div class="sb-row">
+          <span class="dot run"></span><span class="sb-note" style="margin:0">run</span>
+          <span class="dot wait" style="margin-left:14px"></span><span class="sb-note" style="margin:0">wait</span>
+          <span class="dot idle" style="margin-left:14px"></span><span class="sb-note" style="margin:0">idle</span>
+        </div>
+        <div class="sb-h3">Terminal status</div>
+        <div class="sb-row">
+          <span class="st lead">● lead</span><span class="st run">● working</span><span class="st done">● done</span>
+        </div>
+      </section>
+
+      <!-- FORMS -->
+      <section class="sb-sec" id="forms">
+        <h2>Inputs &amp; toggles</h2>
+        <div class="sb-row" style="align-items:flex-start">
+          <input class="input" placeholder="Text input">
+          <select class="sel"><option>Select…</option><option>claude</option><option>gemini</option></select>
+          <input class="input mono" value="~/.ubiq/worktrees">
+        </div>
+        <div class="sb-h3">Toggle &amp; segmented</div>
+        <div class="sb-row">
+          <button class="sw-toggle on"></button>
+          <button class="sw-toggle"></button>
+          <div class="seg" style="margin-left:8px"><button class="on">Stable</button><button>Beta</button></div>
+        </div>
+        <div class="sb-h3">Accent swatches (live)</div>
+        <div class="swatches" id="swatches">
+          <span class="swatch on" data-h="256" style="background:oklch(60% 0.18 256)"></span>
+          <span class="swatch" data-h="160" style="background:oklch(60% 0.16 160)"></span>
+          <span class="swatch" data-h="300" style="background:oklch(60% 0.2 300)"></span>
+          <span class="swatch" data-h="25" style="background:oklch(62% 0.2 25)"></span>
+          <span class="swatch" data-h="70" style="background:oklch(70% 0.15 70)"></span>
+        </div>
+      </section>
+
+      <!-- KEYS / TAGS -->
+      <section class="sb-sec" id="keys">
+        <h2>Keycaps, tags &amp; agent chips</h2>
+        <div class="sb-row">
+          <span class="kgrp"><span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">A</span></span>
+          <span class="kgrp"><span class="kbd">⌥</span><span class="kbd">↵</span></span>
+        </div>
+        <div class="sb-h3">Agent tags &amp; chips</div>
+        <div class="sb-row">
+          <span class="tag"><span class="sw" style="background:var(--c-claude)"></span>claude</span>
+          <span class="tag"><span class="sw" style="background:var(--c-gemini)"></span>gemini</span>
+          <span class="tag"><span class="sw" style="background:var(--c-codex)"></span>codex</span>
+          <span class="agent-chip"><span class="sw" style="background:var(--c-claude)"></span>claude · orchestrator</span>
+          <span class="chip">suggestion chip</span>
+        </div>
+      </section>
+
+      <!-- CARDS / TABLE -->
+      <section class="sb-sec" id="cards">
+        <h2>Cards &amp; table</h2>
+        <div class="sb-grid" style="grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+          <div class="card">
+            <div class="ch"><div><h2>Card header</h2><p>Section description.</p></div><button class="btn sm primary">Action</button></div>
+            <div class="row"><div class="lbl"><div class="n">Row setting</div><div class="d">A description of the control.</div></div><button class="sw-toggle on"></button></div>
+            <div class="row"><div class="lbl"><div class="n">Another row</div><div class="d">With a select control.</div></div><select class="sel"><option>auto</option></select></div>
+          </div>
+          <div class="card">
+            <table class="tbl">
+              <thead><tr><th>Name</th><th>Command</th><th style="text-align:right">On</th></tr></thead>
+              <tbody>
+                <tr><td><div class="nm"><span class="sw" style="background:var(--c-claude)"></span>claude</div></td><td><code>claude</code></td><td style="text-align:right"><button class="sw-toggle on"></button></td></tr>
+                <tr><td><div class="nm"><span class="sw" style="background:var(--c-codex)"></span>codex</div></td><td><code>codex</code></td><td style="text-align:right"><button class="sw-toggle"></button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODAL -->
+      <section class="sb-sec" id="modal">
+        <h2>Modal</h2>
+        <div class="sb-row"><button class="btn primary" id="openModal">Open modal</button></div>
+      </section>
+
+      <!-- TERMINAL -->
+      <section class="sb-sec" id="terminal">
+        <h2>Terminal card</h2>
+        <p class="desc">Agent terminals are real xterm.js instances created through <code class="tok">Ubiq.makeTerm()</code> — palette and theme-sync are centralized.</p>
+        <div class="term-card" style="height:190px;flex:none">
+          <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-claude)"></span>claude-sonnet</span><span style="color:var(--faint)">·</span><span>pid 48213</span><div class="spacer"></div><span style="color:var(--ok)">● live</span></div>
+          <div class="mini-mount" id="sb-term"></div>
+        </div>
+      </section>
+
+      <!-- CHAT -->
+      <section class="sb-sec" id="chat">
+        <h2>Chat</h2>
+        <div class="sb-card" style="display:flex;flex-direction:column;gap:18px;max-width:640px">
+          <div class="msg user"><div class="ic">M</div><div class="bd"><div class="who">You <span class="tm">10:42</span></div><div class="txt"><p>Pull the auth logic into a module and keep the API stable.</p></div></div></div>
+          <div class="msg bot"><div class="ic" style="background:var(--c-claude)">C</div><div class="bd"><div class="who">claude <span class="tm">10:42</span></div><div class="txt"><p>On it.</p><div class="tool"><span>read</span> auth.ts <span class="ok">✓ 8 files</span></div><div class="typing"><i></i><i></i><i></i></div></div></div></div>
+        </div>
+        <div class="sb-h3">Side-widget bubbles</div>
+        <div class="sb-card" style="display:flex;flex-direction:column;gap:12px;max-width:340px">
+          <div class="sm them"><span class="lbl">Reviewer</span><div class="bub">Re-export keeps the public API stable — good call.</div></div>
+          <div class="sm me"><span class="lbl">You</span><div class="bub">Does it cover clock skew?</div></div>
+        </div>
+      </section>
+
+      <!-- TASKS -->
+      <section class="sb-sec" id="tasks">
+        <h2>Tasks</h2>
+        <div class="tasks" style="max-width:380px">
+          <div class="th"><b>Tasks</b><span class="pill" style="padding:1px 7px">3</span><div class="tabset"><span class="tab active">Tasks</span><span class="tab">Activity</span></div></div>
+          <div class="task"><span class="ic done">✓</span><div class="tt"><div class="n">Extract auth module</div><div class="a">claude</div></div><span class="pr">done</span></div>
+          <div class="task"><span class="ic run">●</span><div class="tt"><div class="n">Backfill tests</div><div class="a">gemini</div></div><span class="bar"><i style="width:38%"></i></span></div>
+          <div class="task"><span class="ic queue">○</span><div class="tt"><div class="n">Perf pass</div><div class="a">queued</div></div><span class="pr">·</span></div>
+        </div>
+      </section>
+
+      <!-- APP SHELL -->
+      <section class="sb-sec" id="shell">
+        <h2>App shell anatomy</h2>
+        <p class="desc">Every screen is <code class="tok">.titlebar</code> → <code class="tok">.body</code> ( <code class="tok">.sidebar</code> + <code class="tok">.main</code> → <code class="tok">.topbar</code> + content ). The collapse control lives in <code class="tok">.brand</code> on every sidebar.</p>
+        <div class="sb-mock">
+          <aside class="sidebar" style="flex:0 0 200px;width:200px">
+            <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span>
+              <button class="collapse-btn" id="collapseBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M14 6l-6 6 6 6"/></svg></button></div>
+            <div class="side-pad"><button class="btn primary full"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">New</span></button></div>
+            <div class="sec-label">Sessions</div>
+            <div class="sessions">
+              <div class="s-item active"><span class="dot run"></span><div class="s-meta"><div class="s-name">backend-refactor</div><div class="s-sub">main · claude</div></div></div>
+              <div class="s-item"><span class="dot wait"></span><div class="s-meta"><div class="s-name">frontend-redesign</div><div class="s-sub">gemini</div></div></div>
+            </div>
+          </aside>
+          <main class="main">
+            <div class="topbar"><div class="crumb"><span class="ses">backend-refactor</span><span class="sep">/</span><span class="pill run"><span class="dot run"></span>running</span></div></div>
+            <div style="flex:1;display:grid;place-items:center;color:var(--faint);font-family:var(--mono);font-size:12px">.main content region</div>
+          </main>
+        </div>
+        <p class="sb-note">Try the chevron in the mock — collapse is shared via Ubiq.initSidebar().</p>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- demo modal -->
+  <div class="scrim" id="scrim">
+    <div class="modal">
+      <div class="mh"><h2>Modal title</h2></div>
+      <div class="mb">
+        <div class="field"><label>Name</label><input type="text" placeholder="my-service"></div>
+        <div class="field"><label>Start agent</label>
+          <div class="agent-pick">
+            <div class="ap sel"><span class="sw" style="background:var(--c-claude)"></span>claude</div>
+            <div class="ap"><span class="sw" style="background:var(--c-gemini)"></span>gemini</div>
+          </div>
+        </div>
+      </div>
+      <div class="mf"><button class="btn" id="closeModal">Cancel</button><button class="btn primary" id="okModal">Confirm</button></div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="js/ubiq.js"></script>
+<script>
+/* token swatch tiles */
+function tiles(elId, items){
+  const el=document.getElementById(elId);
+  el.innerHTML=items.map(([v,n])=>`<div class="sb-tile"><div class="chip" style="background:var(${v})"></div><div class="meta"><div class="nm">${n}</div><div class="var">${v}</div></div></div>`).join("");
+}
+tiles("sw-base",[["--bg","Background"],["--surface","Surface"],["--surface-2","Surface 2"],["--border","Border"],["--border-strong","Border strong"],["--fg","Foreground"],["--muted","Muted"],["--faint","Faint"]]);
+tiles("sw-accent",[["--accent","Accent"],["--accent-soft","Accent soft"],["--ok","OK"],["--warn","Warn"],["--danger","Danger"],["--code-bg","Code bg"]]);
+tiles("sw-agent",[["--c-claude","claude"],["--c-opencode","opencode"],["--c-gemini","gemini"],["--c-codex","codex"],["--c-copilot","copilot"]]);
+
+/* demo terminal */
+const C={dim:"\x1b[2m",r:"\x1b[0m",b:"\x1b[1m",g:"\x1b[32m",y:"\x1b[33m",blu:"\x1b[38;5;111m",gr:"\x1b[90m"};
+const term=Ubiq.makeTerm("sb-term",{fontSize:11,scrollback:200});
+Ubiq.writeLines(term,[
+  [`${C.dim}$ ubiq run --agent claude${C.r}`],
+  [`${C.blu}●${C.r} ${C.b}claude-sonnet${C.r}  ${C.gr}backend-refactor@main${C.r}`],
+  [`${C.g}✓${C.r} mapped 3 modules · 6 import sites`],
+  [`${C.y}●${C.r} writing src/auth/verify.ts  ${C.g}done${C.r}`],
+  [`  ${C.g}✓ 20 passing${C.r}  ${C.dim}1.4s${C.r}`],
+]);
+
+/* accent swatches (same behaviour as Settings) */
+document.getElementById("swatches").addEventListener("click",e=>{
+  const s=e.target.closest(".swatch"); if(!s) return;
+  document.querySelectorAll("#swatches .swatch").forEach(x=>x.classList.remove("on")); s.classList.add("on");
+  const h=s.dataset.h, dark=document.documentElement.dataset.theme==="dark", root=document.documentElement;
+  root.style.setProperty("--accent", dark?`oklch(70% 0.15 ${h})`:`oklch(56% 0.18 ${h})`);
+  root.style.setProperty("--accent-soft", dark?`oklch(70% 0.15 ${h} / .16)`:`oklch(56% 0.18 ${h} / .12)`);
+  root.style.setProperty("--accent-fg", dark?`oklch(18% 0.04 ${h})`:`oklch(99% 0.01 ${h})`);
+});
+
+/* modal */
+const scrim=document.getElementById("scrim");
+document.getElementById("openModal").onclick=()=>scrim.classList.add("show");
+document.getElementById("closeModal").onclick=()=>scrim.classList.remove("show");
+document.getElementById("okModal").onclick=()=>scrim.classList.remove("show");
+scrim.onclick=e=>{if(e.target===scrim)scrim.classList.remove("show")};
+document.querySelectorAll(".agent-pick .ap").forEach(a=>a.onclick=()=>{a.parentElement.querySelectorAll(".ap").forEach(x=>x.classList.remove("sel"));a.classList.add("sel");});
+
+/* smooth-scroll nav */
+document.querySelectorAll(".sb-nav a").forEach(a=>a.onclick=e=>{
+  e.preventDefault(); const t=document.querySelector(a.getAttribute("href"));
+  if(t) window.scrollTo({top:t.getBoundingClientRect().top+window.scrollY-64,behavior:"smooth"});
+});
+</script>
+</body>
+</html>

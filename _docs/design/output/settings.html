@@ -4,184 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ubiq — Settings</title>
-<style>
-:root{
-  --bg: oklch(99% 0.002 240);
-  --surface: oklch(100% 0 0);
-  --surface-2: oklch(97% 0.003 250);
-  --elevated: oklch(100% 0 0);
-  --fg: oklch(20% 0.012 250);
-  --muted: oklch(54% 0.012 250);
-  --faint: oklch(70% 0.01 250);
-  --border: oklch(92% 0.005 250);
-  --border-strong: oklch(86% 0.006 250);
-  --accent: oklch(56% 0.18 256);
-  --accent-fg: oklch(99% 0.01 256);
-  --accent-soft: oklch(56% 0.18 256 / .12);
-  --ok: oklch(60% 0.14 152);
-  --ok-soft: oklch(60% 0.14 152 / .14);
-  --warn: oklch(70% 0.14 70);
-  --c-claude: oklch(64% 0.13 45);
-  --c-gemini: oklch(60% 0.16 270);
-  --c-codex:  oklch(60% 0.14 160);
-  --c-copilot: oklch(58% 0.01 260);
-  --c-opencode: oklch(60% 0.15 320);
-  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
-  --display:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif;
-  --mono:"SF Mono","JetBrains Mono","IBM Plex Mono",ui-monospace,Menlo,monospace;
-  --r:9px;
-  --shadow:0 1px 2px oklch(25% 0.03 260 /.06),0 10px 30px oklch(25% 0.03 260 /.07);
-}
-[data-theme="dark"]{
-  --bg: oklch(19% 0.013 264);
-  --surface: oklch(23% 0.015 264);
-  --surface-2: oklch(26% 0.016 264);
-  --elevated: oklch(27% 0.017 264);
-  --fg: oklch(95% 0.006 250);
-  --muted: oklch(68% 0.018 256);
-  --faint: oklch(52% 0.018 256);
-  --border: oklch(31% 0.014 264);
-  --border-strong: oklch(40% 0.016 264);
-  --accent: oklch(70% 0.15 256);
-  --accent-fg: oklch(18% 0.04 264);
-  --accent-soft: oklch(70% 0.15 256 /.16);
-  --ok: oklch(72% 0.15 156);
-  --ok-soft: oklch(72% 0.15 156 /.16);
-  --warn: oklch(80% 0.13 80);
-  --c-claude: oklch(74% 0.12 55);
-  --c-gemini: oklch(72% 0.14 272);
-  --c-codex:  oklch(74% 0.13 162);
-  --c-copilot: oklch(72% 0.01 260);
-  --c-opencode: oklch(72% 0.14 322);
-  --shadow:0 1px 2px oklch(0% 0 0 /.35),0 14px 36px oklch(0% 0 0 /.4);
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;font-family:var(--font);background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;font-size:13.5px;line-height:1.5;overflow:hidden}
-button{font-family:inherit;color:inherit;cursor:pointer}
-a{color:inherit;text-decoration:none}
-::selection{background:var(--accent-soft)}
-::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
-
-.app{display:flex;flex-direction:column;height:100vh}
-.titlebar{height:38px;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--border);user-select:none;flex:0 0 auto}
-.traffic{display:flex;gap:8px}.traffic i{width:12px;height:12px;border-radius:50%;display:block}
-.traffic .r{background:#ff5f57}.traffic .y{background:#febc2e}.traffic .g{background:#28c840}
-.title-c{flex:1;text-align:center;font-size:12px;color:var(--muted)}.title-c b{color:var(--fg);font-weight:600}
-.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;border:1px solid transparent;background:transparent}
-.icon-btn:hover{background:var(--surface-2);border-color:var(--border)}.icon-btn svg{width:16px;height:16px}
-
-.body{display:flex;flex:1;min-height:0}
-.sidebar{width:248px;flex:0 0 248px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
-.brand{display:flex;align-items:center;gap:9px;padding:16px 16px 12px;font-family:var(--display)}
-.brand .mark{width:22px;height:22px;border-radius:6px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:13px}
-.brand b{font-size:15px;font-weight:650;letter-spacing:-.01em}.brand .ver{font-size:10px;color:var(--faint);font-family:var(--mono);margin-left:auto}
-.side-pad{padding:0 12px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--border-strong);background:var(--surface-2);border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:550;transition:.14s;white-space:nowrap}
-.btn:hover{border-color:var(--faint);background:var(--elevated)}.btn svg{width:14px;height:14px}
-.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}.btn.primary:hover{filter:brightness(1.06)}
-.btn.full{width:100%}.btn.sm{padding:5px 9px;font-size:11.5px}.btn.ghost{background:transparent;border-color:transparent}.btn.ghost:hover{background:var(--surface-2)}
-.sec-label{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);font-weight:600;padding:18px 18px 7px}
-.sessions{flex:1;overflow-y:auto;padding:0 8px;min-height:0}
-.s-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:.12s;margin-bottom:1px}
-.s-item:hover{background:var(--surface-2)}
-.dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
-.dot.run{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft);animation:pulse 2s infinite}
-.dot.wait{background:var(--warn)}
-@keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--ok-soft)}50%{box-shadow:0 0 0 5px transparent}}
-.s-meta{min-width:0;flex:1}.s-name{font-size:12.5px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.s-sub{font-size:10.5px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.s-badge{font-size:9.5px;font-family:var(--mono);color:var(--accent);background:var(--accent-soft);border-radius:5px;padding:1px 5px;font-weight:600}
-.sidebar-foot{border-top:1px solid var(--border);padding:9px 12px;display:flex;gap:6px;align-items:center}
-.spacer{flex:1}
-
-.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
-.topbar{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border);background:var(--surface);min-height:54px;flex:0 0 auto}
-.crumb{font-size:13px;font-weight:600}
-.scroll{flex:1;overflow-y:auto;min-height:0}
-.page{max-width:1000px;margin:0 auto;padding:28px 32px 70px}
-.set-grid{display:grid;grid-template-columns:180px 1fr;gap:36px}
-.set-nav{display:flex;flex-direction:column;gap:2px;position:sticky;top:0;align-self:start}
-.set-nav a{padding:8px 12px;border-radius:8px;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:9px}
-.set-nav a svg{width:15px;height:15px;opacity:.8}
-.set-nav a.active{background:var(--accent-soft);color:var(--fg);font-weight:600}
-.set-nav a:hover:not(.active){background:var(--surface-2);color:var(--fg)}
-
-.panel{display:none;flex-direction:column;gap:20px}
-.panel.show{display:flex}
-.panel-h{margin-bottom:2px}
-.panel-h h1{font-family:var(--display);font-size:22px;font-weight:680;letter-spacing:-.02em;margin:0}
-.panel-h p{margin:5px 0 0;color:var(--muted);font-size:13px}
-
-.card{border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
-.card .ch{padding:15px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
-.card .ch h2{margin:0;font-size:14.5px;font-weight:640}
-.card .ch p{margin:2px 0 0;font-size:12px;color:var(--muted)}
-
-.row{display:flex;align-items:center;gap:16px;padding:13px 18px;border-bottom:1px solid var(--border)}
-.row:last-child{border-bottom:none}
-.row .lbl{flex:1;min-width:0}
-.row .lbl .n{font-weight:550;font-size:13px}
-.row .lbl .d{font-size:11.5px;color:var(--muted);margin-top:2px}
-.input,.sel{border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:12.5px;padding:7px 11px;min-width:200px}
-.input.mono{font-family:var(--mono)}
-.input:focus,.sel:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-
-.sw-toggle{width:38px;height:22px;border-radius:20px;background:var(--border-strong);border:none;position:relative;transition:.18s;cursor:pointer;padding:0;flex:0 0 auto}
-.sw-toggle::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.sw-toggle.on{background:var(--accent)}.sw-toggle.on::after{left:18px}
-
-.seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px}
-.seg button{border:none;background:transparent;padding:6px 14px;border-radius:6px;font-size:12.5px;font-weight:550;color:var(--muted)}
-.seg button.on{background:var(--elevated);color:var(--fg);box-shadow:var(--shadow)}
-
-.swatches{display:flex;gap:9px}
-.swatch{width:26px;height:26px;border-radius:8px;cursor:pointer;border:2px solid transparent;transition:.12s}
-.swatch.on{border-color:var(--fg);box-shadow:0 0 0 2px var(--bg) inset}
-
-/* agent types table */
-.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
-.tbl th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600;padding:10px 18px;border-bottom:1px solid var(--border)}
-.tbl td{padding:12px 18px;border-bottom:1px solid var(--border);vertical-align:middle}
-.tbl tr:last-child td{border-bottom:none}
-.tbl td .nm{display:flex;align-items:center;gap:9px;font-weight:600}
-.sw{width:9px;height:9px;border-radius:3px}
-.tbl code{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--surface-2);padding:2px 7px;border-radius:5px;border:1px solid var(--border)}
-
-.kbd{font-family:var(--mono);font-size:11px;background:var(--surface-2);border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:6px;padding:2px 7px;color:var(--fg)}
-.kgrp{display:inline-flex;gap:4px}
-
-.about{display:flex;align-items:center;gap:18px;padding:6px 2px}
-.about .logo{width:58px;height:58px;border-radius:15px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:30px;box-shadow:var(--shadow)}
-.about .meta b{font-family:var(--display);font-size:19px;font-weight:680}
-.about .meta .v{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:3px}
-.about-rows{margin-top:4px}
-</style>
+<script>(function(){var m=localStorage.getItem('ubiq-theme-mode'),t=localStorage.getItem('ubiq-theme');var e=m==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(m||t||'dark');document.documentElement.dataset.theme=e==='light'?'light':'dark';})();</script>
+<link rel="stylesheet" href="css/ubiq.css">
 </head>
 <body>
 <div class="app">
   <div class="titlebar">
     <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
     <div class="title-c"><b>Ubiq</b> &nbsp;·&nbsp; Settings</div>
-    <button class="icon-btn" id="themeBtn" title="Toggle theme">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
-    </button>
+    <div class="win-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+      </button>
+    </div>
   </div>
 
   <div class="body">
     <aside class="sidebar">
-      <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span></div>
-      <div class="side-pad"><a class="btn primary full" href="agent-manager.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New session</a></div>
+      <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span>
+        <button class="collapse-btn" id="collapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M14 6l-6 6 6 6"/></svg></button>
+      </div>
+      <div class="side-pad"><a class="btn primary full" href="agent-manager.html" title="New session"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">New session</span></a></div>
       <div class="sec-label">Sessions</div>
       <div class="sessions">
         <a class="s-item" href="multi-agent.html"><span class="dot run"></span><div class="s-meta"><div class="s-name">backend-refactor</div><div class="s-sub">main · claude</div></div><span class="s-badge">3</span></a>
         <a class="s-item" href="agent-manager.html"><span class="dot wait"></span><div class="s-meta"><div class="s-name">frontend-redesign</div><div class="s-sub">ui/cards · gemini</div></div></a>
-        <a class="s-item" href="agent-manager.html"><span class="dot"></span><div class="s-meta"><div class="s-name">infra-migration</div><div class="s-sub">main · codex</div></div></a>
-        <a class="s-item" href="agent-manager.html"><span class="dot"></span><div class="s-meta"><div class="s-name">data-pipeline</div><div class="s-sub">etl/v2 · claude</div></div></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot idle"></span><div class="s-meta"><div class="s-name">infra-migration</div><div class="s-sub">main · codex</div></div></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot idle"></span><div class="s-meta"><div class="s-name">data-pipeline</div><div class="s-sub">etl/v2 · claude</div></div></a>
       </div>
       <div class="sidebar-foot">
-        <a class="btn ghost sm" href="agent-manager.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg> Projects</a>
+        <a class="btn ghost sm" href="agent-manager.html" title="Projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg><span class="lbl">Projects</span></a>
         <div class="spacer"></div>
         <span class="btn ghost sm" style="color:var(--accent)" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.3-1.3l-.3-2.5H10.3l-.3 2.5a7 7 0 0 0-2.3 1.3l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.3 1.3l.3 2.5h3.4l.3-2.5a7 7 0 0 0 2.3-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3Z"/></svg></span>
       </div>
@@ -226,7 +78,7 @@ a{color:inherit;text-decoration:none}
                     <button class="btn sm primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Add agent type</button></div>
                   <table class="tbl">
                     <thead><tr><th>Name</th><th>Command</th><th>Default model</th><th style="text-align:right">Enabled</th></tr></thead>
-                    <tbody id="agentRows">
+                    <tbody>
                       <tr><td><div class="nm"><span class="sw" style="background:var(--c-claude)"></span>claude</div></td><td><code>claude</code></td><td>claude-sonnet-4-6</td><td style="text-align:right"><button class="sw-toggle on"></button></td></tr>
                       <tr><td><div class="nm"><span class="sw" style="background:var(--c-opencode)"></span>opencode</div></td><td><code>opencode</code></td><td>auto</td><td style="text-align:right"><button class="sw-toggle on"></button></td></tr>
                       <tr><td><div class="nm"><span class="sw" style="background:var(--c-gemini)"></span>gemini</div></td><td><code>gemini</code></td><td>gemini-2.5-pro</td><td style="text-align:right"><button class="sw-toggle on"></button></td></tr>
@@ -299,21 +151,9 @@ a{color:inherit;text-decoration:none}
   </div>
 </div>
 
+<script src="js/ubiq.js"></script>
 <script>
-const root=document.documentElement, KEY="ubiq-theme";
-function rawTheme(t){root.dataset.theme=t;}
-function applyTheme(t){ // t = light|dark|system
-  localStorage.setItem("ubiq-theme-mode",t);
-  const eff = t==="system" ? (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light") : t;
-  rawTheme(eff); localStorage.setItem(KEY,eff);
-  document.querySelectorAll("#themeSeg button").forEach(b=>b.classList.toggle("on",b.dataset.t===t));
-}
-applyTheme(localStorage.getItem("ubiq-theme-mode") || (localStorage.getItem(KEY)||"dark"));
-
-document.getElementById("themeBtn").onclick=()=>{ const cur=root.dataset.theme; applyTheme(cur==="dark"?"light":"dark"); };
-document.getElementById("themeSeg").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) applyTheme(b.dataset.t); });
-
-/* sub-nav routing */
+/* sub-nav routing (page-specific) */
 const nav=document.getElementById("setNav");
 nav.addEventListener("click",e=>{
   const a=e.target.closest("a"); if(!a) return;
@@ -323,14 +163,11 @@ nav.addEventListener("click",e=>{
   document.querySelector(".scroll").scrollTop=0;
 });
 
-/* toggles */
-document.body.addEventListener("click",e=>{ const t=e.target.closest(".sw-toggle"); if(t) t.classList.toggle("on"); });
-
-/* accent swatches → live --accent */
+/* accent swatches → live accent tokens (page-specific) */
 document.getElementById("swatches").addEventListener("click",e=>{
   const s=e.target.closest(".swatch"); if(!s) return;
   document.querySelectorAll("#swatches .swatch").forEach(x=>x.classList.remove("on")); s.classList.add("on");
-  const h=s.dataset.h, dark=root.dataset.theme==="dark";
+  const h=s.dataset.h, dark=document.documentElement.dataset.theme==="dark", root=document.documentElement;
   root.style.setProperty("--accent", dark?`oklch(70% 0.15 ${h})`:`oklch(56% 0.18 ${h})`);
   root.style.setProperty("--accent-soft", dark?`oklch(70% 0.15 ${h} / .16)`:`oklch(56% 0.18 ${h} / .12)`);
   root.style.setProperty("--accent-fg", dark?`oklch(18% 0.04 ${h})`:`oklch(99% 0.01 ${h})`);

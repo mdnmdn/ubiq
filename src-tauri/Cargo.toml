@@ -22,6 +22,10 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 toml = "1"
 
+# Portable harness management library (config locations, launch specs,
+# unified config + sync). Used as the source of truth for known harnesses.
+agent-manager = { path = "../crates/agent-manager", default-features = false }
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

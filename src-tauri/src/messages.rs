@@ -29,6 +29,9 @@ pub struct AgentTypeInfo {
     pub command: String,
     pub description: String,
     pub default_args: Vec<String>,
+    /// Filesystem root of this harness's configuration, when known.
+    #[serde(default)]
+    pub config_root: Option<String>,
 }
 
 /// The single message type for all UI ↔ Orchestrator communication.
