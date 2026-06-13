@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ubiq — Chat</title>
+<style>
+:root{
+  --bg: oklch(99% 0.002 240);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0.003 250);
+  --elevated: oklch(100% 0 0);
+  --fg: oklch(20% 0.012 250);
+  --muted: oklch(54% 0.012 250);
+  --faint: oklch(70% 0.01 250);
+  --border: oklch(92% 0.005 250);
+  --border-strong: oklch(86% 0.006 250);
+  --accent: oklch(56% 0.18 256);
+  --accent-fg: oklch(99% 0.01 256);
+  --accent-soft: oklch(56% 0.18 256 / .12);
+  --ok: oklch(60% 0.14 152);
+  --warn: oklch(70% 0.14 70);
+  --c-claude: oklch(64% 0.13 45);
+  --c-gemini: oklch(60% 0.16 270);
+  --c-codex:  oklch(60% 0.14 160);
+  --code-bg: oklch(96% 0.004 250);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --r: 9px;
+  --shadow: 0 1px 2px oklch(25% 0.03 260 / .06), 0 12px 34px oklch(25% 0.03 260 / .08);
+}
+[data-theme="dark"]{
+  --bg: oklch(19% 0.013 264);
+  --surface: oklch(23% 0.015 264);
+  --surface-2: oklch(26% 0.016 264);
+  --elevated: oklch(27% 0.017 264);
+  --fg: oklch(95% 0.006 250);
+  --muted: oklch(68% 0.018 256);
+  --faint: oklch(52% 0.018 256);
+  --border: oklch(31% 0.014 264);
+  --border-strong: oklch(40% 0.016 264);
+  --accent: oklch(70% 0.15 256);
+  --accent-fg: oklch(18% 0.04 264);
+  --accent-soft: oklch(70% 0.15 256 / .16);
+  --ok: oklch(72% 0.15 156);
+  --warn: oklch(80% 0.13 80);
+  --c-claude: oklch(74% 0.12 55);
+  --c-gemini: oklch(72% 0.14 272);
+  --c-codex:  oklch(74% 0.13 162);
+  --code-bg: oklch(16% 0.012 264);
+  --shadow: 0 1px 2px oklch(0% 0 0 / .35), 0 16px 40px oklch(0% 0 0 / .42);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;font-size:14px;line-height:1.55;overflow:hidden}
+button{font-family:inherit;color:inherit;cursor:pointer}
+::selection{background:var(--accent-soft)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:9px;border:3px solid transparent;background-clip:padding-box}
+
+.app{display:flex;flex-direction:column;height:100vh}
+.titlebar{height:38px;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--border);user-select:none;flex:0 0 auto}
+.traffic{display:flex;gap:8px}
+.traffic i{width:12px;height:12px;border-radius:50%;display:block}
+.traffic .r{background:#ff5f57}.traffic .y{background:#febc2e}.traffic .g{background:#28c840}
+.title-c{flex:1;text-align:center;font-size:12px;color:var(--muted)}
+.title-c b{color:var(--fg);font-weight:600}
+.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;border:1px solid transparent;background:transparent}
+.icon-btn:hover{background:var(--surface-2);border-color:var(--border)}
+.icon-btn svg{width:16px;height:16px}
+
+.body{display:flex;flex:1;min-height:0}
+
+/* sidebar (conversations) */
+.sidebar{width:236px;flex:0 0 236px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:9px;padding:16px 16px 12px;font-family:var(--display)}
+.brand .mark{width:22px;height:22px;border-radius:6px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:13px}
+.brand b{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.side-pad{padding:0 12px 4px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--border-strong);background:var(--surface-2);border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:550;transition:.14s;white-space:nowrap}
+.btn:hover{border-color:var(--faint)}
+.btn svg{width:14px;height:14px}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.full{width:100%}
+.btn.sm{padding:5px 9px;font-size:11.5px}
+.sec-label{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);font-weight:600;padding:18px 18px 7px}
+.convos{flex:1;overflow-y:auto;padding:0 8px;min-height:0}
+.cv{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border-radius:8px;cursor:pointer;margin-bottom:1px;transition:.12s}
+.cv:hover{background:var(--surface-2)}
+.cv.active{background:var(--accent-soft)}
+.cv .t{font-size:12.5px;font-weight:550;display:flex;align-items:center;gap:7px}
+.cv .sw{width:7px;height:7px;border-radius:2px;flex:0 0 auto}
+.cv .p{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* center chat */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.chat-top{display:flex;align-items:center;gap:11px;padding:11px 20px;border-bottom:1px solid var(--border);background:var(--surface);min-height:54px;flex:0 0 auto}
+.av{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:12px;color:#fff}
+.chat-top .nm{font-weight:620;font-size:14px}
+.chat-top .sub{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:var(--mono);padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted);background:var(--surface-2)}
+
+.thread{flex:1;overflow-y:auto;min-height:0;padding:26px 0}
+.tw{max-width:720px;margin:0 auto;padding:0 28px;display:flex;flex-direction:column;gap:22px}
+.msg{display:flex;gap:13px}
+.msg .ic{width:28px;height:28px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;font-size:12px;font-weight:700;font-family:var(--mono)}
+.msg.user .ic{background:var(--surface-2);border:1px solid var(--border);color:var(--muted)}
+.msg.bot .ic{color:#fff}
+.msg .bd{min-width:0;flex:1}
+.msg .who{font-size:11.5px;font-weight:650;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.msg .who .tm{font-weight:400;color:var(--faint);font-family:var(--mono);font-size:10.5px}
+.msg .txt{font-size:14px}
+.msg .txt p{margin:0 0 9px}
+.msg .txt p:last-child{margin:0}
+.msg.user .txt{color:var(--fg)}
+.msg .txt code{font-family:var(--mono);font-size:12.5px;background:var(--code-bg);border:1px solid var(--border);padding:1px 6px;border-radius:5px}
+.codeblock{margin:10px 0;border:1px solid var(--border);border-radius:9px;overflow:hidden;background:var(--code-bg)}
+.codeblock .cbh{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.codeblock pre{margin:0;padding:11px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+.codeblock .k{color:var(--c-gemini)}.codeblock .s{color:var(--ok)}.codeblock .c{color:var(--faint)}
+.tool{display:inline-flex;align-items:center;gap:8px;margin:6px 0;padding:6px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:12px;font-family:var(--mono);color:var(--muted)}
+.tool .ok{color:var(--ok)}
+.typing{display:inline-flex;gap:4px;padding:4px 0}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--faint);animation:tb 1.1s infinite}
+.typing i:nth-child(2){animation-delay:.18s}.typing i:nth-child(3){animation-delay:.36s}
+@keyframes tb{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
+/* composer */
+.composer{flex:0 0 auto;padding:14px 28px 20px;background:linear-gradient(to top,var(--bg) 70%,transparent)}
+.cbox{max-width:720px;margin:0 auto;border:1px solid var(--border-strong);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.cbox.focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.cbox textarea{width:100%;border:none;background:transparent;color:var(--fg);font-family:var(--font);font-size:14px;padding:13px 15px 4px;resize:none;min-height:46px;max-height:150px;line-height:1.5}
+.cbox textarea:focus{outline:none}
+.crow{display:flex;align-items:center;gap:8px;padding:7px 10px 9px}
+.modelsel{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-family:var(--mono);padding:5px 10px;border-radius:8px;border:1px solid var(--border);color:var(--muted);background:var(--surface-2);cursor:pointer}
+.modelsel .sw{width:8px;height:8px;border-radius:2px;background:var(--c-claude)}
+.send{width:32px;height:32px;border-radius:9px;background:var(--accent);color:var(--accent-fg);border:none;display:grid;place-items:center}
+.send svg{width:16px;height:16px}
+.send:disabled{opacity:.4;cursor:default}
+
+/* side chat widget */
+.side{width:330px;flex:0 0 330px;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;min-height:0;transition:margin .22s ease}
+.side.collapsed{margin-right:-330px}
+.side-head{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--border)}
+.side-head .av{width:24px;height:24px;border-radius:7px;font-size:11px}
+.side-head .nm{font-weight:620;font-size:13px}
+.side-head .sub{font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+.side-thread{flex:1;overflow-y:auto;min-height:0;padding:15px;display:flex;flex-direction:column;gap:14px}
+.sm{display:flex;flex-direction:column;gap:4px;max-width:100%}
+.sm .lbl{font-size:10px;font-family:var(--mono);color:var(--faint);font-weight:600}
+.sm .bub{font-size:12.5px;line-height:1.5;padding:9px 12px;border-radius:12px}
+.sm.them .bub{background:var(--surface-2);border:1px solid var(--border);border-top-left-radius:4px}
+.sm.me{align-items:flex-end}
+.sm.me .bub{background:var(--accent);color:var(--accent-fg);border-top-right-radius:4px}
+.sm .bub code{font-family:var(--mono);font-size:11.5px;background:var(--code-bg);padding:1px 5px;border-radius:4px;border:1px solid var(--border)}
+.sm.me .bub code{background:oklch(100% 0 0 /.18);border-color:transparent}
+.side-suggest{display:flex;flex-wrap:wrap;gap:6px;padding:0 15px 12px}
+.chip{font-size:11px;padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface-2);color:var(--muted);cursor:pointer;transition:.12s}
+.chip:hover{border-color:var(--accent);color:var(--fg)}
+.side-composer{flex:0 0 auto;display:flex;gap:8px;align-items:center;padding:11px 13px;border-top:1px solid var(--border)}
+.side-composer input{flex:1;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:12.5px;padding:8px 11px}
+.side-composer input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.side-composer .send{width:30px;height:30px}
+.side-toggle{position:fixed;top:46px;right:12px;z-index:20}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title-c"><b>Ubiq</b> &nbsp;·&nbsp; Chat — backend-refactor</div>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+    </button>
+  </div>
+
+  <div class="body">
+    <!-- conversations sidebar -->
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">◇</span><b>Ubiq</b></div>
+      <div class="side-pad"><button class="btn primary full"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New chat</button></div>
+      <div class="sec-label">Conversations</div>
+      <div class="convos">
+        <div class="cv active"><div class="t"><span class="sw" style="background:var(--c-claude)"></span>backend-refactor</div><div class="p">Let's extract the auth module…</div></div>
+        <div class="cv"><div class="t"><span class="sw" style="background:var(--c-gemini)"></span>ui card redesign</div><div class="p">Use a 12-col grid with…</div></div>
+        <div class="cv"><div class="t"><span class="sw" style="background:var(--c-codex)"></span>migration plan</div><div class="p">Steps to move Postgres 14→16</div></div>
+        <div class="cv"><div class="t"><span class="sw" style="background:var(--c-claude)"></span>release notes v0.4</div><div class="p">Draft the changelog from commits</div></div>
+      </div>
+    </aside>
+
+    <!-- center chat -->
+    <main class="main">
+      <div class="chat-top">
+        <span class="av" style="background:var(--c-claude)">C</span>
+        <div><div class="nm">claude-sonnet</div><div class="sub">backend-refactor · main</div></div>
+        <div class="spacer"></div>
+        <span class="pill"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok);display:inline-block"></span>connected</span>
+        <button class="btn sm" id="toggleSide">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg> Reviewer
+        </button>
+      </div>
+
+      <div class="thread" id="thread">
+        <div class="tw" id="tw">
+          <div class="msg user">
+            <div class="ic">M</div>
+            <div class="bd">
+              <div class="who">You <span class="tm">10:42</span></div>
+              <div class="txt"><p>The auth logic is scattered across <code>server/auth.ts</code> and the route files. Can you pull it into a dedicated module and keep the public API stable?</p></div>
+            </div>
+          </div>
+
+          <div class="msg bot">
+            <div class="ic" style="background:var(--c-claude)">C</div>
+            <div class="bd">
+              <div class="who">claude <span class="tm">10:42</span></div>
+              <div class="txt">
+                <p>Yes. I read both files plus the six routes that import them. Here's the plan:</p>
+                <div class="tool"><span>read</span> server/auth.ts, middleware.ts, routes/*.ts <span class="ok">✓ 8 files</span></div>
+                <p>I'll create an <code>auth/</code> module and re-export the existing names so nothing downstream breaks:</p>
+                <div class="codeblock">
+                  <div class="cbh">src/auth/index.ts</div>
+                  <pre><span class="c">// stable public surface — imports unchanged elsewhere</span>
+<span class="k">export</span> { verifyToken, refreshToken } <span class="k">from</span> <span class="s">"./verify"</span>;
+<span class="k">export</span> { SessionStore } <span class="k">from</span> <span class="s">"./session"</span>;
+<span class="k">export</span> { requireAuth } <span class="k">from</span> <span class="s">"./middleware"</span>;</pre>
+                </div>
+                <p>Want me to apply it and run the auth test suite?</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="msg user">
+            <div class="ic">M</div>
+            <div class="bd">
+              <div class="who">You <span class="tm">10:43</span></div>
+              <div class="txt"><p>Go ahead — and add tests for the expired-token path while you're in there.</p></div>
+            </div>
+          </div>
+
+          <div class="msg bot">
+            <div class="ic" style="background:var(--c-claude)">C</div>
+            <div class="bd">
+              <div class="who">claude <span class="tm">10:43</span></div>
+              <div class="txt">
+                <p>Done. Refactor applied, imports rewritten across 6 files, and I added two cases for expired / malformed tokens.</p>
+                <div class="tool"><span>edit</span> 4 files · <span>test</span> auth <span class="ok">✓ 20 passing</span></div>
+                <p>Branch is clean and green. I left the commit unstaged so you can review the diff first.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="cbox" id="cbox">
+          <textarea id="input" placeholder="Reply to claude…  ⏎ to send"></textarea>
+          <div class="crow">
+            <span class="modelsel"><span class="sw"></span>claude-sonnet-4-6</span>
+            <button class="icon-btn" title="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 11.5 12 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7.5-7.5"/></svg></button>
+            <div class="spacer"></div>
+            <button class="send" id="send" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- SIDE CHAT WIDGET -->
+    <aside class="side" id="side">
+      <div class="side-head">
+        <span class="av" style="background:var(--c-gemini)">R</span>
+        <div><div class="nm">Reviewer</div><div class="sub">gemini · second opinion</div></div>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="collapseSide" title="Collapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="side-thread" id="sideThread">
+        <div class="sm them"><span class="lbl">Reviewer</span><div class="bub">I'm watching the main thread. The <code>auth/index.ts</code> re-export keeps the public API stable — good call. One note: confirm <code>refreshToken</code> still clears the old session on rotation.</div></div>
+        <div class="sm me"><span class="lbl">You</span><div class="bub">Does the expired-token test cover clock skew?</div></div>
+        <div class="sm them"><span class="lbl">Reviewer</span><div class="bub">Not yet — it asserts a hard expiry. I'd add a ±30s skew case. Want me to draft it and hand it to claude?</div></div>
+      </div>
+      <div class="side-suggest">
+        <button class="chip">Add the skew test</button>
+        <button class="chip">Summarize the diff</button>
+        <button class="chip">Risk check</button>
+      </div>
+      <div class="side-composer">
+        <input id="sideInput" placeholder="Ask the reviewer…">
+        <button class="send" id="sideSend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      </div>
+    </aside>
+  </div>
+</div>
+<button class="btn sm side-toggle" id="reopenSide" style="display:none">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg> Reviewer
+</button>
+
+<script>
+const root = document.documentElement;
+const THEME_KEY="ubiq-theme";
+function applyTheme(t){ root.dataset.theme=t; localStorage.setItem(THEME_KEY,t); }
+applyTheme(localStorage.getItem(THEME_KEY)||"dark");
+document.getElementById("themeBtn").onclick=()=>applyTheme(root.dataset.theme==="dark"?"light":"dark");
+
+/* ---- main composer ---- */
+const input=document.getElementById("input"), send=document.getElementById("send"),
+      cbox=document.getElementById("cbox"), tw=document.getElementById("tw"),
+      thread=document.getElementById("thread");
+function scrollDown(){ thread.scrollTop=thread.scrollHeight; }
+input.addEventListener("input",()=>{ send.disabled=!input.value.trim(); input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,150)+"px"; });
+input.addEventListener("focus",()=>cbox.classList.add("focus"));
+input.addEventListener("blur",()=>cbox.classList.remove("focus"));
+input.addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); doSend(); }});
+send.onclick=doSend;
+
+function bubble(role,who,html){
+  const m=document.createElement("div"); m.className="msg "+role;
+  const ic = role==="user" ? '<div class="ic">M</div>' : '<div class="ic" style="background:var(--c-claude)">C</div>';
+  m.innerHTML = ic + '<div class="bd"><div class="who">'+who+' <span class="tm">'+now()+'</span></div><div class="txt">'+html+'</div></div>';
+  tw.appendChild(m); scrollDown(); return m;
+}
+function now(){ return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+function esc(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+const replies=[
+  "Looking at it now — I'll trace the call sites before changing anything.",
+  "Got it. I'll make that edit and re-run the affected tests so nothing regresses.",
+  "Makes sense. I'll keep the public exports stable and only touch the internals.",
+  "On it. I'll stage the change and leave the diff for you to review."
+];
+let ri=0;
+function doSend(){
+  const v=input.value.trim(); if(!v) return;
+  bubble("user","You","<p>"+esc(v)+"</p>");
+  input.value=""; input.style.height="auto"; send.disabled=true;
+  const t=bubble("bot","claude",'<div class="typing"><i></i><i></i><i></i></div>');
+  setTimeout(()=>{ t.querySelector(".txt").innerHTML="<p>"+replies[ri++%replies.length]+"</p>"; scrollDown(); }, 900);
+}
+
+/* ---- side widget ---- */
+const side=document.getElementById("side"), reopen=document.getElementById("reopenSide");
+function collapse(c){ side.classList.toggle("collapsed",c); reopen.style.display=c?"inline-flex":"none"; }
+document.getElementById("collapseSide").onclick=()=>collapse(true);
+document.getElementById("toggleSide").onclick=()=>collapse(side.classList.contains("collapsed")?false:true);
+reopen.onclick=()=>collapse(false);
+
+const sideThread=document.getElementById("sideThread"), sideInput=document.getElementById("sideInput"), sideSend=document.getElementById("sideSend");
+function sideBubble(role,label,html){
+  const m=document.createElement("div"); m.className="sm "+role;
+  m.innerHTML='<span class="lbl">'+label+'</span><div class="bub">'+html+'</div>';
+  sideThread.appendChild(m); sideThread.scrollTop=sideThread.scrollHeight; return m;
+}
+const sideReplies=[
+  "Good question — checking the diff context now.",
+  "I'd flag that as low risk. The re-export shields callers from the move.",
+  "Drafted. I'll hand it to claude in the main thread when you approve.",
+  "Skew case added to the plan: assert validity within ±30s of expiry."
+];
+let si=0;
+function sideDo(v){
+  if(!v.trim()) return;
+  sideBubble("me","You",esc(v));
+  sideInput.value="";
+  const t=sideBubble("them","Reviewer",'<div class="typing"><i></i><i></i><i></i></div>');
+  setTimeout(()=>{ t.querySelector(".bub").innerHTML=sideReplies[si++%sideReplies.length]; sideThread.scrollTop=sideThread.scrollHeight; }, 850);
+}
+sideSend.onclick=()=>sideDo(sideInput.value);
+sideInput.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); sideDo(sideInput.value);}});
+document.querySelectorAll(".side-suggest .chip").forEach(c=>c.onclick=()=>sideDo(c.textContent));
+
+scrollDown();
+</script>
+</body>
+</html>

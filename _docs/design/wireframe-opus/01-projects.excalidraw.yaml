@@ -1,0 +1,393 @@
+# Ubiq — Screen 1: Projects / Launcher
+# Manage projects, add a new project, and select the agent to run.
+# Left: always-visible sidebar (Add session, sessions list, Settings).
+# Center: grid of existing project cards.  Right: "New Project" form with agent picker.
+# Render:  uv run _tools/excalidraw.py to-image -i 01-projects.excalidraw.yaml -o 01-projects.png --scale 2
+version: 1
+
+canvas:
+  background: "#f1f3f5"
+  theme: light
+
+layout:
+  mode: none
+
+defaults:
+  roughness: 0
+  strokeWidth: thin
+  fontFamily: normal
+
+# Palette
+#   accent #4263eb   ink #212529   label #495057   muted #868e96   placeholder #adb5bd
+#   border #dee2e6   field #f8f9fa   card #ffffff
+#   sidebar #1a1b26  sidebar-item #24283b  sidebar-text #c0caf5  sidebar-muted #565f89
+#   agent tints: claude #edf2ff/#4263eb · codex #fff0f6/#e64980 · gemini #ebfbee/#2f9e44
+#                opencode #f3f0ff/#7048e8 · copilot #fff4e6/#e8590c
+
+elements:
+  # =================================================== WINDOW CHROME
+  - rect: win
+    at: [20, 20]
+    size: [1320, 840]
+    bg: "#f1f3f5"
+    stroke: "#ced4da"
+    roundness: true
+  - rect: titlebar
+    at: [20, 20]
+    size: [1320, 40]
+    bg: "#e9ecef"
+    stroke: "#ced4da"
+    roundness: true
+  - ellipse: { id: tl_r, at: [40, 34], size: [12, 12], bg: "#fa5252", stroke: "#fa5252" }
+  - ellipse: { id: tl_y, at: [58, 34], size: [12, 12], bg: "#fab005", stroke: "#fab005" }
+  - ellipse: { id: tl_g, at: [76, 34], size: [12, 12], bg: "#40c057", stroke: "#40c057" }
+  - text: "● Ubiq   —   Projects"
+    id: wintitle
+    at: [600, 31]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+
+  # =================================================== SIDEBAR (always visible)
+  - rect: sidebar
+    at: [40, 72]
+    size: [240, 768]
+    bg: "#1a1b26"
+    stroke: "#1a1b26"
+    roundness: true
+  - text: "◆ Ubiq"
+    id: brand
+    at: [64, 92]
+    fontSize: 20
+    align: left
+    stroke: "#ffffff"
+  - text: "harness multiplexer"
+    id: tagline
+    at: [64, 119]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: btn_add
+    at: [60, 150]
+    size: [200, 42]
+    bg: "#4263eb"
+    stroke: "#4263eb"
+    roundness: true
+    text: "＋  Add session"
+    textColor: "#ffffff"
+    fontSize: 14
+
+  - text: "SESSIONS"
+    id: sess_hdr
+    at: [64, 214]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: { id: sess1, at: [56, 234], size: [208, 54], bg: "#24283b", stroke: "#24283b", roundness: true }
+  - rect: { id: sess1bar, at: [56, 234], size: [4, 54], bg: "#4263eb", stroke: "#4263eb" }
+  - text: "backend-refactor"
+    id: s1n
+    at: [76, 244]
+    fontSize: 14
+    align: left
+    stroke: "#ffffff"
+  - text: "claude · 3 agents"
+    id: s1m
+    at: [76, 265]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "frontend-redesign"
+    id: s2n
+    at: [76, 306]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "opencode · 1 agent"
+    id: s2m
+    at: [76, 327]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "infra-migration"
+    id: s3n
+    at: [76, 362]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "codex · idle"
+    id: s3m
+    at: [76, 383]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - line: { id: sb_div, start: [56, 800], end: [264, 800], stroke: "#2a2e42" }
+  - text: "⚙  Settings"
+    id: settings_item
+    at: [76, 815]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+
+  # =================================================== MAIN HEADER
+  - text: "Projects"
+    id: h
+    at: [300, 80]
+    fontSize: 26
+    align: left
+    stroke: "#212529"
+  - text: "Manage workspaces · pick an agent · launch a session"
+    id: hsub
+    at: [300, 118]
+    fontSize: 13
+    align: left
+    stroke: "#868e96"
+
+  # =================================================== PROJECT CARDS (grid)
+  # --- card 1
+  - rect: { id: c1, at: [300, 150], size: [318, 150], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "agent-manager"
+    id: c1n
+    at: [320, 168]
+    fontSize: 16
+    align: left
+    stroke: "#212529"
+  - text: "~/works/projects/agent-manager"
+    id: c1p
+    at: [320, 194]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: c1a1, at: [320, 222], size: [60, 22], bg: "#edf2ff", stroke: "#dbe4ff", roundness: true, text: "claude", textColor: "#4263eb", fontSize: 11 }
+  - rect: { id: c1a2, at: [388, 222], size: [56, 22], bg: "#fff0f6", stroke: "#ffdeeb", roundness: true, text: "codex", textColor: "#e64980", fontSize: 11 }
+  - text: "3 sessions · 2h ago"
+    id: c1m
+    at: [320, 266]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - text: "Open ›"
+    id: c1o
+    at: [556, 266]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+
+  # --- card 2
+  - rect: { id: c2, at: [638, 150], size: [318, 150], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "ubiq"
+    id: c2n
+    at: [658, 168]
+    fontSize: 16
+    align: left
+    stroke: "#212529"
+  - text: "~/works/projects/ubiq"
+    id: c2p
+    at: [658, 194]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: c2a1, at: [658, 222], size: [60, 22], bg: "#edf2ff", stroke: "#dbe4ff", roundness: true, text: "claude", textColor: "#4263eb", fontSize: 11 }
+  - text: "1 session · just now"
+    id: c2m
+    at: [658, 266]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - text: "Open ›"
+    id: c2o
+    at: [894, 266]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+
+  # --- card 3
+  - rect: { id: c3, at: [300, 320], size: [318, 150], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "web-dashboard"
+    id: c3n
+    at: [320, 338]
+    fontSize: 16
+    align: left
+    stroke: "#212529"
+  - text: "~/dev/web-dashboard"
+    id: c3p
+    at: [320, 364]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: c3a1, at: [320, 392], size: [76, 22], bg: "#f3f0ff", stroke: "#e5dbff", roundness: true, text: "opencode", textColor: "#7048e8", fontSize: 11 }
+  - text: "idle · yesterday"
+    id: c3m
+    at: [320, 436]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - text: "Open ›"
+    id: c3o
+    at: [556, 436]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+
+  # --- card 4
+  - rect: { id: c4, at: [638, 320], size: [318, 150], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "data-pipeline"
+    id: c4n
+    at: [658, 338]
+    fontSize: 16
+    align: left
+    stroke: "#212529"
+  - text: "~/dev/data-pipeline"
+    id: c4p
+    at: [658, 364]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: c4a1, at: [658, 392], size: [62, 22], bg: "#ebfbee", stroke: "#d3f9d8", roundness: true, text: "gemini", textColor: "#2f9e44", fontSize: 11 }
+  - rect: { id: c4a2, at: [728, 392], size: [56, 22], bg: "#fff0f6", stroke: "#ffdeeb", roundness: true, text: "codex", textColor: "#e64980", fontSize: 11 }
+  - text: "5 sessions · Mon"
+    id: c4m
+    at: [658, 436]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - text: "Open ›"
+    id: c4o
+    at: [894, 436]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+
+  # =================================================== NEW PROJECT FORM (right)
+  - rect: { id: form, at: [980, 150], size: [340, 540], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "New Project"
+    id: f_title
+    at: [1004, 168]
+    fontSize: 18
+    align: left
+    stroke: "#212529"
+  - line: { id: f_div, start: [1004, 200], end: [1296, 200], stroke: "#e9ecef" }
+
+  - text: "Name"
+    id: f_lbl_name
+    at: [1004, 214]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+  - rect: { id: in_name, at: [1004, 234], size: [292, 40], bg: "#f8f9fa", stroke: "#ced4da", roundness: true }
+  - text: "agent-manager-v2"
+    id: ph_name
+    at: [1018, 245]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+
+  - text: "Location"
+    id: f_lbl_loc
+    at: [1004, 286]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+  - rect: { id: in_loc, at: [1004, 306], size: [292, 40], bg: "#f8f9fa", stroke: "#ced4da", roundness: true }
+  - text: "~/works/projects"
+    id: ph_loc
+    at: [1018, 317]
+    fontSize: 14
+    align: left
+    stroke: "#495057"
+  - text: "📁"
+    id: loc_icon
+    at: [1264, 316]
+    fontSize: 16
+    align: left
+    stroke: "#868e96"
+
+  - text: "Select agent"
+    id: f_lbl_agent
+    at: [1004, 360]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+
+  # claude (selected)
+  - ellipse: { id: r1, at: [1004, 386], size: [18, 18], bg: "#ffffff", stroke: "#4263eb" }
+  - ellipse: { id: r1d, at: [1008, 390], size: [10, 10], bg: "#4263eb", stroke: "#4263eb" }
+  - text: "claude"
+    id: r1n
+    at: [1034, 382]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "Anthropic Claude Code"
+    id: r1m
+    at: [1034, 400]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+
+  # opencode
+  - ellipse: { id: r2, at: [1004, 428], size: [18, 18], bg: "#ffffff", stroke: "#ced4da" }
+  - text: "opencode"
+    id: r2n
+    at: [1034, 424]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "Open-source coding agent"
+    id: r2m
+    at: [1034, 442]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+
+  # gemini
+  - ellipse: { id: r3, at: [1004, 470], size: [18, 18], bg: "#ffffff", stroke: "#ced4da" }
+  - text: "gemini"
+    id: r3n
+    at: [1034, 466]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "Google Gemini CLI"
+    id: r3m
+    at: [1034, 484]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+
+  # codex
+  - ellipse: { id: r4, at: [1004, 512], size: [18, 18], bg: "#ffffff", stroke: "#ced4da" }
+  - text: "codex"
+    id: r4n
+    at: [1034, 508]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "OpenAI Codex CLI"
+    id: r4m
+    at: [1034, 526]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+
+  # copilot
+  - ellipse: { id: r5, at: [1004, 554], size: [18, 18], bg: "#ffffff", stroke: "#ced4da" }
+  - text: "copilot"
+    id: r5n
+    at: [1034, 550]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "GitHub Copilot CLI"
+    id: r5m
+    at: [1034, 568]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+
+  - rect: { id: btn_create, at: [1004, 612], size: [292, 46], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "Create project", textColor: "#ffffff", fontSize: 15 }

@@ -1,0 +1,325 @@
+# Ubiq — Screen 4: Settings page (reached from the sidebar "⚙ Settings")
+# Left: always-visible sidebar (Settings highlighted as active).
+# Main: settings sub-nav (left) + content panel (right) showing the Agents section,
+#       i.e. the agent types loaded from src-tauri/agents.toml with enable toggles.
+# Render:  uv run _tools/excalidraw.py to-image -i 04-settings.excalidraw.yaml -o 04-settings.png --scale 2
+version: 1
+
+canvas:
+  background: "#f1f3f5"
+  theme: light
+
+layout:
+  mode: none
+
+defaults:
+  roughness: 0
+  strokeWidth: thin
+  fontFamily: normal
+
+elements:
+  # =================================================== WINDOW CHROME
+  - rect: { id: win, at: [20, 20], size: [1320, 840], bg: "#f1f3f5", stroke: "#ced4da", roundness: true }
+  - rect: { id: titlebar, at: [20, 20], size: [1320, 40], bg: "#e9ecef", stroke: "#ced4da", roundness: true }
+  - ellipse: { id: tl_r, at: [40, 34], size: [12, 12], bg: "#fa5252", stroke: "#fa5252" }
+  - ellipse: { id: tl_y, at: [58, 34], size: [12, 12], bg: "#fab005", stroke: "#fab005" }
+  - ellipse: { id: tl_g, at: [76, 34], size: [12, 12], bg: "#40c057", stroke: "#40c057" }
+  - text: "● Ubiq   —   Settings"
+    id: wintitle
+    at: [600, 31]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+
+  # =================================================== SIDEBAR (always visible)
+  - rect: { id: sidebar, at: [40, 72], size: [240, 768], bg: "#1a1b26", stroke: "#1a1b26", roundness: true }
+  - text: "◆ Ubiq"
+    id: brand
+    at: [64, 92]
+    fontSize: 20
+    align: left
+    stroke: "#ffffff"
+  - text: "harness multiplexer"
+    id: tagline
+    at: [64, 119]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: { id: btn_add, at: [60, 150], size: [200, 42], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "＋  Add session", textColor: "#ffffff", fontSize: 14 }
+
+  - text: "SESSIONS"
+    id: sess_hdr
+    at: [64, 214]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "backend-refactor"
+    id: s1n
+    at: [76, 244]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "claude · 3 agents"
+    id: s1m
+    at: [76, 265]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "frontend-redesign"
+    id: s2n
+    at: [76, 306]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "opencode · 1 agent"
+    id: s2m
+    at: [76, 327]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "infra-migration"
+    id: s3n
+    at: [76, 362]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "codex · idle"
+    id: s3m
+    at: [76, 383]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  # Settings highlighted as the active destination
+  - line: { id: sb_div, start: [56, 800], end: [264, 800], stroke: "#2a2e42" }
+  - rect: { id: settings_active, at: [56, 808], size: [208, 36], bg: "#24283b", stroke: "#24283b", roundness: true }
+  - rect: { id: settings_bar, at: [56, 808], size: [4, 36], bg: "#4263eb", stroke: "#4263eb" }
+  - text: "⚙  Settings"
+    id: settings_item
+    at: [76, 819]
+    fontSize: 14
+    align: left
+    stroke: "#ffffff"
+
+  # =================================================== MAIN HEADER
+  - text: "Settings"
+    id: h
+    at: [300, 80]
+    fontSize: 26
+    align: left
+    stroke: "#212529"
+  - text: "Agents, appearance & keybindings"
+    id: hsub
+    at: [300, 118]
+    fontSize: 13
+    align: left
+    stroke: "#868e96"
+
+  # =================================================== SETTINGS SUB-NAV
+  - rect: { id: nav, at: [300, 150], size: [240, 430], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "General"
+    id: nav_general
+    at: [332, 176]
+    fontSize: 14
+    align: left
+    stroke: "#495057"
+  - rect: { id: nav_agents_bg, at: [312, 210], size: [216, 40], bg: "#edf2ff", stroke: "#edf2ff", roundness: true }
+  - rect: { id: nav_agents_bar, at: [312, 210], size: [4, 40], bg: "#4263eb", stroke: "#4263eb" }
+  - text: "Agents"
+    id: nav_agents
+    at: [332, 222]
+    fontSize: 14
+    align: left
+    stroke: "#4263eb"
+  - text: "Appearance"
+    id: nav_appearance
+    at: [332, 272]
+    fontSize: 14
+    align: left
+    stroke: "#495057"
+  - text: "Keybindings"
+    id: nav_keys
+    at: [332, 322]
+    fontSize: 14
+    align: left
+    stroke: "#495057"
+  - text: "About"
+    id: nav_about
+    at: [332, 372]
+    fontSize: 14
+    align: left
+    stroke: "#495057"
+
+  # =================================================== CONTENT PANEL — Agents
+  - rect: { id: content, at: [560, 150], size: [760, 580], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "Agent Types"
+    id: c_title
+    at: [584, 170]
+    fontSize: 18
+    align: left
+    stroke: "#212529"
+  - text: "Defined in src-tauri/agents.toml — listed by the UI on launch"
+    id: c_sub
+    at: [584, 198]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: btn_addtype, at: [1140, 164], size: [156, 36], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "＋ Add agent type", textColor: "#ffffff", fontSize: 13 }
+  - line: { id: c_div, start: [584, 222], end: [1296, 222], stroke: "#e9ecef" }
+
+  # column headers
+  - text: "NAME"
+    id: ch_name
+    at: [584, 236]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+  - text: "COMMAND"
+    id: ch_cmd
+    at: [760, 236]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+  - text: "DEFAULT ARGS"
+    id: ch_args
+    at: [960, 236]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+  - text: "ENABLED"
+    id: ch_en
+    at: [1210, 236]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+
+  # row: claude (on)
+  - text: "claude"
+    id: a1n
+    at: [584, 266]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "claude"
+    id: a1c
+    at: [760, 266]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#495057"
+  - text: "—"
+    id: a1a
+    at: [960, 266]
+    fontSize: 13
+    align: left
+    stroke: "#adb5bd"
+  - rect: { id: a1t, at: [1210, 262], size: [44, 22], bg: "#2f9e44", stroke: "#2f9e44", roundness: true }
+  - ellipse: { id: a1k, at: [1234, 263], size: [18, 18], bg: "#ffffff", stroke: "#ffffff" }
+  - line: { id: a1div, start: [584, 296], end: [1296, 296], stroke: "#f1f3f5" }
+
+  # row: opencode (on)
+  - text: "opencode"
+    id: a2n
+    at: [584, 318]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "opencode"
+    id: a2c
+    at: [760, 318]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#495057"
+  - text: "—"
+    id: a2a
+    at: [960, 318]
+    fontSize: 13
+    align: left
+    stroke: "#adb5bd"
+  - rect: { id: a2t, at: [1210, 314], size: [44, 22], bg: "#2f9e44", stroke: "#2f9e44", roundness: true }
+  - ellipse: { id: a2k, at: [1234, 315], size: [18, 18], bg: "#ffffff", stroke: "#ffffff" }
+  - line: { id: a2div, start: [584, 348], end: [1296, 348], stroke: "#f1f3f5" }
+
+  # row: gemini (on)
+  - text: "gemini"
+    id: a3n
+    at: [584, 370]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "gemini"
+    id: a3c
+    at: [760, 370]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#495057"
+  - text: "—"
+    id: a3a
+    at: [960, 370]
+    fontSize: 13
+    align: left
+    stroke: "#adb5bd"
+  - rect: { id: a3t, at: [1210, 366], size: [44, 22], bg: "#2f9e44", stroke: "#2f9e44", roundness: true }
+  - ellipse: { id: a3k, at: [1234, 367], size: [18, 18], bg: "#ffffff", stroke: "#ffffff" }
+  - line: { id: a3div, start: [584, 400], end: [1296, 400], stroke: "#f1f3f5" }
+
+  # row: codex (on)
+  - text: "codex"
+    id: a4n
+    at: [584, 422]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "codex"
+    id: a4c
+    at: [760, 422]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#495057"
+  - text: "—"
+    id: a4a
+    at: [960, 422]
+    fontSize: 13
+    align: left
+    stroke: "#adb5bd"
+  - rect: { id: a4t, at: [1210, 418], size: [44, 22], bg: "#2f9e44", stroke: "#2f9e44", roundness: true }
+  - ellipse: { id: a4k, at: [1234, 419], size: [18, 18], bg: "#ffffff", stroke: "#ffffff" }
+  - line: { id: a4div, start: [584, 452], end: [1296, 452], stroke: "#f1f3f5" }
+
+  # row: copilot (off)
+  - text: "copilot"
+    id: a5n
+    at: [584, 474]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - text: "copilot"
+    id: a5c
+    at: [760, 474]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#495057"
+  - text: "--banner=false"
+    id: a5a
+    at: [960, 474]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#868e96"
+  - rect: { id: a5t, at: [1210, 470], size: [44, 22], bg: "#ced4da", stroke: "#ced4da", roundness: true }
+  - ellipse: { id: a5k, at: [1212, 471], size: [18, 18], bg: "#ffffff", stroke: "#ffffff" }
+
+  - text: "Changes are written to agents.toml and applied on next launch."
+    id: c_note
+    at: [584, 540]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"

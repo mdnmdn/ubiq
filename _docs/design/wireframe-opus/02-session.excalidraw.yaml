@@ -1,0 +1,225 @@
+# Ubiq — Screen 2: Session view (single main agent)
+# Left: always-visible sidebar with running sessions + Settings + Add session.
+# Main: session topbar, then ONE agent pane filling the work area.
+# The agent pane has a TWO-ROW title: row 1 = agent badge + workspace + status,
+#                                     row 2 = folder · model · context.
+# Render:  uv run _tools/excalidraw.py to-image -i 02-session.excalidraw.yaml -o 02-session.png --scale 2
+version: 1
+
+canvas:
+  background: "#f1f3f5"
+  theme: light
+
+layout:
+  mode: none
+
+defaults:
+  roughness: 0
+  strokeWidth: thin
+  fontFamily: normal
+
+elements:
+  # =================================================== WINDOW CHROME
+  - rect: { id: win, at: [20, 20], size: [1320, 840], bg: "#f1f3f5", stroke: "#ced4da", roundness: true }
+  - rect: { id: titlebar, at: [20, 20], size: [1320, 40], bg: "#e9ecef", stroke: "#ced4da", roundness: true }
+  - ellipse: { id: tl_r, at: [40, 34], size: [12, 12], bg: "#fa5252", stroke: "#fa5252" }
+  - ellipse: { id: tl_y, at: [58, 34], size: [12, 12], bg: "#fab005", stroke: "#fab005" }
+  - ellipse: { id: tl_g, at: [76, 34], size: [12, 12], bg: "#40c057", stroke: "#40c057" }
+  - text: "● Ubiq   —   backend-refactor"
+    id: wintitle
+    at: [560, 31]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+
+  # =================================================== SIDEBAR (always visible)
+  - rect: { id: sidebar, at: [40, 72], size: [240, 768], bg: "#1a1b26", stroke: "#1a1b26", roundness: true }
+  - text: "◆ Ubiq"
+    id: brand
+    at: [64, 92]
+    fontSize: 20
+    align: left
+    stroke: "#ffffff"
+  - text: "harness multiplexer"
+    id: tagline
+    at: [64, 119]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: { id: btn_add, at: [60, 150], size: [200, 42], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "＋  Add session", textColor: "#ffffff", fontSize: 14 }
+
+  - text: "SESSIONS"
+    id: sess_hdr
+    at: [64, 214]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: { id: sess1, at: [56, 234], size: [208, 54], bg: "#24283b", stroke: "#24283b", roundness: true }
+  - rect: { id: sess1bar, at: [56, 234], size: [4, 54], bg: "#4263eb", stroke: "#4263eb" }
+  - text: "backend-refactor"
+    id: s1n
+    at: [76, 244]
+    fontSize: 14
+    align: left
+    stroke: "#ffffff"
+  - text: "claude · 3 agents"
+    id: s1m
+    at: [76, 265]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "frontend-redesign"
+    id: s2n
+    at: [76, 306]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "opencode · 1 agent"
+    id: s2m
+    at: [76, 327]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "infra-migration"
+    id: s3n
+    at: [76, 362]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "codex · idle"
+    id: s3m
+    at: [76, 383]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - line: { id: sb_div, start: [56, 800], end: [264, 800], stroke: "#2a2e42" }
+  - text: "⚙  Settings"
+    id: settings_item
+    at: [76, 815]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+
+  # =================================================== SESSION TOPBAR
+  - rect: { id: topbar, at: [300, 72], size: [1020, 56], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "backend-refactor"
+    id: sess_name
+    at: [320, 82]
+    fontSize: 16
+    align: left
+    stroke: "#212529"
+  - text: "~/works/projects/agent-manager"
+    id: sess_path
+    at: [320, 104]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: btn_split, at: [1108, 86], size: [80, 32], bg: "#f1f3f5", stroke: "#ced4da", roundness: true, text: "⊟ Split", textColor: "#495057", fontSize: 13 }
+  - rect: { id: btn_addag, at: [1196, 86], size: [108, 32], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "＋ Add agent", textColor: "#ffffff", fontSize: 13 }
+
+  # =================================================== MAIN AGENT PANE
+  - rect: { id: pane, at: [300, 140], size: [1020, 700], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+
+  # --- TWO-ROW TITLE: row 1
+  - rect: { id: pill_claude, at: [316, 150], size: [70, 24], bg: "#edf2ff", stroke: "#dbe4ff", roundness: true, text: "claude", textColor: "#4263eb", fontSize: 12 }
+  - text: "main"
+    id: ws_name
+    at: [398, 152]
+    fontSize: 15
+    align: left
+    stroke: "#212529"
+  - ellipse: { id: dot, at: [452, 158], size: [10, 10], bg: "#2f9e44", stroke: "#2f9e44" }
+  - text: "running"
+    id: ws_status
+    at: [468, 153]
+    fontSize: 12
+    align: left
+    stroke: "#2f9e44"
+  - text: "agent 1 / 1"
+    id: ws_count
+    at: [1232, 153]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  # --- TWO-ROW TITLE: row 2
+  - text: "📁 ~/works/projects/agent-manager    ·    claude-opus-4    ·    ctx 42%"
+    id: ws_meta
+    at: [316, 180]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - line: { id: hdr_div, start: [300, 204], end: [1320, 204], stroke: "#dee2e6" }
+
+  # --- TERMINAL BODY (real PTY)
+  - rect: { id: term, at: [308, 212], size: [1004, 620], bg: "#1e1e1e", stroke: "#1e1e1e", roundness: true }
+  - text: "$ claude"
+    id: t1
+    at: [328, 232]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "● Analyzing repository structure…"
+    id: t2
+    at: [328, 258]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "  reading orchestrator.rs, bus.rs, messages.rs"
+    id: t3
+    at: [328, 282]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#868e96"
+  - text: "✔ found 3 modules to refactor"
+    id: t4
+    at: [328, 306]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "I'll extract the PTY I/O into a dedicated"
+    id: t5
+    at: [328, 340]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "WorkspaceIO manager, then route every"
+    id: t6
+    at: [328, 364]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "TerminalOutput through the bus by id."
+    id: t7
+    at: [328, 388]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "▌"
+    id: cursor
+    at: [328, 422]
+    fontSize: 14
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+
+  # --- prompt input line
+  - rect: { id: prompt, at: [324, 788], size: [972, 32], bg: "#26262e", stroke: "#3a3a44", roundness: true }
+  - text: "›  ask claude to continue…"
+    id: prompt_ph
+    at: [340, 797]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#6b7280"

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ubiq — Agent Manager</title>
+<style>
+:root{
+  --bg: oklch(99% 0.002 240);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0.003 250);
+  --fg: oklch(20% 0.012 250);
+  --muted: oklch(54% 0.012 250);
+  --faint: oklch(70% 0.01 250);
+  --border: oklch(92% 0.005 250);
+  --border-strong: oklch(86% 0.006 250);
+  --accent: oklch(56% 0.18 256);
+  --accent-fg: oklch(99% 0.01 256);
+  --accent-soft: oklch(56% 0.18 256 / .12);
+  --ok: oklch(60% 0.14 152);
+  --c-claude: oklch(64% 0.13 45);
+  --c-gemini: oklch(60% 0.16 270);
+  --c-codex:  oklch(60% 0.14 160);
+  --display:-apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  --shadow:0 1px 2px oklch(25% 0.03 260 /.06),0 18px 50px oklch(25% 0.03 260 /.1);
+}
+[data-theme="dark"]{
+  --bg: oklch(18% 0.013 264);
+  --surface: oklch(23% 0.015 264);
+  --surface-2: oklch(26% 0.016 264);
+  --fg: oklch(95% 0.006 250);
+  --muted: oklch(68% 0.018 256);
+  --faint: oklch(52% 0.018 256);
+  --border: oklch(31% 0.014 264);
+  --border-strong: oklch(40% 0.016 264);
+  --accent: oklch(70% 0.15 256);
+  --accent-fg: oklch(18% 0.04 264);
+  --accent-soft: oklch(70% 0.15 256 /.16);
+  --ok: oklch(72% 0.15 156);
+  --c-claude: oklch(74% 0.12 55);
+  --c-gemini: oklch(72% 0.14 272);
+  --c-codex:  oklch(74% 0.13 162);
+  --shadow:0 1px 2px oklch(0% 0 0 /.4),0 24px 60px oklch(0% 0 0 /.5);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--font);background:
+  radial-gradient(1100px 620px at 18% -8%, var(--accent-soft), transparent 60%),
+  var(--bg);
+  color:var(--fg);-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+button{font-family:inherit;color:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+
+.bar{display:flex;align-items:center;gap:11px;padding:20px 30px;max-width:1080px;width:100%;margin:0 auto}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--display)}
+.brand .mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:15px;box-shadow:0 3px 12px var(--accent-soft)}
+.brand b{font-size:17px;font-weight:680;letter-spacing:-.01em}
+.brand .ver{font-size:10px;color:var(--faint);font-family:var(--mono);border:1px solid var(--border);padding:2px 6px;border-radius:20px;margin-left:2px}
+.spacer{flex:1}
+.icon-btn{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;border:1px solid var(--border);background:var(--surface)}
+.icon-btn:hover{border-color:var(--border-strong)}
+.icon-btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7}
+
+.wrap{flex:1;display:flex;flex-direction:column;justify-content:center;max-width:1080px;width:100%;margin:0 auto;padding:10px 30px 60px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:9px}
+.eyebrow .ln{width:26px;height:1px;background:var(--accent);opacity:.5}
+h1{font-family:var(--display);font-size:clamp(34px,5vw,54px);line-height:1.04;letter-spacing:-.03em;font-weight:720;margin:0;max-width:16ch}
+h1 .g{background:linear-gradient(110deg,var(--accent),oklch(62% 0.19 305));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:16px;color:var(--muted);max-width:54ch;margin:18px 0 0;line-height:1.55}
+
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:42px}
+.card{position:relative;border:1px solid var(--border);background:var(--surface);border-radius:18px;padding:24px;display:flex;flex-direction:column;gap:16px;transition:.18s;overflow:hidden;min-height:260px}
+.card:hover{border-color:var(--border-strong);box-shadow:var(--shadow);transform:translateY(-2px)}
+.card .top{display:flex;align-items:center;gap:12px}
+.card .gi{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;color:#fff;flex:0 0 auto}
+.card .gi svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.8}
+.card h2{margin:0;font-size:18px;font-weight:660;font-family:var(--display);letter-spacing:-.01em}
+.card .kw{font-size:11px;font-family:var(--mono);color:var(--faint)}
+.card p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.55}
+.card .go{margin-top:auto;display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--accent)}
+.card .go svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;transition:.18s}
+.card:hover .go svg{transform:translateX(3px)}
+
+/* mini preview inside card */
+.preview{border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--bg)}
+.pv-bar{display:flex;align-items:center;gap:5px;padding:7px 9px;border-bottom:1px solid var(--border)}
+.pv-bar i{width:7px;height:7px;border-radius:50%;background:var(--border-strong)}
+.pv-body{display:flex;height:92px}
+.pv-side{width:34%;border-right:1px solid var(--border);padding:8px;display:flex;flex-direction:column;gap:5px}
+.pv-row{height:6px;border-radius:3px;background:var(--surface-2)}
+.pv-row.a{background:var(--accent-soft);width:80%}
+.pv-main{flex:1;padding:8px;font-family:var(--mono);font-size:8px;line-height:1.7;color:var(--muted);overflow:hidden}
+.pv-main .g{color:var(--ok)}.pv-main .b{color:var(--c-gemini)}.pv-main .c{color:var(--faint)}
+.pv-chat{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;justify-content:flex-end}
+.pv-bub{height:13px;border-radius:7px;background:var(--surface-2);width:78%}
+.pv-bub.me{background:var(--accent-soft);align-self:flex-end;width:55%}
+.pv-wid{width:30%;border-left:1px solid var(--border);padding:8px;display:flex;flex-direction:column;gap:5px;justify-content:flex-end}
+.pv-wid .pv-row{width:100%}
+
+.feat{display:flex;flex-wrap:wrap;gap:8px;margin-top:34px}
+.tagf{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);border:1px solid var(--border);background:var(--surface);padding:7px 13px;border-radius:20px}
+.tagf .sw{width:8px;height:8px;border-radius:2px}
+.tagf b{color:var(--fg);font-weight:600}
+.foot{padding:18px 30px;max-width:1080px;width:100%;margin:0 auto;font-size:11.5px;color:var(--faint);font-family:var(--mono);display:flex;gap:8px;align-items:center}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+@media(max-width:720px){.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span></div>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+    </button>
+  </header>
+
+  <main class="wrap">
+    <div class="eyebrow"><span class="ln"></span>Tauri desktop · local-first</div>
+    <h1>One desk for every <span class="g">coding agent</span> you run.</h1>
+    <p class="sub">Ubiq launches claude, codex, gemini and more into your repos — orchestrates them in parallel, streams every terminal live, and keeps you in the loop over chat.</p>
+
+    <div class="cards">
+      <a class="card" href="agent-manager.html">
+        <div class="top">
+          <span class="gi" style="background:var(--accent)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></span>
+          <div><h2>Agent Manager</h2><div class="kw">sessions · terminals · fan-out</div></div>
+        </div>
+        <div class="preview">
+          <div class="pv-bar"><i></i><i></i><i></i></div>
+          <div class="pv-body">
+            <div class="pv-side"><div class="pv-row a"></div><div class="pv-row"></div><div class="pv-row" style="width:65%"></div><div class="pv-row" style="width:72%"></div></div>
+            <div class="pv-main"><span class="c">$ ubiq run --agent claude</span><br><span class="g">✓</span> mapped 3 modules<br>● writing auth/verify.ts<br><span class="g">✓ 20 passing</span> <span class="c">1.4s</span></div>
+          </div>
+        </div>
+        <p>Real xterm.js terminals per agent, parallel subagent fan-out, project launcher and an agent-types registry.</p>
+        <span class="go">Open manager <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </a>
+
+      <a class="card" href="chat.html">
+        <div class="top">
+          <span class="gi" style="background:var(--c-gemini)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg></span>
+          <div><h2>Chat</h2><div class="kw">central thread · side reviewer</div></div>
+        </div>
+        <div class="preview">
+          <div class="pv-bar"><i></i><i></i><i></i></div>
+          <div class="pv-body">
+            <div class="pv-chat"><div class="pv-bub"></div><div class="pv-bub me"></div><div class="pv-bub" style="width:88%"></div></div>
+            <div class="pv-wid"><div class="pv-row" style="background:var(--accent-soft)"></div><div class="pv-row"></div><div class="pv-row" style="width:70%"></div></div>
+          </div>
+        </div>
+        <p>Talk to an agent in the main thread while a docked reviewer widget gives a second opinion and drafts changes alongside.</p>
+        <span class="go">Open chat <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </a>
+    </div>
+
+    <div class="feat">
+      <span class="tagf"><span class="sw" style="background:var(--c-claude)"></span><b>claude</b></span>
+      <span class="tagf"><span class="sw" style="background:var(--c-codex)"></span><b>codex</b></span>
+      <span class="tagf"><span class="sw" style="background:var(--c-gemini)"></span><b>gemini</b></span>
+      <span class="tagf"><span class="sw" style="background:var(--c-gemini)"></span><b>opencode</b></span>
+      <span class="tagf">+ bring your own CLI</span>
+    </div>
+  </main>
+
+  <footer class="foot"><span class="dot"></span>3 agents idle · backend-refactor running · ⌘K to jump</footer>
+
+<script>
+const root=document.documentElement, KEY="ubiq-theme";
+function apply(t){root.dataset.theme=t;localStorage.setItem(KEY,t);}
+apply(localStorage.getItem(KEY)||"dark");
+document.getElementById("themeBtn").onclick=()=>apply(root.dataset.theme==="dark"?"light":"dark");
+</script>
+</body>
+</html>

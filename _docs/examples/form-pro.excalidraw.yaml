@@ -1,0 +1,604 @@
+# Checkout / Billing page wireframe — "super" form in the simple Excalidraw format.
+# Two-column layout: main form (contact, shipping, payment) + order-summary sidebar card.
+# Render:  uv run _tools/excalidraw.py to-image -i _docs/examples/form-pro.excalidraw.yaml -o /tmp/form-pro.png --scale 2
+# Convert: uv run _tools/excalidraw.py to-excalidraw -i _docs/examples/form-pro.excalidraw.yaml -o /tmp/form-pro.excalidraw
+version: 1
+
+canvas:
+  background: "#f1f3f5"
+  theme: light
+
+# Explicit coordinates — forms need precise alignment.
+layout:
+  mode: none
+
+defaults:
+  roughness: 0          # clean, UI-mockup look
+  strokeWidth: thin
+  fontFamily: normal
+
+# Palette
+#   accent   #4263eb (primary)   accent-dark #364fc7
+#   ink      #212529  label #495057  muted #868e96  placeholder #adb5bd
+#   border   #dee2e6  field-bg #f8f9fa  card #ffffff
+
+elements:
+  # ============================================================ FRAME
+  - frame: checkout
+    at: [20, 20]
+    size: [1000, 880]
+    name: "Checkout — Wireframe"
+
+  # ============================================================ HEADER BAR
+  - rect: header
+    at: [40, 36]
+    size: [960, 64]
+    bg: "#ffffff"
+    stroke: "#dee2e6"
+    roundness: true
+    frame: checkout
+  - text: "◆  Acme Store"
+    id: brand
+    at: [64, 56]
+    fontSize: 22
+    stroke: "#212529"
+    frame: checkout
+  - text: "Step 2 of 3 — Payment & Shipping"
+    id: stepinfo
+    at: [300, 62]
+    fontSize: 14
+    align: left
+    stroke: "#868e96"
+    frame: checkout
+  - text: "🔒 Secure checkout"
+    id: secure
+    at: [820, 62]
+    fontSize: 13
+    align: left
+    stroke: "#2f9e44"
+    frame: checkout
+
+  # ============================================================ MAIN FORM CARD (left column)
+  - rect: form_card
+    at: [40, 120]
+    size: [610, 760]
+    bg: "#ffffff"
+    stroke: "#dee2e6"
+    roundness: true
+    frame: checkout
+
+  # ------------------------------------------------ SECTION 1: Contact
+  - text: "1  Contact information"
+    id: s1
+    at: [68, 144]
+    fontSize: 18
+    stroke: "#212529"
+    frame: checkout
+  - line: { id: d1, start: [68, 178], end: [622, 178], stroke: "#e9ecef" }
+    frame: checkout
+
+  - text: "Email address"
+    id: lbl_email
+    at: [68, 194]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_email
+    at: [68, 214]
+    size: [554, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "jane.doe@example.com"
+    id: ph_email
+    at: [84, 226]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  - rect: chk_news
+    at: [68, 270]
+    size: [18, 18]
+    bg: "#4263eb"
+    stroke: "#4263eb"
+    roundness: false
+    frame: checkout
+  - text: "✓"
+    id: chk_news_tick
+    at: [70, 269]
+    fontSize: 14
+    align: left
+    stroke: "#ffffff"
+    frame: checkout
+  - text: "Email me with news and offers"
+    id: news_lbl
+    at: [96, 271]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+    frame: checkout
+
+  # ------------------------------------------------ SECTION 2: Shipping
+  - text: "2  Shipping address"
+    id: s2
+    at: [68, 314]
+    fontSize: 18
+    stroke: "#212529"
+    frame: checkout
+  - line: { id: d2, start: [68, 348], end: [622, 348], stroke: "#e9ecef" }
+    frame: checkout
+
+  # Row: First / Last name
+  - text: "First name"
+    id: lbl_fn
+    at: [68, 364]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_fn
+    at: [68, 384]
+    size: [268, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "Jane"
+    id: ph_fn
+    at: [84, 396]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  - text: "Last name"
+    id: lbl_ln
+    at: [354, 364]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_ln
+    at: [354, 384]
+    size: [268, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "Doe"
+    id: ph_ln
+    at: [370, 396]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  # Street address (full width)
+  - text: "Street address"
+    id: lbl_addr
+    at: [68, 438]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_addr
+    at: [68, 458]
+    size: [554, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "123 Market Street, Apt 4B"
+    id: ph_addr
+    at: [84, 470]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  # Row: City / Country (select) / ZIP
+  - text: "City"
+    id: lbl_city
+    at: [68, 512]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_city
+    at: [68, 532]
+    size: [174, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "San Francisco"
+    id: ph_city
+    at: [84, 544]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  - text: "Country"
+    id: lbl_country
+    at: [260, 512]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_country
+    at: [260, 532]
+    size: [190, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "United States"
+    id: ph_country
+    at: [276, 544]
+    fontSize: 14
+    align: left
+    stroke: "#495057"
+    frame: checkout
+  - text: "▾"
+    id: country_caret
+    at: [424, 543]
+    fontSize: 16
+    align: left
+    stroke: "#868e96"
+    frame: checkout
+
+  - text: "ZIP"
+    id: lbl_zip
+    at: [468, 512]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_zip
+    at: [468, 532]
+    size: [154, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "94103"
+    id: ph_zip
+    at: [484, 544]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  # Shipping method — radio group
+  - text: "Shipping method"
+    id: lbl_ship
+    at: [68, 588]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+
+  - ellipse: rad_std
+    at: [68, 612]
+    size: [18, 18]
+    bg: "#ffffff"
+    stroke: "#4263eb"
+    frame: checkout
+  - ellipse: rad_std_dot
+    at: [72, 616]
+    size: [10, 10]
+    bg: "#4263eb"
+    stroke: "#4263eb"
+    frame: checkout
+  - text: "Standard · 5–7 days"
+    id: rad_std_lbl
+    at: [96, 613]
+    fontSize: 13
+    align: left
+    stroke: "#212529"
+    frame: checkout
+  - text: "Free"
+    id: rad_std_price
+    at: [300, 613]
+    fontSize: 13
+    align: left
+    stroke: "#2f9e44"
+    frame: checkout
+
+  - ellipse: rad_exp
+    at: [360, 612]
+    size: [18, 18]
+    bg: "#ffffff"
+    stroke: "#ced4da"
+    frame: checkout
+  - text: "Express · 1–2 days"
+    id: rad_exp_lbl
+    at: [388, 613]
+    fontSize: 13
+    align: left
+    stroke: "#212529"
+    frame: checkout
+  - text: "$12.00"
+    id: rad_exp_price
+    at: [580, 613]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+    frame: checkout
+
+  # ------------------------------------------------ SECTION 3: Payment
+  - text: "3  Payment"
+    id: s3
+    at: [68, 660]
+    fontSize: 18
+    stroke: "#212529"
+    frame: checkout
+  - line: { id: d3, start: [68, 694], end: [622, 694], stroke: "#e9ecef" }
+    frame: checkout
+
+  - text: "Card number"
+    id: lbl_card
+    at: [68, 710]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_card
+    at: [68, 730]
+    size: [554, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "1234  5678  9012  3456"
+    id: ph_card
+    at: [84, 742]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+  - text: "VISA"
+    id: card_brand
+    at: [574, 742]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+    frame: checkout
+
+  - text: "Expiry  /  CVC"
+    id: lbl_exp
+    at: [68, 786]
+    fontSize: 13
+    stroke: "#495057"
+    frame: checkout
+  - rect: in_exp
+    at: [68, 806]
+    size: [268, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "MM / YY"
+    id: ph_exp
+    at: [84, 818]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+  - rect: in_cvc
+    at: [354, 806]
+    size: [268, 42]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "CVC"
+    id: ph_cvc
+    at: [370, 818]
+    fontSize: 14
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+
+  # ============================================================ ORDER SUMMARY (right sidebar)
+  - rect: side_card
+    at: [670, 120]
+    size: [330, 480]
+    bg: "#ffffff"
+    stroke: "#dee2e6"
+    roundness: true
+    frame: checkout
+  - text: "Order summary"
+    id: side_title
+    at: [694, 144]
+    fontSize: 18
+    stroke: "#212529"
+    frame: checkout
+  - line: { id: sd1, start: [694, 178], end: [976, 178], stroke: "#e9ecef" }
+    frame: checkout
+
+  # Line item 1
+  - rect: li1_img
+    at: [694, 196]
+    size: [44, 44]
+    bg: "#edf2ff"
+    stroke: "#dee2e6"
+    roundness: true
+    frame: checkout
+  - text: "Aurora Headphones"
+    id: li1_name
+    at: [750, 198]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+    frame: checkout
+  - text: "Qty 1 · Midnight"
+    id: li1_meta
+    at: [750, 218]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+    frame: checkout
+  - text: "$199.00"
+    id: li1_price
+    at: [912, 208]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+    frame: checkout
+
+  # Line item 2
+  - rect: li2_img
+    at: [694, 252]
+    size: [44, 44]
+    bg: "#edf2ff"
+    stroke: "#dee2e6"
+    roundness: true
+    frame: checkout
+  - text: "USB-C Cable (2m)"
+    id: li2_name
+    at: [750, 254]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+    frame: checkout
+  - text: "Qty 2 · Braided"
+    id: li2_meta
+    at: [750, 274]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+    frame: checkout
+  - text: "$24.00"
+    id: li2_price
+    at: [918, 264]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+    frame: checkout
+
+  - line: { id: sd2, start: [694, 314], end: [976, 314], stroke: "#e9ecef" }
+    frame: checkout
+
+  # Promo code
+  - rect: in_promo
+    at: [694, 330]
+    size: [196, 40]
+    bg: "#f8f9fa"
+    stroke: "#ced4da"
+    roundness: true
+    frame: checkout
+  - text: "Promo code"
+    id: ph_promo
+    at: [710, 341]
+    fontSize: 13
+    align: left
+    stroke: "#adb5bd"
+    frame: checkout
+  - rect: btn_apply
+    at: [902, 330]
+    size: [74, 40]
+    bg: "#f1f3f5"
+    stroke: "#ced4da"
+    roundness: true
+    text: "Apply"
+    textColor: "#495057"
+    fontSize: 13
+    frame: checkout
+
+  - line: { id: sd3, start: [694, 392], end: [976, 392], stroke: "#e9ecef" }
+    frame: checkout
+
+  # Totals
+  - text: "Subtotal"
+    id: t_sub_l
+    at: [694, 406]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+    frame: checkout
+  - text: "$247.00"
+    id: t_sub_v
+    at: [912, 406]
+    fontSize: 13
+    align: left
+    stroke: "#212529"
+    frame: checkout
+  - text: "Shipping"
+    id: t_ship_l
+    at: [694, 430]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+    frame: checkout
+  - text: "Free"
+    id: t_ship_v
+    at: [936, 430]
+    fontSize: 13
+    align: left
+    stroke: "#2f9e44"
+    frame: checkout
+  - text: "Tax"
+    id: t_tax_l
+    at: [694, 454]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+    frame: checkout
+  - text: "$21.61"
+    id: t_tax_v
+    at: [918, 454]
+    fontSize: 13
+    align: left
+    stroke: "#212529"
+    frame: checkout
+
+  - line: { id: sd4, start: [694, 484], end: [976, 484], stroke: "#e9ecef" }
+    frame: checkout
+
+  - text: "Total"
+    id: t_total_l
+    at: [694, 498]
+    fontSize: 18
+    align: left
+    stroke: "#212529"
+    frame: checkout
+  - text: "$268.61"
+    id: t_total_v
+    at: [890, 498]
+    fontSize: 18
+    align: left
+    stroke: "#212529"
+    frame: checkout
+
+  # Place-order primary button (in sidebar)
+  - rect: btn_pay
+    at: [694, 538]
+    size: [282, 48]
+    bg: "#4263eb"
+    stroke: "#4263eb"
+    roundness: true
+    text: "Place order  ·  $268.61"
+    textColor: "#ffffff"
+    fontSize: 15
+    frame: checkout
+
+  # In-card secondary action (under payment fields)
+  - text: "←  Return to cart"
+    id: back_link
+    at: [68, 862]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+    frame: checkout
+
+  # ============================================================ FOOTER NOTE (under sidebar)
+  - text: "By placing your order you agree to our"
+    id: footer_note1
+    at: [670, 624]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+    frame: checkout
+  - text: "Terms of Service and Privacy Policy."
+    id: footer_note2
+    at: [670, 642]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+    frame: checkout

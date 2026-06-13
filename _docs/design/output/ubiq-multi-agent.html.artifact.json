@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "Ubiq — Subagents fan-out",
+  "entry": "ubiq-multi-agent.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "primary": true,
+  "createdAt": "2026-06-13T16:16:37.708Z",
+  "updatedAt": "2026-06-13T16:16:37.719Z",
+  "sourceSkillId": "agent-browser",
+  "metadata": {
+    "identifier": "ubiq-multi-agent",
+    "artifactType": "text/html",
+    "inferred": false
+  }
+}

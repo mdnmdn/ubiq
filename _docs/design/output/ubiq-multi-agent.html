@@ -1,0 +1,308 @@
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ubiq — Subagents</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<style>
+:root{
+  --bg: oklch(99% 0.002 240);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0.003 250);
+  --elevated: oklch(100% 0 0);
+  --fg: oklch(20% 0.012 250);
+  --muted: oklch(54% 0.012 250);
+  --faint: oklch(70% 0.01 250);
+  --border: oklch(92% 0.005 250);
+  --border-strong: oklch(86% 0.006 250);
+  --accent: oklch(56% 0.18 256);
+  --accent-fg: oklch(99% 0.01 256);
+  --accent-soft: oklch(56% 0.18 256 / .12);
+  --ok: oklch(60% 0.14 152);
+  --ok-soft: oklch(60% 0.14 152 / .14);
+  --warn: oklch(70% 0.14 70);
+  --warn-soft: oklch(70% 0.14 70 / .16);
+  --danger: oklch(58% 0.2 25);
+  --c-claude: oklch(64% 0.13 45);
+  --c-gemini: oklch(60% 0.16 270);
+  --c-codex:  oklch(60% 0.14 160);
+  --c-copilot: oklch(58% 0.01 260);
+  --c-opencode: oklch(60% 0.15 320);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --r: 9px;
+  --shadow: 0 1px 2px oklch(25% 0.03 260 / .06), 0 10px 30px oklch(25% 0.03 260 / .07);
+  --term-bg: #f8f9fb;
+}
+[data-theme="dark"]{
+  --bg: oklch(19% 0.013 264);
+  --surface: oklch(23% 0.015 264);
+  --surface-2: oklch(26% 0.016 264);
+  --elevated: oklch(27% 0.017 264);
+  --fg: oklch(95% 0.006 250);
+  --muted: oklch(68% 0.018 256);
+  --faint: oklch(52% 0.018 256);
+  --border: oklch(31% 0.014 264);
+  --border-strong: oklch(40% 0.016 264);
+  --accent: oklch(70% 0.15 256);
+  --accent-fg: oklch(18% 0.04 264);
+  --accent-soft: oklch(70% 0.15 256 / .16);
+  --ok: oklch(72% 0.15 156);
+  --ok-soft: oklch(72% 0.15 156 / .16);
+  --warn: oklch(80% 0.13 80);
+  --warn-soft: oklch(80% 0.13 80 / .16);
+  --danger: oklch(68% 0.18 25);
+  --c-claude: oklch(74% 0.12 55);
+  --c-gemini: oklch(72% 0.14 272);
+  --c-codex:  oklch(74% 0.13 162);
+  --c-copilot: oklch(72% 0.01 260);
+  --c-opencode: oklch(72% 0.14 322);
+  --shadow: 0 1px 2px oklch(0% 0 0 / .35), 0 14px 36px oklch(0% 0 0 / .4);
+  --term-bg: #14161b;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;font-size:13.5px;line-height:1.5;overflow:hidden}
+button{font-family:inherit;color:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--accent-soft)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+
+.app{display:flex;flex-direction:column;height:100vh}
+.titlebar{height:38px;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--border);user-select:none;flex:0 0 auto}
+.traffic{display:flex;gap:8px}
+.traffic i{width:12px;height:12px;border-radius:50%;display:block}
+.traffic .r{background:#ff5f57}.traffic .y{background:#febc2e}.traffic .g{background:#28c840}
+.title-c{flex:1;text-align:center;font-size:12px;color:var(--muted)}
+.title-c b{color:var(--fg);font-weight:600}
+.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;border:1px solid transparent;background:transparent}
+.icon-btn:hover{background:var(--surface-2);border-color:var(--border)}
+.icon-btn svg{width:16px;height:16px}
+
+.body{display:flex;flex:1;min-height:0}
+
+.sidebar{width:248px;flex:0 0 248px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:9px;padding:16px 16px 12px;font-family:var(--display)}
+.brand .mark{width:22px;height:22px;border-radius:6px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:13px}
+.brand b{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.brand .ver{font-size:10px;color:var(--faint);font-family:var(--mono);margin-left:auto}
+.side-pad{padding:0 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--border-strong);background:var(--surface-2);border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:550;transition:.14s;white-space:nowrap}
+.btn:hover{border-color:var(--faint);background:var(--elevated)}
+.btn svg{width:14px;height:14px}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.full{width:100%}
+.btn.sm{padding:5px 9px;font-size:11.5px}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.ghost:hover{background:var(--surface-2)}
+.sec-label{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);font-weight:600;padding:18px 18px 7px}
+.sessions{flex:1;overflow-y:auto;padding:0 8px;min-height:0}
+.s-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:.12s;margin-bottom:1px}
+.s-item:hover{background:var(--surface-2)}
+.s-item.active{background:var(--accent-soft)}
+.dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
+.dot.run{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft);animation:pulse 2s infinite}
+.dot.wait{background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--ok-soft)}50%{box-shadow:0 0 0 5px transparent}}
+.s-meta{min-width:0;flex:1}
+.s-name{font-size:12.5px;font-weight:550;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-sub{font-size:10.5px;color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-badge{font-size:9.5px;font-family:var(--mono);color:var(--accent);background:var(--accent-soft);border:1px solid transparent;border-radius:5px;padding:1px 5px;flex:0 0 auto;font-weight:600}
+.sidebar-foot{border-top:1px solid var(--border);padding:9px 12px;display:flex;gap:6px;align-items:center}
+.spacer{flex:1}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.topbar{display:flex;align-items:center;gap:12px;padding:11px 18px;flex:0 0 auto;border-bottom:1px solid var(--border);background:var(--surface);min-height:54px}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;min-width:0}
+.crumb .ses{font-weight:600}.crumb .sep{color:var(--faint)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:var(--mono);padding:3px 8px;border-radius:20px;border:1px solid var(--border);color:var(--muted);background:var(--surface-2)}
+.pill.run{color:var(--ok);border-color:var(--ok-soft);background:var(--ok-soft)}
+
+.fan{flex:1;min-height:0;display:grid;grid-template-columns:1.35fr 0.9fr;gap:12px;padding:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-height:0}
+.term-card{flex:1;min-height:0;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--term-bg);display:flex;flex-direction:column}
+.term-head{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);background:var(--surface)}
+.agent-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;font-family:var(--mono)}
+.agent-chip .sw{width:8px;height:8px;border-radius:2px}
+.st{font-family:var(--mono);font-size:10.5px;display:inline-flex;align-items:center;gap:5px}
+.st.run{color:var(--warn)}.st.done{color:var(--ok)}.st.lead{color:var(--accent)}
+.mini-mount{flex:1;min-height:0;padding:6px 4px 2px 8px}
+.mini-mount .xterm{height:100%}
+
+.tasks{flex:0 0 auto;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.tasks .th{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--border)}
+.tasks .th b{font-size:12.5px;font-weight:620}
+.tabset{display:flex;gap:2px;margin-left:auto}
+.tab{font-size:11px;padding:4px 9px;border-radius:6px;color:var(--muted);cursor:pointer}
+.tab.active{background:var(--accent-soft);color:var(--fg);font-weight:600}
+.task{display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid var(--border);font-size:12px}
+.task:last-child{border-bottom:none}
+.task .ic{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;flex:0 0 auto;font-size:11px}
+.task .ic.done{background:var(--ok-soft);color:var(--ok)}
+.task .ic.run{background:var(--warn-soft);color:var(--warn)}
+.task .ic.queue{background:var(--surface-2);color:var(--faint);border:1px solid var(--border)}
+.task .tt{flex:1;min-width:0}
+.task .tt .n{font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task .tt .a{font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+.task .pr{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.bar{width:54px;height:4px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title-c"><b>Ubiq</b> &nbsp;·&nbsp; backend-refactor · 3 agents</div>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+    </button>
+  </div>
+
+  <div class="body">
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span></div>
+      <div class="side-pad"><a class="btn primary full" href="agent-manager.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New session</a></div>
+      <div class="sec-label">Sessions</div>
+      <div class="sessions">
+        <a class="s-item active" href="multi-agent.html"><span class="dot run"></span><div class="s-meta"><div class="s-name">backend-refactor</div><div class="s-sub">main · claude</div></div><span class="s-badge">3</span></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot wait"></span><div class="s-meta"><div class="s-name">frontend-redesign</div><div class="s-sub">ui/cards · gemini</div></div></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot"></span><div class="s-meta"><div class="s-name">infra-migration</div><div class="s-sub">main · codex</div></div></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot"></span><div class="s-meta"><div class="s-name">data-pipeline</div><div class="s-sub">etl/v2 · claude</div></div></a>
+      </div>
+      <div class="sidebar-foot">
+        <a class="btn ghost sm" href="agent-manager.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg> Projects</a>
+        <div class="spacer"></div>
+        <a class="btn ghost sm" href="settings.html" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.3-1.3l-.3-2.5H10.3l-.3 2.5a7 7 0 0 0-2.3 1.3l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.3 1.3l.3 2.5h3.4l.3-2.5a7 7 0 0 0 2.3-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3Z"/></svg></a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumb"><span class="ses">backend-refactor</span><span class="sep">/</span><span class="pill run"><span class="dot run"></span>3 agents running</span></div>
+        <div class="spacer"></div>
+        <span class="pill">fan-out · parallel</span>
+        <a class="btn sm" href="agent-manager.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M15 6l-6 6 6 6"/></svg> Single view</a>
+        <button class="btn sm primary" id="addAgent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Add agent</button>
+      </div>
+
+      <div class="fan">
+        <div class="col">
+          <div class="term-card">
+            <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-claude)"></span>claude · orchestrator</span><div class="spacer"></div><span class="st lead">● lead</span></div>
+            <div class="mini-mount" id="t-lead"></div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="tasks">
+            <div class="th"><b>Tasks</b><span class="pill" style="padding:1px 7px">4</span>
+              <div class="tabset"><span class="tab active">Tasks</span><span class="tab">Activity</span></div>
+            </div>
+            <div class="task"><span class="ic done">✓</span><div class="tt"><div class="n">Extract auth module</div><div class="a">claude</div></div><span class="pr">done</span></div>
+            <div class="task"><span class="ic run">●</span><div class="tt"><div class="n">Backfill missing tests</div><div class="a">gemini</div></div><span class="bar"><i style="width:38%"></i></span></div>
+            <div class="task"><span class="ic done">✓</span><div class="tt"><div class="n">Update API docs</div><div class="a">codex</div></div><span class="pr">done</span></div>
+            <div class="task"><span class="ic queue">○</span><div class="tt"><div class="n">Perf pass on session store</div><div class="a">queued</div></div><span class="pr">·</span></div>
+          </div>
+
+          <div class="term-card">
+            <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-gemini)"></span>gemini · tests</span><div class="spacer"></div><span class="st run">● working</span></div>
+            <div class="mini-mount" id="t-gemini"></div>
+          </div>
+
+          <div class="term-card">
+            <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-codex)"></span>codex · docs</span><div class="spacer"></div><span class="st done">● done</span></div>
+            <div class="mini-mount" id="t-codex"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script>
+const root=document.documentElement, KEY="ubiq-theme";
+function applyTheme(t){root.dataset.theme=t;localStorage.setItem(KEY,t);refreshTermThemes();}
+document.getElementById("themeBtn").onclick=()=>applyTheme(root.dataset.theme==="dark"?"light":"dark");
+
+function termTheme(){
+  const dark=root.dataset.theme==="dark";
+  return dark ? {background:"#14161b",foreground:"#cdd2da",cursor:"#7aa2f7",cursorAccent:"#14161b",selectionBackground:"#2a3a55",
+    black:"#2a2e37",red:"#f7768e",green:"#9ece6a",yellow:"#e0af68",blue:"#7aa2f7",magenta:"#bb9af7",cyan:"#7dcfff",white:"#c0caf5",
+    brightBlack:"#565f89",brightRed:"#ff7a93",brightGreen:"#9ece6a",brightYellow:"#e0af68",brightBlue:"#7aa2f7",brightMagenta:"#bb9af7",brightCyan:"#7dcfff",brightWhite:"#e9ebf2"}
+  : {background:"#f8f9fb",foreground:"#2b3138",cursor:"#3056d3",cursorAccent:"#f8f9fb",selectionBackground:"#cfe0ff",
+    black:"#3b424b",red:"#cf222e",green:"#1a7f37",yellow:"#9a6700",blue:"#3056d3",magenta:"#8250df",cyan:"#0a7ea4",white:"#6e7781",
+    brightBlack:"#8c95a1",brightRed:"#cf222e",brightGreen:"#1a7f37",brightYellow:"#9a6700",brightBlue:"#3056d3",brightMagenta:"#8250df",brightCyan:"#0a7ea4",brightWhite:"#24292f"};
+}
+const TERMS=[];
+function refreshTermThemes(){const th=termTheme();TERMS.forEach(t=>t.options.theme=th);}
+function makeTerm(id){
+  const term=new window.Terminal({fontFamily:'"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace',fontSize:11,lineHeight:1.35,cursorBlink:true,convertEol:true,theme:termTheme(),scrollback:600});
+  const fit=new window.FitAddon.FitAddon();term.loadAddon(fit);term.open(document.getElementById(id));
+  try{fit.fit()}catch(e){} term._fit=fit;TERMS.push(term);return term;
+}
+function runScript(term,lines,loop){
+  let i=0;(function next(){
+    if(i>=lines.length){ if(loop){ setTimeout(()=>{term.writeln("");i=0;next();},2600);} return;}
+    const [t,d]=lines[i++];term.writeln(t);setTimeout(next,d);
+  })();
+}
+const C={dim:"\x1b[2m",r:"\x1b[0m",b:"\x1b[1m",g:"\x1b[32m",y:"\x1b[33m",bl:"\x1b[34m",blu:"\x1b[38;5;111m",gr:"\x1b[90m"};
+
+applyTheme(localStorage.getItem(KEY)||"dark");
+
+const lead=makeTerm("t-lead");
+runScript(lead,[
+  [`${C.dim}$ ubiq orchestrate --plan extract-auth --fan-out 2${C.r}`,160],
+  [`${C.blu}●${C.r} ${C.b}claude · orchestrator${C.r}  ${C.gr}backend-refactor@main${C.r}`,420],
+  ["",120],
+  [`${C.b}Decomposed task into 4 subtasks${C.r}`,300],
+  [`  ${C.g}✓${C.r} extract auth module          ${C.gr}self${C.r}`,260],
+  [`  ${C.gr}→${C.r} backfill missing tests       ${C.bl}gemini${C.r}`,260],
+  [`  ${C.gr}→${C.r} update API docs              ${C.g}codex${C.r}`,260],
+  [`  ${C.gr}·${C.r} perf pass on session store   ${C.gr}queued${C.r}`,420],
+  ["",120],
+  [`${C.b}Spawning subagents…${C.r}`,300],
+  [`  ${C.bl}gemini${C.r}  pid 48390  ${C.y}● working${C.r}   3/8 specs`,360],
+  [`  ${C.g}codex${C.r}   pid 48391  ${C.g}● done${C.r}      docs/api.md`,460],
+  ["",120],
+  [`${C.b}Merging results${C.r}`,300],
+  [`  watching working trees … ${C.gr}auto-merge on green${C.r}`,360],
+  [`  ${C.g}✓${C.r} codex tree merged   ${C.gr}2 files, no conflicts${C.r}`,440],
+  [`  ${C.y}…${C.r} waiting on gemini   ${C.gr}5 specs remaining${C.r}`,500],
+  ["",120],
+  [`${C.blu}▌${C.r} orchestrator live — ${C.b}⌥↵${C.r} approve merged diff`,200],
+],true);
+
+const gem=makeTerm("t-gemini");
+runScript(gem,[
+  [`${C.bl}●${C.r} gemini  generating tests`,300],
+  [`  + verify.expired-token.test.ts`,320],
+  [`  + verify.malformed.test.ts`,320],
+  [`  + session.evict.test.ts`,320],
+  [`  ${C.y}running…${C.r}  3 / 8`,360],
+  [`  ${C.g}PASS${C.r} 3   ${C.gr}5 queued${C.r}`,420],
+],true);
+
+const cod=makeTerm("t-codex");
+runScript(cod,[
+  [`${C.g}●${C.r} codex  updating docs`,300],
+  [`  scan endpoints … 14 routes`,320],
+  [`  write docs/api/auth.md`,320],
+  [`  ${C.g}✓ committed${C.r} 2 files`,360],
+  [`  ${C.gr}idle — merged by orchestrator${C.r}`,440],
+],true);
+
+document.getElementById("addAgent").onclick=()=>{ lead.writeln(""); lead.writeln(`${C.gr}→${C.r} ${C.bl}opencode${C.r} spawned  ${C.gr}task: perf pass${C.r}`); };
+window.addEventListener("resize",()=>TERMS.forEach(t=>{try{t._fit.fit()}catch(e){}}));
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");});
+</script>
+</body>
+</html>

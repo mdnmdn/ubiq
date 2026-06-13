@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ubiq — Subagents</title>
+<script>(function(){var m=localStorage.getItem('ubiq-theme-mode'),t=localStorage.getItem('ubiq-theme');var e=m==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(m||t||'dark');document.documentElement.dataset.theme=e==='light'?'light':'dark';})();</script>
+<link rel="stylesheet" href="css/ubiq.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title-c"><b>Ubiq</b> &nbsp;·&nbsp; backend-refactor · 3 agents</div>
+    <div class="win-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="body">
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span>
+        <button class="collapse-btn" id="collapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M14 6l-6 6 6 6"/></svg></button>
+      </div>
+      <div class="side-pad"><a class="btn primary full" href="agent-manager.html" title="New session"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">New session</span></a></div>
+      <div class="sec-label">Sessions</div>
+      <div class="sessions">
+        <a class="s-item active" href="multi-agent.html"><span class="dot run"></span><div class="s-meta"><div class="s-name">backend-refactor</div><div class="s-sub">main · claude</div></div><span class="s-badge">3</span></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot wait"></span><div class="s-meta"><div class="s-name">frontend-redesign</div><div class="s-sub">ui/cards · gemini</div></div></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot idle"></span><div class="s-meta"><div class="s-name">infra-migration</div><div class="s-sub">main · codex</div></div></a>
+        <a class="s-item" href="agent-manager.html"><span class="dot idle"></span><div class="s-meta"><div class="s-name">data-pipeline</div><div class="s-sub">etl/v2 · claude</div></div></a>
+      </div>
+      <div class="sidebar-foot">
+        <a class="btn ghost sm" href="agent-manager.html" title="Projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg><span class="lbl">Projects</span></a>
+        <div class="spacer"></div>
+        <a class="btn ghost sm" href="settings.html" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.3-1.3l-.3-2.5H10.3l-.3 2.5a7 7 0 0 0-2.3 1.3l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.3 1.3l.3 2.5h3.4l.3-2.5a7 7 0 0 0 2.3-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3Z"/></svg></a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumb"><span class="ses">backend-refactor</span><span class="sep">/</span><span class="pill run"><span class="dot run"></span>3 agents running</span></div>
+        <div class="spacer"></div>
+        <span class="pill">fan-out · parallel</span>
+        <a class="btn sm" href="agent-manager.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M15 6l-6 6 6 6"/></svg> Single view</a>
+        <button class="btn sm primary" id="addAgent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Add agent</button>
+      </div>
+
+      <div class="fan">
+        <div class="col">
+          <div class="term-card">
+            <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-claude)"></span>claude · orchestrator</span><div class="spacer"></div><span class="st lead">● lead</span></div>
+            <div class="mini-mount" id="t-lead"></div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="tasks">
+            <div class="th"><b>Tasks</b><span class="pill" style="padding:1px 7px">4</span>
+              <div class="tabset"><span class="tab active">Tasks</span><span class="tab">Activity</span></div>
+            </div>
+            <div class="task"><span class="ic done">✓</span><div class="tt"><div class="n">Extract auth module</div><div class="a">claude</div></div><span class="pr">done</span></div>
+            <div class="task"><span class="ic run">●</span><div class="tt"><div class="n">Backfill missing tests</div><div class="a">gemini</div></div><span class="bar"><i style="width:38%"></i></span></div>
+            <div class="task"><span class="ic done">✓</span><div class="tt"><div class="n">Update API docs</div><div class="a">codex</div></div><span class="pr">done</span></div>
+            <div class="task"><span class="ic queue">○</span><div class="tt"><div class="n">Perf pass on session store</div><div class="a">queued</div></div><span class="pr">·</span></div>
+          </div>
+
+          <div class="term-card">
+            <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-gemini)"></span>gemini · tests</span><div class="spacer"></div><span class="st run">● working</span></div>
+            <div class="mini-mount" id="t-gemini"></div>
+          </div>
+
+          <div class="term-card">
+            <div class="term-head"><span class="agent-chip"><span class="sw" style="background:var(--c-codex)"></span>codex · docs</span><div class="spacer"></div><span class="st done">● done</span></div>
+            <div class="mini-mount" id="t-codex"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="js/ubiq.js"></script>
+<script>
+const C={dim:"\x1b[2m",r:"\x1b[0m",b:"\x1b[1m",g:"\x1b[32m",y:"\x1b[33m",bl:"\x1b[34m",blu:"\x1b[38;5;111m",gr:"\x1b[90m"};
+
+const lead=Ubiq.makeTerm("t-lead",{fontSize:11,scrollback:600});
+Ubiq.writeLines(lead,[
+  [`${C.dim}$ ubiq orchestrate --plan extract-auth --fan-out 2${C.r}`],
+  [`${C.blu}●${C.r} ${C.b}claude · orchestrator${C.r}  ${C.gr}backend-refactor@main${C.r}`],
+  [""],
+  [`${C.b}Decomposed task into 4 subtasks${C.r}`],
+  [`  ${C.g}✓${C.r} extract auth module          ${C.gr}self${C.r}`],
+  [`  ${C.gr}→${C.r} backfill missing tests       ${C.bl}gemini${C.r}`],
+  [`  ${C.gr}→${C.r} update API docs              ${C.g}codex${C.r}`],
+  [`  ${C.gr}·${C.r} perf pass on session store   ${C.gr}queued${C.r}`],
+  [""],
+  [`${C.b}Spawning subagents…${C.r}`],
+  [`  ${C.bl}gemini${C.r}  pid 48390  ${C.y}● working${C.r}   3/8 specs`],
+  [`  ${C.g}codex${C.r}   pid 48391  ${C.g}● done${C.r}      docs/api.md`],
+  [""],
+  [`${C.b}Merging results${C.r}`],
+  [`  watching working trees … ${C.gr}auto-merge on green${C.r}`],
+  [`  ${C.g}✓${C.r} codex tree merged   ${C.gr}2 files, no conflicts${C.r}`],
+  [`  ${C.y}…${C.r} waiting on gemini   ${C.gr}5 specs remaining${C.r}`],
+  [""],
+  [`${C.blu}▌${C.r} orchestrator live — ${C.b}⌥↵${C.r} approve merged diff`],
+]);
+
+const gem=Ubiq.makeTerm("t-gemini",{fontSize:11,scrollback:600});
+Ubiq.writeLines(gem,[
+  [`${C.bl}●${C.r} gemini  generating tests`],
+  [`  + verify.expired-token.test.ts`],
+  [`  + verify.malformed.test.ts`],
+  [`  + session.evict.test.ts`],
+  [`  ${C.y}running…${C.r}  3 / 8`],
+  [`  ${C.g}PASS${C.r} 3   ${C.gr}5 queued${C.r}`],
+]);
+
+const cod=Ubiq.makeTerm("t-codex",{fontSize:11,scrollback:600});
+Ubiq.writeLines(cod,[
+  [`${C.g}●${C.r} codex  updating docs`],
+  [`  scan endpoints … 14 routes`],
+  [`  write docs/api/auth.md`],
+  [`  ${C.g}✓ committed${C.r} 2 files`],
+  [`  ${C.gr}idle — merged by orchestrator${C.r}`],
+]);
+
+document.getElementById("addAgent").onclick=()=>{ lead.writeln(""); lead.writeln(`${C.gr}→${C.r} ${C.bl}opencode${C.r} spawned  ${C.gr}task: perf pass${C.r}`); };
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");});
+</script>
+</body>
+</html>

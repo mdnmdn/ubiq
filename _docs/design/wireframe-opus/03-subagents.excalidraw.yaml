@@ -1,0 +1,331 @@
+# Ubiq — Screen 3: Subagents fan-out
+# When the main agent spawns subagents, side panes appear for the others.
+# Layout: large main pane (left) + stacked subagent panes (right).
+# EVERY pane keeps the same TWO-ROW title (badge+workspace+status / folder·status).
+# Render:  uv run _tools/excalidraw.py to-image -i 03-subagents.excalidraw.yaml -o 03-subagents.png --scale 2
+version: 1
+
+canvas:
+  background: "#f1f3f5"
+  theme: light
+
+layout:
+  mode: none
+
+defaults:
+  roughness: 0
+  strokeWidth: thin
+  fontFamily: normal
+
+elements:
+  # =================================================== WINDOW CHROME
+  - rect: { id: win, at: [20, 20], size: [1320, 840], bg: "#f1f3f5", stroke: "#ced4da", roundness: true }
+  - rect: { id: titlebar, at: [20, 20], size: [1320, 40], bg: "#e9ecef", stroke: "#ced4da", roundness: true }
+  - ellipse: { id: tl_r, at: [40, 34], size: [12, 12], bg: "#fa5252", stroke: "#fa5252" }
+  - ellipse: { id: tl_y, at: [58, 34], size: [12, 12], bg: "#fab005", stroke: "#fab005" }
+  - ellipse: { id: tl_g, at: [76, 34], size: [12, 12], bg: "#40c057", stroke: "#40c057" }
+  - text: "● Ubiq   —   backend-refactor · 3 agents"
+    id: wintitle
+    at: [540, 31]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+
+  # =================================================== SIDEBAR (always visible)
+  - rect: { id: sidebar, at: [40, 72], size: [240, 768], bg: "#1a1b26", stroke: "#1a1b26", roundness: true }
+  - text: "◆ Ubiq"
+    id: brand
+    at: [64, 92]
+    fontSize: 20
+    align: left
+    stroke: "#ffffff"
+  - text: "harness multiplexer"
+    id: tagline
+    at: [64, 119]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: { id: btn_add, at: [60, 150], size: [200, 42], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "＋  Add session", textColor: "#ffffff", fontSize: 14 }
+
+  - text: "SESSIONS"
+    id: sess_hdr
+    at: [64, 214]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - rect: { id: sess1, at: [56, 234], size: [208, 54], bg: "#24283b", stroke: "#24283b", roundness: true }
+  - rect: { id: sess1bar, at: [56, 234], size: [4, 54], bg: "#4263eb", stroke: "#4263eb" }
+  - text: "backend-refactor"
+    id: s1n
+    at: [76, 244]
+    fontSize: 14
+    align: left
+    stroke: "#ffffff"
+  - text: "claude · 3 agents"
+    id: s1m
+    at: [76, 265]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "frontend-redesign"
+    id: s2n
+    at: [76, 306]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "opencode · 1 agent"
+    id: s2m
+    at: [76, 327]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - text: "infra-migration"
+    id: s3n
+    at: [76, 362]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+  - text: "codex · idle"
+    id: s3m
+    at: [76, 383]
+    fontSize: 11
+    align: left
+    stroke: "#565f89"
+
+  - line: { id: sb_div, start: [56, 800], end: [264, 800], stroke: "#2a2e42" }
+  - text: "⚙  Settings"
+    id: settings_item
+    at: [76, 815]
+    fontSize: 14
+    align: left
+    stroke: "#c0caf5"
+
+  # =================================================== SESSION TOPBAR
+  - rect: { id: topbar, at: [300, 72], size: [1020, 56], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  - text: "backend-refactor"
+    id: sess_name
+    at: [320, 82]
+    fontSize: 16
+    align: left
+    stroke: "#212529"
+  - text: "~/works/projects/agent-manager  ·  3 agents running"
+    id: sess_path
+    at: [320, 104]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - rect: { id: btn_split, at: [1108, 86], size: [80, 32], bg: "#f1f3f5", stroke: "#ced4da", roundness: true, text: "⊟ Split", textColor: "#495057", fontSize: 13 }
+  - rect: { id: btn_addag, at: [1196, 86], size: [108, 32], bg: "#4263eb", stroke: "#4263eb", roundness: true, text: "＋ Add agent", textColor: "#ffffff", fontSize: 13 }
+
+  # =================================================== MAIN AGENT PANE (left)
+  - rect: { id: pane, at: [300, 140], size: [672, 700], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  # row 1
+  - rect: { id: m_pill, at: [316, 150], size: [70, 24], bg: "#edf2ff", stroke: "#dbe4ff", roundness: true, text: "claude", textColor: "#4263eb", fontSize: 12 }
+  - text: "main"
+    id: m_ws
+    at: [398, 152]
+    fontSize: 15
+    align: left
+    stroke: "#212529"
+  - ellipse: { id: m_dot, at: [452, 158], size: [10, 10], bg: "#2f9e44", stroke: "#2f9e44" }
+  - text: "running"
+    id: m_status
+    at: [468, 153]
+    fontSize: 12
+    align: left
+    stroke: "#2f9e44"
+  - text: "orchestrator"
+    id: m_role
+    at: [872, 153]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  # row 2
+  - text: "📁 …/agent-manager   ·   claude-opus-4   ·   ctx 51%"
+    id: m_meta
+    at: [316, 180]
+    fontSize: 12
+    align: left
+    stroke: "#868e96"
+  - line: { id: m_div, start: [300, 204], end: [972, 204], stroke: "#dee2e6" }
+  # body
+  - rect: { id: m_term, at: [308, 212], size: [656, 620], bg: "#1e1e1e", stroke: "#1e1e1e", roundness: true }
+  - text: "$ claude"
+    id: mt1
+    at: [328, 232]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "Spawning subagents for parallel work:"
+    id: mt2
+    at: [328, 258]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "  → tests   codex    ./crates/core"
+    id: mt3
+    at: [328, 284]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "  → docs    gemini   ./_docs"
+    id: mt4
+    at: [328, 308]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "Watching their output and merging"
+    id: mt5
+    at: [328, 342]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "results back into the refactor plan…"
+    id: mt6
+    at: [328, 366]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "▌"
+    id: m_cursor
+    at: [328, 400]
+    fontSize: 14
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+
+  # =================================================== SUBAGENT PANE A (codex / tests)
+  - rect: { id: a_pane, at: [988, 140], size: [332, 344], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  # row 1
+  - rect: { id: a_pill, at: [1004, 150], size: [66, 24], bg: "#fff0f6", stroke: "#ffdeeb", roundness: true, text: "codex", textColor: "#e64980", fontSize: 12 }
+  - text: "tests"
+    id: a_ws
+    at: [1082, 152]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - ellipse: { id: a_dot, at: [1286, 157], size: [10, 10], bg: "#f59f00", stroke: "#f59f00" }
+  - text: "working"
+    id: a_status
+    at: [1238, 152]
+    fontSize: 11
+    align: left
+    stroke: "#f59f00"
+  # row 2
+  - text: "📁 ./crates/core   ·   subagent of main"
+    id: a_meta
+    at: [1004, 179]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+  - line: { id: a_div, start: [988, 202], end: [1320, 202], stroke: "#dee2e6" }
+  # body
+  - rect: { id: a_term, at: [996, 210], size: [316, 266], bg: "#1e1e1e", stroke: "#1e1e1e", roundness: true }
+  - text: "$ codex"
+    id: at1
+    at: [1012, 228]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "writing unit tests for"
+    id: at2
+    at: [1012, 252]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "WorkspaceIO::resize() and"
+    id: at3
+    at: [1012, 274]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "bus output routing…"
+    id: at4
+    at: [1012, 296]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "▌"
+    id: a_cursor
+    at: [1012, 330]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+
+  # =================================================== SUBAGENT PANE B (gemini / docs)
+  - rect: { id: b_pane, at: [988, 500], size: [332, 340], bg: "#ffffff", stroke: "#dee2e6", roundness: true }
+  # row 1
+  - rect: { id: b_pill, at: [1004, 510], size: [72, 24], bg: "#ebfbee", stroke: "#d3f9d8", roundness: true, text: "gemini", textColor: "#2f9e44", fontSize: 12 }
+  - text: "docs"
+    id: b_ws
+    at: [1088, 512]
+    fontSize: 14
+    align: left
+    stroke: "#212529"
+  - ellipse: { id: b_dot, at: [1290, 517], size: [10, 10], bg: "#2f9e44", stroke: "#2f9e44" }
+  - text: "running"
+    id: b_status
+    at: [1238, 512]
+    fontSize: 11
+    align: left
+    stroke: "#2f9e44"
+  # row 2
+  - text: "📁 ./_docs   ·   subagent of main"
+    id: b_meta
+    at: [1004, 539]
+    fontSize: 11
+    align: left
+    stroke: "#868e96"
+  - line: { id: b_div, start: [988, 562], end: [1320, 562], stroke: "#dee2e6" }
+  # body
+  - rect: { id: b_term, at: [996, 570], size: [316, 262], bg: "#1e1e1e", stroke: "#1e1e1e", roundness: true }
+  - text: "$ gemini"
+    id: bt1
+    at: [1012, 588]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"
+  - text: "updating AGENTS.md with the"
+    id: bt2
+    at: [1012, 612]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "new module layout and the"
+    id: bt3
+    at: [1012, 634]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "WorkspaceIO contract…"
+    id: bt4
+    at: [1012, 656]
+    fontSize: 12
+    fontFamily: code
+    align: left
+    stroke: "#ced4da"
+  - text: "▌"
+    id: b_cursor
+    at: [1012, 690]
+    fontSize: 13
+    fontFamily: code
+    align: left
+    stroke: "#69db7c"

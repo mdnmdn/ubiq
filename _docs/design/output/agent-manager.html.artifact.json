@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "agent-manager.html",
+  "entry": "agent-manager.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-13T14:14:50.211Z",
+  "updatedAt": "2026-06-13T14:14:50.211Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ubiq — Agent Manager</title>
+<script>(function(){var m=localStorage.getItem('ubiq-theme-mode'),t=localStorage.getItem('ubiq-theme');var e=m==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(m||t||'dark');document.documentElement.dataset.theme=e==='light'?'light':'dark';})();</script>
+<link rel="stylesheet" href="css/ubiq.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title-c"><b>Ubiq</b> &nbsp;·&nbsp; backend-refactor</div>
+    <div class="win-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">◇</span><b>Ubiq</b><span class="ver">v0.4.2</span>
+        <button class="collapse-btn" id="collapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M14 6l-6 6 6 6"/></svg></button>
+      </div>
+      <div class="side-pad">
+        <button class="btn primary full" id="newSessionBtn" title="New session">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">New session</span>
+        </button>
+      </div>
+      <div class="sec-label">Sessions</div>
+      <div class="sessions" id="sessions">
+        <div class="s-item active" data-session="backend-refactor">
+          <span class="dot run"></span>
+          <div class="s-meta"><div class="s-name">backend-refactor</div><div class="s-sub">main · claude</div></div>
+          <span class="s-badge">3</span>
+        </div>
+        <div class="s-item" data-session="frontend-redesign">
+          <span class="dot wait"></span>
+          <div class="s-meta"><div class="s-name">frontend-redesign</div><div class="s-sub">ui/cards · gemini</div></div>
+        </div>
+        <div class="s-item" data-session="infra-migration">
+          <span class="dot idle"></span>
+          <div class="s-meta"><div class="s-name">infra-migration</div><div class="s-sub">main · codex</div></div>
+        </div>
+        <div class="s-item" data-session="data-pipeline">
+          <span class="dot idle"></span>
+          <div class="s-meta"><div class="s-name">data-pipeline</div><div class="s-sub">etl/v2 · claude</div></div>
+        </div>
+      </div>
+      <div class="sidebar-foot">
+        <button class="btn ghost sm" id="gotoProjects" title="Projects">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg><span class="lbl">Projects</span>
+        </button>
+        <div class="spacer"></div>
+        <a class="btn ghost sm" href="settings.html" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.3-1.3l-.3-2.5H10.3l-.3 2.5a7 7 0 0 0-2.3 1.3l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .9.1 1.3l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.3 1.3l.3 2.5h3.4l.3-2.5a7 7 0 0 0 2.3-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3Z"/></svg>
+        </a>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+
+      <!-- SESSION (single agent + terminal) -->
+      <section class="view show" id="view-session">
+        <div class="topbar">
+          <div class="crumb">
+            <span class="ses">backend-refactor</span>
+            <span class="sep">/</span>
+            <span class="pill git"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 3-3 3.5-6 3.5"/></svg>main</span>
+            <span class="pill run"><span class="dot run"></span>running</span>
+          </div>
+          <div class="spacer"></div>
+          <span class="pill">agent 1 / 1</span>
+          <a class="btn sm" href="multi-agent.html" title="Split into parallel agents">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg> Split
+          </a>
+          <a class="btn sm primary" href="multi-agent.html">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Add agent
+          </a>
+        </div>
+
+        <div class="term-tabs">
+          <div class="ttab active"><span class="dot run"></span>claude · main</div>
+          <div class="ttab" style="color:var(--faint)">+ tab</div>
+        </div>
+
+        <div class="term-wrap">
+          <div class="term-card">
+            <div class="term-head">
+              <span class="agent-chip"><span class="sw" style="background:var(--c-claude)"></span>claude-sonnet</span>
+              <span style="color:var(--faint)">·</span><span>pid 48213</span>
+              <div class="spacer"></div>
+              <span style="color:var(--ok)">● live</span>
+            </div>
+            <div class="term-mount" id="term-main"></div>
+          </div>
+        </div>
+
+        <div class="term-composer">
+          <textarea id="ask" placeholder="Message the agent…  e.g. “also update the OpenAPI spec”"></textarea>
+          <span class="hint">⌥↵ approve</span>
+          <button class="btn primary" id="sendBtn">Send</button>
+        </div>
+      </section>
+
+      <!-- PROJECTS -->
+      <section class="view" id="view-projects">
+        <div class="topbar">
+          <div class="crumb"><span class="ses">Projects</span></div>
+          <div class="spacer"></div>
+          <button class="btn sm primary" id="newProjectBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> New project
+          </button>
+        </div>
+        <div class="scroll">
+          <div class="page">
+            <div class="page-head">
+              <div><h1>Projects</h1><p class="lead">Manage workspaces — pick an agent, open a session.</p></div>
+            </div>
+            <div class="proj-grid">
+              <div class="proj" data-open>
+                <div class="pt"><span class="pi">ag</span><div><h3>agent-manager</h3><div class="ppath">~/dev/agent-manager</div></div></div>
+                <div class="ptags">
+                  <span class="tag"><span class="sw" style="background:var(--c-claude)"></span>claude</span>
+                  <span class="tag"><span class="sw" style="background:var(--c-codex)"></span>codex</span>
+                </div>
+                <div class="pfoot"><span>1 session · running</span><span style="color:var(--accent);font-weight:600">Open →</span></div>
+              </div>
+              <div class="proj" data-open>
+                <div class="pt"><span class="pi">ub</span><div><h3>ubiq</h3><div class="ppath">~/dev/ubiq</div></div></div>
+                <div class="ptags"><span class="tag"><span class="sw" style="background:var(--c-gemini)"></span>gemini</span></div>
+                <div class="pfoot"><span>1 session · idle 24m</span><span style="color:var(--accent);font-weight:600">Open →</span></div>
+              </div>
+              <div class="proj" data-open>
+                <div class="pt"><span class="pi">wd</span><div><h3>web-dashboard</h3><div class="ppath">~/dev/web-dashboard</div></div></div>
+                <div class="ptags">
+                  <span class="tag"><span class="sw" style="background:var(--c-opencode)"></span>opencode</span>
+                  <span class="tag"><span class="sw" style="background:var(--c-claude)"></span>claude</span>
+                </div>
+                <div class="pfoot"><span>idle · yesterday</span><span style="color:var(--accent);font-weight:600">Open →</span></div>
+              </div>
+              <div class="proj" data-open>
+                <div class="pt"><span class="pi">dp</span><div><h3>data-pipeline</h3><div class="ppath">~/dev/data-pipeline</div></div></div>
+                <div class="ptags">
+                  <span class="tag"><span class="sw" style="background:var(--c-codex)"></span>codex</span>
+                  <span class="tag"><span class="sw" style="background:var(--c-gemini)"></span>gemini</span>
+                </div>
+                <div class="pfoot"><span>2 sessions · idle</span><span style="color:var(--accent);font-weight:600">Open →</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- NEW PROJECT modal -->
+<div class="scrim" id="scrim">
+  <div class="modal">
+    <div class="mh"><h2>New project</h2></div>
+    <div class="mb">
+      <div class="field"><label>Name</label><input type="text" placeholder="my-service"></div>
+      <div class="field"><label>Location</label><input type="text" value="~/dev/projects"></div>
+      <div class="field">
+        <label>Start agent</label>
+        <div class="agent-pick" id="agentPick">
+          <div class="ap sel" data-a="claude"><span class="sw" style="background:var(--c-claude)"></span>claude</div>
+          <div class="ap" data-a="opencode"><span class="sw" style="background:var(--c-opencode)"></span>opencode</div>
+          <div class="ap" data-a="gemini"><span class="sw" style="background:var(--c-gemini)"></span>gemini</div>
+          <div class="ap" data-a="codex"><span class="sw" style="background:var(--c-codex)"></span>codex</div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn" id="cancelProject">Cancel</button>
+      <button class="btn primary" id="createProject">Create project</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="js/ubiq.js"></script>
+<script>
+/* ---- main session terminal (streamed) ---- */
+const C={dim:"\x1b[2m",r:"\x1b[0m",b:"\x1b[1m",g:"\x1b[32m",y:"\x1b[33m",bl:"\x1b[34m",blu:"\x1b[38;5;111m",gr:"\x1b[90m"};
+const mainTerm=Ubiq.makeTerm("term-main",{fontSize:13,cursorBlink:true});
+function stream(term,lines){let i=0;(function next(){if(i>=lines.length)return;const [t,d]=lines[i++];term.writeln(t);setTimeout(next,d);})();}
+stream(mainTerm,[
+  [`${C.dim}$ ubiq run --agent claude --task "extract auth into its own module"${C.r}`,140],
+  [`${C.blu}●${C.r} ${C.b}claude-sonnet${C.r}  workspace ${C.gr}backend-refactor${C.r}  branch ${C.gr}main${C.r}`,420],
+  ["",120],
+  [`${C.b}Analyzing repository structure…${C.r}`,300],
+  [`  ${C.gr}read${C.r}  src/server/auth.ts        ${C.gr}412 lines${C.r}`,180],
+  [`  ${C.gr}read${C.r}  src/server/middleware.ts   ${C.gr}88 lines${C.r}`,180],
+  [`  ${C.gr}read${C.r}  src/routes/*.ts            ${C.gr}6 files${C.r}`,260],
+  [`${C.g}✓${C.r} mapped 3 modules · 6 import sites`,520],
+  ["",140],
+  [`${C.b}Plan${C.r}`,200],
+  [`  ${C.blu}1${C.r}  extract token verification → ${C.bl}src/auth/verify.ts${C.r}`,170],
+  [`  ${C.blu}2${C.r}  move session store        → ${C.bl}src/auth/session.ts${C.r}`,170],
+  [`  ${C.blu}3${C.r}  rewrite 6 import sites`,420],
+  ["",140],
+  [`${C.y}●${C.r} writing src/auth/verify.ts         ${C.g}done${C.r}`,360],
+  [`${C.y}●${C.r} writing src/auth/session.ts        ${C.g}done${C.r}`,360],
+  [`${C.y}●${C.r} rewriting imports (6 files)        ${C.g}done${C.r}`,520],
+  ["",140],
+  [`${C.b}Running tests${C.r}  ${C.dim}pnpm test auth${C.r}`,300],
+  [`  ${C.g}PASS${C.r}  auth/verify.test.ts   ${C.gr}(12)${C.r}`,300],
+  [`  ${C.g}PASS${C.r}  auth/session.test.ts  ${C.gr}(8)${C.r}`,300],
+  [`  ${C.g}✓ 20 passing${C.r}  ${C.dim}1.4s${C.r}`,520],
+  ["",160],
+  [`${C.blu}▌${C.r} awaiting review — message the agent or press ${C.b}⌥↵${C.r} to approve & commit`,200],
+]);
+
+/* ---- view routing (session ⇄ projects) ---- */
+const views=["session","projects"];
+function show(v){
+  views.forEach(x=>document.getElementById("view-"+x).classList.toggle("show",x===v));
+  requestAnimationFrame(()=>setTimeout(Ubiq.refitTerms,60));
+}
+document.getElementById("gotoProjects").onclick=()=>show("projects");
+document.querySelectorAll(".s-item").forEach(el=>el.onclick=()=>{
+  document.querySelectorAll(".s-item").forEach(s=>s.classList.remove("active"));
+  el.classList.add("active"); show("session");
+});
+document.querySelectorAll(".proj").forEach(p=>p.onclick=()=>show("session"));
+
+/* ---- modal ---- */
+const scrim=document.getElementById("scrim");
+const open=()=>scrim.classList.add("show"), close=()=>scrim.classList.remove("show");
+document.getElementById("newProjectBtn").onclick=open;
+document.getElementById("newSessionBtn").onclick=open;
+document.getElementById("cancelProject").onclick=close;
+document.getElementById("createProject").onclick=()=>{close();show("session");};
+scrim.onclick=e=>{if(e.target===scrim)close();};
+document.getElementById("agentPick").addEventListener("click",e=>{
+  const ap=e.target.closest(".ap"); if(!ap) return;
+  document.querySelectorAll("#agentPick .ap").forEach(a=>a.classList.remove("sel")); ap.classList.add("sel");
+});
+
+/* ---- composer → write into terminal ---- */
+const ask=document.getElementById("ask");
+function sendMsg(){
+  const v=ask.value.trim(); if(!v) return;
+  mainTerm.writeln(""); mainTerm.writeln(`${C.blu}❯${C.r} ${v}`); ask.value="";
+  setTimeout(()=>{ mainTerm.writeln(`${C.gr}claude is thinking…${C.r}`);
+    setTimeout(()=>mainTerm.writeln(`${C.g}✓${C.r} on it — applying that change next.`),700); },350);
+}
+document.getElementById("sendBtn").onclick=sendMsg;
+ask.addEventListener("keydown",e=>{ if(e.key==="Enter"&&(e.altKey||e.metaKey)){e.preventDefault();sendMsg();} });
+</script>
+</body>
+</html>

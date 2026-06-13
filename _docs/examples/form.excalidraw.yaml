@@ -1,0 +1,183 @@
+# Sign-up form wireframe in the simple Excalidraw format.
+# Render:  uv run _tools/excalidraw.py to-image -i _docs/examples/form.excalidraw.yaml -o /tmp/form.png --scale 2
+# Convert: uv run _tools/excalidraw.py to-excalidraw -i _docs/examples/form.excalidraw.yaml -o /tmp/form.excalidraw
+version: 1
+
+canvas:
+  background: "#f8f9fa"
+  theme: light
+
+# Explicit coordinates — forms need precise alignment.
+layout:
+  mode: none
+
+defaults:
+  roughness: 0          # clean, UI-mockup look
+  strokeWidth: thin
+
+elements:
+  # Outer frame / label
+  - frame: signup
+    at: [40, 20]
+    size: [520, 660]
+    name: "Sign Up — Wireframe"
+
+  # Card panel
+  - rect: card
+    at: [80, 40]
+    size: [440, 600]
+    bg: "#ffffff"
+    stroke: "#dee2e6"
+    roundness: true
+    frame: signup
+
+  # Heading
+  - text: "Create your account"
+    id: title
+    at: [120, 75]
+    fontSize: 26
+    stroke: "#212529"
+    frame: signup
+  - text: "Start your 14-day free trial — no card required."
+    id: subtitle
+    at: [120, 112]
+    fontSize: 14
+    stroke: "#868e96"
+    frame: signup
+
+  # --- Field 1: Full name ---
+  - text: "Full name"
+    id: lbl_name
+    at: [120, 156]
+    fontSize: 13
+    stroke: "#495057"
+    frame: signup
+  - rect: in_name
+    at: [120, 176]
+    size: [360, 44]
+    bg: "#f1f3f5"
+    stroke: "#ced4da"
+    roundness: true
+    frame: signup
+  - text: "Jane Doe"
+    id: ph_name
+    at: [136, 188]
+    fontSize: 15
+    align: left
+    stroke: "#adb5bd"
+    frame: signup
+
+  # --- Field 2: Email ---
+  - text: "Email address"
+    id: lbl_email
+    at: [120, 236]
+    fontSize: 13
+    stroke: "#495057"
+    frame: signup
+  - rect: in_email
+    at: [120, 256]
+    size: [360, 44]
+    bg: "#f1f3f5"
+    stroke: "#ced4da"
+    roundness: true
+    frame: signup
+  - text: "jane@example.com"
+    id: ph_email
+    at: [136, 268]
+    fontSize: 15
+    align: left
+    stroke: "#adb5bd"
+    frame: signup
+
+  # --- Field 3: Password ---
+  - text: "Password"
+    id: lbl_pass
+    at: [120, 316]
+    fontSize: 13
+    stroke: "#495057"
+    frame: signup
+  - rect: in_pass
+    at: [120, 336]
+    size: [360, 44]
+    bg: "#f1f3f5"
+    stroke: "#ced4da"
+    roundness: true
+    frame: signup
+  - text: "••••••••"
+    id: ph_pass
+    at: [136, 348]
+    fontSize: 15
+    align: left
+    stroke: "#adb5bd"
+    frame: signup
+  - text: "Show"
+    id: pass_show
+    at: [432, 348]
+    fontSize: 13
+    align: left
+    stroke: "#4263eb"
+    frame: signup
+
+  # --- Consent checkbox ---
+  - rect: chk
+    at: [120, 404]
+    size: [20, 20]
+    bg: "#ffffff"
+    stroke: "#ced4da"
+    roundness: true
+    frame: signup
+  - text: "I agree to the Terms of Service and Privacy Policy"
+    id: chk_label
+    at: [152, 406]
+    fontSize: 13
+    align: left
+    stroke: "#495057"
+    frame: signup
+
+  # --- Primary action ---
+  - rect: btn_primary
+    at: [120, 448]
+    size: [360, 48]
+    bg: "#4263eb"
+    stroke: "#4263eb"
+    roundness: true
+    text: "Create account"
+    textColor: "#ffffff"
+    fontSize: 16
+    frame: signup
+
+  # --- Divider + social ---
+  - text: "or sign up with"
+    id: divider
+    at: [232, 516]
+    fontSize: 12
+    align: left
+    stroke: "#adb5bd"
+    frame: signup
+  - rect: btn_google
+    at: [120, 540]
+    size: [172, 44]
+    bg: "#ffffff"
+    stroke: "#ced4da"
+    roundness: true
+    text: "Google"
+    fontSize: 14
+    frame: signup
+  - rect: btn_github
+    at: [308, 540]
+    size: [172, 44]
+    bg: "#ffffff"
+    stroke: "#ced4da"
+    roundness: true
+    text: "GitHub"
+    fontSize: 14
+    frame: signup
+
+  # --- Footer link ---
+  - text: "Already have an account?  Sign in"
+    id: footer
+    at: [165, 606]
+    fontSize: 14
+    align: left
+    stroke: "#4263eb"
+    frame: signup
