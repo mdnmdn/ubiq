@@ -4,6 +4,18 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { bus } from './bus.js';
 
+const AGENT_COLORS = {
+  claude: 'var(--c-claude)',
+  gemini: 'var(--c-gemini)',
+  codex: 'var(--c-codex)',
+  opencode: 'var(--c-opencode)',
+  copilot: 'var(--c-copilot)',
+};
+
+function getAgentColor(agentType) {
+  return AGENT_COLORS[agentType] || 'var(--accent)';
+}
+
 class WorkspacePane {
   constructor(workspaceInfo, container) {
     this.id = workspaceInfo.id;
@@ -20,47 +32,62 @@ class WorkspacePane {
 
   createElement(container) {
     this.element = document.createElement('div');
-    this.element.className = 'workspace-pane';
+    this.element.className = 'term-card';
     this.element.dataset.workspaceId = this.id;
 
-    const header = document.createElement('div');
-    header.className = 'pane-header';
+    const head = document.createElement('div');
+    head.className = 'term-head';
 
-    const badge = document.createElement('span');
-    badge.className = 'agent-badge';
-    badge.textContent = this.agentType;
+    const chip = document.createElement('span');
+    chip.className = 'agent-chip';
+    chip.innerHTML = `<span class="sw" style="background:${getAgentColor(this.agentType)}"></span>${this.agentType}`;
 
-    this.statusDot = document.createElement('span');
-    this.statusDot.className = 'status-dot running';
+    const dot = document.createElement('span');
+    dot.style.color = 'var(--faint)';
+    dot.textContent = '·';
 
-    header.appendChild(badge);
-    header.appendChild(this.statusDot);
+    this.pidSpan = document.createElement('span');
+    this.pidSpan.textContent = 'starting…';
 
-    this.contentElement = document.createElement('div');
-    this.contentElement.className = 'pane-content';
+    const spacer = document.createElement('div');
+    spacer.className = 'spacer';
 
-    this.element.appendChild(header);
-    this.element.appendChild(this.contentElement);
+    this.statusSpan = document.createElement('span');
+    this.statusSpan.style.color = 'var(--ok)';
+    this.statusSpan.innerHTML = '● live';
+
+    head.appendChild(chip);
+    head.appendChild(dot);
+    head.appendChild(this.pidSpan);
+    head.appendChild(spacer);
+    head.appendChild(this.statusSpan);
+
+    this.mountElement = document.createElement('div');
+    this.mountElement.className = 'term-mount';
+
+    this.element.appendChild(head);
+    this.element.appendChild(this.mountElement);
     container.appendChild(this.element);
   }
 
   initTerminal() {
     this.terminal = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
-        cursor: '#d4d4d4',
-        selectionBackground: '#264f78',
+      fontSize: 13,
+      fontFamily: '"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace',
+      lineHeight: 1.35,
+      theme: window.Ubiq ? window.Ubiq.termTheme() : {
+        background: '#14161b',
+        foreground: '#cdd2da',
+        cursor: '#7aa2f7',
+        selectionBackground: '#2a3a55',
       },
     });
 
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
     this.terminal.loadAddon(new WebLinksAddon());
-    this.terminal.open(this.contentElement);
+    this.terminal.open(this.mountElement);
 
     requestAnimationFrame(() => {
       this.fitAddon.fit();
@@ -73,7 +100,7 @@ class WorkspacePane {
       const { cols, rows } = this.terminal;
       bus.resizeTerminal(this.id, cols, rows);
     });
-    resizeObserver.observe(this.contentElement);
+    resizeObserver.observe(this.mountElement);
 
     this.terminal.onData((data) => {
       const bytes = new TextEncoder().encode(data);
@@ -92,7 +119,8 @@ class WorkspacePane {
     bus.on('WorkspaceExited', (payload) => {
       if (payload.workspace_id === this.id) {
         this.running = false;
-        this.statusDot.className = 'status-dot exited';
+        this.statusSpan.style.color = 'var(--danger)';
+        this.statusSpan.innerHTML = '● exited';
         this.terminal.writeln('\r\n\x1b[31m[Process exited]\x1b[0m');
       }
     });
@@ -100,7 +128,8 @@ class WorkspacePane {
     bus.on('WorkspaceError', (payload) => {
       if (payload.workspace_id === this.id) {
         this.running = false;
-        this.statusDot.className = 'status-dot exited';
+        this.statusSpan.style.color = 'var(--danger)';
+        this.statusSpan.innerHTML = '● error';
         this.terminal.writeln(`\r\n\x1b[31m[Error: ${payload.error}]\x1b[0m`);
       }
     });
@@ -129,15 +158,17 @@ class App {
 
   setupDOMRefs() {
     this.sessionListEl = document.getElementById('session-list');
-    this.sessionHeaderEl = document.getElementById('session-header');
     this.sessionTitleEl = document.getElementById('session-title');
+    this.sessionSep = document.getElementById('session-sep');
+    this.sessionStatus = document.getElementById('session-status');
+    this.agentCountEl = document.getElementById('agent-count');
     this.panesContainer = document.getElementById('panes-container');
-    this.welcomeView = document.getElementById('welcome-view');
+    this.welcomeView = document.getElementById('view-welcome');
+    this.sessionView = document.getElementById('view-session');
     this.createDialog = document.getElementById('create-dialog');
     this.sessionNameInput = document.getElementById('session-name');
     this.agentTypeSelect = document.getElementById('agent-type');
     this.homeFolderInput = document.getElementById('home-folder');
-    this.statusText = document.getElementById('status-text');
   }
 
   setupDOMListeners() {
@@ -161,7 +192,7 @@ class App {
 
     bus.on('AgentTypes', (payload) => {
       this.agentTypes = payload.types || [];
-      if (!this.createDialog.classList.contains('visible')) {
+      if (!this.createDialog.classList.contains('show')) {
         this.populateAgentTypes();
       }
     });
@@ -175,6 +206,9 @@ class App {
     bus.on('SessionAttached', (payload) => {
       this.currentSessionId = payload.session.id;
       this.sessionTitleEl.textContent = payload.session.name;
+      this.sessionSep.style.display = '';
+      this.sessionStatus.style.display = '';
+      this.agentCountEl.style.display = '';
       this.workspaces.clear();
       (payload.workspaces || []).forEach((ws) => this.workspaces.set(ws.id, ws));
       this.showSessionView();
@@ -185,15 +219,16 @@ class App {
       if (payload.workspace) {
         this.workspaces.set(payload.workspace.id, payload.workspace);
         this.addPane(payload.workspace);
+        this.updateAgentCount();
       }
     });
 
     bus.on('Error', (payload) => {
-      this.updateStatus(payload.message || 'Error occurred');
+      console.error('Error:', payload.message);
     });
 
     bus.on('Status', (payload) => {
-      this.updateStatus(payload.message || '');
+      console.log('Status:', payload.message);
     });
   }
 
@@ -206,25 +241,34 @@ class App {
     this.sessionListEl.innerHTML = '';
     if (this.sessions.length === 0) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'padding: 12px; font-size: 12px; color: #666;';
+      empty.className = 'empty';
       empty.textContent = 'No sessions yet';
       this.sessionListEl.appendChild(empty);
       return;
     }
     this.sessions.forEach((session) => {
       const item = document.createElement('div');
-      item.className = 'session-item';
+      item.className = 's-item';
       if (session.id === this.currentSessionId) item.classList.add('active');
 
-      const name = document.createElement('div');
-      name.className = 'session-name';
-      name.textContent = session.name;
+      const dot = document.createElement('span');
+      dot.className = 'dot idle';
 
       const meta = document.createElement('div');
-      meta.className = 'session-meta';
-      meta.textContent = session.home_folder;
+      meta.className = 's-meta';
 
-      item.appendChild(name);
+      const name = document.createElement('div');
+      name.className = 's-name';
+      name.textContent = session.name;
+
+      const sub = document.createElement('div');
+      sub.className = 's-sub';
+      sub.textContent = session.home_folder || 'default';
+
+      meta.appendChild(name);
+      meta.appendChild(sub);
+
+      item.appendChild(dot);
       item.appendChild(meta);
       item.addEventListener('click', () => bus.attachToSession(session.id));
       this.sessionListEl.appendChild(item);
@@ -236,7 +280,7 @@ class App {
     if (this.agentTypes.length === 0) {
       const placeholder = document.createElement('option');
       placeholder.value = '';
-      placeholder.textContent = 'Loading agents...';
+      placeholder.textContent = 'Loading agents…';
       placeholder.disabled = true;
       this.agentTypeSelect.appendChild(placeholder);
       return;
@@ -253,30 +297,26 @@ class App {
     this.sessionNameInput.value = '';
     this.homeFolderInput.value = '';
     this.populateAgentTypes();
-    this.createDialog.classList.add('visible');
+    this.createDialog.classList.add('show');
     this.sessionNameInput.focus();
   }
 
   hideCreateDialog() {
-    this.createDialog.classList.remove('visible');
+    this.createDialog.classList.remove('show');
   }
 
   handleCreateSession() {
     const name = this.sessionNameInput.value.trim() || 'Untitled';
     const agentType = this.agentTypeSelect.value;
     const homeFolder = this.homeFolderInput.value.trim() || null;
-    if (!agentType) {
-      this.updateStatus('No agent type selected');
-      return;
-    }
+    if (!agentType) return;
     this.hideCreateDialog();
     bus.createSession(name, agentType, homeFolder);
   }
 
   showSessionView() {
-    this.welcomeView.style.display = 'none';
-    this.sessionHeaderEl.style.display = 'flex';
-    this.panesContainer.style.display = 'flex';
+    this.welcomeView.classList.remove('show');
+    this.sessionView.classList.add('show');
     this.panesContainer.innerHTML = '';
     this.paneInstances.clear();
     this.currentView = 'session';
@@ -284,9 +324,11 @@ class App {
   }
 
   showWelcomeView() {
-    this.welcomeView.style.display = 'flex';
-    this.sessionHeaderEl.style.display = 'none';
-    this.panesContainer.style.display = 'none';
+    this.sessionView.classList.remove('show');
+    this.welcomeView.classList.add('show');
+    this.sessionSep.style.display = 'none';
+    this.sessionStatus.style.display = 'none';
+    this.agentCountEl.style.display = 'none';
     this.currentView = 'welcome';
     this.currentSessionId = null;
     this.renderSessionList();
@@ -321,12 +363,9 @@ class App {
     pane.terminal.focus();
   }
 
-  updateStatus(msg) {
-    this.statusText.textContent = msg;
-    clearTimeout(this._statusTimeout);
-    this._statusTimeout = setTimeout(() => {
-      this.statusText.textContent = 'Ready';
-    }, 5000);
+  updateAgentCount() {
+    const count = this.paneInstances.size;
+    this.agentCountEl.textContent = `agent ${count}`;
   }
 }
 

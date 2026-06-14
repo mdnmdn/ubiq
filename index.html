@@ -1,299 +1,111 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Ubiq — Harness Multiplexer</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      height: 100vh;
-      overflow: hidden;
-    }
-    #app {
-      display: flex;
-      height: 100vh;
-    }
-    #sidebar {
-      width: 260px;
-      background: #252526;
-      border-right: 1 solid #333;
-      display: flex;
-      flex-direction: column;
-      flex-shrink: 0;
-    }
-    #sidebar h2 {
-      font-size: 13px;
-      font-weight: 600;
-      padding: 12px 16px 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #888;
-    }
-    #session-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 4px 8px;
-    }
-    .session-item {
-      padding: 10px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-bottom: 2px;
-      transition: background 0.15s;
-    }
-    .session-item:hover { background: #2a2d2e; }
-    .session-item.active { background: #37373d; }
-    .session-item .session-name { font-size: 13px; font-weight: 500; }
-    .session-item .session-meta { font-size: 11px; color: #888; margin-top: 2px; }
-    #sidebar-footer {
-      padding: 8px;
-      border-top: 1px solid #333;
-    }
-    #sidebar-footer button {
-      width: 100%;
-      background: #0e639c;
-      color: white;
-      border: none;
-      padding: 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 500;
-    }
-    #sidebar-footer button:hover { background: #1177bb; }
-    #main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    #session-header {
-      background: #2d2d2d;
-      padding: 8px 16px;
-      border-bottom: 1px solid #333;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    #session-header .session-title { font-size: 13px; font-weight: 500; }
-    #session-header .controls { display: flex; gap: 8px; }
-    #session-header .controls button {
-      background: #0e639c;
-      color: white;
-      border: none;
-      padding: 4px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    #session-header .controls button:hover { background: #1177bb; }
-    #session-header .controls button.secondary { background: #333; }
-    #session-header .controls button.secondary:hover { background: #444; }
-    #panes-container {
-      flex: 1;
-      display: flex;
-      flex-wrap: wrap;
-      overflow: hidden;
-      padding: 4px;
-      gap: 4px;
-    }
-    .workspace-pane {
-      flex: 1;
-      min-width: 400px;
-      min-height: 300px;
-      border: 1px solid #333;
-      border-radius: 4px;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .workspace-pane .pane-header {
-      background: #2d2d2d;
-      padding: 6px 12px;
-      font-size: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #333;
-      flex-shrink: 0;
-    }
-    .workspace-pane .pane-header .agent-badge {
-      background: #0e639c;
-      color: white;
-      padding: 2px 8px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .workspace-pane .pane-header .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      display: inline-block;
-      margin-left: 8px;
-    }
-    .workspace-pane .pane-header .status-dot.running { background: #4ec9b0; }
-    .workspace-pane .pane-header .status-dot.exited { background: #f44747; }
-    .workspace-pane .pane-content {
-      flex: 1;
-      overflow: hidden;
-    }
-    #welcome-view {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: #666;
-    }
-    #welcome-view h1 {
-      font-size: 24px;
-      font-weight: 300;
-      margin-bottom: 8px;
-      color: #888;
-    }
-    #welcome-view p {
-      font-size: 13px;
-      margin-bottom: 20px;
-    }
-    #welcome-view button {
-      background: #0e639c;
-      color: white;
-      border: none;
-      padding: 10px 24px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    #welcome-view button:hover { background: #1177bb; }
-    #create-dialog {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5);
-      z-index: 100;
-      align-items: center;
-      justify-content: center;
-    }
-    #create-dialog.visible { display: flex; }
-    #create-dialog .dialog {
-      background: #2d2d2d;
-      border: 1px solid #444;
-      border-radius: 8px;
-      padding: 24px;
-      width: 420px;
-      max-width: 90vw;
-    }
-    #create-dialog .dialog h3 {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 16px;
-    }
-    #create-dialog .field {
-      margin-bottom: 12px;
-    }
-    #create-dialog .field label {
-      display: block;
-      font-size: 12px;
-      color: #aaa;
-      margin-bottom: 4px;
-    }
-    #create-dialog .field input,
-    #create-dialog .field select {
-      width: 100%;
-      background: #1e1e1e;
-      border: 1px solid #444;
-      color: #d4d4d4;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 13px;
-    }
-    #create-dialog .field select {
-      appearance: none;
-      cursor: pointer;
-    }
-    #create-dialog .dialog-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 20px;
-    }
-    #create-dialog .dialog-actions button {
-      padding: 8px 16px;
-      border-radius: 4px;
-      border: none;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    #create-dialog .dialog-actions .btn-cancel { background: #333; color: #d4d4d4; }
-    #create-dialog .dialog-actions .btn-cancel:hover { background: #444; }
-    #create-dialog .dialog-actions .btn-create { background: #0e639c; color: white; }
-    #create-dialog .dialog-actions .btn-create:hover { background: #1177bb; }
-    .status-bar {
-      background: #007acc;
-      padding: 2px 8px;
-      font-size: 11px;
-      display: flex;
-      justify-content: space-between;
-    }
-  </style>
+  <script>(function(){var m=localStorage.getItem('ubiq-theme-mode'),t=localStorage.getItem('ubiq-theme');var e=m==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(m||t||'dark');document.documentElement.dataset.theme=e==='light'?'light':'dark';})();</script>
+  <link rel="stylesheet" href="/css/ubiq.css">
 </head>
 <body>
-  <div id="app">
-    <div id="sidebar">
-      <h2>Sessions</h2>
-      <div id="session-list"></div>
-      <div id="sidebar-footer">
-        <button id="new-session-btn">+ New Session</button>
-      </div>
-    </div>
-    <div id="main">
-      <div id="session-header" style="display:none">
-        <span class="session-title" id="session-title"></span>
-        <div class="controls">
-          <button id="add-workspace-btn">+ Add Agent</button>
-          <button id="back-btn" class="secondary">Back</button>
-        </div>
-      </div>
-      <div id="panes-container"></div>
-      <div id="welcome-view">
-        <h1>Ubiq</h1>
-        <p>Harness Multiplexer — run multiple AI agents side by side</p>
-        <button id="welcome-new-btn">Create your first session</button>
-      </div>
-    </div>
-    <div id="create-dialog">
-      <div class="dialog">
-        <h3>New Session</h3>
-        <div class="field">
-          <label for="session-name">Session Name</label>
-          <input type="text" id="session-name" placeholder="my-project" />
-        </div>
-        <div class="field">
-          <label for="agent-type">Agent Type</label>
-          <select id="agent-type"></select>
-        </div>
-        <div class="field">
-          <label for="home-folder">Home Folder (optional)</label>
-          <input type="text" id="home-folder" placeholder="./_workspace" />
-        </div>
-        <div class="dialog-actions">
-          <button class="btn-cancel" id="cancel-create">Cancel</button>
-          <button class="btn-create" id="confirm-create">Create</button>
-        </div>
-      </div>
-    </div>
-    <div class="status-bar">
-      <span id="status-text">Ready</span>
-      <span>v0.1.0</span>
+<div class="app">
+  <div class="titlebar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title-c"><b>Ubiq</b></div>
+    <div class="win-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+      </button>
     </div>
   </div>
-  <script type="module" src="/src/main.js"></script>
+
+  <div class="body">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="mark">◇</span><b>Ubiq</b><span class="ver" id="version">v0.1.0</span>
+        <button class="collapse-btn" id="collapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M14 6l-6 6 6 6"/></svg>
+        </button>
+      </div>
+      <div class="side-pad">
+        <button class="btn primary full" id="new-session-btn" title="New session">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">New session</span>
+        </button>
+      </div>
+      <div class="sec-label">Sessions</div>
+      <div class="sessions" id="session-list"></div>
+      <div class="sidebar-foot">
+        <div class="spacer"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="view show" id="view-welcome">
+        <div class="topbar"><div class="crumb"><span class="ses">Ubiq</span></div></div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+          <div style="text-align:center">
+            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(140deg,var(--accent),oklch(58% 0.2 300));display:grid;place-items:center;color:#fff;font-size:28px;margin:0 auto 16px;box-shadow:0 4px 20px var(--accent-soft)">◇</div>
+            <h1 style="font-family:var(--display);font-size:22px;font-weight:680;letter-spacing:-.02em;margin:0 0 6px">Welcome to Ubiq</h1>
+            <p style="color:var(--muted);font-size:13px;margin:0">Harness Multiplexer — run multiple AI agents side by side</p>
+          </div>
+          <button class="btn primary" id="welcome-new-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            Create your first session
+          </button>
+        </div>
+      </section>
+
+      <section class="view" id="view-session">
+        <div class="topbar">
+          <div class="crumb">
+            <span class="ses" id="session-title"></span>
+            <span class="sep" id="session-sep" style="display:none">/</span>
+            <span class="pill run" id="session-status" style="display:none"><span class="dot run"></span>running</span>
+          </div>
+          <div class="spacer"></div>
+          <span class="pill" id="agent-count" style="display:none">agent 0</span>
+          <button class="btn sm primary" id="add-workspace-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Add agent
+          </button>
+          <button class="btn sm" id="back-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M15 6l-6 6 6 6"/></svg> Back
+          </button>
+        </div>
+
+        <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px" id="panes-container"></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="scrim" id="create-dialog">
+  <div class="modal">
+    <div class="mh"><h2>New Session</h2></div>
+    <div class="mb">
+      <div class="field">
+        <label>Session Name</label>
+        <input type="text" id="session-name" placeholder="my-project">
+      </div>
+      <div class="field">
+        <label>Agent Type</label>
+        <select class="sel" id="agent-type"></select>
+      </div>
+      <div class="field">
+        <label>Home Folder (optional)</label>
+        <input type="text" id="home-folder" placeholder="./_workspace">
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn" id="cancel-create">Cancel</button>
+      <button class="btn primary" id="confirm-create">Create</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="/js/ubiq.js"></script>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>
