@@ -84,6 +84,13 @@ class Bus {
             payload: { workspace_id: workspaceId, cols, rows },
         });
     }
+
+    async reconnectWorkspace(workspaceId, cols, rows) {
+        await this.send({
+            type: 'ReconnectWorkspace',
+            payload: { workspace_id: workspaceId, cols, rows },
+        });
+    }
 }
 
 export const bus = new Bus();

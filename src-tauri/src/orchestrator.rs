@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize, PtySystem};
 use uuid::Uuid;
@@ -10,12 +10,20 @@ use crate::agent::AgentRegistry;
 use crate::bus::SharedBus;
 use crate::messages::*;
 
+/// Maximum number of output chunks to buffer per workspace for reconnection.
+const MAX_BUFFERED_CHUNKS: usize = 100;
+/// Maximum total bytes to buffer per workspace (approx 100KB).
+const MAX_BUFFERED_BYTES: usize = 100 * 1024;
+
 pub struct Orchestrator {
     bus: SharedBus,
     agent_registry: AgentRegistry,
     sessions: HashMap<SessionId, Session>,
     workspaces: HashMap<WorkspaceId, WorkspaceInfo>,
     workspace_io: HashMap<WorkspaceId, WorkspaceIO>,
+    /// Shared output buffers per workspace for reconnection.
+    /// The reader thread writes here; the orchestrator reads on reconnect.
+    output_buffers: HashMap<WorkspaceId, Arc<Mutex<VecDeque<Vec<u8>>>>>,
 }
 
 struct Session {
@@ -37,6 +45,7 @@ impl Orchestrator {
             sessions: HashMap::new(),
             workspaces: HashMap::new(),
             workspace_io: HashMap::new(),
+            output_buffers: HashMap::new(),
         }
     }
 
@@ -65,6 +74,11 @@ impl Orchestrator {
                 cols,
                 rows,
             } => self.handle_terminal_resize(workspace_id, cols, rows),
+            BusMessage::ReconnectWorkspace {
+                workspace_id,
+                cols,
+                rows,
+            } => self.reconnect_workspace(workspace_id, cols, rows),
             _ => {}
         }
     }
@@ -284,11 +298,15 @@ impl Orchestrator {
             },
         );
 
+        // Initialize output buffer for this workspace (shared with reader thread)
+        let buffer = Arc::new(Mutex::new(VecDeque::<Vec<u8>>::new()));
+        self.output_buffers.insert(workspace_id, buffer.clone());
+
         // Spawn reader thread
         let bus_clone = Arc::clone(&self.bus);
         let reader_workspace_id = workspace_id;
         std::thread::spawn(move || {
-            read_pty_output(bus_clone, reader_workspace_id, reader);
+            read_pty_output(bus_clone, reader_workspace_id, reader, buffer);
         });
 
         let _ = self
@@ -337,11 +355,97 @@ impl Orchestrator {
             ));
         }
     }
+
+    fn reconnect_workspace(&mut self, workspace_id: WorkspaceId, cols: u16, rows: u16) {
+        // Check workspace exists
+        let ws_info = match self.workspaces.get(&workspace_id) {
+            Some(info) => info.clone(),
+            None => {
+                let _ = self.bus.send_error(&format!(
+                    "Workspace {} not found",
+                    workspace_id
+                ));
+                return;
+            }
+        };
+
+        // Check PTY handles exist
+        if !self.workspace_io.contains_key(&workspace_id) {
+            let _ = self.bus.send_error(&format!(
+                "Workspace {} has no PTY handles (process may have exited)",
+                workspace_id
+            ));
+            return;
+        }
+
+        // Resize the PTY to match the new frontend dimensions
+        if let Some(io) = self.workspace_io.get(&workspace_id) {
+            if let Err(e) = io.master.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            }) {
+                let _ = self.bus.send_error(&format!(
+                    "Failed to resize workspace {} PTY on reconnect: {}",
+                    workspace_id, e
+                ));
+            }
+            // Update stored info
+            if let Some(info) = self.workspaces.get_mut(&workspace_id) {
+                info.cols = cols;
+                info.rows = rows;
+            }
+        }
+
+        // Clone a new reader from the master PTY
+        let reader = match self.workspace_io.get(&workspace_id) {
+            Some(io) => match io.master.try_clone_reader() {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = self.bus.send_error(&format!(
+                        "Failed to clone PTY reader for workspace {}: {}",
+                        workspace_id, e
+                    ));
+                    return;
+                }
+            },
+            None => unreachable!(), // already checked above
+        };
+
+        // Get the buffered output and create a new buffer for the new reader
+        let buffered = if let Some(old_buffer) = self.output_buffers.remove(&workspace_id) {
+            let mut buf_lock = old_buffer.lock().unwrap();
+            std::mem::take(&mut *buf_lock)
+        } else {
+            VecDeque::new()
+        };
+
+        // Create a new buffer for the new reader thread
+        let new_buffer = Arc::new(Mutex::new(VecDeque::<Vec<u8>>::new()));
+        self.output_buffers.insert(workspace_id, new_buffer.clone());
+
+        // Spawn a new reader thread with the new buffer
+        let bus_clone = Arc::clone(&self.bus);
+        std::thread::spawn(move || {
+            read_pty_output_reconnect(bus_clone, workspace_id, reader, buffered, new_buffer);
+        });
+
+        let _ = self.bus.send(&BusMessage::WorkspaceReconnected {
+            workspace: ws_info,
+        });
+    }
 }
 
 /// PTY reader thread: reads output from the PTY and sends it through the bus.
 /// Runs until EOF or error, then sends WorkspaceExited.
-fn read_pty_output(bus: SharedBus, workspace_id: WorkspaceId, mut reader: Box<dyn Read + Send>) {
+/// Also buffers output for reconnection.
+fn read_pty_output(
+    bus: SharedBus,
+    workspace_id: WorkspaceId,
+    mut reader: Box<dyn Read + Send>,
+    buffer: Arc<Mutex<VecDeque<Vec<u8>>>>,
+) {
     let mut buf = [0u8; 8192];
 
     loop {
@@ -352,6 +456,17 @@ fn read_pty_output(bus: SharedBus, workspace_id: WorkspaceId, mut reader: Box<dy
             }
             Ok(n) => {
                 let bytes = buf[..n].to_vec();
+
+                // Buffer the output for reconnection
+                {
+                    let mut buf_lock = buffer.lock().unwrap();
+                    buf_lock.push_back(bytes.clone());
+                    // Trim buffer if too many chunks
+                    while buf_lock.len() > MAX_BUFFERED_CHUNKS {
+                        buf_lock.pop_front();
+                    }
+                }
+
                 let msg = BusMessage::TerminalOutput {
                     workspace_id,
                     bytes,
@@ -362,6 +477,66 @@ fn read_pty_output(bus: SharedBus, workspace_id: WorkspaceId, mut reader: Box<dy
             }
             Err(_) => {
                 break; // Read error
+            }
+        }
+    }
+
+    // Send exit event
+    let _ = bus.send(&BusMessage::WorkspaceExited {
+        workspace_id,
+        code: -1,
+    });
+}
+
+/// PTY reader thread for reconnection: replays buffered output then reads live.
+/// Used when a frontend reconnects to an existing running workspace.
+fn read_pty_output_reconnect(
+    bus: SharedBus,
+    workspace_id: WorkspaceId,
+    mut reader: Box<dyn Read + Send>,
+    buffered: VecDeque<Vec<u8>>,
+    buffer: Arc<Mutex<VecDeque<Vec<u8>>>>,
+) {
+    // Replay buffered output first
+    for chunk in buffered {
+        let msg = BusMessage::TerminalOutput {
+            workspace_id,
+            bytes: chunk,
+        };
+        if bus.send(&msg).is_err() {
+            return; // Bus closed
+        }
+    }
+
+    // Then read live output
+    let mut buf = [0u8; 8192];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => {
+                break;
+            }
+            Ok(n) => {
+                let bytes = buf[..n].to_vec();
+
+                // Buffer the output for future reconnections
+                {
+                    let mut buf_lock = buffer.lock().unwrap();
+                    buf_lock.push_back(bytes.clone());
+                    while buf_lock.len() > MAX_BUFFERED_CHUNKS {
+                        buf_lock.pop_front();
+                    }
+                }
+
+                let msg = BusMessage::TerminalOutput {
+                    workspace_id,
+                    bytes,
+                };
+                if bus.send(&msg).is_err() {
+                    break;
+                }
+            }
+            Err(_) => {
+                break;
             }
         }
     }

@@ -24,6 +24,8 @@ class WorkspacePane {
     this.running = true;
     this.terminal = null;
     this.fitAddon = null;
+    this.resizeObserver = null;
+    this.unsubscribers = [];
 
     this.createElement(container);
     this.initTerminal();
@@ -95,12 +97,12 @@ class WorkspacePane {
       bus.resizeTerminal(this.id, cols, rows);
     });
 
-    const resizeObserver = new ResizeObserver(() => {
+    this.resizeObserver = new ResizeObserver(() => {
       this.fitAddon.fit();
       const { cols, rows } = this.terminal;
       bus.resizeTerminal(this.id, cols, rows);
     });
-    resizeObserver.observe(this.mountElement);
+    this.resizeObserver.observe(this.mountElement);
 
     this.terminal.onData((data) => {
       const bytes = new TextEncoder().encode(data);
@@ -109,33 +111,44 @@ class WorkspacePane {
   }
 
   setupBusListeners() {
-    bus.on('TerminalOutput', (payload) => {
-      if (payload.workspace_id === this.id && this.running) {
-        const bytes = new Uint8Array(payload.bytes);
-        this.terminal.write(bytes);
-      }
-    });
+    this.unsubscribers.push(
+      bus.on('TerminalOutput', (payload) => {
+        if (payload.workspace_id === this.id && this.running) {
+          const bytes = new Uint8Array(payload.bytes);
+          this.terminal.write(bytes);
+        }
+      })
+    );
 
-    bus.on('WorkspaceExited', (payload) => {
-      if (payload.workspace_id === this.id) {
-        this.running = false;
-        this.statusSpan.style.color = 'var(--danger)';
-        this.statusSpan.innerHTML = '● exited';
-        this.terminal.writeln('\r\n\x1b[31m[Process exited]\x1b[0m');
-      }
-    });
+    this.unsubscribers.push(
+      bus.on('WorkspaceExited', (payload) => {
+        if (payload.workspace_id === this.id) {
+          this.running = false;
+          this.statusSpan.style.color = 'var(--danger)';
+          this.statusSpan.innerHTML = '● exited';
+          this.terminal.writeln('\r\n\x1b[31m[Process exited]\x1b[0m');
+        }
+      })
+    );
 
-    bus.on('WorkspaceError', (payload) => {
-      if (payload.workspace_id === this.id) {
-        this.running = false;
-        this.statusSpan.style.color = 'var(--danger)';
-        this.statusSpan.innerHTML = '● error';
-        this.terminal.writeln(`\r\n\x1b[31m[Error: ${payload.error}]\x1b[0m`);
-      }
-    });
+    this.unsubscribers.push(
+      bus.on('WorkspaceError', (payload) => {
+        if (payload.workspace_id === this.id) {
+          this.running = false;
+          this.statusSpan.style.color = 'var(--danger)';
+          this.statusSpan.innerHTML = '● error';
+          this.terminal.writeln(`\r\n\x1b[31m[Error: ${payload.error}]\x1b[0m`);
+        }
+      })
+    );
   }
 
   destroy() {
+    this.unsubscribers.forEach((unsub) => unsub());
+    this.unsubscribers = [];
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
     this.terminal.dispose();
     this.element.remove();
   }
@@ -212,7 +225,14 @@ class App {
       this.workspaces.clear();
       (payload.workspaces || []).forEach((ws) => this.workspaces.set(ws.id, ws));
       this.showSessionView();
-      this.spawnInitialWorkspace();
+
+      if (payload.workspaces && payload.workspaces.length > 0) {
+        // Reconnect to existing running workspaces
+        payload.workspaces.forEach((ws) => this.reconnectPane(ws));
+      } else {
+        // First time: spawn initial workspace
+        this.spawnInitialWorkspace();
+      }
     });
 
     bus.on('WorkspaceSpawned', (payload) => {
@@ -338,7 +358,7 @@ class App {
   handleBack() {
     this.paneInstances.forEach((p) => p.destroy());
     this.paneInstances.clear();
-    this.workspaces.clear();
+    // Preserve workspaces map so we can reconnect on re-attach
     if (this.currentSessionId) {
       bus.detachFromSession(this.currentSessionId);
     }
@@ -360,6 +380,14 @@ class App {
   addPane(workspaceInfo) {
     const pane = new WorkspacePane(workspaceInfo, this.panesContainer);
     this.paneInstances.set(workspaceInfo.id, pane);
+    pane.terminal.focus();
+  }
+
+  reconnectPane(workspaceInfo) {
+    const pane = new WorkspacePane(workspaceInfo, this.panesContainer);
+    this.paneInstances.set(workspaceInfo.id, pane);
+    // Tell backend to reconnect this workspace's reader and replay buffered output
+    bus.reconnectWorkspace(workspaceInfo.id, pane.terminal.cols, pane.terminal.rows);
     pane.terminal.focus();
   }
 

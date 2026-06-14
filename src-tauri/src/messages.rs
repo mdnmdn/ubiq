@@ -78,6 +78,12 @@ pub enum BusMessage {
         rows: u16,
     },
 
+    ReconnectWorkspace {
+        workspace_id: WorkspaceId,
+        cols: u16,
+        rows: u16,
+    },
+
     // ── Orchestrator → UI (Events / Responses) ────────────────────
 
     SessionList {
@@ -98,6 +104,10 @@ pub enum BusMessage {
     },
 
     WorkspaceSpawned {
+        workspace: WorkspaceInfo,
+    },
+
+    WorkspaceReconnected {
         workspace: WorkspaceInfo,
     },
 
@@ -155,11 +165,13 @@ impl BusMessage {
             BusMessage::SpawnWorkspace { .. } => "SpawnWorkspace",
             BusMessage::TerminalInput { .. } => "TerminalInput",
             BusMessage::TerminalResize { .. } => "TerminalResize",
+            BusMessage::ReconnectWorkspace { .. } => "ReconnectWorkspace",
             BusMessage::SessionList { .. } => "SessionList",
             BusMessage::SessionCreated { .. } => "SessionCreated",
             BusMessage::SessionAttached { .. } => "SessionAttached",
             BusMessage::AgentTypes { .. } => "AgentTypes",
             BusMessage::WorkspaceSpawned { .. } => "WorkspaceSpawned",
+            BusMessage::WorkspaceReconnected { .. } => "WorkspaceReconnected",
             BusMessage::TerminalOutput { .. } => "TerminalOutput",
             BusMessage::WorkspaceExited { .. } => "WorkspaceExited",
             BusMessage::WorkspaceError { .. } => "WorkspaceError",
