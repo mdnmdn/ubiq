@@ -165,4 +165,4 @@ stubs. Next milestones:
 
 ## License
 
-[MIT](LICENSE)
+[Sustainable Use License](../../LICENSE) (same as the Ubiq workspace).

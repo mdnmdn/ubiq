@@ -57,4 +57,20 @@ just dev
 
 ## License
 
-[MIT](LICENSE)
+Ubiq is licensed under the [Sustainable Use License](LICENSE) (fair-code, source-available).
+
+You may use and modify Ubiq for **personal use** or **internal business purposes** inside your organization. You may not host Ubiq (or a substantially similar product) as a paid service, white-label it, or sell a product whose value derives substantially from Ubiq — unless you have a separate commercial agreement with the licensor.
+
+**Allowed**
+
+- Personal use on your own machines
+- Running Ubiq internally for your company's engineering team
+- Modifying Ubiq for your own internal needs
+- Paid consulting or support (setup, customization, workflows) for organizations using Ubiq internally
+
+**Not allowed** (without a commercial license)
+
+- Charging users to access a hosted multiplexer built on Ubiq
+- Selling or distributing a rebranded Ubiq (or close substitute) as your product
+
+Contributors are asked to sign the [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md). For commercial hosting, embedding, or resale rights, contact the licensor.

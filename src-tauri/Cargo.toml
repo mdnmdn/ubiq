@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Harness Multiplexer — A tmux-like application for hosting and orchestrating multiple interactive agent harnesses"
 authors = ["you"]
 edition = "2021"
+license = "LicenseRef-SustainableUse-1.0"
+license-file = "../LICENSE"
 
 [lib]
 name = "app_lib"
@@ -25,6 +27,13 @@ toml = "1"
 # Portable harness management library (config locations, launch specs,
 # unified config + sync). Used as the source of truth for known harnesses.
 agent-manager = { path = "../crates/agent-manager", default-features = false }
+
+# MCP server — exposes tools to agents for session/peer interaction.
+rmcp = { version = "1", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
+axum = "0.8"
+schemars = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 default = ["custom-protocol"]

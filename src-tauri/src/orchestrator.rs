@@ -83,6 +83,36 @@ impl Orchestrator {
         }
     }
 
+    // ── Public query methods (used by MCP server) ─────────────────
+
+    /// Get session info by ID.
+    pub fn get_session(&self, session_id: SessionId) -> Option<SessionInfo> {
+        self.sessions.get(&session_id).map(|s| s.info.clone())
+    }
+
+    /// Get all workspaces belonging to a session.
+    pub fn get_session_workspaces(&self, session_id: SessionId) -> Vec<WorkspaceInfo> {
+        self.sessions
+            .get(&session_id)
+            .map(|s| {
+                s.workspace_ids
+                    .iter()
+                    .filter_map(|wid| self.workspaces.get(wid).cloned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Get workspace info by ID.
+    pub fn get_workspace(&self, workspace_id: WorkspaceId) -> Option<WorkspaceInfo> {
+        self.workspaces.get(&workspace_id).cloned()
+    }
+
+    /// List all sessions.
+    pub fn list_all_sessions(&self) -> Vec<SessionInfo> {
+        self.sessions.values().map(|s| s.info.clone()).collect()
+    }
+
     // ── Session management ────────────────────────────────────────
 
     fn list_sessions(&self) {

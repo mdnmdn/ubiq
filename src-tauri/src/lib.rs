@@ -1,19 +1,22 @@
 mod agent;
 mod bus;
 mod messages;
+mod mcp_server;
 mod orchestrator;
 
-use std::sync::Mutex;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri::State;
 
 use bus::{Bus, SharedBus};
 use messages::BusMessage;
+use mcp_server::DEFAULT_MCP_PORT;
 use orchestrator::Orchestrator;
 
 pub struct AppState {
     bus: SharedBus,
-    orchestrator: Mutex<Orchestrator>,
+    orchestrator: Arc<Mutex<Orchestrator>>,
 }
 
 #[tauri::command]
@@ -28,6 +31,11 @@ fn bus_command(state: State<AppState>, message: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize tracing (respects RUST_LOG env var).
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
@@ -40,10 +48,15 @@ pub fn run() {
             });
 
             let orchestrator = Orchestrator::new(bus.clone(), agent_registry);
+            let orchestrator_arc = std::sync::Arc::new(Mutex::new(orchestrator));
+
+            // Start the MCP server on a background thread.
+            let mcp_addr: SocketAddr = ([127, 0, 0, 1], DEFAULT_MCP_PORT).into();
+            mcp_server::start_mcp_server(mcp_addr, orchestrator_arc.clone());
 
             app.manage(AppState {
                 bus,
-                orchestrator: Mutex::new(orchestrator),
+                orchestrator: orchestrator_arc,
             });
 
             Ok(())
