@@ -630,6 +630,86 @@ When you allow a command in the TUI, Codex writes to
 The required `developer_instructions` string in `agents/<name>.toml` is
 the per-agent system-prompt guidance.
 
+## Orchestration / headless invocation
+
+A coordinator drives Codex headlessly by speaking JSON-RPC 2.0 over stdio to the **app-server** sub-command.
+
+### Non-interactive launch
+
+- Launch: `codex app-server --listen stdio://` (requires Codex ≥ 0.100.0).
+- The model is **not** a CLI flag — it is sent inside the RPC handshake.
+- I/O is newline-framed JSON-RPC on stdin/stdout; one JSON object per line.
+- Spawn in its own process group (`setpgrp` / `os/exec` `SysProcAttr.Setpgid`) so the entire tree can be killed as a unit on cancel.
+
+### Output stream protocol
+
+JSON-RPC 2.0 over stdio. Handshake sequence (client → server unless noted):
+
+1. `initialize` request — params: `clientInfo`, `capabilities.experimentalApi` → server response.
+2. `initialized` notification.
+3. `thread/start` (new thread) or `thread/resume` (existing) — params include `model`, `cwd`, `developerInstructions`, `persistExtendedHistory`; response carries `thread.id`.
+4. `thread/name/set` (optional).
+5. `turn/start` — params `{ threadId, input: [{ type: "text", text: "…" }], effort? }`; response carries `turn.id`.
+
+Codex emits one of **two notification dialects**; detect which on the first inbound notification and handle both:
+
+- **Legacy** — `codex/event` notifications with a `msg.type` field: `task_started`, `agent_message`, `exec_command_begin` / `exec_command_end`, `patch_apply_begin` / `patch_apply_end`, `task_complete`, `turn_aborted`.
+- **v2 / raw** — discrete method names: `turn/started`, `turn/completed`, `item/started` + `item/completed` (field `itemType` ∈ `commandExecution` | `fileChange` | `agentMessage`), `thread/status/changed` (`status.type == "idle"`), and `error` (`willRetry: false` = terminal).
+
+Canonical category mapping:
+
+| Category        | Legacy                          | v2 / raw                                          |
+|-----------------|---------------------------------|---------------------------------------------------|
+| Assistant text  | `agent_message`                 | `item/completed` (agentMessage)                   |
+| Tool call       | `exec_command_begin`            | `item/started` (commandExecution)                 |
+| Tool result     | `exec_command_end`              | `item/completed` (commandExecution)               |
+| Completion      | `task_complete`                 | `turn/completed` or `thread/status/changed` idle  |
+
+Token usage: `turn.usage` in the v2 `turn/completed` (keys `usage` / `token_usage` / `tokens`); fallback is scanning `~/.codex/sessions/YYYY/MM/DD/*.jsonl` for `token_count` events.
+
+### Model & reasoning at launch
+
+- **Model:** the `model` field inside `thread/start` / `thread/resume` params — not a CLI flag.
+- **Reasoning effort:** `config.model_reasoning_effort` inside `thread/start` / `thread/resume`, or top-level `effort` inside `turn/start`. Values: `none | minimal | low | medium | high | xhigh`.
+- Discoverable per-model allowed set and default: `codex debug models --bundled` (JSON; fields `supported_reasoning_levels`, `default_reasoning_level`). Available since Codex ≥ 0.131.0.
+
+### MCP at launch
+
+- Codex reads MCP from `[mcp_servers.<id>]` tables in `config.toml`.
+- For an isolated run, point `CODEX_HOME` at a per-run directory and write a `config.toml` there.
+- Wrap coordinator-managed entries in a comment-delimited block so hand-authored tables survive rewrites:
+
+```toml
+# BEGIN managed mcp_servers
+[mcp_servers.my-tool]
+command = "npx"
+args = ["-y", "my-mcp-tool"]
+# END managed mcp_servers
+```
+
+- To enforce only the managed set, strip inherited `[mcp_servers.*]` tables from the user's `~/.codex/config.toml` before the run. (Cross-reference the MCP servers section for the per-server schema.)
+
+### Skills at launch
+
+Copy skills into the per-run `$CODEX_HOME/.agents/skills/<name>/SKILL.md` (workspace skills take precedence over user-installed `~/.agents/skills/`). Always-on context goes into `AGENTS.md` in the working directory. (Cross-reference Skills and Policies / Rules / Memory.)
+
+### Tool approval in headless mode
+
+The app-server issues server→client approval requests; auto-accept all of them to stay unattended:
+
+| Request method / type                   | Auto-accept response                                            |
+|-----------------------------------------|-----------------------------------------------------------------|
+| `item/commandExecution/requestApproval` / `execCommandApproval`  | `{ "decision": "accept" }`        |
+| `item/fileChange/requestApproval` / `applyPatchApproval`         | `{ "decision": "accept" }`        |
+| `item/permissions/requestApproval`      | grant `network` + `fileSystem`, scoped to `"turn"`             |
+| `mcpServer/elicitation/request`         | `{ "action": "accept", "content": null }`                      |
+
+### Process lifecycle
+
+- **Framing:** newline-delimited JSON-RPC in both directions over stdio.
+- **Cancellation:** close stdin to signal the app-server to stop → wait ~10 s for the reader to drain → `Wait` up to ~10 s more → if still alive, `SIGKILL` the entire process group (negative PID on Unix).
+- **Minimum versions:** `app-server --listen stdio://` requires Codex ≥ 0.100.0; per-model reasoning discovery requires ≥ 0.131.0.
+
 ## Format quirks / gotchas
 
 - **Profiles moved out of `[profiles.<name>]`** in 0.134.0 — use

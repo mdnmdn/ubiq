@@ -982,6 +982,62 @@ Code):
 test-generation equivalent were **deprecated in VS Code 1.102** in
 favour of file-based instructions.
 
+## Orchestration / headless invocation
+
+### Non-interactive launch
+
+Argv: `copilot -p "<prompt>" --output-format json --allow-all --no-ask-user [--model <id>] [--resume <session-id>]`.
+
+- `-p` passes the prompt as a CLI argument (no stdin write).
+- `--output-format json` selects machine-readable output.
+- `--allow-all` auto-approves every tool; `--no-ask-user` suppresses interactive questions.
+- On Windows the invocation must be routed through PowerShell to avoid `cmd.exe` argument mangling.
+
+### Output stream protocol
+
+Newline-delimited JSON on stdout, one event per line. Event shapes:
+
+```json
+{"type":"session.start","data":{"sessionId":"...","selectedModel":"..."}}
+{"type":"assistant.message_delta","data":{"deltaContent":"..."}}
+{"type":"assistant.reasoning","data":{"content":"..."}}
+{"type":"tool.execution_complete","data":{"toolCallId":"...","success":true,"result":{},"model":"..."}}
+{"type":"result","sessionId":"...","exitCode":0}
+{"type":"session.error","data":{"message":"..."}}
+```
+
+Canonical mapping:
+
+- Assistant text — accumulate `assistant.message_delta` `.data.deltaContent` fields in order.
+- Reasoning — `assistant.reasoning` `.data.content`.
+- Tool result — `tool.execution_complete` `.data.result`.
+- Completion — `result` (final event); `.exitCode` is authoritative.
+- Error — `session.error` `.data.message`.
+
+### Model & reasoning at launch
+
+- Model: `--model <id>`. Available models depend on the GitHub plan (cross-reference Authentication).
+- No dedicated reasoning-effort flag is exposed by the CLI; reasoning text, when present, arrives as `assistant.reasoning` events.
+
+### MCP at launch
+
+The Copilot CLI has no per-run MCP-injection flag; it reads MCP from its own config files (`~/.copilot/mcp.json`, `<repo>/.github/copilot/mcp.json`). A coordinator that needs run-scoped MCP writes those files before launch. Note the CLI does **not** read `.vscode/mcp.json`. (Cross-reference MCP servers.)
+
+### Skills at launch
+
+A coordinator materialises skills into `<workdir>/.github/skills/<name>/SKILL.md` before launch. Always-on context goes into `AGENTS.md` (or `.github/copilot-instructions.md`) in the working directory. (Cross-reference Skills and Policies/Rules/Memory.)
+
+### Tool approval in headless mode
+
+`--allow-all` + `--no-ask-user` make the run fully unattended: tools execute without confirmation and clarifying questions are suppressed. There is no on-stream approval handshake to answer (unlike the stream-json control protocol of some harnesses). For finer control, `PreToolUse` hooks (see Permissions → Layer 3) can still deny individual calls.
+
+### Process lifecycle
+
+- Framing: prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
+- Cancellation: close the stdout reader on cancel and collect the process exit status; the `result` event's `exitCode` is the authoritative outcome.
+- Session resume: pass `--resume <session-id>` (value from a prior `session.start` event) to continue a previous session.
+- Minimum version: the `--output-format json` envelope is stable from **Copilot CLI ≥ 1.0.0**.
+
 ## Format quirks / gotchas
 
 1. **The "Skills" word is overloaded.** A "skill" in older Copilot docs

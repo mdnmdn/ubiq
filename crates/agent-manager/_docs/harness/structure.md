@@ -80,15 +80,47 @@ explaining why (e.g. Gemini CLI has no per-agent memory above `AGENTS.md`).
 12. **Policies / Rules / Memory** — the harness's always-on instruction
     system: file(s) that are prepended to the system prompt on every
     turn. Cover global, project, and any subdirectory walk rules.
-13. **Format quirks / gotchas** — bullet list of non-obvious behaviours
+13. **Orchestration / headless invocation** — how an external
+    coordinator drives this harness **non-interactively** and consumes
+    its output as a structured event stream. This section is about the
+    runtime contract, not the config files. Cover, in this order:
+    - **Non-interactive launch** — the exact print/exec-mode argv, the
+      flag that selects a machine-readable output format, and the flags
+      that suppress interactive prompts.
+    - **Output stream protocol** — the wire format of that output
+      (line-delimited JSON / a JSON-RPC handshake such as ACP / a
+      custom JSON-RPC app-server / plain text + log scraping), with the
+      concrete event shapes and the canonical event categories
+      (assistant text, reasoning, tool call, tool result, usage,
+      error, completion).
+    - **Model & reasoning at launch** — how the model and
+      reasoning-effort are injected (CLI flag vs env var vs an RPC
+      message vs a written config key). Cross-reference Authentication;
+      do not restate provider auth here.
+    - **MCP at launch** — how MCP servers are supplied for a single run
+      (a flag pointing at a written file, an env var carrying inline
+      config, or a managed block in the config file), and whether
+      inherited/ambient servers are suppressed.
+    - **Skills at launch** — the on-disk directory a coordinator
+      materialises skills into before launch (cross-reference Skills).
+    - **Tool approval in headless mode** — the auto-approve / permission
+      -bypass flag, or the on-stream approval handshake the coordinator
+      must answer to keep the run unattended.
+    - **Process lifecycle** — stdin/stdout framing, how cancellation is
+      signalled (close stdin, signal the process group, etc.), and the
+      **minimum CLI version** the machine-readable contract requires.
+
+    A harness with no documented non-interactive contract gets an
+    explicit "Not supported" note instead of this section.
+14. **Format quirks / gotchas** — bullet list of non-obvious behaviours
     an external sync tool must respect. Every entry should be
     actionable: "do X, not Y" or "X is true, not Y".
-14. **Renderer notes (planned)** — what `agent-manager`'s sync engine
+15. **Renderer notes (planned)** — what `agent-manager`'s sync engine
     for **this** harness needs to do. Numbered list, one operation per
     item. May include a list of files the renderer does **not** own
     (must be left untouched) and a list of files the renderer **does**
     own (may be overwritten wholesale).
-15. **Sources** — a bulleted list of the official documentation URLs
+16. **Sources** — a bulleted list of the official documentation URLs
     used to write this doc, each with a one-line annotation of what
     was found there. Group by section of the doc if it helps.
 
@@ -143,6 +175,19 @@ same way in each doc:
   precedence order and storage location differ per harness but the
   conceptual surface is the same: pick a method, supply credentials,
   switch between accounts/profiles.
+- **Orchestration / headless invocation** — driving the harness as a
+  child process with no TTY and reading its output as a typed event
+  stream. Three wire-protocol families recur: (1) **line-delimited
+  JSON** on stdout (a print/run mode plus an output-format flag);
+  (2) a **JSON-RPC handshake over stdio** — either the Agent Client
+  Protocol (`initialize` → `session/new` → `session/prompt`, with
+  `session/update` notifications) or a vendor app-server with the same
+  shape; (3) **plain text** that a coordinator scrapes from stdout and
+  a side log. The same per-run knobs (model, reasoning effort, MCP
+  set, materialised skills, tool-approval policy) are injected through
+  whichever channel the protocol exposes — a CLI flag, an env var, an
+  RPC field, or a written config file. Keep the vendor's flag and
+  message names verbatim.
 
 ## Updating a harness doc
 

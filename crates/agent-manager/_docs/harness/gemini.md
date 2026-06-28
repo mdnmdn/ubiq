@@ -761,6 +761,101 @@ patches and skills from past sessions in the background, writing them
 as unified-diff `.patch` files under `<projectMemoryDir>/.inbox/<kind>/`
 for human review via `/memory inbox`. Nothing is applied automatically.
 
+## Orchestration / headless invocation
+
+Gemini CLI runs non-interactively from a single command and reports a
+machine-readable result. Unlike the stream-JSON harnesses, its default
+JSON output is a **single final object**, not a per-event stream; token
+streaming is only visible in the default `text` output.
+
+### Non-interactive launch
+
+`gemini [--prompt|-p "<prompt>"] --output-format json [--yolo] [--approval-mode <mode>] [-m <model>]`
+
+- The prompt is the positional argument or `--prompt` / `-p`; a piped
+  stdin prompt also works (`echo "..." | gemini`).
+- `--output-format json` selects machine-readable output; `text`
+  (default) streams human-readable tokens to stdout.
+- `--yolo` (or `--approval-mode yolo`) makes the run unattended.
+
+### Output stream protocol
+
+With `--output-format json`, the CLI prints **one** JSON object at the
+end of the run:
+
+```json
+{
+  "response": "<final assistant text>",
+  "stats": {
+    "models": { "<model-id>": { "tokens": { "prompt": 0, "candidates": 0, "total": 0 } } },
+    "tools":  { "totalCalls": 0 }
+  },
+  "error": { "type": "...", "message": "...", "code": 0 }
+}
+```
+
+- `response` is the final assistant message; `stats` carries per-model
+  token usage and tool-call counts; `error` is present only on failure.
+- There is no intermediate per-tool event in JSON mode — tool calls are
+  resolved internally and summarised in `stats`. For incremental
+  visibility, parse the default `text` output, or use the
+  editor-integration server below.
+- **Editor integration / streaming**: Gemini CLI also exposes an
+  experimental Agent Client Protocol (ACP) server mode
+  (`--experimental-acp`) used by editors. It speaks the ACP
+  `initialize` → `session/new` → `session/prompt` handshake with
+  `session/update` notifications (the same shape other ACP-speaking
+  harnesses use). Treat it as preview.
+
+### Model & reasoning at launch
+
+- Model: `-m <id>` / `--model <id>` (e.g. `gemini-2.5-pro`). The
+  launch-time env override (`GEMINI_API_KEY=...`) selects the
+  credential — see Authentication.
+- Reasoning effort: Gemini CLI exposes no generic effort flag;
+  "thinking" is model-dependent and not separately tunable at launch.
+  Not documented as a launch knob as of 2026-06-28.
+
+### MCP at launch
+
+Gemini CLI has no inline per-run MCP-injection flag. MCP servers are
+read from `mcpServers` in the layered `settings.json` files (and from
+extension manifests). A coordinator that needs run-scoped MCP writes
+`<project>/.gemini/settings.json` (or a user-tier file) before launch,
+and constrains the active set with the top-level `mcp.allowed` /
+`mcp.excluded` lists. MCP servers do **not** connect in an untrusted
+workspace, so a headless run needs `--skip-trust` or
+`GEMINI_CLI_TRUST_WORKSPACE=true`. (Cross-reference the MCP servers
+section.)
+
+### Skills at launch
+
+A coordinator materialises skills into
+`<workdir>/.gemini/skills/<name>/SKILL.md` (alias
+`<workdir>/.agents/skills/<name>/SKILL.md`) before launch. Always-on
+context goes into `GEMINI.md` in the working directory. (Cross-reference
+Skills and Policies/Rules/Memory.)
+
+### Tool approval in headless mode
+
+- `--yolo` / `--approval-mode yolo` auto-approves every tool. Org admins
+  can disable it via `security.disableYoloMode: true`.
+- For policy-bounded headless runs, a Policy Engine rule with
+  `interactive = false` restricts the rule to non-interactive sessions,
+  letting a coordinator allow a safe tool set while failing closed on
+  everything else. (See Permissions → Policy Engine.)
+
+### Process lifecycle
+
+- Framing: prompt in argv / stdin; result on stdout (final JSON in JSON
+  mode, streamed text otherwise); diagnostics on stderr.
+- Folder trust is the first gate: project `settings.json`, project
+  `.env`, MCP connection, and custom commands are all skipped in an
+  untrusted workspace. Use `--skip-trust` /
+  `GEMINI_CLI_TRUST_WORKSPACE=true` for CI.
+- Cancellation: terminate the process; the non-interactive path has no
+  documented in-band cancel message.
+
 ## Format quirks / gotchas
 
 - **Settings schema versioning.** v0.3.0 introduced a *nested* schema

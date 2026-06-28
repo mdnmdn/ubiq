@@ -50,11 +50,16 @@ agent-manager/
 │   ├── architecture.md
 │   ├── config-format.md
 │   ├── project-structure.md
-│   └── harness/           # one file per supported harness
-│       ├── claude-code.md
-│       ├── codex.md
-│       ├── copilot.md
-│       └── opencode.md
+│   ├── harness/           # one file per supported harness
+│   │   ├── claude-code.md
+│   │   ├── codex.md
+│   │   ├── copilot.md
+│   │   ├── gemini.md
+│   │   └── opencode.md
+│   └── reference/         # external-system reads (cite refs/ submodules)
+│       └── multica.md
+├── refs/                  # external projects as git submodules (reference only)
+│   └── multica/           # git@github.com:multica-ai/multica.git
 └── src/
     ├── lib.rs             # crate root
     ├── main.rs            # thin binary entry point
@@ -113,10 +118,31 @@ in the right places for each one.
 | `gemini`      | Gemini CLI        | supported  |
 | `opencode`    | opencode          | supported  |
 
+### Reference harnesses (documented, not yet sync targets)
+
+These have a doc under `_docs/harness/` but **no sync renderer yet**. They are
+characterised primarily from their observed non-interactive runtime contract
+(launch flags, output stream protocol, model/MCP/skill injection seams), with
+their native config surface marked "Not documented" where unverified.
+
+| id            | display name      | binary / mode             | status     |
+|---------------|-------------------|---------------------------|------------|
+| `cursor`      | Cursor Agent      | `cursor-agent` (stream-json) | reference  |
+| `codebuddy`   | CodeBuddy         | `codebuddy` (stream-json, Claude-compatible) | reference |
+| `antigravity` | Antigravity       | `agy` (text + log scrape) | reference  |
+| `openclaw`    | OpenClaw          | `openclaw agent` (json)   | reference  |
+| `pi`          | pi                | `pi --mode json`          | reference  |
+| `hermes`      | Hermes            | `hermes acp` (ACP)        | reference  |
+| `kimi`        | Kimi CLI          | `kimi acp` (ACP)          | reference  |
+| `kiro`        | Kiro              | `kiro-cli acp` (ACP)      | reference  |
+| `qoder`       | Qoder             | `qodercli --acp` (ACP)    | reference  |
+
 See [`_docs/harness/`](_docs/harness/) for the per-harness details
 (file locations, supported features, format quirks). The required
 structure for every doc in that directory is defined in
-[`_docs/harness/structure.md`](_docs/harness/structure.md).
+[`_docs/harness/structure.md`](_docs/harness/structure.md). For a system-level
+view of how a real orchestrator drives all of these harnesses, see
+[`_docs/reference/multica.md`](_docs/reference/multica.md).
 
 ## Build & run
 

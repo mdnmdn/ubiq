@@ -856,6 +856,54 @@ These supersede the older `disabled_providers` / `enabled_providers`
 arrays (still accepted; `disabled_providers` wins over
 `enabled_providers`).
 
+## Orchestration / headless invocation
+
+### Non-interactive launch
+
+Argv: `opencode run --format json --dangerously-skip-permissions [--dir <cwd>] [--model <provider/model-id>] [--variant <level>] [--prompt <text>] [--session <id>] <prompt>`.
+
+- `run` is the non-interactive subcommand; the prompt is a positional argument.
+- `--format json` selects machine-readable output.
+- Set `PWD=<cwd>` in the child env to override opencode's working-directory discovery.
+- On Windows, resolve the real `opencode.exe` inside the npm package to bypass the `.cmd` shim.
+
+### Output stream protocol
+
+Newline-delimited JSON on stdout, one event per line. Event shapes:
+
+```json
+{"type":"step_start","sessionID":"..."}
+{"type":"text","part":{"text":"..."},"sessionID":"..."}
+{"type":"tool_use","part":{"tool":"bash","callID":"...","state":{"status":"complete","input":{...},"output":"..."}},"sessionID":"..."}
+{"type":"error","error":{"name":"UnknownError","data":{"message":"..."}}}
+{"type":"step_finish","part":{"tokens":{"input":0,"output":0,"cache":{"read":0,"write":0}}}}
+```
+
+Canonical mapping: assistant text = `text`; tool call/result = `tool_use` (carries both input and output in `state`); usage = `step_finish.part.tokens`; error = `error`; completion = stream end after `step_finish`.
+
+### Model & reasoning at launch
+
+- Model: `--model <provider/model-id>` (e.g. `anthropic/claude-sonnet-4-5`).
+- Reasoning effort: `--variant <name>`. The valid variant names per model come from `opencode models --verbose` (each model's `variants` map); custom names declared in `opencode.json` are also valid.
+
+### MCP at launch
+
+A coordinator drives opencode headlessly by passing run-scoped MCP through the `OPENCODE_CONFIG_CONTENT` env var carrying inline JSON of the form `{"mcp":{...}}` (merged at the "local" scope, so it takes precedence over user/project config). No file is written to the workdir. The value accepts either opencode-native `{"mcp":{name:{type:"local"|"remote",...}}}` or a Claude-style `{"mcpServers":{...}}` block that is translated (`command`+`args` → `{type:"local","command":[...]}`, `url` → `{type:"remote","url":...}`). (Cross-reference the MCP servers section for the per-server schema.)
+
+### Skills at launch
+
+A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.md` before launch (plural `skills/` dir). Always-on context goes into `AGENTS.md` in the working directory. (Cross-reference Skills and Policies/Rules/Memory.)
+
+### Tool approval in headless mode
+
+`--dangerously-skip-permissions` runs every tool without confirmation; there is no on-stream approval handshake to answer. (For attended use, the `permission` block — see Permissions — gates tools instead.)
+
+### Process lifecycle
+
+- Framing: prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
+- Cancellation: send `SIGTERM` to the process group, wait ~5 s, then `SIGKILL` the group; close the stdout reader afterward.
+- Session resume: pass `--session <id>` to continue a prior session.
+
 ## Format quirks / gotchas
 
 - **JSONC**, not strict JSON, is supported in `opencode.json` and

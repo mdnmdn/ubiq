@@ -457,6 +457,75 @@ All API endpoints must validate input via zod.
 Rules with `paths` are included only when the agent is working under a
 matching glob; rules without `paths` are always loaded.
 
+## Orchestration / headless invocation
+
+### Non-interactive launch
+
+Argv skeleton:
+
+```
+claude -p --output-format stream-json --input-format stream-json --verbose \
+  --strict-mcp-config --permission-mode bypassPermissions \
+  --disallowedTools AskUserQuestion \
+  [--model <id>] [--effort <level>] [--max-turns <n>] \
+  [--append-system-prompt <text>] [--resume <session-id>] [--mcp-config <path>]
+```
+
+- `-p` = print/non-interactive; `--output-format stream-json` emits machine-readable events; `--input-format stream-json` means the prompt is delivered as a JSON line on stdin (not argv).
+- `--permission-mode bypassPermissions` + `--disallowedTools AskUserQuestion` keep the run unattended (no approval prompts, no interactive questions).
+- Child env hygiene: strip `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_SSE_PORT` so a nested invocation doesn't inherit the parent session.
+
+### Output stream protocol
+
+Newline-delimited JSON (NDJSON), one object per line on stdout. Prompt delivery is a single NDJSON line written to stdin first:
+
+```json
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}
+```
+
+Event shapes emitted on stdout:
+
+```json
+{"type":"system","subtype":"init","session_id":"..."}
+{"type":"assistant","message":{"content":[{"type":"text","text":"..."},{"type":"thinking","thinking":"..."},{"type":"tool_use","id":"...","name":"...","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"...","content":[]}]}}
+{"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"<model-id>":{"input_tokens":0}}}
+{"type":"log","log":{"level":"info","message":"..."}}
+{"type":"control_request","request_id":"...","request":{"type":"tool_use","tool_use":{"id":"...","name":"...","input":{}}}}
+```
+
+Note: token usage is best read from the per-model `modelUsage` map in the `result` event, falling back to the top-level `usage`.
+
+### Model & reasoning at launch
+
+- Model: `--model <id>`. (Cross-reference Authentication.)
+- Reasoning effort: `--effort <level>`, values `low | medium | high | xhigh | max`, discoverable from `claude --help`. Per-model allow-list: Opus supports all five (incl. `xhigh`); Sonnet supports `low|medium|high|max` (no `xhigh`); Haiku supports `low|medium|high`. Default `medium`.
+
+### MCP at launch
+
+- `--mcp-config <path>` points at a JSON file (`{"mcpServers":{...}}`) written just before launch; the file is the complete authoritative set for the run.
+- `--strict-mcp-config` suppresses every ambient/inherited MCP server, so only the `--mcp-config` file's servers are loaded. (Cross-reference the MCP servers section for the per-server schema.)
+
+### Skills at launch
+
+A coordinator materialises skills into `<workdir>/.claude/skills/<name>/SKILL.md` before launch (the project skills path). Always-on context is written into `<workdir>/CLAUDE.md`, ideally inside a managed marker block so user-authored content is preserved. (Cross-reference Skills and Policies/Rules/Memory.)
+
+### Tool approval in headless mode
+
+With `--permission-mode bypassPermissions`, Claude Code still emits a `control_request` on stdout before each tool call and waits for a `control_response` on stdin. The coordinator answers:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"...","response":{"behavior":"allow","updatedInput":{}}}}
+```
+
+`updatedInput` may rewrite the tool input before execution — e.g. forcing `run_in_background: false` so no orphaned background tool survives the parent process. A `tool_result` carrying `status:"async_launched"` signals a still-running background tool.
+
+### Process lifecycle
+
+- Framing: prompt in on stdin (NDJSON), events out on stdout (NDJSON), diagnostics on stderr.
+- Cancellation: close stdin, then close the stdout reader to unblock the scanner; allow ~10s for the process to drain before killing.
+- Minimum version: the stream-JSON input/output contract is stable from **Claude Code ≥ 2.0.0**.
+
 ## Format quirks / gotchas
 
 - `permissions.allow`/`ask`/`deny` arrays concatenate across layers;
