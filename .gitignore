@@ -4,6 +4,8 @@ node_modules/
 # Build outputs
 dist/
 target/
+# ...but keep the agent-manager design docs dir literally named `target`
+!crates/agent-manager/_docs/target/
 
 # IDE
 .vscode/

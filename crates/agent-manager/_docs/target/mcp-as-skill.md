@@ -1,0 +1,77 @@
+# MCP-as-skill
+
+## The problem it solves
+
+Every MCP server an agent loads spends context budget: its tool list, each
+tool's JSON schema, and its descriptions are injected into the system prompt
+whether or not the agent ends up using them. Load a dozen MCPs "just in case"
+and you have burned thousands of tokens before the first user message — and
+given the model more tools to be confused by.
+
+Skills have the opposite shape. A skill is **latent**: only its one-line
+description sits in context; the full body loads **on demand** when the agent
+decides the skill is relevant. That is exactly the property we want for MCPs the
+run *might* need but usually won't.
+
+## The idea
+
+`am` can expose a catalog MCP **as a skill** instead of as a raw, always-on tool
+set. The agent sees a cheap one-line skill entry ("Postgres database access —
+query, inspect schema, …"). Only when it invokes that skill does the underlying
+MCP's tools become available for the task at hand.
+
+```
+   without:   [postgres tools ×12 schemas]  ← always in context, always
+   with:      "postgres: query a database"  ← one line, expands on demand
+```
+
+## How it can work (design sketch — not yet built)
+
+The provisioner, when it sees an MCP entry marked `expose = "skill"`, writes a
+**generated skill** into the ephemeral config dir instead of (or in addition to)
+the raw MCP config. The generated `SKILL.md`:
+
+- carries a concise `description` derived from the MCP's own metadata, so
+  auto-invocation works;
+- in its body, tells the agent how to reach the MCP's tools for this task.
+
+Two plausible mechanisms for the "expand on demand" step, to be decided during
+implementation:
+
+1. **Deferred load.** The skill body instructs the agent, and `am` (via the I/O
+   bridge or a hook) enables the real MCP server for the session once the skill
+   fires. Cleanest context saving; needs a harness that lets tools be added
+   mid-session.
+2. **Proxy tool.** `am` exposes a single thin "call the postgres MCP" tool (one
+   schema, not twelve) that the skill documents; behind it, `am` proxies to the
+   real MCP. Works on any harness, at the cost of one always-present tool per
+   proxied MCP.
+
+The catalog marks intent; the provisioner + the active harness's capabilities
+pick the mechanism.
+
+## Catalog declaration (sketch)
+
+```toml
+# catalog.toml
+[[mcp]]
+id = "postgres"
+transport = "stdio"
+command = "mcp-postgres"
+expose = "skill"        # "tools" (default) | "skill"
+summary = "Query and inspect a Postgres database."   # seeds the skill description
+```
+
+Or per-run, without touching the catalog:
+
+```bash
+am claude --mcps postgres --mcp-as-skill postgres
+```
+
+## Status
+
+This is a **Phase 2/3** feature and a design sketch, not a committed mechanism.
+The two open decisions — deferred-load vs proxy-tool, and how much of it depends
+on harness support — are called out as questions to resolve before building it.
+It is documented here so the catalog schema (`expose`, `summary`) and the
+provisioner are designed with room for it from the start.
