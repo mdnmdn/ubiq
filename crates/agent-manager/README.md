@@ -1,6 +1,12 @@
 # agent-manager
 
-> One config, every harness.
+> A wrapper for a running AI agent harness — configure once, launch anywhere.
+
+> **⚠️ Direction change (in progress).** `agent-manager` is pivoting from a
+> *config-sync tool* to an *agent-runtime wrapper* (`am claude --mcps … --skills …`).
+> The sections below describe the **previous** design. For the direction we are
+> building toward, see [`_docs/target/`](_docs/target/); for the migration path,
+> [`_docs/transition-plan.md`](_docs/transition-plan.md).
 
 `agent-manager` is a CLI + TUI (Rust, [ratatui](https://ratatui.rs)) for managing
 AI coding agent configuration. Describe your rules, policies, skills, MCP
