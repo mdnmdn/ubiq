@@ -1,9 +1,14 @@
 # Transition plan — from config-sync to agent-runtime wrapper
 
-> **Purpose.** This document is the bridge between where the code is *today*
-> (the config-sync skeleton described in [`old/`](./old/)) and **Phase 1** of the
-> target design (the agent-runtime wrapper described in [`target/`](./target/)).
-> It is a plan, not an implementation — nothing here is code yet.
+> **Purpose.** This document is the bridge between the old config-sync skeleton
+> (archived in [`old/`](./old/)) and **Phase 1** of the target design (the
+> agent-runtime wrapper described in [`target/`](./target/)).
+>
+> **STATUS: Phase 1 is DONE.** All six steps below are implemented and verified
+> (`am claude` launches Claude Code end-to-end through a PTY; `am catalog …`
+> works; 47 tests pass; core builds `--no-default-features`). This doc is now a
+> historical record of the migration rather than a forward plan. The section-1
+> "where we are today" describes the *pre-Phase-1* starting point.
 
 ## 1. Where we are today
 
@@ -67,25 +72,25 @@ session.
 - Archive old docs → `old/`; write `target/` + this plan. ✅ (this PR)
 - No code yet.
 
-### Step 1 — core model (`spec.rs`)
+### Step 1 — core model (`spec.rs`) ✅
 - Introduce `RunSpec`, `HarnessId`, `SkillRef`, `McpRef` (incl. `InProcess`
   variant, unused until P2), `ConfigStrategy`, `IoModes` (one variant:
   `Passthrough`).
 - Reuse `McpServer` / `Skill` from `config.rs` (rename module later if desired).
 - Pure types, no I/O. Unit-testable.
 
-### Step 2 — catalog (`registry/`)
+### Step 2 — catalog (`registry/`) ✅
 - `Registry` trait + `FsRegistry` (reads `catalog.toml` + `mcp/*.json` +
   `skills/*/`).
 - `am catalog ls` / `am catalog show` / `am catalog path`.
 - Golden tests on a fixture catalog under `tests/fixtures/catalog/`.
 
-### Step 3 — settings + resolve (`settings.rs`, `resolve.rs`)
+### Step 3 — settings + resolve (`settings.rs`, `resolve.rs`) ✅
 - Load/merge the toml|yaml settings file (reuse `project.rs` walk-up).
 - `resolve(flags, settings, registry) -> RunSpec`.
 - Pin down the **merge semantics open question** (additive vs replace) here.
 
-### Step 4 — harness trait + Claude provisioner (`harness/`, `provision.rs`)
+### Step 4 — harness trait + Claude provisioner (`harness/`, `provision.rs`) ✅
 - `Harness` trait; `harness/claude.rs` transcribing `_docs/harness/claude-code.md`
   (temp workdir with `.claude/skills/…`, `--mcp-config` + `--strict-mcp-config`,
   env hygiene).
@@ -93,13 +98,13 @@ session.
 - `am claude --print-config` prints the generated dir + argv + env (no launch) —
   the first user-visible, testable milestone.
 
-### Step 5 — runner (`run.rs`, `io/passthrough.rs`)
+### Step 5 — runner (`run.rs`, `io/passthrough.rs`) ✅
 - PTY spawn (reuse `portable-pty`, already used elsewhere in the Ubiq
   workspace), passthrough stdin/stdout/stderr, signal + resize forwarding,
   child exit-code propagation.
 - Ephemeral-dir lifecycle (create → run → clean up; `--keep-config` to retain).
 
-### Step 6 — `catalog import`
+### Step 6 — `catalog import` ✅
 - Read-only ingest of `~/.claude` / `~/.agent` / project dirs into the catalog.
 - `--dry-run`, collision handling.
 
@@ -154,9 +159,13 @@ impls, no core change.
 4. **Reserved subcommand vs harness shape.** `am <harness>` (no `run` verb), with
    `catalog`/`account`/`session` reserved. Matches the spec examples.
 
+5. **Settings file name — multi-name discovery (decided).** No single name; the
+   discovery walk accepts, in order per directory, `am.toml`, `agent-manager.toml`,
+   `.am.toml`, `.agent-manager.toml` (each also `.yaml`/`.yml`), then the global
+   `~/.config/agent-manager/config.{toml,yaml,yml}`. There was no shipped old
+   config file to collide with. Implemented in `settings.rs`.
+
 **Still open:**
 
-5. **Config-format file name.** Keep `.agent-manager.toml` for the *settings*
-   file, or pick a new name to avoid confusion with the retired sync config?
 6. **`--add-*` sugar.** Whether/when to add `--add-mcps` / `--add-skills` on top
-   of the replace-by-default base.
+   of the replace-by-default base. (Not needed for Phase 1.)

@@ -1,173 +1,162 @@
 # agent-manager
 
-> A wrapper for a running AI agent harness — configure once, launch anywhere.
+> A wrapper for a running AI agent harness — compose a run, launch anywhere.
 
-> **⚠️ Direction change (in progress).** `agent-manager` is pivoting from a
-> *config-sync tool* to an *agent-runtime wrapper* (`am claude --mcps … --skills …`).
-> The sections below describe the **previous** design. For the direction we are
-> building toward, see [`_docs/target/`](_docs/target/); for the migration path,
-> [`_docs/transition-plan.md`](_docs/transition-plan.md).
+`agent-manager` (CLI name `am`) runs an agent harness (Claude Code today; Codex,
+opencode, … next) **through** a thin wrapper. Instead of `claude`, you run
+`am claude --mcps postgres,figma --skills web-designer`: it resolves the run,
+provisions a **throwaway per-run config directory** with exactly those skills and
+MCP servers, and launches the real harness against it — leaving your real
+`~/.claude` untouched.
 
-`agent-manager` is a CLI + TUI (Rust, [ratatui](https://ratatui.rs)) for managing
-AI coding agent configuration. Describe your rules, policies, skills, MCP
-servers, and sub-agents **once** in a single TOML file and project that
-configuration onto every supported harness — Claude Code, Codex, GitHub
-Copilot, Gemini CLI, opencode, and more — so behavior stays consistent across
-tools and drift is impossible.
+It has two modes: a **CLI** for the terminal, and a front-end-agnostic **library**
+for embedding in bigger tools (e.g. the [Ubiq](../../) multiplexer).
+
+> **Status: Phase 1 complete for Claude Code.** `am claude` launches end-to-end
+> through a PTY with skill/MCP injection and exit-code propagation, plus a
+> filesystem catalog (`am catalog …`). See [Status](#status). The design docs
+> live in [`_docs/target/`](_docs/target/); the config-sync tool this replaced is
+> archived in [`_docs/old/`](_docs/old/).
 
 ## The problem
 
-Most AI coding harnesses (Claude Code, Codex, GitHub Copilot, opencode, ...)
-each invent their own way to store:
-
-- project / user rules
-- reusable skills
-- MCP server definitions
-- sub-agent definitions
-
-The same setup has to be written four different times in four different
-formats, in four different directories. Drift is inevitable.
+Most AI coding harnesses (Claude Code, Codex, opencode, …) store skills, MCP
+servers, accounts, and instructions **globally**, so every run drags in every
+tool you ever installed, tied to whichever account you last logged into. There is
+no clean way to say "run *this* agent with *these* skills and *that* account,
+reproducibly, without mutating my global config."
 
 ## The solution
 
-`agent-manager` is the single source of truth that keeps them in sync. A
-project opts in by dropping a `.agent-manager.toml` at its root:
+`am` is that missing layer. It composes a run from a **catalog** and launches the
+harness against an **ephemeral config dir**:
 
-```toml
-[project]
-name = "my-app"
-description = "Internal admin tool."
+```bash
+# Launch Claude Code with just these MCP servers + skills, in an isolated config.
+am claude --mcps postgres,figma --skills web-designer
 
-[[rules]]
-id = "no-secrets"
-title = "Never log secrets"
-body = "rules/no-secrets.md"
+# Inspect what would be provisioned, without launching.
+am claude --print-config
 
-[[skills]]
-id = "agent-browser"
-path = "skills/agent-browser"
-
-[[mcp]]
-id = "browser"
-[mcp.transport]
-type = "stdio"
-command = "npx"
-args = ["-y", "@agent-browser/mcp"]
-
-[[agents]]
-id = "reviewer"
-path = "agents/reviewer.md"
+# Forward flags straight to the harness (everything after `--`).
+am claude -- --model opus -p "summarise the repo"
 ```
 
-`agent-manager sync` walks the enabled harnesses and writes the right files
-in the right places for each one.
+Under the hood: `flags + settings + catalog → resolve → RunSpec → provision →
+run`. The provisioner writes skills, an `mcp.json`, and (optionally) a permission
+policy into a temp dir and points Claude Code at it via `CLAUDE_CONFIG_DIR` +
+`--mcp-config … --strict-mcp-config`; the runner spawns the real `claude` in a
+PTY, forwards the tty, resizes on `SIGWINCH`, and exits with the child's code.
+The user's real `~/.claude` is **never written** during a run.
 
-## Goals
+## The catalog
 
-1. **Author once.** A single TOML file describes rules, skills, MCP, agents.
-2. **Apply everywhere.** The same file is rendered into the right shape for
-   each enabled harness and written to the right location on disk.
-3. **Drift-free.** `agent-manager sync` is idempotent: re-running it produces
-   no changes once you're up to date.
-4. **Inspectable.** `agent-manager status` shows, per harness, what is
-   installed, what is divergent, and what is unsupported.
-5. **Two front ends.** A `clap`-driven CLI for scripts and a `ratatui` TUI
-   for interactive exploration.
+`--mcps`/`--skills` resolve ids against a catalog (a filesystem store by
+default):
 
-## Supported harnesses
+```bash
+am catalog ls                       # list available skills + MCP servers
+am catalog show postgres            # print a resolved definition
+am catalog path                     # print the active catalog root
+am catalog import                   # read-only ingest of ~/.claude, ~/.agent, …
+am catalog import --dry-run         # preview; write nothing
+```
 
-| id            | display name      | status     |
-|---------------|-------------------|------------|
-| `claude-code` | Claude Code       | supported  |
-| `codex`       | Codex             | supported  |
-| `copilot`     | GitHub Copilot    | supported  |
-| `gemini`      | Gemini CLI        | supported  |
-| `opencode`    | opencode          | supported  |
+Layout of a catalog root (`~/.config/agent-manager/catalog` by default, override
+with `--catalog` / `AM_CATALOG`):
 
-See [`_docs/harness/`](_docs/harness/) for per-harness details (file
-locations, supported features, format quirks).
+```
+<catalog-root>/
+├── catalog.toml        # optional: inline [[mcp]] definitions
+├── mcp/<id>.json       # one file per MCP server (harness-native shape)
+└── skills/<id>/SKILL.md
+```
+
+A project may add or override entries via `<project>/.agent-manager/catalog`
+(project wins on id collision). Full details in
+[`_docs/target/registry.md`](_docs/target/registry.md).
+
+## Settings
+
+Optional settings file (`am.toml` / `agent-manager.toml` / `.am.toml` /
+`.agent-manager.toml`, TOML or YAML), discovered by walking up from the CWD to
+the git root, then `~/.config/agent-manager/config.toml`:
+
+```toml
+catalog = "~/.agent-manager/catalog"
+
+[defaults]                 # applied to every `am <harness>` run
+mcps = ["github"]
+
+[harness.claude]           # per-harness defaults
+mcps = ["postgres"]
+
+[presets.safe]             # what `--safe` expands to
+permission_mode = "restricted"
+deny = ["Bash(rm *)", "WebFetch"]
+```
+
+Merge is **replace by default**: the highest layer that mentions a key (CLI flag
+> per-harness > defaults) wins outright — it does not union. See
+[`_docs/target/cli.md`](_docs/target/cli.md).
 
 ## Install
 
-From source (requires Rust 1.75+):
-
-```bash
-cargo install --path .
-```
-
-Or build the repo directly:
+From source (Rust 2024 edition toolchain):
 
 ```bash
 cargo build --release
-./target/release/agent-manager --help
-```
-
-## Usage
-
-```bash
-# Show what would change for every enabled harness
-agent-manager status
-
-# Render the unified config onto every enabled harness on disk
-agent-manager sync
-
-# Launch the interactive TUI
-agent-manager tui
+./target/release/agent-manager --help      # installed alias: `am`
 ```
 
 ## Project layout
 
 ```
 agent-manager/
-├── AGENTS.md              # contributor + agent guidelines
-├── Cargo.toml             # library + binary in one package
-├── LICENSE                # MIT
-├── README.md              # this file
-├── _docs/                 # design + per-harness notes (humans)
-│   ├── architecture.md
-│   ├── config-format.md
-│   ├── project-structure.md
-│   └── harness/           # one file per supported harness
-│       ├── claude-code.md
-│       ├── codex.md
-│       ├── copilot.md
-│       └── opencode.md
+├── AGENTS.md              # contributor + agent guide (start here)
+├── Cargo.toml             # library + binary; features: cli, tui, pty
+├── _docs/                 # design docs (target/), harness contracts, archive (old/)
 └── src/
-    ├── lib.rs             # crate root (forbids unsafe)
-    ├── main.rs            # thin binary entry point
-    ├── cli.rs             # clap subcommands
-    ├── config.rs          # unified, harness-agnostic config model
-    ├── harness.rs         # knowledge of each supported harness
-    ├── project.rs         # discover + load a project
-    ├── sync.rs            # project unified config -> concrete harnesses
-    └── tui.rs             # ratatui front end
+    ├── config.rs          # resource types (Skill/McpServer/McpTransport)
+    ├── spec.rs            # RunSpec + refs/strategies (core)
+    ├── settings.rs        # settings-file discovery + load (core)
+    ├── resolve.rs         # flags + settings + catalog → RunSpec (core)
+    ├── registry/          # the catalog: trait, FsRegistry, overlay, import (core)
+    ├── harness/           # Harness trait + Claude provisioner (core)
+    ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
+    ├── run.rs, io/        # PTY passthrough runner (feature: pty)
+    └── cli/               # the `am` command surface (feature: cli)
 ```
 
-All real logic lives in the library (`src/lib.rs`); `src/main.rs` is a thin
-shim that parses args, dispatches, and returns. CLI subcommands, TUI, and the
-sync engine are all library modules so they can be reused and tested.
+Modules marked *(core)* build with `--no-default-features` for lib-mode
+embedding. All real logic lives in the library; `src/main.rs` is a thin shim.
 
 ## Conventions for contributors
 
-- **One source of truth per concept.** If a rule lives in the unified config,
-  it must not be hand-edited in a harness directory.
-- **No `unsafe`.** Enforced via `#![forbid(unsafe_code)]` in `src/lib.rs`.
-- **Module-level docs.** Every public module has a `//!` header explaining
-  what it owns and how it fits in.
-- **All real logic in the library.** `src/main.rs` stays under ~20 lines.
+- **The user's real harness config is read-only during a run.** A run writes
+  only to the ephemeral config dir; only `catalog import` reads `~/.claude` etc.
+- **`RunSpec` is the boundary.** Resolve produces it; provision/run consume it.
+- **Front-end-agnostic core.** No `clap`/terminal types below `cli/`; core builds
+  with `--no-default-features`.
+- **No `unsafe`.** Enforced via `#![forbid(unsafe_code)]`.
+- **Module-level docs.** Every public module has a `//!` header.
 
 See [`AGENTS.md`](AGENTS.md) for the full contributor guide.
 
 ## Status
 
-Pre-alpha. The library skeleton is in place; the sync engine and TUI are
-stubs. Next milestones:
+Alpha. **Phase 1 complete** for Claude Code (verified against a real `claude`
+launch and a CI-safe fake harness):
 
-- [ ] `status` / `inspect` commands reading real harness directories
-- [ ] sync engine: rules + skills round-trip
-- [ ] sync engine: MCP server rendering per harness
-- [ ] sync engine: sub-agents rendering per harness
-- [ ] ratatui TUI
+- [x] core model (`RunSpec`) + filesystem catalog (`am catalog ls|show|path`)
+- [x] settings + resolve (replace-by-default merge)
+- [x] `Harness` trait + Claude provisioner (`am claude --print-config`)
+- [x] PTY passthrough runner (`am claude …` launches for real)
+- [x] `am catalog import`
+
+Next (P2): accounts (`am account`), initial prompt/instructions, more `Harness`
+impls (codex/opencode via JSONL/ACP), in-process MCP for lib mode. Roadmap in
+[`_docs/target/roadmap.md`](_docs/target/roadmap.md).
 
 ## License
 

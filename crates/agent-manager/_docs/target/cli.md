@@ -67,10 +67,20 @@ highest first:
 
 ### Discovery order for the settings file
 
-`./.agent-manager.toml` (or `.yaml`) in the CWD, walking up to the git root,
-then `~/.config/agent-manager/config.toml`. First found wins as the base; CLI
-flags layer on top. (This mirrors the harness `CLAUDE.md` walk, so it feels
-familiar.)
+Walk up from the CWD to the git root. In **each** directory, try these basenames
+in order and take the first that exists:
+
+```
+am.toml  am.yaml  am.yml
+agent-manager.toml  agent-manager.yaml  agent-manager.yml
+.am.toml  .am.yaml  .am.yml
+.agent-manager.toml  .agent-manager.yaml  .agent-manager.yml
+```
+
+If nothing is found in the walk, fall back to the global
+`~/.config/agent-manager/config.{toml,yaml,yml}`. First found wins as the base;
+CLI flags layer on top. (This mirrors the harness `CLAUDE.md` walk, so it feels
+familiar.) Format is chosen by extension: `.toml` → TOML, `.yaml`/`.yml` → YAML.
 
 ### Settings file shape (sketch — full schema in a later revision)
 

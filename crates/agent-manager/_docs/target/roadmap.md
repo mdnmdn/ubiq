@@ -5,10 +5,11 @@ implemented across multiple sessions. Ordering favors "a working `am claude`
 that injects skills/MCP" as early as possible, then layers accounts, structured
 I/O, isolation, and the web surface.
 
-## Phase 1 — CLI wrapper with catalog injection
+## Phase 1 — CLI wrapper with catalog injection ✅ (shipped)
 
 **Goal:** `am claude --mcps … --skills …` launches the real harness in
-passthrough with an ephemeral, catalog-provisioned config.
+passthrough with an ephemeral, catalog-provisioned config. **Done** for Claude
+Code end-to-end (PTY passthrough, exit-code propagation, `am catalog …`).
 
 - CLI surface: `am <harness> …` + `am catalog …`.
 - Catalog: filesystem-backed `Registry` (config + folders), `catalog ls`.

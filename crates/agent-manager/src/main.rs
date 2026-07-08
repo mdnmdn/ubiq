@@ -4,14 +4,12 @@
 //! CLI args, and dispatches to the appropriate command.
 
 use anyhow::Result;
-use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     init_tracing();
 
-    let args = agent_manager::cli::Args::parse();
-    args.command.run()
+    agent_manager::cli::run()
 }
 
 fn init_tracing() {
