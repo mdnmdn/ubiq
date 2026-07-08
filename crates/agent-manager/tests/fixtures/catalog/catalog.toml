@@ -1,0 +1,8 @@
+[registry]
+name = "test"
+
+[[mcp]]
+id = "figma"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@figma/mcp"]

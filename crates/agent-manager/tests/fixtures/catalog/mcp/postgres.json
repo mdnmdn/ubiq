@@ -1,0 +1,4 @@
+{
+  "command": "postgres-mcp",
+  "args": ["--dsn", "postgres://localhost/test"]
+}

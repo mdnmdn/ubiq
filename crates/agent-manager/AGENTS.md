@@ -3,21 +3,26 @@
 > A wrapper for a running AI agent harness.
 > Configure once, launch anywhere.
 
-> **⚠️ Direction change (in progress).** `agent-manager` is pivoting from a
+> **Direction change — Phase 1 landed.** `agent-manager` has pivoted from a
 > *config-sync tool* to an *agent-runtime wrapper*. Instead of running `claude`
 > / `codex` directly, you run them **through** `agent-manager` (CLI name `am`),
-> which injects skills, MCP servers, an account, initial instructions, and hooks
-> into an **ephemeral per-run config** and launches the real harness.
+> which injects skills, MCP servers, and (P2) an account/instructions/hooks into
+> an **ephemeral per-run config** and launches the real harness.
+>
+> **Phase 1 is implemented** for Claude Code end-to-end: `am claude --mcps … --skills …`
+> resolves a run, provisions a throwaway config dir, and launches the real
+> harness through a PTY, propagating its exit code — plus a filesystem catalog
+> (`am catalog ls|show|path|import`). See the Status section below.
 >
 > - The **target design** lives in [`_docs/target/`](_docs/target/) — start at
 >   [`_docs/target/README.md`](_docs/target/README.md).
-> - The **migration path** from today's code is in
+> - The **migration record** (what each old `src/` file became) is in
 >   [`_docs/transition-plan.md`](_docs/transition-plan.md).
 > - The **previous** (config-sync) design is archived in
 >   [`_docs/old/`](_docs/old/) for reference.
 >
-> The rest of this file still reflects the older framing except where noted;
-> when in doubt, the `target/` docs win.
+> codex / opencode / … are not wrapped yet — they are added by writing more
+> `Harness` impls, no core change. When in doubt, the `target/` docs win.
 
 `agent-manager` is a CLI + library (Rust) that **wraps a running agent
 harness**. You run `am claude --mcps postgres,figma --skills web-designer` and
@@ -90,21 +95,37 @@ agent-manager/
 │       └── multica.md
 ├── refs/                  # external projects as git submodules (reference only)
 │   └── multica/           # git@github.com:multica-ai/multica.git
-└── src/                   # CURRENT skeleton (config-sync era; see transition-plan)
-    ├── lib.rs             # crate root
-    ├── main.rs            # thin binary entry point
-    ├── cli.rs             # clap subcommands (to be replaced: `am <harness>` + `am catalog`)
-    ├── config.rs          # resource types (Skill/McpServer/… — survive the pivot)
-    ├── harness.rs         # per-harness knowledge (to become the Harness trait)
-    ├── project.rs         # discover + load a project (to become settings discovery)
-    ├── sync.rs            # renderers (to become the ephemeral-config provisioner)
-    └── tui.rs             # ratatui front end (parked)
+└── src/                   # Phase-1 implementation (see transition-plan for history)
+    ├── lib.rs             # crate root (#![forbid(unsafe_code)])
+    ├── main.rs            # thin binary entry point → cli::run()
+    ├── config.rs          # resource types (Skill/McpServer/McpTransport)
+    ├── spec.rs            # RunSpec + McpRef/SkillRef/ConfigStrategy/IoModes/Policy (core)
+    ├── settings.rs        # discover + load the am.toml/.yaml settings file (core)
+    ├── resolve.rs         # (flags + settings + catalog) → RunSpec, replace-by-default (core)
+    ├── registry/          # the catalog (core)
+    │   ├── mod.rs         #   Registry trait, entries, OverlayRegistry, root resolution
+    │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/)
+    │   └── import.rs      #   read-only ingest of ~/.claude, ~/.agent, project dirs
+    ├── harness/           # the Harness trait + impls (core)
+    │   ├── mod.rs         #   Harness trait, Launch, IoSupport, resolve()/all()
+    │   └── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
+    ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
+    ├── run.rs             # PTY spawn/supervise + exit-code + cleanup (feature: pty)
+    ├── io/                # I/O bridging (feature: pty)
+    │   ├── mod.rs
+    │   └── passthrough.rs #   raw-tty pump (SIGWINCH resize, cooked-mode restore)
+    ├── cli/               # the `am` command surface (feature: cli)
+    │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
+    │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
+    │   └── catalog.rs     #   `am catalog ls|show|path|import`
+    └── tui.rs             # ratatui front end (parked, feature: tui)
 ```
 
-The library in `src/lib.rs` owns all real logic. `src/main.rs` is intentionally
-a thin shim: parse args, dispatch, return. Everything else is a library module
-so it can be reused (lib mode) and tested. For how each current `src/` file is
-repurposed, see [`_docs/transition-plan.md`](_docs/transition-plan.md).
+The library in `src/lib.rs` owns all real logic; `src/main.rs` is a thin shim.
+Modules marked **(core)** build with `--no-default-features` for lib mode; the
+runner (`run`/`io`) and CLI are feature-gated. For how each old `src/` file was
+repurposed (config-sync → wrapper), see
+[`_docs/transition-plan.md`](_docs/transition-plan.md).
 
 ## How a run works (target)
 
@@ -128,13 +149,17 @@ the `Harness` trait, and the module layout — is in
 
 ## Supported harnesses
 
-| id            | display name      | status     |
-|---------------|-------------------|------------|
-| `claude-code` | Claude Code       | supported  |
-| `codex`       | Codex             | supported  |
-| `copilot`     | GitHub Copilot    | supported  |
-| `gemini`      | Gemini CLI        | supported  |
-| `opencode`    | opencode          | supported  |
+| id            | display name      | status                         |
+|---------------|-------------------|--------------------------------|
+| `claude-code` | Claude Code       | **wrapped** (P1, `Harness` impl) |
+| `codex`       | Codex             | documented (`Harness` impl TBD) |
+| `copilot`     | GitHub Copilot    | documented (`Harness` impl TBD) |
+| `gemini`      | Gemini CLI        | documented (`Harness` impl TBD) |
+| `opencode`    | opencode          | documented (`Harness` impl TBD) |
+
+Only `claude-code` has a `Harness` implementation today (`src/harness/claude.rs`);
+the others have a runtime contract in `_docs/harness/` and become wrappable by
+transcribing that doc into a new `Harness` impl — no core change.
 
 ### Reference harnesses (documented, not yet wrapped)
 
@@ -165,14 +190,27 @@ view of how a real orchestrator drives all of these harnesses, see
 
 ## Build & run
 
-The current binary still exposes the old (stub) subcommands; the target `am`
-surface (`am <harness>`, `am catalog …`) is not built yet. See
-[`_docs/target/cli.md`](_docs/target/cli.md) for where it is headed.
+The `am` surface is live for Claude Code:
 
 ```bash
 cargo build
-cargo run -- status        # (legacy stub)
+cargo run -- claude --print-config          # provision only; show dir + argv + env
+cargo run -- claude --mcps postgres --skills web-designer   # launch for real
+cargo run -- claude -- --version            # everything after `--` goes to claude
+cargo run -- catalog ls                     # list catalog skills + MCPs
+cargo run -- catalog import --dry-run       # preview ingest of ~/.claude etc.
 ```
+
+Testing (the PTY passthrough integration tests want a non-interactive stdin):
+
+```bash
+cargo test  -p agent-manager < /dev/null
+cargo build -p agent-manager --no-default-features   # core must build without cli/pty
+cargo clippy -p agent-manager --all-features -- -D warnings
+```
+
+The binary is still built as `agent-manager`; `am` is the intended installed
+alias. See [`_docs/target/cli.md`](_docs/target/cli.md) for the full surface.
 
 ## Conventions for contributors
 
@@ -188,13 +226,15 @@ cargo run -- status        # (legacy stub)
 
 ## Status
 
-Pre-alpha, **mid-pivot**. The config-sync skeleton is in place but largely
-stubbed; the agent-runtime design is documented and not yet implemented. The
-plan and next milestones are in
-[`_docs/transition-plan.md`](_docs/transition-plan.md). Phase-1 headline:
+Alpha. **Phase 1 is complete** for Claude Code end-to-end (verified against a
+real `claude` launch and a CI-safe fake harness):
 
-- [ ] core model (`RunSpec`) + filesystem catalog (`am catalog ls`)
-- [ ] settings + resolve (flags/config → `RunSpec`)
-- [ ] `Harness` trait + Claude provisioner (`am claude --print-config`)
-- [ ] PTY passthrough runner (`am claude …` launches for real)
-- [ ] `am catalog import` (ingest `~/.claude` / `~/.agent`)
+- [x] core model (`RunSpec`) + filesystem catalog (`am catalog ls|show|path`)
+- [x] settings + resolve (flags/config → `RunSpec`, replace-by-default merge)
+- [x] `Harness` trait + Claude provisioner (`am claude --print-config`)
+- [x] PTY passthrough runner (`am claude …` launches for real, exit code propagated)
+- [x] `am catalog import` (read-only ingest of `~/.claude` / `~/.agent` / project dirs)
+
+Next (P2): accounts + `am account`, initial prompt/instructions, more `Harness`
+impls (codex/opencode via JSONL/ACP), in-process MCP for lib mode. See
+[`_docs/target/roadmap.md`](_docs/target/roadmap.md).

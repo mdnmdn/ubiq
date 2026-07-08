@@ -71,9 +71,11 @@ pub struct Skill {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServer {
     /// Stable identifier (e.g. `browser`, `github`).
+    #[serde(default)]
     pub id: String,
 
     /// Transport (`stdio`, `sse`, `http`).
+    #[serde(default, alias = "type")]
     pub transport: McpTransport,
 
     /// Command and arguments for `stdio` transports.
@@ -87,13 +89,22 @@ pub struct McpServer {
     /// Environment variables to set when launching the server.
     #[serde(default)]
     pub env: std::collections::BTreeMap<String, String>,
+
+    /// Remote server URL (for `sse` / `http` transports).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// HTTP headers for remote transports.
+    #[serde(default)]
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 /// Supported MCP transports.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum McpTransport {
     /// Local process speaking JSON-RPC over stdio.
+    #[default]
     Stdio,
     /// Remote server speaking MCP over Server-Sent Events.
     Sse,

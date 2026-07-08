@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Harness Multiplexer — A tmux-like application for hosting and orchestrating multiple interactive agent harnesses"
 authors = ["you"]
 edition = "2021"
-license = "LicenseRef-SustainableUse-1.0"
 license-file = "../LICENSE"
 
 [lib]

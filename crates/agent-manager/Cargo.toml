@@ -3,7 +3,6 @@ name = "agent-manager"
 version = "0.1.0"
 edition = "2024"
 description = "Unified configuration manager for AI agent harnesses (Claude Code, Codex, GitHub Copilot, opencode, ...)"
-license = "LicenseRef-SustainableUse-1.0"
 license-file = "../../LICENSE"
 repository = "https://github.com/mdnmdn/agent-manager"
 
@@ -23,16 +22,29 @@ default = ["frontend"]
 # embedding the library — e.g. the Ubiq Tauri app only needs the core
 # config/harness/project/sync modules.
 frontend = ["cli", "tui"]
-cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber"]
+# The clap CLI plus the runtime that launches a harness through a PTY.
+cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty"]
 tui = ["dep:ratatui", "dep:crossterm"]
+# The passthrough runner: spawn the real harness in a PTY, forward the tty,
+# resize on SIGWINCH, and propagate its exit code. Pulled in by `cli`; kept
+# separate so the core (spec/resolve/registry/harness/provision) still builds
+# with `--no-default-features` for lib mode.
+pty = ["dep:portable-pty", "dep:crossterm", "dep:signal-hook"]
 
 [dependencies]
 # CLI (optional — `cli` feature)
 clap = { version = "4", features = ["derive", "cargo", "wrap_help"], optional = true }
 
-# TUI (optional — `tui` feature)
+# TUI (optional — `tui` feature) / runner (optional — `pty` feature)
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }
+
+# Runner PTY backend (optional — `pty` feature; already a workspace dep)
+portable-pty = { version = "0.8", optional = true }
+# SIGWINCH delivery for the runner (optional — `pty` feature). crossterm's
+# resize events read from stdin, which conflicts with raw byte passthrough,
+# so we use signal-hook to catch SIGWINCH directly instead.
+signal-hook = { version = "0.3", optional = true }
 
 # Errors
 anyhow = "1"
