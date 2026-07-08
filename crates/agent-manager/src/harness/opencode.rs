@@ -1,0 +1,641 @@
+//! opencode provisioner.
+//!
+//! Transcribes `_docs/harness/opencode.md` (esp. "On-disk layout", "MCP servers",
+//! "Skills", "Permissions", "Orchestration / headless invocation") into a [`Harness`] impl.
+//!
+//! The "dual-env" bridge: opencode's config (skills, MCP, memory) lives under
+//! `OPENCODE_CONFIG_DIR` (a dir) and `OPENCODE_CONFIG` (a JSON file). Its
+//! credential store (`~/.local/share/opencode/`) is separate, allowing a
+//! private-HOME account to keep its own OAuth tokens while still getting
+//! injected config. This split mirrors Claude Code, unlike Codex which unifies
+//! everything under a single `$CODEX_HOME`.
+
+use std::path::Path;
+
+use anyhow::{bail, Context};
+use serde_json::{json, Value};
+
+use crate::config::{McpServer, McpTransport};
+use crate::spec::{McpRef, RunSpec, IoModes};
+use crate::Result;
+
+use super::{copy_dir_recursive, Harness, IoSupport, Launch};
+
+/// The opencode harness provisioner.
+#[derive(Debug, Clone, Default)]
+pub struct Opencode;
+
+impl Opencode {
+    /// Construct the opencode harness descriptor.
+    pub fn new() -> Self {
+        Opencode
+    }
+}
+
+impl Harness for Opencode {
+    fn id(&self) -> crate::spec::HarnessId {
+        "opencode".to_string()
+    }
+
+    fn display_name(&self) -> &str {
+        "opencode"
+    }
+
+    fn command(&self) -> &str {
+        "opencode"
+    }
+
+    fn aliases(&self) -> &[&str] {
+        &["opencode"]
+    }
+
+    fn io_support(&self) -> IoSupport {
+        IoSupport {
+            passthrough: true,
+            structured: true,
+        }
+    }
+
+    fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
+        // Ensure the target directory exists.
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("creating {}", dir.display()))?;
+
+        // 1. Build opencode.json (always written, even with zero MCP servers).
+        let opencode_json = build_opencode_json(spec, dir)?;
+        let config_json_path = dir.join("opencode.json");
+        std::fs::write(&config_json_path, opencode_json)
+            .with_context(|| format!("writing {}", config_json_path.display()))?;
+
+        // 2. Skills: copy each skill folder into <dir>/skills/<id>/.
+        let skills_dir = dir.join("skills");
+        for skill in &spec.skills {
+            if !skill.path.exists() {
+                bail!(
+                    "skill '{}' points at a path that does not exist: {}",
+                    skill.id,
+                    skill.path.display()
+                );
+            }
+            let dest = skills_dir.join(&skill.id);
+            copy_dir_recursive(&skill.path, &dest).with_context(|| {
+                format!(
+                    "copying skill '{}' from {} to {}",
+                    skill.id,
+                    skill.path.display(),
+                    dest.display()
+                )
+            })?;
+        }
+
+        // 3. Instructions: write <dir>/AGENTS.md if instructions are present.
+        if let Some(instructions) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+            let agents_md_path = dir.join("AGENTS.md");
+            std::fs::write(&agents_md_path, instructions)
+                .with_context(|| format!("writing {}", agents_md_path.display()))?;
+        }
+
+        // 4. Build the launch: different argv for structured vs passthrough.
+        let args = match spec.io {
+            IoModes::Structured => {
+                // Structured mode: `opencode run --format json --dangerously-skip-permissions [args...] [prompt]`
+                let mut structured_args = vec![
+                    "run".to_string(),
+                    "--format".to_string(),
+                    "json".to_string(),
+                    "--dangerously-skip-permissions".to_string(),
+                ];
+                structured_args.extend(spec.passthrough_args.clone());
+                if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+                    structured_args.push(prompt.clone());
+                }
+                structured_args
+            }
+            IoModes::Passthrough => {
+                // Passthrough mode: just the original args + prompt (current behavior).
+                let mut passthrough_args = spec.passthrough_args.clone();
+                if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+                    passthrough_args.push(prompt.clone());
+                }
+                passthrough_args
+            }
+        };
+
+        // 5. Account: inject credential *references* into the child's env.
+        // `am`'s account store never holds secret material — only env-var NAMES,
+        // a base URL, and/or a home dir path. The only place a secret value is
+        // ever touched is the transient `std::env::var` read below; it lands
+        // in `Launch.env` (in-memory, passed to the child process) and is never
+        // written to disk.
+        let mut env = vec![
+            ("OPENCODE_CONFIG".to_string(), config_json_path.display().to_string()),
+            ("OPENCODE_CONFIG_DIR".to_string(), dir.display().to_string()),
+        ];
+        if let Some(account) = &spec.account {
+            // opencode is provider-agnostic. We don't know which provider
+            // (Anthropic, OpenAI, Google, etc.) the account uses, so we set
+            // both ANTHROPIC_API_KEY and OPENAI_API_KEY (harmless extra env;
+            // opencode uses whichever provider is configured).
+            // TODO(P2+): provider-specific account env.
+            if let Some(name) = &account.api_key_env {
+                let value = std::env::var(name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "account '{}' references env var '{}' which is not set",
+                        account.id,
+                        name
+                    )
+                })?;
+                env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
+                env.push(("OPENAI_API_KEY".to_string(), value));
+            } else if let Some(name) = &account.auth_token_env {
+                let value = std::env::var(name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "account '{}' references env var '{}' which is not set",
+                        account.id,
+                        name
+                    )
+                })?;
+                env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
+                env.push(("OPENAI_API_KEY".to_string(), value));
+            }
+            // TODO(P2+): base_url → provider.options.baseURL config; opencode
+            // uses provider-specific config, not a single env var.
+            if let Some(home) = &account.home {
+                // opencode's auth store (~/.local/share/opencode/) is HOME-relative
+                // and separate from the config (OPENCODE_CONFIG_DIR), so a
+                // private-HOME account keeps its own creds while still getting
+                // injected config.
+                env.push(("HOME".to_string(), home.display().to_string()));
+            }
+        }
+
+        Ok(Launch {
+            program: "opencode".to_string(),
+            args,
+            env,
+            env_remove: Vec::new(),
+        })
+    }
+
+    fn structured_bridge(
+        &self,
+        provisioned: &crate::provision::Provisioned,
+        cwd: &Path,
+    ) -> Result<Box<dyn crate::io::IoBridge>> {
+        let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
+        Ok(Box::new(crate::io::opencode::OpencodeBridge::new(child)?))
+    }
+}
+
+/// Render one [`McpServer`] into the JSON shape opencode's `opencode.json`
+/// expects, keyed by transport.
+fn mcp_server_json(server: &McpServer) -> Value {
+    match server.transport {
+        McpTransport::Stdio => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".to_string(), json!("local"));
+            // command is an array: the server command first, then each args element.
+            let mut command_array = vec![json!(server.command.as_deref().unwrap_or(""))];
+            command_array.extend(server.args.iter().map(|arg| json!(arg)));
+            obj.insert("command".to_string(), Value::Array(command_array));
+            if !server.env.is_empty() {
+                obj.insert("environment".to_string(), json!(server.env));
+            }
+            obj.insert("enabled".to_string(), json!(true));
+            Value::Object(obj)
+        }
+        McpTransport::Http | McpTransport::Sse => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("type".to_string(), json!("remote"));
+            obj.insert("url".to_string(), json!(server.url.as_deref().unwrap_or("")));
+            if !server.headers.is_empty() {
+                obj.insert("headers".to_string(), json!(server.headers));
+            }
+            obj.insert("enabled".to_string(), json!(true));
+            Value::Object(obj)
+        }
+    }
+}
+
+/// Build the full `opencode.json` document from `spec`.
+fn build_opencode_json(spec: &RunSpec, dir: &Path) -> Result<String> {
+    let mut root = serde_json::Map::new();
+
+    // Always include the schema.
+    root.insert(
+        "$schema".to_string(),
+        json!("https://opencode.ai/config.json"),
+    );
+
+    // 1. MCP servers (may be empty).
+    let mut mcp_map = serde_json::Map::new();
+    for mcp in &spec.mcps {
+        match mcp {
+            McpRef::Catalog(server) | McpRef::Inline(server) => {
+                mcp_map.insert(server.id.clone(), mcp_server_json(server));
+            }
+            McpRef::InProcess(_) => {
+                bail!("in-process MCP not supported in passthrough mode");
+            }
+        }
+    }
+    root.insert("mcp".to_string(), Value::Object(mcp_map));
+
+    // 2. Instructions: if present, write AGENTS.md and add to the JSON.
+    if spec.initial.as_ref().and_then(|i| i.instructions.as_ref()).is_some() {
+        // The path is already written by provision(); reference it here.
+        let agents_md_path = dir.join("AGENTS.md");
+        root.insert(
+            "instructions".to_string(),
+            json!(vec![agents_md_path.display().to_string()]),
+        );
+    }
+
+    // 3. Permissions: best-effort mapping of policy.
+    if let Some(policy) = &spec.policy {
+        let mut permission = serde_json::Map::new();
+        for rule in &policy.deny {
+            permission.insert(rule.clone(), json!("deny"));
+        }
+        for rule in &policy.ask {
+            permission.insert(rule.clone(), json!("ask"));
+        }
+        for rule in &policy.allow {
+            permission.insert(rule.clone(), json!("allow"));
+        }
+        if !permission.is_empty() {
+            root.insert("permission".to_string(), Value::Object(permission));
+        }
+        // Add a comment explaining best-effort translation.
+        root.insert(
+            "# best-effort: full Claude-rule→opencode-pattern translation is P2+".to_string(),
+            json!(""),
+        );
+    }
+
+    serde_json::to_string_pretty(&Value::Object(root))
+        .context("serializing opencode.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::{ConfigStrategy, Instructions, McpRef, Policy, SkillRef};
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn write_skill(dir: &Path, id: &str) -> PathBuf {
+        let skill_dir = dir.join(id);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {id}\ndescription: test skill\n---\nBody."),
+        )
+        .unwrap();
+        skill_dir
+    }
+
+    #[test]
+    fn provision_writes_opencode_json_skills_agents_md_and_launch_without_touching_home() {
+        // A stand-in for the user's real `$HOME`. `provision()` never reads
+        // or writes an env-derived home directory (it only touches the `dir`
+        // it is explicitly given), so this must stay untouched.
+        let fake_home = tempfile::TempDir::new().unwrap();
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
+
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            path: skill_path,
+        });
+        spec.mcps.push(McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec!["--flag".to_string()],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }));
+        spec.mcps.push(McpRef::Inline(McpServer {
+            id: "docs".to_string(),
+            transport: McpTransport::Http,
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://example.com/mcp/".to_string()),
+            headers: BTreeMap::new(),
+        }));
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER: be helpful".to_string()),
+            prompt: Some("say hello world".to_string()),
+        });
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        // opencode.json exists and has the right structure.
+        let config_json_path = config_dir.path().join("opencode.json");
+        assert!(config_json_path.exists());
+        let config_json: Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_json_path).unwrap()).unwrap();
+
+        // Check schema.
+        assert_eq!(
+            config_json.get("$schema").unwrap().as_str(),
+            Some("https://opencode.ai/config.json")
+        );
+
+        // Check MCP servers.
+        let mcp = config_json.get("mcp").unwrap().as_object().unwrap();
+        assert_eq!(mcp.len(), 2);
+        // stdio MCP: type should be "local", command should be an array.
+        assert_eq!(
+            mcp.get("postgres").unwrap().get("type").unwrap().as_str(),
+            Some("local")
+        );
+        let postgres_cmd = mcp
+            .get("postgres")
+            .unwrap()
+            .get("command")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(postgres_cmd[0].as_str(), Some("postgres-mcp"));
+        assert_eq!(postgres_cmd[1].as_str(), Some("--flag"));
+        // HTTP MCP: type should be "remote", url should be present.
+        assert_eq!(
+            mcp.get("docs").unwrap().get("type").unwrap().as_str(),
+            Some("remote")
+        );
+        assert_eq!(
+            mcp.get("docs").unwrap().get("url").unwrap().as_str(),
+            Some("https://example.com/mcp/")
+        );
+
+        // Skill copied.
+        let skill_md = config_dir.path().join("skills/my-skill/SKILL.md");
+        assert!(skill_md.exists());
+
+        // AGENTS.md contains the instructions.
+        let agents_md_path = config_dir.path().join("AGENTS.md");
+        assert!(agents_md_path.exists());
+        let agents_md = std::fs::read_to_string(&agents_md_path).unwrap();
+        assert!(agents_md.contains("REMEMBER: be helpful"));
+
+        // Check instructions array in JSON.
+        let instructions = config_json
+            .get("instructions")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(instructions.len(), 1);
+        assert!(instructions[0].as_str().unwrap().ends_with("AGENTS.md"));
+
+        // Launch shape.
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "OPENCODE_CONFIG" && v.ends_with("opencode.json")));
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "OPENCODE_CONFIG_DIR" && v == &config_dir.path().display().to_string()));
+        assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
+
+        // Invariant: nothing written under the stand-in home dir.
+        let home_entries: Vec<_> = std::fs::read_dir(fake_home.path()).unwrap().collect();
+        assert!(
+            home_entries.is_empty(),
+            "expected no writes under the fake home dir, found: {home_entries:?}"
+        );
+    }
+
+    #[test]
+    fn provision_missing_skill_path_is_an_error() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.skills.push(SkillRef {
+            id: "missing".to_string(),
+            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+        });
+
+        let opencode = Opencode::new();
+        let err = opencode.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("missing"));
+    }
+
+    #[test]
+    fn provision_empty_mcps_still_writes_opencode_json() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        let opencode = Opencode::new();
+        opencode.provision(&spec, config_dir.path()).unwrap();
+
+        let config_json_path = config_dir.path().join("opencode.json");
+        assert!(config_json_path.exists());
+        let config_json: Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_json_path).unwrap()).unwrap();
+        assert_eq!(
+            config_json.get("mcp").unwrap().as_object().unwrap().len(),
+            0
+        );
+    }
+
+    #[test]
+    fn provision_mcp_in_process_is_an_error() {
+        use crate::mcp::{McpService, ToolDef};
+        use crate::spec::InProcessMcpHandle;
+        use std::sync::Arc;
+
+        struct NoopService;
+        impl McpService for NoopService {
+            fn tools(&self) -> Vec<ToolDef> {
+                Vec::new()
+            }
+            fn call(&self, _name: &str, _arguments: Value) -> crate::Result<Value> {
+                anyhow::bail!("not implemented")
+            }
+        }
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.mcps.push(McpRef::InProcess(InProcessMcpHandle {
+            name: "in-proc".to_string(),
+            service: Arc::new(NoopService),
+        }));
+
+        let opencode = Opencode::new();
+        let err = opencode.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("in-process"));
+    }
+
+    #[test]
+    fn provision_account_api_key_env_maps_to_anthropic_and_openai() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "path-account".to_string(),
+            api_key_env: Some("PATH".to_string()),
+            ..Default::default()
+        });
+
+        let expected = std::env::var("PATH").expect("PATH should be set in the test environment");
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == &expected));
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "OPENAI_API_KEY" && v == &expected));
+
+        // No-secret-on-disk invariant.
+        for entry in walkdir::WalkDir::new(config_dir.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+            assert!(
+                !content.contains(&expected),
+                "secret value leaked into {}",
+                entry.path().display()
+            );
+        }
+    }
+
+    #[test]
+    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "broken".to_string(),
+            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
+            ..Default::default()
+        });
+
+        let opencode = Opencode::new();
+        let err = opencode.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
+    }
+
+    #[test]
+    fn provision_account_home_is_set_in_env() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let account_home = tempfile::TempDir::new().unwrap();
+
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "private-home".to_string(),
+            home: Some(account_home.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch.env.iter().any(
+            |(k, v)| k == "HOME" && v == &account_home.path().display().to_string()
+        ));
+        // Config stays in the ephemeral dir, not in the account home.
+        assert!(config_dir.path().join("opencode.json").exists());
+    }
+
+    #[test]
+    fn provision_permissions_are_mapped() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.policy = Some(Policy {
+            permission_mode: None,
+            allow: vec!["bash".to_string(), "read".to_string()],
+            ask: vec!["edit".to_string()],
+            deny: vec!["external_directory".to_string()],
+        });
+
+        let opencode = Opencode::new();
+        opencode.provision(&spec, config_dir.path()).unwrap();
+
+        let config_json_path = config_dir.path().join("opencode.json");
+        let config_json: Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_json_path).unwrap()).unwrap();
+        let permission = config_json.get("permission").unwrap().as_object().unwrap();
+        assert_eq!(permission.get("bash").unwrap().as_str(), Some("allow"));
+        assert_eq!(permission.get("edit").unwrap().as_str(), Some("ask"));
+        assert_eq!(
+            permission.get("external_directory").unwrap().as_str(),
+            Some("deny")
+        );
+    }
+
+    #[test]
+    fn resolve_opencode_by_id() {
+        assert_eq!(super::super::resolve("opencode").unwrap().id(), "opencode");
+    }
+
+    #[test]
+    fn provision_structured_mode_builds_correct_argv() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("hello world".to_string()),
+        });
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        // Structured mode should have "run", "--format", "json", "--dangerously-skip-permissions"
+        assert!(launch.args.len() >= 4);
+        assert_eq!(launch.args[0], "run");
+        assert_eq!(launch.args[1], "--format");
+        assert_eq!(launch.args[2], "json");
+        assert_eq!(launch.args[3], "--dangerously-skip-permissions");
+        // Prompt should be the final positional argument
+        assert_eq!(launch.args.last(), Some(&"hello world".to_string()));
+    }
+
+    #[test]
+    fn provision_passthrough_mode_builds_simple_argv() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Passthrough;
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("hello world".to_string()),
+        });
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        // Passthrough mode: no "run", "--format", etc. — just the prompt
+        assert!(!launch.args.contains(&"run".to_string()));
+        assert!(!launch.args.contains(&"--format".to_string()));
+        assert_eq!(launch.args.last(), Some(&"hello world".to_string()));
+    }
+}

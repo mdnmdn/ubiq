@@ -8,16 +8,17 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 
+use crate::account::{resolve_accounts_root, AccountStore, EmptyAccountStore, FsAccountStore};
 use crate::harness::Harness;
 use crate::provision;
 use crate::registry::{resolve_catalog_root, FsRegistry, OverlayRegistry};
 use crate::resolve::{resolve, RunFlags};
 use crate::settings::{self, Settings};
 
-use super::{split_passthrough, RunArgs};
+use super::{parse_io_mode, split_passthrough, RunArgs};
 
 /// Run `harness` against the remaining argv (everything after the harness
 /// name on the command line).
@@ -39,6 +40,11 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
     .unwrap_or_else(|| cwd.join(".agent-manager-catalog-unset"));
     let global = FsRegistry::new(&catalog_root);
 
+    let instructions = match &run_args.instructions {
+        Some(p) => Some(std::fs::read_to_string(p).with_context(|| format!("reading instructions file {}", p.display()))?),
+        None => None,
+    };
+
     let flags = RunFlags {
         harness: harness.id(),
         mcps: run_args.mcps.clone(),
@@ -46,18 +52,24 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         mcp_json: run_args.mcp_json.clone(),
         account: run_args.account.clone(),
         safe: run_args.safe,
+        instructions,
+        prompt: run_args.prompt.clone(),
         passthrough_args,
         cwd: cwd.clone(),
     };
 
-    let spec = match find_project_catalog(&cwd) {
+    let accounts = build_account_store();
+
+    let mut spec = match find_project_catalog(&cwd) {
         Some(project_root) => {
             let project = FsRegistry::new(project_root);
             let overlay = OverlayRegistry::new(global, Some(project));
-            resolve(&flags, &settings, &overlay)?
+            resolve(&flags, &settings, &overlay, accounts.as_ref())?
         }
-        None => resolve(&flags, &settings, &global)?,
+        None => resolve(&flags, &settings, &global, accounts.as_ref())?,
     };
+
+    spec.io = parse_io_mode(run_args.io.as_deref())?;
 
     let provisioned = provision::provision(harness, &spec)?;
 
@@ -66,8 +78,57 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         return Ok(());
     }
 
+    if spec.io == crate::spec::IoModes::Structured {
+        return run_structured(harness, &spec, &provisioned, &cwd);
+    }
+
     let code = crate::run::run(&provisioned, &cwd, run_args.keep_config)?;
     std::process::exit(code);
+}
+
+/// The `--io structured` path: build a structured bridge, optionally send
+/// the seeded initial prompt, then drain events as NDJSON on stdout.
+///
+/// This is a framework stub — real per-harness bridges land in C2/C3/C4, so
+/// today every harness's `structured_bridge` bails with a clear "not
+/// supported yet" error via [`Harness::structured_bridge`]'s default impl.
+fn run_structured(
+    harness: &dyn Harness,
+    spec: &crate::spec::RunSpec,
+    provisioned: &provision::Provisioned,
+    cwd: &Path,
+) -> Result<()> {
+    if !harness.io_support().structured {
+        anyhow::bail!(
+            "harness '{}' does not support --io structured (yet)",
+            harness.id()
+        );
+    }
+
+    let mut bridge = harness.structured_bridge(provisioned, cwd)?;
+
+    if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+        bridge.send(crate::io::AgentInput::Prompt {
+            text: prompt.clone(),
+        })?;
+    }
+
+    while let Some(ev) = bridge.next_event()? {
+        println!("{}", serde_json::to_string(&ev)?);
+    }
+
+    Ok(())
+}
+
+/// Build the account store from the default accounts root (`--accounts` has
+/// no CLI flag yet; this honors `AM_ACCOUNTS` / the default location only).
+/// Falls back to an empty store when no accounts root exists, so accountless
+/// runs are unaffected.
+fn build_account_store() -> Box<dyn AccountStore> {
+    match resolve_accounts_root(None) {
+        Some(root) if root.is_dir() => Box::new(FsAccountStore::new(root)),
+        _ => Box::new(EmptyAccountStore),
+    }
 }
 
 /// Load settings from `--config`, else discover from `cwd`, else defaults.

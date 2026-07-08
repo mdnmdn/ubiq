@@ -1,9 +1,8 @@
 # Roadmap
 
 The target design lands in phases. Each phase is independently useful and is
-implemented across multiple sessions. Ordering favors "a working `am claude`
-that injects skills/MCP" as early as possible, then layers accounts, structured
-I/O, isolation, and the web surface.
+implemented across multiple sessions. **Phase 1 and Phase 2 are complete.**
+Next: Phase 3 adds isolation (isol8), session history, output adapters (ACP/AG-UI), and hooks.
 
 ## Phase 1 — CLI wrapper with catalog injection ✅ (shipped)
 
@@ -27,10 +26,10 @@ Code end-to-end (PTY passthrough, exit-code propagation, `am catalog …`).
 tools/skills, the user's real `~/.claude` is untouched, and Ctrl-C / exit codes
 behave as if `am` weren't there.
 
-## Phase 2 — accounts, initial prompt, agent trait & structured input
+## Phase 2 — accounts, initial prompt, agent trait & structured input ✅ (shipped)
 
 **Goal:** choose an account, seed instructions, and drive the agent
-programmatically (lib mode).
+programmatically (lib mode). **Done.**
 
 - **Account injection + catalog:** `am account ls|use|import`; inject credential
   *references* (env var / keyring / credential file / private `HOME`) into the
@@ -39,15 +38,15 @@ programmatically (lib mode).
   the ephemeral config / first message.
 - **`Harness` trait implementations** for structured input:
   - Claude Code — **JSONL** (stream-json) input.
-  - opencode — **ACP** input.
-  - codex — **ACP** input.
+  - opencode — **NDJSON** (run --format json) input.
+  - codex — **JSON-RPC** (app-server) input.
 - **Neutral I/O model** (`AgentInput` / `AgentEvent`) and the `IoBridge` trait.
 - **Custom in-process MCP (lib mode):** an embedder registers an MCP the wrapped
   agent can call (`McpRef::InProcess`).
 
-**Done when:** a lib-mode embedder can build a `RunSpec` (harness + account +
-in-process MCP + initial prompt), run it with JSONL or ACP input, and read back
-normalized events.
+**Verified:** a lib-mode embedder can build a `RunSpec` (harness + account +
+in-process MCP + initial prompt), run it with JSONL or JSON-RPC or NDJSON input, and read back
+normalized events. All three harnesses wrap and launch end-to-end.
 
 ## Phase 3 — isolation, sessions, output protocols, hooks
 
@@ -78,14 +77,14 @@ Cross-reference with the responsibilities table in
 
 | Responsibility                     | Phase |
 |------------------------------------|-------|
-| Inject skills & MCPs               | P1    |
-| Custom config folder               | P1    |
-| Catalog + import                   | P1    |
-| Passthrough run                    | P1    |
-| Inject account / account catalog   | P2    |
-| Initial instructions / prompt      | P2    |
-| Agent trait (JSONL / ACP input)    | P2    |
-| Custom in-process MCP (lib mode)   | P2    |
+| Inject skills & MCPs               | P1 ✅ |
+| Custom config folder               | P1 ✅ |
+| Catalog + import                   | P1 ✅ |
+| Passthrough run                    | P1 ✅ |
+| Inject account / account catalog   | P2 ✅ |
+| Initial instructions / prompt      | P2 ✅ |
+| Agent trait (JSONL / JSON-RPC / NDJSON input) | P2 ✅ |
+| Custom in-process MCP (lib mode)   | P2 ✅ |
 | Isolated environment (isol8)       | P3    |
 | Session history                    | P3    |
 | Hooks                              | P3    |

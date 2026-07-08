@@ -25,6 +25,18 @@ fn fake_harness_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake-harness.sh")
 }
 
+/// Build a `Provisioned` for these tests, filling in the `inproc-mcp`
+/// feature's extra field (an empty server list) when that feature is on.
+fn provisioned(dir: PathBuf, launch: Launch, ephemeral: bool) -> Provisioned {
+    Provisioned {
+        dir,
+        launch,
+        ephemeral,
+        #[cfg(feature = "inproc-mcp")]
+        inproc_servers: Vec::new(),
+    }
+}
+
 /// Wait for `child`, draining the PTY master on a background thread.
 ///
 /// A PTY consumer MUST read the master, or the child can block writing to the
@@ -109,11 +121,7 @@ fn ephemeral_dir_is_removed_after_a_run() {
     let dir = tempfile::tempdir().expect("tempdir").keep();
     assert!(dir.exists());
 
-    let provisioned = Provisioned {
-        dir: dir.clone(),
-        launch: base_launch(),
-        ephemeral: true,
-    };
+    let provisioned = provisioned(dir.clone(), base_launch(), true);
 
     let cwd = std::env::current_dir().unwrap();
     let code = run(&provisioned, &cwd, false).expect("run");
@@ -126,11 +134,7 @@ fn keep_config_preserves_the_ephemeral_dir() {
     let dir = tempfile::tempdir().expect("tempdir").keep();
     assert!(dir.exists());
 
-    let provisioned = Provisioned {
-        dir: dir.clone(),
-        launch: base_launch(),
-        ephemeral: true,
-    };
+    let provisioned = provisioned(dir.clone(), base_launch(), true);
 
     let cwd = std::env::current_dir().unwrap();
     let code = run(&provisioned, &cwd, true).expect("run");
@@ -145,11 +149,7 @@ fn pinned_dir_is_never_removed() {
     let dir = tempfile::tempdir().expect("tempdir").keep();
     assert!(dir.exists());
 
-    let provisioned = Provisioned {
-        dir: dir.clone(),
-        launch: base_launch(),
-        ephemeral: false,
-    };
+    let provisioned = provisioned(dir.clone(), base_launch(), false);
 
     let cwd = std::env::current_dir().unwrap();
     let code = run(&provisioned, &cwd, false).expect("run");

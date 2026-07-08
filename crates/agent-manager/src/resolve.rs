@@ -18,10 +18,11 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use serde::Deserialize;
 
+use crate::account::AccountStore;
 use crate::config::McpServer;
 use crate::registry::Registry;
 use crate::settings::Settings;
-use crate::spec::{HarnessId, McpRef, RunSpec, SkillRef};
+use crate::spec::{HarnessId, Instructions, McpRef, RunSpec, SkillRef};
 use crate::Result;
 
 /// Raw run flags gathered from the CLI (the `cli` layer feeds this in).
@@ -42,6 +43,10 @@ pub struct RunFlags {
     pub account: Option<String>,
     /// `--safe`: expand the `[presets.safe]` policy.
     pub safe: bool,
+    /// `--instructions <path>`: file contents (already read).
+    pub instructions: Option<String>,
+    /// `--prompt <text>`: initial prompt text.
+    pub prompt: Option<String>,
     /// Everything after `--`, forwarded verbatim to the harness binary.
     pub passthrough_args: Vec<String>,
     /// Working directory for the run.
@@ -85,8 +90,13 @@ fn suggest(query: &str, available: &[String]) -> Vec<String> {
     matches
 }
 
-/// Resolve `flags` + `settings` + `registry` into a fully-resolved [`RunSpec`].
-pub fn resolve(flags: &RunFlags, settings: &Settings, registry: &dyn Registry) -> Result<RunSpec> {
+/// Resolve `flags` + `settings` + `registry` + `accounts` into a fully-resolved [`RunSpec`].
+pub fn resolve(
+    flags: &RunFlags,
+    settings: &Settings,
+    registry: &dyn Registry,
+    accounts: &dyn AccountStore,
+) -> Result<RunSpec> {
     let per_harness = settings.harness.get(&flags.harness);
 
     // --- merge (replace by default) ---
@@ -100,7 +110,7 @@ pub fn resolve(flags: &RunFlags, settings: &Settings, registry: &dyn Registry) -
         per_harness.and_then(|h| h.skills.clone()),
         settings.defaults.skills.clone(),
     );
-    let account: Option<String> = flags
+    let account_id: Option<String> = flags
         .account
         .clone()
         .or_else(|| per_harness.and_then(|h| h.account.clone()))
@@ -179,6 +189,32 @@ pub fn resolve(flags: &RunFlags, settings: &Settings, registry: &dyn Registry) -
         None
     };
 
+    // --- lookup: account id -> Account ---
+    let account = match account_id {
+        Some(id) => {
+            match accounts
+                .account(&id)
+                .with_context(|| format!("looking up account '{id}'"))?
+            {
+                Some(acct) => Some(acct),
+                None => {
+                    let available: Vec<String> = accounts
+                        .accounts()
+                        .with_context(|| "listing available accounts")?
+                        .into_iter()
+                        .map(|a| a.id)
+                        .collect();
+                    let near = suggest(&id, &available);
+                    bail!(
+                        "account '{id}' not found; near matches: {}",
+                        near.join(", ")
+                    );
+                }
+            }
+        }
+        None => None,
+    };
+
     let mut spec = RunSpec::new(flags.harness.clone(), flags.cwd.clone());
     spec.skills = skills;
     spec.mcps = mcps;
@@ -186,12 +222,20 @@ pub fn resolve(flags: &RunFlags, settings: &Settings, registry: &dyn Registry) -
     spec.policy = policy;
     spec.passthrough_args = flags.passthrough_args.clone();
 
+    // --- instructions & prompt ---
+    let initial = Instructions {
+        instructions: flags.instructions.clone(),
+        prompt: flags.prompt.clone(),
+    };
+    spec.initial = if initial.is_empty() { None } else { Some(initial) };
+
     Ok(spec)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::{Account, EmptyAccountStore};
     use crate::config::{McpServer, McpTransport};
     use crate::registry::{McpEntry, SkillEntry, SkillMeta};
     use crate::spec::Policy;
@@ -210,6 +254,18 @@ mod tests {
         }
         fn mcps(&self) -> Result<Vec<McpEntry>> {
             Ok(self.mcps.clone())
+        }
+    }
+
+    /// An in-memory account store test-double so account-lookup tests don't
+    /// touch the filesystem.
+    struct TestAccountStore {
+        accounts: Vec<Account>,
+    }
+
+    impl AccountStore for TestAccountStore {
+        fn accounts(&self) -> Result<Vec<Account>> {
+            Ok(self.accounts.clone())
         }
     }
 
@@ -276,7 +332,7 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg).expect("resolve");
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
         assert_eq!(ids, vec!["figma"]);
     }
@@ -297,7 +353,7 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg).expect("resolve");
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
         assert_eq!(ids, vec!["postgres"]);
     }
@@ -310,7 +366,7 @@ mod tests {
         settings.defaults.mcps = Some(vec!["github".to_string()]);
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg).expect("resolve");
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
         assert_eq!(ids, vec!["github"]);
     }
@@ -331,7 +387,7 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg).expect("resolve");
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
         assert!(spec.mcps.is_empty());
     }
 
@@ -342,7 +398,7 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg).expect_err("should fail");
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore).expect_err("should fail");
         let msg = err.to_string();
         assert!(msg.contains("nonexistent"), "message was: {msg}");
     }
@@ -364,7 +420,7 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg).expect("resolve");
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
         let policy = spec.policy.expect("policy should be set");
         assert_eq!(policy.permission_mode.as_deref(), Some("restricted"));
         assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
@@ -377,7 +433,7 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg).expect_err("should fail");
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore).expect_err("should fail");
         assert!(err.to_string().contains("presets.safe"));
     }
 
@@ -397,7 +453,7 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg).expect("resolve");
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
 
         assert_eq!(spec.mcps.len(), 2);
         let catalog_ids: Vec<&str> = spec
@@ -419,5 +475,82 @@ mod tests {
             })
             .collect();
         assert_eq!(inline_ids, vec!["custom"]);
+    }
+
+    #[test]
+    fn instructions_and_prompt_populate_spec_initial() {
+        let mut f = flags("claude");
+        f.instructions = Some("REMEMBER: be helpful".to_string());
+        f.prompt = Some("do it".to_string());
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        let initial = spec.initial.expect("should have initial");
+        assert_eq!(initial.instructions.as_deref(), Some("REMEMBER: be helpful"));
+        assert_eq!(initial.prompt.as_deref(), Some("do it"));
+    }
+
+    #[test]
+    fn empty_instructions_and_prompt_yields_no_spec_initial() {
+        let f = flags("claude");
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        assert!(spec.initial.is_none());
+    }
+
+    #[test]
+    fn account_id_resolves_to_account_from_store() {
+        let mut f = flags("claude");
+        f.account = Some("work".to_string());
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let accounts = TestAccountStore {
+            accounts: vec![Account {
+                id: "work".to_string(),
+                api_key_env: Some("WORK_KEY".to_string()),
+                ..Default::default()
+            }],
+        };
+        let spec = resolve(&f, &settings, &reg, &accounts).expect("resolve");
+
+        let account = spec.account.expect("account should be set");
+        assert_eq!(account.id, "work");
+        assert_eq!(account.api_key_env.as_deref(), Some("WORK_KEY"));
+    }
+
+    #[test]
+    fn unknown_account_id_errors_with_near_matches() {
+        let mut f = flags("claude");
+        f.account = Some("wrk".to_string());
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let accounts = TestAccountStore {
+            accounts: vec![Account {
+                id: "work".to_string(),
+                ..Default::default()
+            }],
+        };
+        let err = resolve(&f, &settings, &reg, &accounts).expect_err("should fail");
+        let msg = err.to_string();
+        assert!(msg.contains("wrk"), "message was: {msg}");
+        assert!(msg.contains("work"), "message was: {msg}");
+    }
+
+    #[test]
+    fn no_account_flag_leaves_spec_account_none() {
+        let f = flags("claude");
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        assert!(spec.account.is_none());
     }
 }

@@ -4,11 +4,12 @@
 //! `am catalog|account|session|help` are reserved subcommands for managing
 //! the tool itself (see `_docs/target/cli.md`). This module implements the
 //! full `resolve → provision → run` spine, including `--print-config` for
-//! inspecting a provisioned run without launching it; `catalog`/`account`/
-//! `session` are stubbed until their own steps land.
+//! inspecting a provisioned run without launching it; `session` is stubbed
+//! until its own step lands.
 
 mod run;
 mod catalog;
+mod account;
 
 use std::path::PathBuf;
 
@@ -40,6 +41,7 @@ fn dispatch(args: &[String]) -> Result<()> {
             Ok(())
         }
         Some("catalog") => catalog::run(&args[1..]),
+        Some("account") => account::run(&args[1..]),
         Some(word) if RESERVED.contains(&word) => {
             println!("{word}: not yet implemented");
             Ok(())
@@ -101,6 +103,12 @@ struct RunArgs {
     /// Shorthand restricted-policy preset.
     #[arg(long)]
     safe: bool,
+    /// Seed always-on instructions from a file (written to the harness memory file).
+    #[arg(long)]
+    instructions: Option<PathBuf>,
+    /// Seed an initial prompt for the run.
+    #[arg(long)]
+    prompt: Option<String>,
     /// Settings file to merge (toml/yaml). Default: discovered.
     #[arg(long)]
     config: Option<PathBuf>,
@@ -113,6 +121,27 @@ struct RunArgs {
     /// Provision only; print the generated dir + argv + env; don't launch.
     #[arg(long)]
     print_config: bool,
+    /// I/O mode: `passthrough` (default) or `structured` (alias: `jsonl`).
+    #[arg(long)]
+    io: Option<String>,
+}
+
+/// Parse the `--io` flag's string value into an [`crate::spec::IoModes`].
+///
+/// Accepts `"passthrough"`, `"structured"`, and `"jsonl"` (an alias for
+/// `structured`, since that's the wire shape most structured bridges will
+/// actually speak); anything else is an error naming the value and the
+/// accepted set. `None` (flag not given) defaults to
+/// [`crate::spec::IoModes::Passthrough`].
+fn parse_io_mode(raw: Option<&str>) -> anyhow::Result<crate::spec::IoModes> {
+    match raw {
+        None => Ok(crate::spec::IoModes::Passthrough),
+        Some("passthrough") => Ok(crate::spec::IoModes::Passthrough),
+        Some("structured") | Some("jsonl") => Ok(crate::spec::IoModes::Structured),
+        Some(other) => bail!(
+            "unknown --io value '{other}'; expected 'passthrough' or 'structured' (alias: 'jsonl')"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -160,5 +189,35 @@ mod tests {
         assert!(dispatch(&[]).is_ok());
         assert!(dispatch(&["--help".to_string()]).is_ok());
         assert!(dispatch(&["help".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn parse_io_mode_defaults_to_passthrough() {
+        assert_eq!(
+            parse_io_mode(None).unwrap(),
+            crate::spec::IoModes::Passthrough
+        );
+    }
+
+    #[test]
+    fn parse_io_mode_accepts_passthrough_and_structured_and_jsonl_alias() {
+        assert_eq!(
+            parse_io_mode(Some("passthrough")).unwrap(),
+            crate::spec::IoModes::Passthrough
+        );
+        assert_eq!(
+            parse_io_mode(Some("structured")).unwrap(),
+            crate::spec::IoModes::Structured
+        );
+        assert_eq!(
+            parse_io_mode(Some("jsonl")).unwrap(),
+            crate::spec::IoModes::Structured
+        );
+    }
+
+    #[test]
+    fn parse_io_mode_bogus_value_is_an_error() {
+        let err = parse_io_mode(Some("bogus")).unwrap_err();
+        assert!(err.to_string().contains("bogus"));
     }
 }

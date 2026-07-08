@@ -127,3 +127,13 @@ first, then falls back to the global layer, and unions the two for listing.
 A catalog MCP entry can be marked to be exposed **as a skill** rather than a raw
 tool set, to keep the agent's context lean. That mechanism has its own doc:
 [`mcp-as-skill.md`](./mcp-as-skill.md).
+
+## See also: accounts catalog
+
+The **accounts catalog** mirrors the MCP/skill registry shape and lives under
+`~/.config/agent-manager/accounts/` (env override: `AM_ACCOUNTS`). Accounts are stored
+as TOML files (`accounts.toml` inline `[[account]]` definitions plus per-file
+`<id>.toml` entries) and hold credential **references**, never secret material: env-var
+names, a base URL, a helper command, and/or a private home directory. When injected
+via `--account <id>`, the account's references are resolved into the harness's native
+auth slots. See the account section of the `cli.md` for the full CLI (`am account ls|use|import`).

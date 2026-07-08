@@ -43,14 +43,28 @@ structured channel.
 
 ### Input modes — how `am` talks to the agent
 
-| Mode      | Applies to                        | Mechanism                                                                 |
-|-----------|-----------------------------------|---------------------------------------------------------------------------|
-| **JSONL** | harnesses with a stream-json contract (e.g. Claude Code) | Launch headless (`-p --input-format stream-json --output-format stream-json`); write the prompt as an NDJSON line on stdin; answer `control_request` tool-approvals with `control_response`. Contract fully spelled out in [`../harness/claude-code.md`](../harness/claude-code.md). |
-| **ACP**   | harnesses that speak the Agent Client Protocol (opencode, codex, …) | Launch in ACP mode; exchange ACP JSON-RPC messages over the harness's ACP transport. |
+Each harness speaks its own wire protocol; `am` normalizes all of them to/from
+the same `AgentInput`/`AgentEvent` model via a per-harness `IoBridge`
+implementation. There is no single shared "structured" protocol on the wire —
+`--io structured` just means "don't use the tty, use whatever protocol this
+harness's bridge speaks":
 
-Input mode is picked to match the harness — you cannot drive a JSONL-only
-harness over ACP or vice-versa. `Harness::io_support()` reports what is possible;
-`resolve` rejects an impossible `--io` request with a clear error.
+| Harness         | Mechanism                                                                 |
+|------------------|---------------------------------------------------------------------------|
+| **Claude Code**  | stream-json (NDJSON): launch headless (`-p --input-format stream-json --output-format stream-json`); write the prompt as an NDJSON line on stdin; answer `control_request` tool-approvals with `control_response`. Contract fully spelled out in [`../harness/claude-code.md`](../harness/claude-code.md). |
+| **codex**        | JSON-RPC over `codex app-server`: launch the `app-server` subcommand and exchange JSON-RPC requests/notifications over its stdio. See [`../harness/codex.md`](../harness/codex.md). |
+| **opencode**     | NDJSON one-shot: launch `opencode run --format json`, which streams one NDJSON event per line and exits. See [`../harness/opencode.md`](../harness/opencode.md). |
+
+Input mode is picked to match the harness — you cannot drive one harness's
+bridge with another's wire format. `Harness::io_support()` reports whether a
+structured bridge is available (`structured: bool`); `resolve`/the CLI
+rejects an impossible `--io structured` request with a clear error naming the
+harness.
+
+> **Note:** "ACP" and "AG-UI" are **Phase 3 output adapters** layered over the
+> neutral `AgentEvent` model (see "Output modes" below) — they are not a P2
+> input mechanism. No harness here is driven "over ACP"; each is driven over
+> its own native protocol as listed above.
 
 ### Output modes — how `am` exposes the agent outward
 
@@ -75,27 +89,69 @@ stream-json on stdin.
 
 ### The `IoBridge` trait
 
-Each mode is an implementation of a small bridge trait that `run` drives:
+Each per-harness bridge is an implementation of a small trait
+(`crate::io::IoBridge`, core — no feature gate):
 
 ```rust
 pub trait IoBridge {
     /// Feed the agent one unit of input (a prompt, a tool-approval answer).
-    fn send(&mut self, input: AgentInput) -> Result<()>;
-    /// Pull the next normalized event from the agent.
-    fn next_event(&mut self) -> Result<Option<AgentEvent>>;
+    fn send(&mut self, input: AgentInput) -> crate::Result<()>;
+    /// Pull the next normalized event, or `None` at end of stream.
+    fn next_event(&mut self) -> crate::Result<Option<AgentEvent>>;
 }
 ```
 
-`AgentInput` / `AgentEvent` are `am`'s **harness-neutral** internal model. The
-JSONL bridge maps them to/from Claude's stream-json; the ACP bridge maps them
-to/from ACP; the AG-UI *output* adapter maps `AgentEvent` to the AG-UI schema.
-Keeping a neutral internal model is what lets input and output modes be chosen
+`AgentInput` / `AgentEvent` (`crate::io::{AgentInput, AgentEvent}`, also core)
+are `am`'s **harness-neutral** internal model:
+
+```rust
+pub enum AgentInput {
+    Prompt { text: String },
+    ApproveTool { request_id: String, decision: ApprovalDecision, updated_input: Option<serde_json::Value> },
+    Interrupt,
+}
+pub enum AgentEvent {
+    SessionStarted { session_id: Option<String> },
+    AssistantText { text: String },
+    Thinking { text: String },
+    ToolCall { id: Option<String>, name: String, input: serde_json::Value },
+    ToolResult { id: Option<String>, content: serde_json::Value },
+    ApprovalRequest { request_id: String, tool_name: String, input: serde_json::Value },
+    Usage { input_tokens: Option<u64>, output_tokens: Option<u64> },
+    Result { success: bool, error: Option<String> },
+    Log { level: String, message: String },
+}
+```
+
+Both derive `Serialize`/`Deserialize` with `#[serde(tag = "type")]`, so a
+`--io structured` run prints one tagged-JSON `AgentEvent` per line on stdout
+(e.g. `{"type":"assistant_text","text":"…"}`). Note `AgentInput::Prompt` is a
+*struct* variant (`{ text: String }`), not a tuple newtype — serde's
+internally tagged representation can't merge a bare scalar into the tag
+object, only a map/struct, so every variant carries named fields.
+
+The Claude bridge maps `AgentInput`/`AgentEvent` to/from stream-json; the
+codex bridge maps them to/from the `app-server` JSON-RPC contract; the
+opencode bridge maps them to/from `opencode run --format json`'s NDJSON; a
+future AG-UI *output* adapter maps `AgentEvent` to the AG-UI schema. Keeping a
+neutral internal model is what lets input and output modes be chosen
 independently.
+
+`crate::io::spawn_piped` (also core) is the shared entry point every
+structured bridge uses to start its process: it builds a
+`std::process::Command` from a `Launch`, applies `env_remove` then `env`, and
+wires piped stdin/stdout (stderr inherited).
 
 ## Phasing
 
-- **Phase 1** — passthrough only. `IoModes` exists but has one variant.
-- **Phase 2** — JSONL input (Claude) and ACP input (opencode/codex) behind the
-  `Harness` trait; the neutral `AgentInput`/`AgentEvent` model.
+- **Phase 1** — passthrough only. `IoModes` has one variant (`Passthrough`).
+- **Phase 2** — the neutral `AgentInput`/`AgentEvent` model + `IoBridge` trait
+  + `spawn_piped` helper land as **core** (this step, C1); `IoModes::Structured`
+  is added to the spec and `--io structured` is wired through the CLI.
+  Concrete per-harness bridges (Claude stream-json, codex `app-server`
+  JSON-RPC, opencode NDJSON) land in follow-up steps (C2/C3/C4) — until a
+  given harness's bridge lands, `Harness::io_support().structured` is `false`
+  and `Harness::structured_bridge` returns a "not supported yet" error by
+  default.
 - **Phase 3** — ACP and AG-UI **output** adapters; the web/headless surface that
   consumes them.

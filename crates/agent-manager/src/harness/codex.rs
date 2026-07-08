@@ -1,0 +1,685 @@
+//! Codex provisioner.
+//!
+//! Transcribes `_docs/harness/codex.md` (esp. "On-disk layout (Global
+//! `~/.codex/`)", "MCP servers", "Orchestration / … / MCP at launch",
+//! "Skills at launch", and "Permissions" §"System A: legacy `approval_policy`
+//! + `sandbox_mode`") into a [`Harness`] impl.
+//!
+//! The "custom config folder" bridge: Codex resolves nearly everything
+//! (config, `auth.json`, skills, `AGENTS.md`) under a single root, `$CODEX_HOME`
+//! (default `~/.codex`). Provisioning points that variable at the ephemeral
+//! dir instead of the real `~/.codex`, so MCP servers/permissions/skills/
+//! memory are injected without ever touching the user's real config. Unlike
+//! Claude Code (which can split `CLAUDE_CONFIG_DIR` from `HOME`), Codex has no
+//! way to keep credentials in one place and injected config in another — see
+//! the `provision` doc comment on the account-home tradeoff this forces.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use anyhow::{bail, Context};
+
+use crate::config::{McpServer, McpTransport};
+use crate::spec::{McpRef, RunSpec};
+use crate::Result;
+
+use super::{copy_dir_recursive, Harness, IoSupport, Launch};
+
+/// The markers that wrap `am`-managed `[mcp_servers.*]` tables in
+/// `config.toml`, so any hand-authored tables in the same file (were any to
+/// coexist) survive a rewrite. See codex.md "MCP at launch".
+const MCP_MANAGED_BEGIN: &str = "# BEGIN managed mcp_servers";
+const MCP_MANAGED_END: &str = "# END managed mcp_servers";
+
+/// The Codex harness provisioner.
+#[derive(Debug, Clone, Default)]
+pub struct Codex;
+
+impl Codex {
+    /// Construct the Codex harness descriptor.
+    pub fn new() -> Self {
+        Codex
+    }
+}
+
+impl Harness for Codex {
+    fn id(&self) -> crate::spec::HarnessId {
+        "codex".to_string()
+    }
+
+    fn display_name(&self) -> &str {
+        "Codex"
+    }
+
+    fn command(&self) -> &str {
+        "codex"
+    }
+
+    fn aliases(&self) -> &[&str] {
+        &["codex"]
+    }
+
+    fn io_support(&self) -> IoSupport {
+        IoSupport {
+            passthrough: true,
+            structured: true,
+        }
+    }
+
+    fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
+        // Codex unifies config + `auth.json` under one root (`$CODEX_HOME`),
+        // unlike Claude Code which can split `CLAUDE_CONFIG_DIR` (injected
+        // config) from `HOME` (credential store). So when an account carries
+        // a private `home`, that dir itself becomes the write target (and
+        // later `CODEX_HOME`) instead of the ephemeral `dir` — there is no
+        // way to inject config while keeping a *different* dir as the
+        // credential root. This is a deliberate codex-specific tradeoff: a
+        // private-home account gets its own fully-isolated CODEX_HOME rather
+        // than a split config/credentials setup.
+        let config_home = spec
+            .account
+            .as_ref()
+            .and_then(|a| a.home.clone())
+            .unwrap_or_else(|| dir.to_path_buf());
+        std::fs::create_dir_all(&config_home)
+            .with_context(|| format!("creating {}", config_home.display()))?;
+
+        // 1. MCP + permissions: always write <config_home>/config.toml, even
+        // with zero servers, so the run is fully controlled.
+        let config_toml = build_config_toml(spec)?;
+        let config_toml_path = config_home.join("config.toml");
+        std::fs::write(&config_toml_path, config_toml)
+            .with_context(|| format!("writing {}", config_toml_path.display()))?;
+
+        // 2. Skills: copy each skill folder into
+        // <config_home>/.agents/skills/<id>/. NOTE: codex.md's "On-disk
+        // layout" section documents user skills as living under
+        // `~/.agents/skills/` (not `~/.codex/.agents/skills/`), but its
+        // "Skills at launch" section says the per-run copy target is
+        // `$CODEX_HOME/.agents/skills/<name>/SKILL.md`. We follow the
+        // "at launch" guidance since it is the explicit orchestration
+        // contract for a per-run provisioner.
+        let skills_dir = config_home.join(".agents").join("skills");
+        for skill in &spec.skills {
+            if !skill.path.exists() {
+                bail!(
+                    "skill '{}' points at a path that does not exist: {}",
+                    skill.id,
+                    skill.path.display()
+                );
+            }
+            let dest = skills_dir.join(&skill.id);
+            copy_dir_recursive(&skill.path, &dest).with_context(|| {
+                format!(
+                    "copying skill '{}' from {} to {}",
+                    skill.id,
+                    skill.path.display(),
+                    dest.display()
+                )
+            })?;
+        }
+
+        // 3. Instructions: <config_home>/AGENTS.md (the CODEX_HOME/global
+        // memory tier — never the user's cwd). Plain Markdown; no managed-
+        // marker requirement for codex, but a leading comment line documents
+        // provenance.
+        if let Some(instr_text) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+            let agents_md = format!("<!-- agent-manager managed -->\n{}\n", instr_text);
+            let agents_md_path = config_home.join("AGENTS.md");
+            std::fs::write(&agents_md_path, agents_md)
+                .with_context(|| format!("writing {}", agents_md_path.display()))?;
+        }
+
+        // 4. Build the launch. Structured mode launches the JSON-RPC
+        // `app-server` (`codex app-server --listen stdio://`), with the
+        // prompt delivered via `turn/start` by the bridge rather than a
+        // trailing positional argument; passthrough mode keeps the
+        // interactive argv shape from P1.
+        let structured = spec.io == crate::spec::IoModes::Structured;
+
+        let mut args = Vec::new();
+        if structured {
+            args.push("app-server".to_string());
+            args.push("--listen".to_string());
+            args.push("stdio://".to_string());
+        }
+        args.extend(spec.passthrough_args.iter().cloned());
+
+        // Append prompt as trailing positional argument, passthrough mode
+        // only — structured mode's bridge sends it via `turn/start`.
+        if !structured
+            && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref())
+        {
+            args.push(prompt.clone());
+        }
+
+        // 5. Account: inject credential *references* into the child's env.
+        // `am`'s account store never holds secret material — only env-var
+        // NAMES, a base URL, a helper command, and/or a home dir path. The
+        // only place a secret value is ever touched is the transient
+        // `std::env::var` read below; it lands in `Launch.env` (in-memory,
+        // passed to the child process) and is never written to disk.
+        let mut env = vec![("CODEX_HOME".to_string(), config_home.display().to_string())];
+        if let Some(account) = &spec.account {
+            // Codex has no separate auth-token env var (unlike Claude's
+            // ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN split): both
+            // api_key_env and auth_token_env map to OPENAI_API_KEY. If both
+            // are set on the account, api_key_env wins.
+            if let Some(name) = &account.api_key_env {
+                let value = std::env::var(name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "account '{}' references env var '{}' which is not set",
+                        account.id,
+                        name
+                    )
+                })?;
+                env.push(("OPENAI_API_KEY".to_string(), value));
+            } else if let Some(name) = &account.auth_token_env {
+                let value = std::env::var(name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "account '{}' references env var '{}' which is not set",
+                        account.id,
+                        name
+                    )
+                })?;
+                env.push(("OPENAI_API_KEY".to_string(), value));
+            }
+            // TODO(P2+): base_url → model_providers. Codex has no single env
+            // var for a custom base URL; a custom endpoint requires a
+            // `[model_providers.<name>]` table plus `model_provider = "<name>"`
+            // in config.toml. Don't fake it with an env var codex won't read.
+        }
+
+        Ok(Launch {
+            program: "codex".to_string(),
+            args,
+            env,
+            env_remove: Vec::new(),
+        })
+    }
+
+    fn structured_bridge(
+        &self,
+        provisioned: &crate::provision::Provisioned,
+        cwd: &Path,
+    ) -> Result<Box<dyn crate::io::IoBridge>> {
+        let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
+        Ok(Box::new(crate::io::codex::CodexBridge::new(child, cwd)?))
+    }
+}
+
+/// TOML shape for one `[mcp_servers.<id>]` table. Field presence
+/// distinguishes stdio (`command`/`args`/`env`) from streamable HTTP
+/// (`url`/`http_headers`) per codex.md "MCP servers" §Schema. Codex's only
+/// documented remote transport is streamable HTTP, so both [`McpTransport::Http`]
+/// and [`McpTransport::Sse`] map to `url` + `http_headers`.
+#[derive(Debug, serde::Serialize)]
+struct McpServerToml {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    args: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    env: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    http_headers: BTreeMap<String, String>,
+}
+
+fn mcp_server_toml(server: &McpServer) -> McpServerToml {
+    match server.transport {
+        McpTransport::Stdio => McpServerToml {
+            command: server.command.clone(),
+            args: server.args.clone(),
+            env: server.env.clone(),
+            url: None,
+            http_headers: BTreeMap::new(),
+        },
+        McpTransport::Http | McpTransport::Sse => McpServerToml {
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            url: server.url.clone(),
+            http_headers: server.headers.clone(),
+        },
+    }
+}
+
+/// Top-level document wrapping the `[mcp_servers.*]` tables, so serializing
+/// it via the `toml` crate produces one `[mcp_servers.<id>]` section per
+/// server (sorted by id — deterministic output, mirrors claude.rs).
+#[derive(Debug, serde::Serialize)]
+struct McpServersDoc {
+    mcp_servers: BTreeMap<String, McpServerToml>,
+}
+
+/// Render the `am`-managed `[mcp_servers.*]` block (without markers).
+fn build_mcp_servers_block(mcps: &[McpRef]) -> Result<String> {
+    let mut servers: BTreeMap<String, McpServerToml> = BTreeMap::new();
+    for mcp in mcps {
+        match mcp {
+            McpRef::Catalog(server) | McpRef::Inline(server) => {
+                servers.insert(server.id.clone(), mcp_server_toml(server));
+            }
+            McpRef::InProcess(_) => {
+                bail!("in-process MCP not supported in passthrough mode");
+            }
+        }
+    }
+    let doc = McpServersDoc {
+        mcp_servers: servers,
+    };
+    toml::to_string(&doc).context("serializing mcp_servers block")
+}
+
+/// Top-level permission keys (System A only — see codex.md "Permissions"
+/// §"System A: legacy `sandbox_mode` + `approval_policy`"). Serialized with
+/// the `toml` crate for correctness rather than hand-formatted strings.
+#[derive(Debug, Default, serde::Serialize)]
+struct PermissionToml {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sandbox_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_policy: Option<String>,
+}
+
+/// Map a harness-agnostic `policy.permission_mode` value to a codex
+/// `sandbox_mode`, if it is a recognized codex value (case-insensitive;
+/// `restricted` is treated as an alias for `read-only`). Returns `None` for
+/// anything else — the caller then omits permission keys and leaves codex on
+/// its defaults, per the P2 B1 task spec (no invented aliases beyond the
+/// documented ones).
+fn map_sandbox_mode(mode: &str) -> Option<&'static str> {
+    match mode.to_lowercase().as_str() {
+        "read-only" | "restricted" => Some("read-only"),
+        "workspace-write" => Some("workspace-write"),
+        "danger-full-access" => Some("danger-full-access"),
+        _ => None,
+    }
+}
+
+/// Build the full `config.toml` body: optional top-level permission keys
+/// (System A only), then the `am`-managed `[mcp_servers.*]` block wrapped in
+/// BEGIN/END comment markers.
+fn build_config_toml(spec: &RunSpec) -> Result<String> {
+    let mut out = String::new();
+
+    if let Some(policy) = &spec.policy {
+        match policy.permission_mode.as_deref().and_then(map_sandbox_mode) {
+            Some(sandbox_mode) => {
+                let permissions = PermissionToml {
+                    sandbox_mode: Some(sandbox_mode.to_string()),
+                    // Unattended run: never block on an interactive approval
+                    // prompt (still respects the sandbox above).
+                    approval_policy: Some("never".to_string()),
+                };
+                out.push_str(&toml::to_string(&permissions).context("serializing permissions")?);
+            }
+            None => {
+                // permission_mode absent or not a recognized codex value
+                // (e.g. a Claude-specific mode like "acceptEdits"); omit
+                // permission keys entirely and let codex use its defaults
+                // rather than guess at a mapping.
+                out.push_str(
+                    "# policy.permission_mode did not map to a recognized codex permission mode; using codex defaults\n",
+                );
+            }
+        }
+        out.push('\n');
+    }
+
+    let mcp_block = build_mcp_servers_block(&spec.mcps)?;
+    out.push_str(MCP_MANAGED_BEGIN);
+    out.push('\n');
+    out.push_str(&mcp_block);
+    out.push_str(MCP_MANAGED_END);
+    out.push('\n');
+
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::{ConfigStrategy, Instructions, McpRef, Policy, SkillRef};
+    use std::path::PathBuf;
+
+    fn write_skill(dir: &Path, id: &str) -> PathBuf {
+        let skill_dir = dir.join(id);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {id}\ndescription: test skill\n---\nBody."),
+        )
+        .unwrap();
+        skill_dir
+    }
+
+    #[test]
+    fn provision_writes_config_toml_skills_agents_md_and_launch_without_touching_home() {
+        // A stand-in for the user's real `$HOME`. `provision()` never reads
+        // or writes an env-derived home directory (it only touches the
+        // `dir`/account-`home` it is explicitly given), so this must stay
+        // untouched. (We don't mutate the process's `HOME` var here:
+        // `std::env::set_var` requires `unsafe` as of edition 2024, and this
+        // crate forbids unsafe code; asserting the fake dir stays empty is
+        // sufficient since nothing in the provisioner ever consults `HOME`.)
+        let fake_home = tempfile::TempDir::new().unwrap();
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
+
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            path: skill_path,
+        });
+        spec.mcps.push(McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec!["--flag".to_string()],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }));
+        spec.mcps.push(McpRef::Inline(McpServer {
+            id: "docs".to_string(),
+            transport: McpTransport::Http,
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://example.com/mcp/".to_string()),
+            headers: BTreeMap::new(),
+        }));
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER: be helpful".to_string()),
+            prompt: Some("say hello world".to_string()),
+        });
+
+        let codex = Codex::new();
+        let launch = codex.provision(&spec, config_dir.path()).unwrap();
+
+        // config.toml exists, has the managed markers, and both servers.
+        let config_toml_path = config_dir.path().join("config.toml");
+        assert!(config_toml_path.exists());
+        let content = std::fs::read_to_string(&config_toml_path).unwrap();
+        assert!(content.contains(MCP_MANAGED_BEGIN));
+        assert!(content.contains(MCP_MANAGED_END));
+        assert!(content.contains("[mcp_servers.postgres]"));
+        assert!(content.contains("command = \"postgres-mcp\""));
+        assert!(content.contains("[mcp_servers.docs]"));
+        assert!(content.contains("url = \"https://example.com/mcp/\""));
+
+        let parsed: toml::Value = toml::from_str(&content).unwrap();
+        let servers = parsed.get("mcp_servers").unwrap().as_table().unwrap();
+        assert_eq!(
+            servers["postgres"]["command"].as_str(),
+            Some("postgres-mcp")
+        );
+        assert_eq!(
+            servers["docs"]["url"].as_str(),
+            Some("https://example.com/mcp/")
+        );
+
+        // skill copied under .agents/skills/<id>/.
+        let skill_md = config_dir.path().join(".agents/skills/my-skill/SKILL.md");
+        assert!(skill_md.exists());
+
+        // AGENTS.md contains the instructions.
+        let agents_md_path = config_dir.path().join("AGENTS.md");
+        assert!(agents_md_path.exists());
+        let agents_md = std::fs::read_to_string(&agents_md_path).unwrap();
+        assert!(agents_md.contains("REMEMBER: be helpful"));
+
+        // launch shape.
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string()));
+        assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
+
+        // Invariant: nothing written under the stand-in home dir.
+        let home_entries: Vec<_> = std::fs::read_dir(fake_home.path()).unwrap().collect();
+        assert!(
+            home_entries.is_empty(),
+            "expected no writes under the fake home dir, found: {home_entries:?}"
+        );
+    }
+
+    #[test]
+    fn provision_missing_skill_path_is_an_error() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.skills.push(SkillRef {
+            id: "missing".to_string(),
+            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+        });
+
+        let codex = Codex::new();
+        let err = codex.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("missing"));
+    }
+
+    #[test]
+    fn provision_empty_mcps_still_writes_config_toml() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        let codex = Codex::new();
+        codex.provision(&spec, config_dir.path()).unwrap();
+
+        let config_toml_path = config_dir.path().join("config.toml");
+        assert!(config_toml_path.exists());
+        let content = std::fs::read_to_string(&config_toml_path).unwrap();
+        assert!(content.contains(MCP_MANAGED_BEGIN));
+        assert!(content.contains(MCP_MANAGED_END));
+    }
+
+    #[test]
+    fn provision_recognized_permission_mode_sets_sandbox_and_approval_policy() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.policy = Some(Policy {
+            permission_mode: Some("restricted".to_string()),
+            allow: vec![],
+            ask: vec![],
+            deny: vec![],
+        });
+
+        let codex = Codex::new();
+        codex.provision(&spec, config_dir.path()).unwrap();
+
+        let content =
+            std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
+        assert!(content.contains("sandbox_mode = \"read-only\""));
+        assert!(content.contains("approval_policy = \"never\""));
+    }
+
+    #[test]
+    fn provision_unrecognized_permission_mode_omits_permission_keys() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.policy = Some(Policy {
+            permission_mode: Some("acceptEdits".to_string()),
+            allow: vec![],
+            ask: vec![],
+            deny: vec![],
+        });
+
+        let codex = Codex::new();
+        codex.provision(&spec, config_dir.path()).unwrap();
+
+        let content =
+            std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
+        assert!(!content.contains("sandbox_mode ="));
+        assert!(!content.contains("approval_policy ="));
+    }
+
+    #[test]
+    fn provision_mcp_in_process_is_an_error() {
+        use crate::mcp::{McpService, ToolDef};
+        use crate::spec::InProcessMcpHandle;
+        use std::sync::Arc;
+
+        struct NoopService;
+        impl McpService for NoopService {
+            fn tools(&self) -> Vec<ToolDef> {
+                Vec::new()
+            }
+            fn call(&self, _name: &str, _arguments: serde_json::Value) -> crate::Result<serde_json::Value> {
+                anyhow::bail!("not implemented")
+            }
+        }
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.mcps.push(McpRef::InProcess(InProcessMcpHandle {
+            name: "in-proc".to_string(),
+            service: Arc::new(NoopService),
+        }));
+
+        let codex = Codex::new();
+        let err = codex.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("in-process"));
+    }
+
+    #[test]
+    fn provision_account_api_key_env_maps_to_openai_api_key() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "path-account".to_string(),
+            api_key_env: Some("PATH".to_string()),
+            ..Default::default()
+        });
+
+        let expected = std::env::var("PATH").expect("PATH should be set in the test environment");
+
+        let codex = Codex::new();
+        let launch = codex.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "OPENAI_API_KEY" && v == &expected));
+
+        // No-secret-on-disk invariant.
+        for entry in walkdir::WalkDir::new(config_dir.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+            assert!(
+                !content.contains(&expected),
+                "secret value leaked into {}",
+                entry.path().display()
+            );
+        }
+    }
+
+    #[test]
+    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "broken".to_string(),
+            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
+            ..Default::default()
+        });
+
+        let codex = Codex::new();
+        let err = codex.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
+    }
+
+    #[test]
+    fn provision_account_home_becomes_codex_home_and_write_target() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let account_home = tempfile::TempDir::new().unwrap();
+
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "private-home".to_string(),
+            home: Some(account_home.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let codex = Codex::new();
+        let launch = codex.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch.env.iter().any(
+            |(k, v)| k == "CODEX_HOME" && v == &account_home.path().display().to_string()
+        ));
+        // config.toml landed in the account's home, not the ephemeral dir.
+        assert!(account_home.path().join("config.toml").exists());
+        assert!(!config_dir.path().join("config.toml").exists());
+    }
+
+    #[test]
+    fn resolve_codex_by_id() {
+        assert_eq!(super::super::resolve("codex").unwrap().id(), "codex");
+    }
+
+    #[test]
+    fn provision_structured_io_builds_app_server_argv_without_positional_prompt() {
+        use crate::spec::Instructions;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("say hello world".to_string()),
+        });
+
+        let codex = Codex::new();
+        let launch = codex.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch.args.contains(&"app-server".to_string()));
+        assert!(launch.args.contains(&"--listen".to_string()));
+        assert!(launch.args.contains(&"stdio://".to_string()));
+        // The prompt is delivered via `turn/start` by the bridge, not
+        // appended as a positional argument.
+        assert!(!launch.args.contains(&"say hello world".to_string()));
+    }
+
+    #[test]
+    fn provision_passthrough_io_does_not_build_app_server_argv() {
+        use crate::spec::Instructions;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        // spec.io defaults to Passthrough.
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("say hello world".to_string()),
+        });
+
+        let codex = Codex::new();
+        let launch = codex.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"app-server".to_string()));
+        assert!(!launch.args.contains(&"--listen".to_string()));
+        assert!(!launch.args.contains(&"stdio://".to_string()));
+        assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
+    }
+}

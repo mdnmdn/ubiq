@@ -64,11 +64,11 @@ pub struct RunSpec {
     /// Resolved MCP servers to inject (from the catalog, inline, or in-process).
     pub mcps: Vec<McpRef>,
 
-    /// Hooks to wire into the harness's native hook slots.        (P2/P3)
+    /// Hooks to wire into the harness's native hook slots.        (P3)
     pub hooks: Vec<HookRef>,
 
-    /// Which account/credential profile the run authenticates with. (P2)
-    pub account: Option<AccountId>,
+    /// Resolved account/credential profile (references only, never secrets). (P2)
+    pub account: Option<Account>,
 
     /// Always-on instructions / first prompt to seed.               (P2)
     pub initial: Option<Instructions>,
@@ -79,8 +79,8 @@ pub struct RunSpec {
     /// Sandbox settings (isol8) — off by default.                   (P3)
     pub isolation: Isolation,
 
-    /// How `am` talks to the agent and exposes it outward.          (P2/P3)
-    pub io: IoModes,                // default: Passthrough
+    /// How `am` talks to the agent and exposes it outward.          (P2)
+    pub io: IoMode,                 // default: Passthrough; else: Structured(bridge)
 
     /// Verbatim extra args forwarded to the harness binary.
     pub passthrough_args: Vec<String>,
@@ -150,7 +150,8 @@ src/
 ├── cli/              # clap surface (feature = "cli")
 │   ├── mod.rs        #   Args, top-level dispatch
 │   ├── run.rs        #   `am <harness> …`
-│   └── catalog.rs    #   `am catalog ls|import|…`
+│   ├── catalog.rs    #   `am catalog ls|import|…`
+│   └── account.rs    #   `am account ls|use|import`         (P2)
 ├── spec.rs           # RunSpec, McpRef, SkillRef, IoModes, ConfigStrategy, …
 ├── resolve.rs        # (flags + config file + catalog) -> RunSpec
 ├── settings.rs       # load/merge the toml|yaml settings file
@@ -158,26 +159,33 @@ src/
 │   ├── mod.rs        #   Registry trait, CatalogEntry types
 │   ├── fs.rs         #   filesystem-backed registry (config + folders)
 │   └── import.rs     #   ingest ~/.claude, ~/.agent, … into the catalog
+├── account.rs        # account catalog + credential-reference injection (core, P2)
 ├── harness/          # per-harness knowledge (Harness trait + impls)
 │   ├── mod.rs        #   Harness trait, HarnessId, all()/by_id()
-│   ├── claude.rs
-│   ├── codex.rs
-│   └── opencode.rs
+│   ├── claude.rs     #   Claude Code (P1)
+│   ├── codex.rs      #   Codex (P2)
+│   └── opencode.rs   #   opencode (P2)
 ├── provision.rs      # RunSpec -> ephemeral config dir + argv + env (per harness)
 ├── run.rs            # spawn + supervise the child; owns the process lifecycle
-├── io/               # I/O bridging (see io-modes.md)
-│   ├── mod.rs        #   IoBridge trait
-│   ├── passthrough.rs
-│   ├── jsonl.rs      #   Claude stream-json input
-│   └── acp.rs        #   ACP input/output
-├── account.rs        # account catalog + credential-reference injection   (P2)
-├── session.rs        # session history store (list/resume/record)          (P2/P3)
-└── isolate.rs        # isol8 integration                                    (P3)
+├── io/               # I/O bridging (core: model + bridges; pty-gated: passthrough)
+│   ├── mod.rs        #   neutral model (core)
+│   ├── model.rs      #   AgentInput/AgentEvent/AgentParams          (P2)
+│   ├── passthrough.rs#   raw-tty pump                               (pty-gated)
+│   ├── structured.rs #   IoBridge trait                             (core, P2)
+│   ├── jsonl.rs      #   Claude stream-json input                   (P2)
+│   ├── codex.rs      #   Codex JSON-RPC app-server input            (P2)
+│   └── opencode.rs   #   opencode NDJSON run input                  (P2)
+├── mcp/              # in-process MCP hosting (feature: inproc-mcp)
+│   ├── mod.rs        #   McpService trait for embedders    (core, P2)
+│   └── server.rs     #   HTTP server for in-process MCPs   (feature: inproc-mcp, P2)
+├── session.rs        # session history store (list/resume/record)  (P3)
+└── isolate.rs        # isol8 integration                            (P3)
 ```
 
-Not every module exists in Phase 1. P1 needs `spec`, `resolve`, `settings`,
-`registry` (+ `import`), `harness`, `provision`, `run`, and `io/passthrough`.
-The rest arrive with their phase.
+Phase 1 needs `spec`, `resolve`, `settings`, `registry`, `harness` (claude),
+`provision`, `run`, and `io/passthrough`. Phase 2 adds `account`, `harness`
+(codex/opencode), `io/{model,structured,jsonl,codex,opencode}`, and `mcp`.
+The rest arrive with Phase 3.
 
 ## The `Harness` trait
 
