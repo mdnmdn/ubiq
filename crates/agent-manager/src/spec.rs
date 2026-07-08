@@ -6,12 +6,13 @@
 
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use crate::account::Account;
 use crate::config::McpServer;
 
 /// Stable, lowercase harness identifier (e.g. `claude-code`).
 pub type HarnessId = String;
 
-/// Account / credential profile id. (P2 — accounts)
+/// Account / credential profile id — the [`crate::account::AccountStore`] key.
 pub type AccountId = String;
 
 /// A resolved skill to inject: its id and the on-disk folder to materialize.
@@ -30,17 +31,32 @@ pub enum McpRef {
     Catalog(McpServer),
     /// An inline definition (lib mode or `--mcp-json`).
     Inline(McpServer),
-    /// An in-process server hosted by the embedding program (lib mode only). (P2)
-    #[allow(dead_code)]
+    /// An in-process server hosted by the embedding program (lib mode only).
+    ///
+    /// Consumed by `provision()` when the `inproc-mcp` feature is on: it
+    /// starts a loopback HTTP MCP server backed by
+    /// [`InProcessMcpHandle::service`] and replaces this entry with an
+    /// [`McpRef::Inline`] `http` server before handing the spec to the
+    /// harness. When the feature is off, harnesses `bail!` on this variant.
     InProcess(InProcessMcpHandle),
 }
 
-/// Opaque handle to an in-process MCP server. Placeholder until P2.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+/// Handle to an in-process MCP server: a logical name plus the embedder's
+/// [`crate::mcp::McpService`] implementation backing it.
+#[derive(Clone)]
 pub struct InProcessMcpHandle {
-    /// Logical name of the in-process server.
+    /// Logical name of the in-process server (becomes the MCP server id).
     pub name: String,
+    /// The embedder-provided tool implementation.
+    pub service: std::sync::Arc<dyn crate::mcp::McpService>,
+}
+
+impl std::fmt::Debug for InProcessMcpHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InProcessMcpHandle")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A hook to wire into the harness's native hook slots. Placeholder until P2/P3.
@@ -51,12 +67,20 @@ pub struct HookRef {
     pub id: String,
 }
 
-/// Always-on instructions / first prompt to seed. Placeholder until P2.
+/// Always-on instructions / first prompt to seed.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Instructions {
-    /// Raw instruction text.
-    pub text: String,
+    /// Always-on instructions (written to the harness's memory file, e.g. CLAUDE.md).
+    pub instructions: Option<String>,
+    /// An initial prompt to send/seed for the run.
+    pub prompt: Option<String>,
+}
+
+impl Instructions {
+    /// Check whether both instructions and prompt are empty.
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_none() && self.prompt.is_none()
+    }
 }
 
 /// Where the ephemeral config dir lives and whether to keep it.
@@ -80,12 +104,19 @@ pub enum Isolation {
     Sandboxed(String),
 }
 
-/// How `am` talks to the agent and exposes it outward. Only `Passthrough` in P1.
+/// How `am` talks to the agent and exposes it outward.
+///
+/// `#[serde(rename_all = "snake_case")]` so this round-trips as
+/// `"passthrough"` / `"structured"` (matching the CLI's `--io` values).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum IoModes {
-    /// Forward the tty verbatim (default).
+    /// Forward the tty verbatim (default, Phase 1).
     #[default]
     Passthrough,
+    /// Drive the agent over a harness-neutral [`crate::io::IoBridge`]
+    /// (Phase 2+). See `_docs/target/io-modes.md`.
+    Structured,
 }
 
 /// A permission/policy preset (what `--safe` expands to). Rendered per-harness
@@ -117,8 +148,10 @@ pub struct RunSpec {
     pub mcps: Vec<McpRef>,
     /// Hooks to wire in. (P2/P3)
     pub hooks: Vec<HookRef>,
-    /// Account/credential profile. (P2)
-    pub account: Option<AccountId>,
+    /// Resolved account/credential reference, if any. Holds only references
+    /// (env-var names, a base URL, a helper command, a private home dir) —
+    /// never a secret value; see [`Account`].
+    pub account: Option<Account>,
     /// Resolved permission/policy preset (from `--safe`), if any.
     pub policy: Option<Policy>,
     /// Always-on instructions / first prompt. (P2)

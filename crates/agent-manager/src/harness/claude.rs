@@ -67,8 +67,7 @@ impl Harness for Claude {
     fn io_support(&self) -> IoSupport {
         IoSupport {
             passthrough: true,
-            jsonl: true,
-            acp: false,
+            structured: true,
         }
     }
 
@@ -84,7 +83,7 @@ impl Harness for Claude {
                 );
             }
             let dest = skills_dir.join(&skill.id);
-            copy_dir_recursive(&skill.path, &dest).with_context(|| {
+            super::copy_dir_recursive(&skill.path, &dest).with_context(|| {
                 format!(
                     "copying skill '{}' from {} to {}",
                     skill.id,
@@ -101,7 +100,9 @@ impl Harness for Claude {
         std::fs::write(&mcp_path, serde_json::to_string_pretty(&mcp_json)?)
             .with_context(|| format!("writing {}", mcp_path.display()))?;
 
-        // 3. Policy: <dir>/settings.json, only if a policy is set.
+        // 3. Policy + account helper: <dir>/settings.json, written when
+        // either a policy or an account helper is present.
+        let mut settings_obj = serde_json::Map::new();
         if let Some(policy) = &spec.policy {
             let mut permissions = serde_json::Map::new();
             if let Some(mode) = &policy.permission_mode {
@@ -110,55 +111,133 @@ impl Harness for Claude {
             permissions.insert("allow".to_string(), json!(policy.allow));
             permissions.insert("ask".to_string(), json!(policy.ask));
             permissions.insert("deny".to_string(), json!(policy.deny));
-
-            let settings = json!({ "permissions": Value::Object(permissions) });
+            settings_obj.insert("permissions".to_string(), Value::Object(permissions));
+        }
+        if let Some(account) = &spec.account
+            && let Some(helper) = &account.helper
+        {
+            // `am` never runs the helper or sees its output; it only wires
+            // the command string into Claude Code's native key-helper slot.
+            settings_obj.insert("apiKeyHelper".to_string(), json!(helper));
+        }
+        if !settings_obj.is_empty() {
             let settings_path = dir.join("settings.json");
-            std::fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)
-                .with_context(|| format!("writing {}", settings_path.display()))?;
+            std::fs::write(
+                &settings_path,
+                serde_json::to_string_pretty(&Value::Object(settings_obj))?,
+            )
+            .with_context(|| format!("writing {}", settings_path.display()))?;
         }
 
         // 4. Instructions: <dir>/CLAUDE.md, wrapped in a managed block.
-        if let Some(instr) = &spec.initial {
-            let claude_md = format!("{MANAGED_BEGIN}\n{}\n{MANAGED_END}\n", instr.text);
+        if let Some(instr_text) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+            let claude_md = format!("{MANAGED_BEGIN}\n{}\n{MANAGED_END}\n", instr_text);
             let claude_md_path = dir.join("CLAUDE.md");
             std::fs::write(&claude_md_path, claude_md)
                 .with_context(|| format!("writing {}", claude_md_path.display()))?;
         }
 
-        // 5. Build the launch.
-        let mut args = vec![
-            "--mcp-config".to_string(),
-            mcp_path.display().to_string(),
-            "--strict-mcp-config".to_string(),
-        ];
+        // 5. Build the launch. Structured mode launches Claude Code headless
+        // (`-p --output-format stream-json --input-format stream-json`),
+        // with the prompt delivered as an NDJSON line on stdin by the
+        // bridge rather than a trailing positional argument; passthrough
+        // mode keeps the interactive argv shape from P1.
+        let structured = spec.io == crate::spec::IoModes::Structured;
+
+        let mut args = Vec::new();
+        if structured {
+            args.extend(
+                [
+                    "-p",
+                    "--output-format",
+                    "stream-json",
+                    "--input-format",
+                    "stream-json",
+                    "--verbose",
+                ]
+                .map(str::to_string),
+            );
+        }
+        args.push("--mcp-config".to_string());
+        args.push(mcp_path.display().to_string());
+        args.push("--strict-mcp-config".to_string());
+        if structured {
+            args.extend(
+                [
+                    "--permission-mode",
+                    "bypassPermissions",
+                    "--disallowedTools",
+                    "AskUserQuestion",
+                ]
+                .map(str::to_string),
+            );
+        }
         args.extend(spec.passthrough_args.iter().cloned());
+
+        // Append prompt as trailing positional argument, passthrough mode
+        // only — structured mode's bridge sends it as NDJSON on stdin.
+        if !structured
+            && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref())
+        {
+            args.push(prompt.clone());
+        }
+
+        // 6. Account: inject credential *references* into the child's env.
+        // `am`'s account store never holds secret material — only env-var
+        // NAMES, a base URL, a helper command, and/or a home dir path. The
+        // only place a secret value is ever touched is the transient
+        // `std::env::var` read below; it lands in `Launch.env` (in-memory,
+        // passed to the child process) and is never written to disk.
+        let mut env = vec![("CLAUDE_CONFIG_DIR".to_string(), dir.display().to_string())];
+        if let Some(account) = &spec.account {
+            if let Some(base_url) = &account.base_url {
+                env.push(("ANTHROPIC_BASE_URL".to_string(), base_url.clone()));
+            }
+            if let Some(name) = &account.api_key_env {
+                let value = std::env::var(name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "account '{}' references env var '{}' which is not set",
+                        account.id,
+                        name
+                    )
+                })?;
+                env.push(("ANTHROPIC_API_KEY".to_string(), value));
+            }
+            if let Some(name) = &account.auth_token_env {
+                let value = std::env::var(name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "account '{}' references env var '{}' which is not set",
+                        account.id,
+                        name
+                    )
+                })?;
+                env.push(("ANTHROPIC_AUTH_TOKEN".to_string(), value));
+            }
+            if let Some(home) = &account.home {
+                // CLAUDE_CONFIG_DIR stays pointed at the ephemeral dir
+                // (skills/mcp injection); OAuth/keychain credentials resolve
+                // relative to HOME, so a private-HOME account keeps its own
+                // credential store while still getting injected skills/mcp.
+                env.push(("HOME".to_string(), home.display().to_string()));
+            }
+        }
 
         Ok(Launch {
             program: "claude".to_string(),
             args,
-            env: vec![("CLAUDE_CONFIG_DIR".to_string(), dir.display().to_string())],
+            env,
             env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
         })
     }
-}
 
-/// Recursively copy `src` into `dst`, creating directories as needed.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in walkdir::WalkDir::new(src).min_depth(1) {
-        let entry = entry?;
-        let rel = entry.path().strip_prefix(src)?;
-        let target = dst.join(rel);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&target)?;
-        } else {
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::copy(entry.path(), &target)?;
-        }
+    fn structured_bridge(
+        &self,
+        provisioned: &crate::provision::Provisioned,
+        cwd: &Path,
+    ) -> Result<Box<dyn crate::io::IoBridge>> {
+        let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
+        Ok(Box::new(crate::io::JsonlBridge::new(child)?))
     }
-    Ok(())
 }
 
 /// Render one [`McpServer`] into the JSON shape Claude Code's `--mcp-config`
@@ -380,5 +459,210 @@ mod tests {
             mcp_json.get("mcpServers").unwrap().as_object().unwrap().len(),
             0
         );
+    }
+
+    #[test]
+    fn provision_instructions_writes_claude_md() {
+        use crate::spec::Instructions;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER: be helpful\nAlways ask questions".to_string()),
+            prompt: None,
+        });
+
+        let claude = Claude::new();
+        claude.provision(&spec, config_dir.path()).unwrap();
+
+        let claude_md_path = config_dir.path().join("CLAUDE.md");
+        assert!(claude_md_path.exists());
+        let content = std::fs::read_to_string(&claude_md_path).unwrap();
+        assert!(content.contains("REMEMBER: be helpful"));
+        assert!(content.contains("Always ask questions"));
+        assert!(content.contains(MANAGED_BEGIN));
+        assert!(content.contains(MANAGED_END));
+    }
+
+    #[test]
+    fn provision_prompt_appends_to_launch_args() {
+        use crate::spec::Instructions;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("say hello world".to_string()),
+        });
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
+    }
+
+    #[test]
+    fn provision_instructions_and_prompt_both_set() {
+        use crate::spec::Instructions;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER ME".to_string()),
+            prompt: Some("do something".to_string()),
+        });
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        let claude_md_path = config_dir.path().join("CLAUDE.md");
+        assert!(claude_md_path.exists());
+        let content = std::fs::read_to_string(&claude_md_path).unwrap();
+        assert!(content.contains("REMEMBER ME"));
+
+        assert_eq!(launch.args.last(), Some(&"do something".to_string()));
+    }
+
+    #[test]
+    fn provision_account_base_url_helper_and_home_are_injected() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "gateway".to_string(),
+            base_url: Some("https://gw/".to_string()),
+            helper: Some("get-key".to_string()),
+            home: Some(PathBuf::from("/tmp/acct")),
+            ..Default::default()
+        });
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://gw/"));
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "HOME" && v == "/tmp/acct"));
+
+        let settings_path = config_dir.path().join("settings.json");
+        assert!(settings_path.exists());
+        let settings: Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert_eq!(settings.get("apiKeyHelper").unwrap().as_str(), Some("get-key"));
+    }
+
+    #[test]
+    fn provision_account_api_key_env_is_passed_through_without_touching_disk() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "path-account".to_string(),
+            api_key_env: Some("PATH".to_string()),
+            ..Default::default()
+        });
+
+        let expected = std::env::var("PATH").expect("PATH should be set in the test environment");
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == &expected));
+
+        // No-secret-on-disk invariant: walk the whole ephemeral dir and
+        // confirm the secret value never landed in any file `am` wrote.
+        for entry in walkdir::WalkDir::new(config_dir.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+            assert!(
+                !content.contains(&expected),
+                "secret value leaked into {}",
+                entry.path().display()
+            );
+        }
+    }
+
+    #[test]
+    fn provision_structured_io_builds_headless_argv_without_positional_prompt() {
+        use crate::spec::Instructions;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("say hello world".to_string()),
+        });
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(launch.args.contains(&"-p".to_string()));
+        assert!(launch.args.contains(&"--input-format".to_string()));
+        assert!(launch.args.contains(&"stream-json".to_string()));
+        assert!(launch.args.contains(&"--output-format".to_string()));
+        assert!(launch.args.contains(&"--verbose".to_string()));
+        assert!(launch.args.contains(&"--permission-mode".to_string()));
+        assert!(launch.args.contains(&"bypassPermissions".to_string()));
+        assert!(launch.args.contains(&"--disallowedTools".to_string()));
+        assert!(launch.args.contains(&"AskUserQuestion".to_string()));
+        // The prompt is delivered as NDJSON on stdin by the bridge, not
+        // appended as a positional argument.
+        assert!(!launch.args.contains(&"say hello world".to_string()));
+    }
+
+    #[test]
+    fn provision_passthrough_io_does_not_build_headless_argv() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        // spec.io defaults to Passthrough.
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"-p".to_string()));
+        assert!(!launch.args.contains(&"--input-format".to_string()));
+        assert!(!launch.args.contains(&"--permission-mode".to_string()));
+        assert!(!launch.args.contains(&"--disallowedTools".to_string()));
+        // The mcp-config plumbing stays present in both modes.
+        assert!(launch.args.contains(&"--mcp-config".to_string()));
+        assert!(launch.args.contains(&"--strict-mcp-config".to_string()));
+    }
+
+    #[test]
+    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "broken".to_string(),
+            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
+            ..Default::default()
+        });
+
+        let claude = Claude::new();
+        let err = claude.provision(&spec, config_dir.path()).unwrap_err();
+        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
     }
 }

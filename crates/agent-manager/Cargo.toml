@@ -30,6 +30,11 @@ tui = ["dep:ratatui", "dep:crossterm"]
 # separate so the core (spec/resolve/registry/harness/provision) still builds
 # with `--no-default-features` for lib mode.
 pty = ["dep:portable-pty", "dep:crossterm", "dep:signal-hook"]
+# In-process MCP for lib mode: host an embedder-registered `McpService` on a
+# loopback HTTP MCP endpoint and inject it into the harness as a normal
+# remote MCP server. Off by default (not part of `frontend`/`cli`); pulled in
+# explicitly by embedders (or `--all-features`, e.g. for the E2E test).
+inproc-mcp = ["dep:tiny_http"]
 
 [dependencies]
 # CLI (optional — `cli` feature)
@@ -64,5 +69,11 @@ walkdir = "2"
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
+# In-process MCP loopback HTTP server (optional — `inproc-mcp` feature).
+# Sync, no tokio — matches the crate's other optional runtime deps.
+tiny_http = { version = "0.12", optional = true }
+
 [dev-dependencies]
 tempfile = "3"
+# Sync HTTP client used only by the `inproc-mcp` E2E tests.
+ureq = { version = "2", default-features = false, features = ["json"] }

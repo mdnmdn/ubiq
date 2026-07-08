@@ -13,7 +13,33 @@ use crate::spec::{HarnessId, RunSpec};
 use crate::Result;
 
 mod claude;
+mod codex;
+mod opencode;
 pub use claude::Claude;
+pub use codex::Codex;
+pub use opencode::Opencode;
+
+/// Recursively copy `src` into `dst`, creating directories as needed.
+///
+/// Shared by harness provisioners that copy skill folders into an ephemeral
+/// config dir (e.g. [`claude::Claude`], [`codex::Codex`]).
+pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in walkdir::WalkDir::new(src).min_depth(1) {
+        let entry = entry?;
+        let rel = entry.path().strip_prefix(src)?;
+        let target = dst.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
 
 /// How to launch the real harness binary after provisioning.
 #[derive(Debug, Clone)]
@@ -33,10 +59,11 @@ pub struct Launch {
 pub struct IoSupport {
     /// Raw tty passthrough (always true).
     pub passthrough: bool,
-    /// Claude-style NDJSON stream. (P2)
-    pub jsonl: bool,
-    /// ACP protocol. (P2/P3)
-    pub acp: bool,
+    /// A structured [`crate::io::IoBridge`] is available via
+    /// [`Harness::structured_bridge`] (its wire protocol — NDJSON,
+    /// JSON-RPC `app-server`, etc. — is a per-harness implementation
+    /// detail). False until each harness's bridge lands (P2, C2/C3/C4).
+    pub structured: bool,
 }
 
 /// A wrappable agent harness: how to identify, provision, and launch it.
@@ -53,12 +80,30 @@ pub trait Harness {
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch>;
     /// Which I/O modes this harness supports.
     fn io_support(&self) -> IoSupport;
+    /// Build a structured-I/O bridge for a provisioned run.
+    ///
+    /// Default: unsupported (an error naming this harness). Overridden by
+    /// harnesses whose bridge has landed (tracked by
+    /// [`IoSupport::structured`]); until then this is the behavior every
+    /// harness gets for free, and callers should check `io_support().structured`
+    /// before invoking it if they want a nicer error message.
+    fn structured_bridge(
+        &self,
+        _provisioned: &crate::provision::Provisioned,
+        _cwd: &Path,
+    ) -> Result<Box<dyn crate::io::IoBridge>> {
+        anyhow::bail!("harness '{}' does not support structured I/O", self.id())
+    }
 }
 
 /// Every harness `am` knows how to wrap. (P1: Claude Code only; more are
 /// added by writing more `Harness` impls.)
 pub fn all() -> Vec<Box<dyn Harness>> {
-    vec![Box::new(Claude::new())]
+    vec![
+        Box::new(Claude::new()),
+        Box::new(Codex::new()),
+        Box::new(Opencode::new()),
+    ]
 }
 
 /// Resolve a harness by id, alias, or launch command (lenient — the CLI boundary).
@@ -88,6 +133,76 @@ mod tests {
     fn every_harness_has_a_command() {
         for h in all() {
             assert!(!h.command().is_empty(), "{} missing command", h.id());
+        }
+    }
+
+    #[test]
+    fn all_harnesses_support_structured_io() {
+        // All three harnesses (Claude Code, Codex, opencode) have landed
+        // their structured bridges and report structured support.
+        for h in all() {
+            let support = h.io_support();
+            assert!(support.passthrough, "{} should support passthrough", h.id());
+            assert!(
+                support.structured,
+                "{} should report structured support",
+                h.id()
+            );
+        }
+    }
+
+    #[test]
+    fn harness_without_structured_bridge_override_errors_mentioning_structured() {
+        // A test-only harness that doesn't override `structured_bridge`
+        // inherits the trait's default "unsupported" error. All real harnesses
+        // override it, but this documents the behavior for a hypothetical
+        // future harness.
+        #[derive(Clone)]
+        struct DummyHarness;
+
+        impl Harness for DummyHarness {
+            fn id(&self) -> crate::spec::HarnessId {
+                "dummy".to_string()
+            }
+            fn display_name(&self) -> &str {
+                "dummy"
+            }
+            fn command(&self) -> &str {
+                "dummy"
+            }
+            fn aliases(&self) -> &[&str] {
+                &[]
+            }
+            fn io_support(&self) -> IoSupport {
+                IoSupport {
+                    passthrough: false,
+                    structured: false,
+                }
+            }
+            fn provision(&self, _spec: &crate::spec::RunSpec, _dir: &Path) -> Result<Launch> {
+                anyhow::bail!("dummy harness provision not implemented")
+            }
+        }
+
+        let dummy = DummyHarness;
+        let provisioned = crate::provision::Provisioned {
+            dir: std::path::PathBuf::from("/tmp/does-not-matter"),
+            launch: Launch {
+                program: "dummy".to_string(),
+                args: vec![],
+                env: vec![],
+                env_remove: vec![],
+            },
+            ephemeral: true,
+            #[cfg(feature = "inproc-mcp")]
+            inproc_servers: Vec::new(),
+        };
+        // `.unwrap_err()` needs `T: Debug`, but `Box<dyn IoBridge>` isn't
+        // `Debug`; match the `Err` arm directly instead.
+        let result = dummy.structured_bridge(&provisioned, std::path::Path::new("."));
+        match result {
+            Ok(_) => panic!("expected an error"),
+            Err(err) => assert!(err.to_string().contains("structured"), "error was: {err}"),
         }
     }
 }

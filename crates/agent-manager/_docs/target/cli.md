@@ -11,8 +11,8 @@ and otherwise treats the first positional as a **harness name** to wrap:
 ```
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
-am account   <ls|use|import> …                  # manage accounts        (P2)
-am session   <ls|show|resume> …                 # manage session history  (P2/P3)
+am account   <ls|use|import> …                  # manage accounts
+am session   <ls|show|resume> …                 # manage session history  (P3)
 am help | am --version
 ```
 
@@ -41,11 +41,11 @@ am opencode --config ./run.toml
 | `--catalog <path>`       | Catalog root override (else env, else config, else default).        |
 | `--keep-config`          | Don't delete the ephemeral config dir on exit (debugging).          |
 | `--print-config`         | Provision only; print the generated dir + argv + env; don't launch. |
-| `--account <id>`         | Account/credential profile to use.                       (P2)       |
-| `--instructions <path>`  | Seed always-on instructions.                             (P2)       |
-| `--prompt <text>`        | Seed an initial prompt for the run.                      (P2)       |
+| `--account <id>`         | Account/credential profile to use.                                  |
+| `--instructions <path>`  | Seed always-on instructions into the harness config.                |
+| `--prompt <text>`        | Seed an initial prompt for the first harness message.               |
+| `--io <mode>`            | I/O mode: `passthrough` (default) or `structured` (alias `jsonl`).  |
 | `--isolate[=profile]`    | Run inside an isol8 sandbox.                             (P3)       |
-| `--io <mode>`            | Abstracted I/O instead of passthrough.                   (P2/P3)    |
 | `-- <harness-args…>`     | Everything after `--` is forwarded verbatim to the harness binary.  |
 
 *(1)* `--safe` is a named **preset** resolved from the settings file / built-in
@@ -134,6 +134,33 @@ dirs (`~/.claude`, `~/.agent`, project `.mcp.json`, …) and copies their skills
 and MCP definitions into the catalog so they can be injected by id. It **reads**
 those dirs; it never writes back to them. Full behavior in
 [`registry.md`](./registry.md).
+
+## Account commands
+
+```bash
+am account ls                 # list available accounts
+am account use <id>           # set the default account for future runs
+am account import             # ingest account definitions from well-known locations
+am account import --from ~/.claude --write
+```
+
+Accounts are stored under `~/.config/agent-manager/accounts/` (env override: `AM_ACCOUNTS`).
+An account holds credential **references**, never secret material: environment variable names
+(`api_key_env`, `auth_token_env`), a `base_url`, a credential helper command, and/or a
+private `home` directory. When injected with `--account <id>`, the account's references are
+resolved into the harness's native auth slots. Full account schema in [`overview.md`](./overview.md).
+
+## I/O modes
+
+The default is **passthrough**: `am` forwards the harness's terminal I/O directly,
+making `am` invisible for interactive use. The `--io structured` mode (alias `--io jsonl`)
+emits normalized `AgentEvent`s as NDJSON instead. Each harness supports both:
+
+- **Claude Code**: passthrough (PTY); structured via stream-json NDJSON protocol.
+- **Codex**: passthrough (PTY); structured via JSON-RPC over the app-server endpoint.
+- **opencode**: passthrough (PTY); structured via NDJSON `opencode run --format json`.
+
+Full I/O bridge details in [`io-modes.md`](./io-modes.md).
 
 ## Exit codes & passthrough fidelity
 

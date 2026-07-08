@@ -387,7 +387,7 @@ mod tests {
 
         // Verify the plan has both items as "Add"
         assert_eq!(plan.items.len(), 2);
-        assert_eq!(plan.dry_run, true);
+        assert!(plan.dry_run);
 
         let skill_item = plan
             .items
@@ -447,7 +447,7 @@ mod tests {
 
         // Verify the plan
         assert_eq!(plan.items.len(), 2);
-        assert_eq!(plan.dry_run, false);
+        assert!(!plan.dry_run);
 
         // Verify files were written to the catalog
         let skill_dest = catalog_dir.path().join("skills/demo");

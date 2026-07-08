@@ -3,16 +3,17 @@
 > A wrapper for a running AI agent harness.
 > Configure once, launch anywhere.
 
-> **Direction change — Phase 1 landed.** `agent-manager` has pivoted from a
-> *config-sync tool* to an *agent-runtime wrapper*. Instead of running `claude`
-> / `codex` directly, you run them **through** `agent-manager` (CLI name `am`),
-> which injects skills, MCP servers, and (P2) an account/instructions/hooks into
-> an **ephemeral per-run config** and launches the real harness.
+> **Phase 2 landed.** `agent-manager` wraps and launches agent harnesses (`claude`,
+> `codex`, `opencode`, …) end-to-end: `am claude --mcps postgres --skills web-designer`
+> and `am codex --prompt "…"` and `am opencode --account work` compose runs, inject
+> skills/MCPs/accounts/initial instructions, provision ephemeral configs, and launch
+> the real harness through a PTY. Accounts are now live: `am account ls|use|import`.
+> Structured I/O (JSONL/ACP) is implemented; passthrough is the default. In-process MCP
+> (lib mode) lets embedders inject custom MCPs the harness can call.
 >
-> **Phase 1 is implemented** for Claude Code end-to-end: `am claude --mcps … --skills …`
-> resolves a run, provisions a throwaway config dir, and launches the real
-> harness through a PTY, propagating its exit code — plus a filesystem catalog
-> (`am catalog ls|show|path|import`). See the Status section below.
+> **Phase 1 shipped** (Claude Code end-to-end: passthrough PTY, catalog injection, skills/MCPs/roles).
+> **Phase 2 now shipped** (codex/opencode wrapped, accounts, instructions/prompt, structured I/O,
+> in-process MCP for lib mode).
 >
 > - The **target design** lives in [`_docs/target/`](_docs/target/) — start at
 >   [`_docs/target/README.md`](_docs/target/README.md).
@@ -21,8 +22,7 @@
 > - The **previous** (config-sync) design is archived in
 >   [`_docs/old/`](_docs/old/) for reference.
 >
-> codex / opencode / … are not wrapped yet — they are added by writing more
-> `Harness` impls, no core change. When in doubt, the `target/` docs win.
+> When in doubt, the `target/` docs win.
 
 `agent-manager` is a CLI + library (Rust) that **wraps a running agent
 harness**. You run `am claude --mcps postgres,figma --skills web-designer` and
@@ -106,25 +106,38 @@ agent-manager/
     │   ├── mod.rs         #   Registry trait, entries, OverlayRegistry, root resolution
     │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/)
     │   └── import.rs      #   read-only ingest of ~/.claude, ~/.agent, project dirs
+    ├── account.rs         # account catalog + credential-reference injection (core, P2)
     ├── harness/           # the Harness trait + impls (core)
     │   ├── mod.rs         #   Harness trait, Launch, IoSupport, resolve()/all()
-    │   └── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
+    │   ├── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
+    │   ├── codex.rs       #   Codex provisioner (P2, Harness impl)
+    │   └── opencode.rs    #   opencode provisioner (P2, Harness impl)
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
     ├── run.rs             # PTY spawn/supervise + exit-code + cleanup (feature: pty)
-    ├── io/                # I/O bridging (feature: pty)
-    │   ├── mod.rs
-    │   └── passthrough.rs #   raw-tty pump (SIGWINCH resize, cooked-mode restore)
+    ├── io/                # I/O bridging (core: model + bridges; passthrough: pty-gated)
+    │   ├── mod.rs         #   neutral AgentInput/AgentEvent model (core)
+    │   ├── model.rs       #   AgentInput/AgentEvent/AgentParams (core, P2)
+    │   ├── passthrough.rs #   raw-tty pump (SIGWINCH resize, cooked-mode restore; pty)
+    │   ├── structured.rs  #   IoBridge trait for harness-neutral structured I/O (core, P2)
+    │   ├── jsonl.rs       #   Claude stream-json input bridge (core, P2)
+    │   ├── codex.rs       #   Codex JSON-RPC app-server input bridge (core, P2)
+    │   └── opencode.rs    #   opencode NDJSON run input bridge (core, P2)
+    ├── mcp/               # in-process MCP hosting (feature: inproc-mcp)
+    │   ├── mod.rs         #   McpService trait for embedders (core, P2)
+    │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
     ├── cli/               # the `am` command surface (feature: cli)
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
-    │   └── catalog.rs     #   `am catalog ls|show|path|import`
+    │   ├── catalog.rs     #   `am catalog ls|show|path|import`
+    │   └── account.rs     #   `am account ls|use|import` (P2)
     └── tui.rs             # ratatui front end (parked, feature: tui)
 ```
 
 The library in `src/lib.rs` owns all real logic; `src/main.rs` is a thin shim.
-Modules marked **(core)** build with `--no-default-features` for lib mode; the
-runner (`run`/`io`) and CLI are feature-gated. For how each old `src/` file was
-repurposed (config-sync → wrapper), see
+Modules marked **(core)** build with `--no-default-features` for lib mode; `io/passthrough`
+and `run` are `pty`-gated; `mcp/server` is feature `inproc-mcp`-gated; CLI is
+feature-gated. Core module `io/` is no longer `pty`-gated (structured bridges + neutral model
+are core). For how each old `src/` file was repurposed (config-sync → wrapper), see
 [`_docs/transition-plan.md`](_docs/transition-plan.md).
 
 ## How a run works (target)
@@ -152,14 +165,15 @@ the `Harness` trait, and the module layout — is in
 | id            | display name      | status                         |
 |---------------|-------------------|--------------------------------|
 | `claude-code` | Claude Code       | **wrapped** (P1, `Harness` impl) |
-| `codex`       | Codex             | documented (`Harness` impl TBD) |
+| `codex`       | Codex             | **wrapped** (P2, `Harness` impl) |
 | `copilot`     | GitHub Copilot    | documented (`Harness` impl TBD) |
 | `gemini`      | Gemini CLI        | documented (`Harness` impl TBD) |
-| `opencode`    | opencode          | documented (`Harness` impl TBD) |
+| `opencode`    | opencode          | **wrapped** (P2, `Harness` impl) |
 
-Only `claude-code` has a `Harness` implementation today (`src/harness/claude.rs`);
-the others have a runtime contract in `_docs/harness/` and become wrappable by
-transcribing that doc into a new `Harness` impl — no core change.
+`claude-code`, `codex`, and `opencode` each have `Harness` implementations
+(`src/harness/{claude,codex,opencode}.rs`); the others have a runtime contract in
+`_docs/harness/` and become wrappable by transcribing that doc into a new
+`Harness` impl — no core change.
 
 ### Reference harnesses (documented, not yet wrapped)
 
@@ -190,13 +204,19 @@ view of how a real orchestrator drives all of these harnesses, see
 
 ## Build & run
 
-The `am` surface is live for Claude Code:
+The `am` surface is live for Claude Code, Codex, and opencode:
 
 ```bash
 cargo build
 cargo run -- claude --print-config          # provision only; show dir + argv + env
 cargo run -- claude --mcps postgres --skills web-designer   # launch for real
+cargo run -- claude --prompt "summarize the repo" --io structured  # structured I/O mode
+cargo run -- claude --account work --instructions ./system.md    # account + instructions
+cargo run -- codex --skills reviewer --io structured            # codex with structured I/O
+cargo run -- opencode --account personal --io structured        # opencode with account
 cargo run -- claude -- --version            # everything after `--` goes to claude
+cargo run -- account ls                     # list available accounts
+cargo run -- account use work               # set default account
 cargo run -- catalog ls                     # list catalog skills + MCPs
 cargo run -- catalog import --dry-run       # preview ingest of ~/.claude etc.
 ```
@@ -210,7 +230,8 @@ cargo clippy -p agent-manager --all-features -- -D warnings
 ```
 
 The binary is still built as `agent-manager`; `am` is the intended installed
-alias. See [`_docs/target/cli.md`](_docs/target/cli.md) for the full surface.
+alias. The `inproc-mcp` feature enables in-process MCP hosting for lib mode. See
+[`_docs/target/cli.md`](_docs/target/cli.md) for the full surface.
 
 ## Conventions for contributors
 
@@ -226,15 +247,22 @@ alias. See [`_docs/target/cli.md`](_docs/target/cli.md) for the full surface.
 
 ## Status
 
-Alpha. **Phase 1 is complete** for Claude Code end-to-end (verified against a
-real `claude` launch and a CI-safe fake harness):
+Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**:
 
+**Phase 1:**
 - [x] core model (`RunSpec`) + filesystem catalog (`am catalog ls|show|path`)
 - [x] settings + resolve (flags/config → `RunSpec`, replace-by-default merge)
 - [x] `Harness` trait + Claude provisioner (`am claude --print-config`)
 - [x] PTY passthrough runner (`am claude …` launches for real, exit code propagated)
 - [x] `am catalog import` (read-only ingest of `~/.claude` / `~/.agent` / project dirs)
 
-Next (P2): accounts + `am account`, initial prompt/instructions, more `Harness`
-impls (codex/opencode via JSONL/ACP), in-process MCP for lib mode. See
+**Phase 2:**
+- [x] `am account` commands (ls/use/import); accounts store credential *references*, never secrets
+- [x] `--instructions` (seed always-on memory) and `--prompt` (seed initial prompt)
+- [x] `Harness` impls for Codex and opencode (both support passthrough and structured I/O)
+- [x] neutral `AgentInput`/`AgentEvent` model + `IoBridge` trait (all harnesses)
+- [x] structured I/O bridges: Claude (stream-json JSONL), codex (JSON-RPC app-server), opencode (NDJSON run)
+- [x] in-process MCP (lib mode): `McpService` trait for embedders, hosted on loopback HTTP MCP endpoint
+
+Next (P3): isolation (`isol8`), session history, output adapters (ACP/AG-UI), hooks. See
 [`_docs/target/roadmap.md`](_docs/target/roadmap.md).

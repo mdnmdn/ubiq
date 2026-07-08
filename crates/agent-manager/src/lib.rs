@@ -7,6 +7,8 @@
 //!
 //! The library exposes the building blocks used by the binary:
 //!
+//! - [`account`]   — accounts: credential *references* (never secrets) that
+//!   resolve to an [`Account`](account::Account), injected at launch time.
 //! - [`spec`]      — [`RunSpec`], the fully-resolved, harness-agnostic plan.
 //! - [`resolve`]   — merge CLI flags + settings + catalog into a [`RunSpec`].
 //! - [`settings`]  — load / discover the settings file (layered defaults).
@@ -16,8 +18,12 @@
 //! - [`provision`] — turn a [`RunSpec`] into an ephemeral config dir + launch
 //!   argv/env for a chosen harness.
 //! - [`config`]    — the unified, harness-agnostic config model.
-//! - [`io`]        — I/O bridging between the local terminal and the running
-//!   harness (Phase 1: raw-tty passthrough only). (`pty` feature)
+//! - [`io`]        — I/O bridging between `am` and the running harness: the
+//!   harness-neutral model + structured bridges are core; raw-tty
+//!   passthrough is gated behind the `pty` feature.
+//! - [`mcp`]       — in-process MCP for lib mode: the embedder-facing
+//!   `McpService` trait is core; the loopback HTTP server that hosts it
+//!   (`mcp::server`) is gated behind the `inproc-mcp` feature.
 //! - [`run`]       — spawns + supervises the harness child through a PTY:
 //!   tty forwarding, `SIGWINCH` resize, exit-code propagation, ephemeral-dir
 //!   cleanup. (`pty` feature)
@@ -30,12 +36,13 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod account;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
 pub mod harness;
-#[cfg(feature = "pty")]
 pub mod io;
+pub mod mcp;
 pub mod provision;
 pub mod registry;
 pub mod resolve;

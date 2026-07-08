@@ -12,11 +12,11 @@ MCP servers, and launches the real harness against it — leaving your real
 It has two modes: a **CLI** for the terminal, and a front-end-agnostic **library**
 for embedding in bigger tools (e.g. the [Ubiq](../../) multiplexer).
 
-> **Status: Phase 1 complete for Claude Code.** `am claude` launches end-to-end
-> through a PTY with skill/MCP injection and exit-code propagation, plus a
-> filesystem catalog (`am catalog …`). See [Status](#status). The design docs
-> live in [`_docs/target/`](_docs/target/); the config-sync tool this replaced is
-> archived in [`_docs/old/`](_docs/old/).
+> **Status: Phase 2 complete.** Wraps Claude Code, Codex, and opencode end-to-end
+> through a PTY with skill/MCP injection, account selection, initial instructions/prompt,
+> and both passthrough and structured I/O. See [Status](#status). The design docs live in
+> [`_docs/target/`](_docs/target/); the config-sync tool this replaced is archived in
+> [`_docs/old/`](_docs/old/).
 
 ## The problem
 
@@ -34,6 +34,13 @@ harness against an **ephemeral config dir**:
 ```bash
 # Launch Claude Code with just these MCP servers + skills, in an isolated config.
 am claude --mcps postgres,figma --skills web-designer
+
+# Launch with account, initial instructions, and structured I/O.
+am claude --account work --instructions ./system.md --io structured
+
+# Launch codex or opencode (both wrapped now).
+am codex --skills reviewer --account work
+am opencode --prompt "find bugs" --io structured
 
 # Inspect what would be provisioned, without launching.
 am claude --print-config
@@ -76,6 +83,22 @@ A project may add or override entries via `<project>/.agent-manager/catalog`
 (project wins on id collision). Full details in
 [`_docs/target/registry.md`](_docs/target/registry.md).
 
+## Accounts
+
+Select a credential profile to use with `--account <id>` or set a default in settings:
+
+```bash
+am account ls                     # list available accounts
+am account use work               # set default account
+am account import                 # add accounts from well-known locations
+```
+
+Accounts are stored under `~/.config/agent-manager/accounts/` (env: `AM_ACCOUNTS`).
+An account holds credential *references*, never secrets: environment variable names
+(`api_key_env`, `auth_token_env`), a `base_url`, a credential helper command, and/or
+a private `home` directory. When injected, the account's references are resolved into
+the harness's native auth slots.
+
 ## Settings
 
 Optional settings file (`am.toml` / `agent-manager.toml` / `.am.toml` /
@@ -114,18 +137,33 @@ cargo build --release
 ```
 agent-manager/
 ├── AGENTS.md              # contributor + agent guide (start here)
-├── Cargo.toml             # library + binary; features: cli, tui, pty
+├── Cargo.toml             # library + binary; features: cli, pty, inproc-mcp
 ├── _docs/                 # design docs (target/), harness contracts, archive (old/)
 └── src/
     ├── config.rs          # resource types (Skill/McpServer/McpTransport)
     ├── spec.rs            # RunSpec + refs/strategies (core)
     ├── settings.rs        # settings-file discovery + load (core)
     ├── resolve.rs         # flags + settings + catalog → RunSpec (core)
+    ├── account.rs         # account catalog + credential-reference injection (core, P2)
     ├── registry/          # the catalog: trait, FsRegistry, overlay, import (core)
-    ├── harness/           # Harness trait + Claude provisioner (core)
+    ├── harness/           # Harness trait + implementations (core)
+    │   ├── claude.rs      # Claude Code (P1)
+    │   ├── codex.rs       # Codex (P2)
+    │   └── opencode.rs    # opencode (P2)
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
-    ├── run.rs, io/        # PTY passthrough runner (feature: pty)
+    ├── io/                # I/O bridging (core: model + bridges; pty-gated: passthrough)
+    │   ├── model.rs       # neutral AgentInput/AgentEvent (core, P2)
+    │   ├── structured.rs  # IoBridge trait (core, P2)
+    │   ├── jsonl.rs       # Claude stream-json (core, P2)
+    │   ├── codex.rs       # Codex JSON-RPC (core, P2)
+    │   ├── opencode.rs    # opencode NDJSON (core, P2)
+    │   └── passthrough.rs # raw PTY (pty-gated)
+    ├── mcp/               # in-process MCP (feature: inproc-mcp, P2)
+    ├── run.rs             # PTY spawn/supervise (feature: pty)
     └── cli/               # the `am` command surface (feature: cli)
+        ├── run.rs         # `am <harness> …`
+        ├── catalog.rs     # `am catalog …`
+        └── account.rs     # `am account …` (P2)
 ```
 
 Modules marked *(core)* build with `--no-default-features` for lib-mode
@@ -145,17 +183,23 @@ See [`AGENTS.md`](AGENTS.md) for the full contributor guide.
 
 ## Status
 
-Alpha. **Phase 1 complete** for Claude Code (verified against a real `claude`
-launch and a CI-safe fake harness):
+Alpha. **Phase 1 complete** for Claude Code; **Phase 2 complete**:
 
+**Phase 1:**
 - [x] core model (`RunSpec`) + filesystem catalog (`am catalog ls|show|path`)
 - [x] settings + resolve (replace-by-default merge)
 - [x] `Harness` trait + Claude provisioner (`am claude --print-config`)
 - [x] PTY passthrough runner (`am claude …` launches for real)
 - [x] `am catalog import`
 
-Next (P2): accounts (`am account`), initial prompt/instructions, more `Harness`
-impls (codex/opencode via JSONL/ACP), in-process MCP for lib mode. Roadmap in
+**Phase 2:**
+- [x] `am account` commands; accounts store credential references, never secrets
+- [x] `--instructions` and `--prompt` seeding
+- [x] `Harness` impls for Codex and opencode (both support passthrough + structured I/O)
+- [x] neutral I/O model + bridges for JSONL (Claude), JSON-RPC (codex), NDJSON (opencode)
+- [x] in-process MCP for lib mode
+
+Next (P3): isolation, session history, output adapters (ACP/AG-UI), hooks. Roadmap in
 [`_docs/target/roadmap.md`](_docs/target/roadmap.md).
 
 ## License
