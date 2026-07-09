@@ -12,9 +12,10 @@ MCP servers, and launches the real harness against it — leaving your real
 It has two modes: a **CLI** for the terminal, and a front-end-agnostic **library**
 for embedding in bigger tools (e.g. the [Ubiq](../../) multiplexer).
 
-> **Status: Phase 2 complete.** Wraps Claude Code, Codex, and opencode end-to-end
+> **Status: Phase 3 complete.** Wraps Claude Code, Codex, and opencode end-to-end
 > through a PTY with skill/MCP injection, account selection, initial instructions/prompt,
-> and both passthrough and structured I/O. See [Status](#status). The design docs live in
+> structured I/O, session history + resume, isolation (isol8), hooks, and output adapters (ACP/AG-UI).
+> See [Status](#status). The design docs live in
 > [`_docs/target/`](_docs/target/); the config-sync tool this replaced is archived in
 > [`_docs/old/`](_docs/old/).
 
@@ -157,13 +158,18 @@ agent-manager/
     │   ├── jsonl.rs       # Claude stream-json (core, P2)
     │   ├── codex.rs       # Codex JSON-RPC (core, P2)
     │   ├── opencode.rs    # opencode NDJSON (core, P2)
+    │   ├── acp.rs         # ACP event adapter (core, P3)
+    │   ├── agui.rs        # AG-UI event adapter (core, P3)
     │   └── passthrough.rs # raw PTY (pty-gated)
     ├── mcp/               # in-process MCP (feature: inproc-mcp, P2)
+    ├── session.rs         # session history + metadata (core, P3)
+    ├── isolate.rs         # isol8 integration (core, P3)
     ├── run.rs             # PTY spawn/supervise (feature: pty)
     └── cli/               # the `am` command surface (feature: cli)
         ├── run.rs         # `am <harness> …`
         ├── catalog.rs     # `am catalog …`
-        └── account.rs     # `am account …` (P2)
+        ├── account.rs     # `am account …` (P2)
+        └── session.rs     # `am session …` (P3)
 ```
 
 Modules marked *(core)* build with `--no-default-features` for lib-mode
@@ -183,24 +189,30 @@ See [`AGENTS.md`](AGENTS.md) for the full contributor guide.
 
 ## Status
 
-Alpha. **Phase 1 complete** for Claude Code; **Phase 2 complete**:
+Alpha. **Phase 1 complete** for Claude Code; **Phase 2 complete**; **Phase 3 complete**:
 
-**Phase 1:**
+**Phase 1 ✅**
 - [x] core model (`RunSpec`) + filesystem catalog (`am catalog ls|show|path`)
 - [x] settings + resolve (replace-by-default merge)
 - [x] `Harness` trait + Claude provisioner (`am claude --print-config`)
 - [x] PTY passthrough runner (`am claude …` launches for real)
 - [x] `am catalog import`
 
-**Phase 2:**
+**Phase 2 ✅**
 - [x] `am account` commands; accounts store credential references, never secrets
 - [x] `--instructions` and `--prompt` seeding
 - [x] `Harness` impls for Codex and opencode (both support passthrough + structured I/O)
 - [x] neutral I/O model + bridges for JSONL (Claude), JSON-RPC (codex), NDJSON (opencode)
 - [x] in-process MCP for lib mode
 
-Next (P3): isolation, session history, output adapters (ACP/AG-UI), hooks. Roadmap in
-[`_docs/target/roadmap.md`](_docs/target/roadmap.md).
+**Phase 3 ✅**
+- [x] isolation (`--isolate[=profile]` via isol8)
+- [x] session history (`am session ls|show|resume`)
+- [x] output adapters (`--output <events|acp|agui>`)
+- [x] hooks (`--hooks a,b`, wired into harness-native slots)
+- [x] MCP-as-skill schema stepping stone (`expose`, `summary`, `--mcp-as-skill`, generated SKILL.md)
+
+Roadmap in [`_docs/target/roadmap.md`](_docs/target/roadmap.md).
 
 ## License
 

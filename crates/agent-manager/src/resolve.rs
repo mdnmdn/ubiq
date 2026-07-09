@@ -20,9 +20,11 @@ use serde::Deserialize;
 
 use crate::account::AccountStore;
 use crate::config::McpServer;
-use crate::registry::Registry;
+use crate::registry::{McpExpose, Registry};
 use crate::settings::Settings;
-use crate::spec::{HarnessId, Instructions, McpRef, RunSpec, SkillRef};
+use crate::spec::{
+    HarnessId, HookRef, Instructions, Isolation, McpAsSkill, McpRef, RunSpec, SkillRef,
+};
 use crate::Result;
 
 /// Raw run flags gathered from the CLI (the `cli` layer feeds this in).
@@ -41,6 +43,8 @@ pub struct RunFlags {
     pub mcp_json: Option<PathBuf>,
     /// `--account <id>`, if given.
     pub account: Option<String>,
+    /// `--hooks a,b`, if given: catalog hook ids to enable for this run.
+    pub hooks: Option<Vec<String>>,
     /// `--safe`: expand the `[presets.safe]` policy.
     pub safe: bool,
     /// `--instructions <path>`: file contents (already read).
@@ -51,6 +55,29 @@ pub struct RunFlags {
     pub passthrough_args: Vec<String>,
     /// Working directory for the run.
     pub cwd: PathBuf,
+    /// `--isolate[=profile]`, if given: `None` = flag absent (no isolation);
+    /// `Some(None)` = bare `--isolate` (sandboxed, no named profile);
+    /// `Some(Some(profile))` = `--isolate=<profile>`.
+    pub isolate: Option<Option<String>>,
+    /// `--resume <id>`, if given: a raw harness-native session id to resume
+    /// (no catalog/store lookup — passed straight through to `spec.resume`).
+    pub resume: Option<String>,
+    /// `--mcp-as-skill a,b`, if given: additionally expose these mcp ids as
+    /// a latent skill pointer for this run (see [`crate::spec::McpAsSkill`]).
+    /// Merged (union, deduped) with any catalog entries already marked
+    /// `expose = "skill"` — this flag is additive, not a replacement of the
+    /// `pick()` merge semantics used elsewhere in this module.
+    pub mcp_as_skill: Option<Vec<String>>,
+}
+
+/// Extract the injected id from an [`McpRef`], for merging/validating
+/// `--mcp-as-skill` against the effective set of injected mcps.
+fn mcp_ref_id(r: &McpRef) -> &str {
+    match r {
+        McpRef::Catalog(def) => &def.id,
+        McpRef::Inline(def) => &def.id,
+        McpRef::InProcess(h) => &h.name,
+    }
 }
 
 /// Pick the effective value for a merge key across three precedence layers.
@@ -115,15 +142,31 @@ pub fn resolve(
         .clone()
         .or_else(|| per_harness.and_then(|h| h.account.clone()))
         .or_else(|| settings.defaults.account.clone());
+    let hook_ids: Vec<String> = pick(
+        flags.hooks.clone(),
+        per_harness.and_then(|h| h.hooks.clone()),
+        settings.defaults.hooks.clone(),
+    );
 
     // --- lookup: mcp ids -> McpRef::Catalog ---
+    // Also collects catalog entries marked `expose = "skill"` (additive: the
+    // MCP still lands in `mcps` below as normal — see `McpAsSkill`'s doc).
     let mut mcps = Vec::with_capacity(mcp_ids.len());
+    let mut mcp_as_skill: Vec<McpAsSkill> = Vec::new();
     for id in &mcp_ids {
         match registry
             .mcp(id)
             .with_context(|| format!("looking up mcp '{id}'"))?
         {
-            Some(entry) => mcps.push(McpRef::Catalog(entry.def)),
+            Some(entry) => {
+                if entry.expose == McpExpose::Skill {
+                    mcp_as_skill.push(McpAsSkill {
+                        id: entry.id.clone(),
+                        summary: entry.summary.clone(),
+                    });
+                }
+                mcps.push(McpRef::Catalog(entry.def));
+            }
             None => {
                 let available: Vec<String> = registry
                     .mcps()
@@ -179,6 +222,35 @@ pub fn resolve(
         }
     }
 
+    // --- --mcp-as-skill: additive, merged (union, deduped) with the
+    // catalog-derived `expose = "skill"` ids collected above. Each id named
+    // must be in the effective set of injected mcps (catalog or inline) —
+    // this flag never injects a new mcp, only marks an already-injected one.
+    if let Some(ids) = &flags.mcp_as_skill {
+        let effective_ids: Vec<String> =
+            mcps.iter().map(|r| mcp_ref_id(r).to_string()).collect();
+        for id in ids {
+            if !effective_ids.iter().any(|e| e == id) {
+                let near = suggest(id, &effective_ids);
+                bail!(
+                    "unknown mcp id '{id}' for --mcp-as-skill; near matches: {}",
+                    near.join(", ")
+                );
+            }
+            if mcp_as_skill.iter().any(|m| &m.id == id) {
+                continue; // already added via catalog `expose = "skill"`
+            }
+            // Reuse the catalog's summary when this id happens to have one
+            // (an inline-only id, or a catalog entry with no summary, gets
+            // `None`).
+            let summary = registry.mcp(id).ok().flatten().and_then(|e| e.summary);
+            mcp_as_skill.push(McpAsSkill {
+                id: id.clone(),
+                summary,
+            });
+        }
+    }
+
     // --- --safe: expand [presets.safe] ---
     let policy = if flags.safe {
         match settings.presets.get("safe") {
@@ -215,9 +287,32 @@ pub fn resolve(
         None => None,
     };
 
+    // --- lookup: hook ids -> HookRef ---
+    let mut hooks = Vec::with_capacity(hook_ids.len());
+    for id in &hook_ids {
+        match settings.hooks.get(id) {
+            Some(def) => hooks.push(HookRef {
+                id: id.clone(),
+                event: def.event.clone(),
+                command: def.command.clone(),
+                matcher: def.matcher.clone(),
+            }),
+            None => {
+                let available: Vec<String> = settings.hooks.keys().cloned().collect();
+                let near = suggest(id, &available);
+                bail!(
+                    "unknown hook id '{id}'; near matches: {}",
+                    near.join(", ")
+                );
+            }
+        }
+    }
+
     let mut spec = RunSpec::new(flags.harness.clone(), flags.cwd.clone());
     spec.skills = skills;
     spec.mcps = mcps;
+    spec.mcp_as_skill = mcp_as_skill;
+    spec.hooks = hooks;
     spec.account = account;
     spec.policy = policy;
     spec.passthrough_args = flags.passthrough_args.clone();
@@ -229,6 +324,16 @@ pub fn resolve(
     };
     spec.initial = if initial.is_empty() { None } else { Some(initial) };
 
+    // --- --isolate[=profile] ---
+    spec.isolation = match &flags.isolate {
+        None => Isolation::None,
+        Some(None) => Isolation::Sandboxed(String::new()),
+        Some(Some(profile)) => Isolation::Sandboxed(profile.clone()),
+    };
+
+    // --- --resume <id>: a raw harness-native id, no lookup needed ---
+    spec.resume = flags.resume.clone();
+
     Ok(spec)
 }
 
@@ -237,7 +342,7 @@ mod tests {
     use super::*;
     use crate::account::{Account, EmptyAccountStore};
     use crate::config::{McpServer, McpTransport};
-    use crate::registry::{McpEntry, SkillEntry, SkillMeta};
+    use crate::registry::{McpEntry, McpExpose, SkillEntry, SkillMeta};
     use crate::spec::Policy;
     use std::path::PathBuf;
 
@@ -281,6 +386,17 @@ mod tests {
                 url: None,
                 headers: Default::default(),
             },
+            expose: McpExpose::Tools,
+            summary: None,
+        }
+    }
+
+    /// Like [`mcp`] but marked `expose = "skill"` with the given summary.
+    fn mcp_as_skill_entry(id: &str, summary: &str) -> McpEntry {
+        McpEntry {
+            expose: McpExpose::Skill,
+            summary: Some(summary.to_string()),
+            ..mcp(id)
         }
     }
 
@@ -307,13 +423,8 @@ mod tests {
         }
     }
 
-    fn mcp_ref_id(r: &McpRef) -> &str {
-        match r {
-            McpRef::Catalog(def) => &def.id,
-            McpRef::Inline(def) => &def.id,
-            McpRef::InProcess(h) => &h.name,
-        }
-    }
+    // `mcp_ref_id` is defined once at module scope (above `resolve`) and
+    // pulled in here via `use super::*`.
 
     #[test]
     fn cli_mcps_replaces_settings_layers() {
@@ -328,6 +439,7 @@ mod tests {
                 mcps: Some(vec!["postgres".to_string()]),
                 skills: None,
                 account: None,
+                hooks: None,
             },
         );
 
@@ -349,6 +461,7 @@ mod tests {
                 mcps: Some(vec!["postgres".to_string()]),
                 skills: None,
                 account: None,
+                hooks: None,
             },
         );
 
@@ -383,6 +496,7 @@ mod tests {
                 mcps: Some(vec![]), // explicitly empty
                 skills: None,
                 account: None,
+                hooks: None,
             },
         );
 
@@ -552,5 +666,211 @@ mod tests {
         let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
 
         assert!(spec.account.is_none());
+    }
+
+    #[test]
+    fn isolate_flag_absent_yields_isolation_none() {
+        let f = flags("claude");
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        assert!(matches!(spec.isolation, crate::spec::Isolation::None));
+    }
+
+    #[test]
+    fn bare_isolate_flag_yields_sandboxed_with_empty_profile() {
+        let mut f = flags("claude");
+        f.isolate = Some(None);
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        match spec.isolation {
+            crate::spec::Isolation::Sandboxed(profile) => assert_eq!(profile, ""),
+            other => panic!("expected Sandboxed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resume_flag_sets_spec_resume() {
+        let mut f = flags("claude");
+        f.resume = Some("abc".to_string());
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        assert_eq!(spec.resume.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn no_resume_flag_leaves_spec_resume_none() {
+        let f = flags("claude");
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        assert!(spec.resume.is_none());
+    }
+
+    #[test]
+    fn isolate_flag_with_profile_yields_sandboxed_with_profile() {
+        let mut f = flags("claude");
+        f.isolate = Some(Some("dev".to_string()));
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        match spec.isolation {
+            crate::spec::Isolation::Sandboxed(profile) => assert_eq!(profile, "dev"),
+            other => panic!("expected Sandboxed, got {other:?}"),
+        }
+    }
+
+    fn hook_def(event: &str, command: &str, matcher: Option<&str>) -> crate::settings::HookDef {
+        crate::settings::HookDef {
+            event: event.to_string(),
+            command: command.to_string(),
+            matcher: matcher.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn cli_hooks_selects_def_and_populates_spec_hooks() {
+        let mut f = flags("claude");
+        f.hooks = Some(vec!["notify".to_string()]);
+
+        let mut settings = Settings::default();
+        settings.hooks.insert(
+            "notify".to_string(),
+            hook_def("PreToolUse", "notify-send hi", Some("Bash")),
+        );
+
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+        assert_eq!(spec.hooks.len(), 1);
+        let hook = &spec.hooks[0];
+        assert_eq!(hook.id, "notify");
+        assert_eq!(hook.event, "PreToolUse");
+        assert_eq!(hook.command, "notify-send hi");
+        assert_eq!(hook.matcher.as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn per_harness_hooks_replaces_defaults_when_no_cli_flag() {
+        let f = flags("claude");
+
+        let mut settings = Settings::default();
+        settings
+            .hooks
+            .insert("a".to_string(), hook_def("Stop", "echo a", None));
+        settings
+            .hooks
+            .insert("b".to_string(), hook_def("Stop", "echo b", None));
+        settings.defaults.hooks = Some(vec!["a".to_string()]);
+        settings.harness.insert(
+            "claude".to_string(),
+            crate::settings::HarnessDefaults {
+                mcps: None,
+                skills: None,
+                account: None,
+                hooks: Some(vec!["b".to_string()]),
+            },
+        );
+
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+        let ids: Vec<&str> = spec.hooks.iter().map(|h| h.id.as_str()).collect();
+        assert_eq!(ids, vec!["b"]);
+    }
+
+    #[test]
+    fn unknown_hook_id_is_an_error_naming_the_id_and_near_match() {
+        let mut f = flags("claude");
+        f.hooks = Some(vec!["notfy".to_string()]);
+
+        let mut settings = Settings::default();
+        settings
+            .hooks
+            .insert("notify".to_string(), hook_def("Stop", "echo hi", None));
+
+        let reg = test_registry();
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore).expect_err("should fail");
+        let msg = err.to_string();
+        assert!(msg.contains("notfy"), "message was: {msg}");
+        assert!(msg.contains("notify"), "message was: {msg}");
+    }
+
+    #[test]
+    fn catalog_expose_skill_populates_mcp_as_skill_and_stays_in_mcps() {
+        let mut f = flags("claude");
+        f.mcps = Some(vec!["postgres".to_string()]);
+
+        let reg = TestRegistry {
+            mcps: vec![mcp_as_skill_entry("postgres", "Query a DB.")],
+            skills: vec![],
+        };
+
+        let settings = Settings::default();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        // Additive: the mcp is still injected as normal...
+        let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
+        assert_eq!(ids, vec!["postgres"]);
+
+        // ...and also marked for a skill pointer, carrying the summary.
+        assert_eq!(spec.mcp_as_skill.len(), 1);
+        assert_eq!(spec.mcp_as_skill[0].id, "postgres");
+        assert_eq!(spec.mcp_as_skill[0].summary.as_deref(), Some("Query a DB."));
+    }
+
+    #[test]
+    fn mcp_as_skill_flag_adds_a_tools_default_entry() {
+        let mut f = flags("claude");
+        f.mcps = Some(vec!["github".to_string()]);
+        f.mcp_as_skill = Some(vec!["github".to_string()]);
+
+        let reg = test_registry(); // "github" defaults to expose = tools
+        let settings = Settings::default();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        assert_eq!(spec.mcp_as_skill.len(), 1);
+        assert_eq!(spec.mcp_as_skill[0].id, "github");
+    }
+
+    #[test]
+    fn unknown_mcp_as_skill_id_is_an_error_naming_it() {
+        let mut f = flags("claude");
+        f.mcps = Some(vec!["github".to_string()]);
+        f.mcp_as_skill = Some(vec!["nonexistent".to_string()]);
+
+        let reg = test_registry();
+        let settings = Settings::default();
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore).expect_err("should fail");
+        assert!(err.to_string().contains("nonexistent"));
+    }
+
+    #[test]
+    fn mcp_as_skill_flag_and_catalog_expose_dedupe() {
+        let mut f = flags("claude");
+        f.mcps = Some(vec!["postgres".to_string()]);
+        f.mcp_as_skill = Some(vec!["postgres".to_string()]);
+
+        let reg = TestRegistry {
+            mcps: vec![mcp_as_skill_entry("postgres", "Query a DB.")],
+            skills: vec![],
+        };
+
+        let settings = Settings::default();
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore).expect("resolve");
+
+        // Named by both the catalog entry and the flag: appears exactly once.
+        assert_eq!(spec.mcp_as_skill.len(), 1);
+        assert_eq!(spec.mcp_as_skill[0].id, "postgres");
     }
 }

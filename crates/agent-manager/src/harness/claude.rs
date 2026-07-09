@@ -16,7 +16,7 @@ use anyhow::{bail, Context};
 use serde_json::{json, Value};
 
 use crate::config::{McpServer, McpTransport};
-use crate::spec::{McpRef, RunSpec};
+use crate::spec::{HookRef, McpRef, RunSpec};
 use crate::Result;
 
 use super::{Harness, IoSupport, Launch};
@@ -92,6 +92,10 @@ impl Harness for Claude {
                 )
             })?;
         }
+        // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
+        // harness::write_mcp_as_skill_pointers's doc). No-op when
+        // spec.mcp_as_skill is empty.
+        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
 
         // 2. MCP: always write <dir>/mcp.json, even if empty, so
         // --strict-mcp-config yields a fully-controlled server set.
@@ -100,8 +104,8 @@ impl Harness for Claude {
         std::fs::write(&mcp_path, serde_json::to_string_pretty(&mcp_json)?)
             .with_context(|| format!("writing {}", mcp_path.display()))?;
 
-        // 3. Policy + account helper: <dir>/settings.json, written when
-        // either a policy or an account helper is present.
+        // 3. Policy + account helper + hooks: <dir>/settings.json, written
+        // when any of a policy, an account helper, or hooks is present.
         let mut settings_obj = serde_json::Map::new();
         if let Some(policy) = &spec.policy {
             let mut permissions = serde_json::Map::new();
@@ -119,6 +123,9 @@ impl Harness for Claude {
             // `am` never runs the helper or sees its output; it only wires
             // the command string into Claude Code's native key-helper slot.
             settings_obj.insert("apiKeyHelper".to_string(), json!(helper));
+        }
+        if !spec.hooks.is_empty() {
+            settings_obj.insert("hooks".to_string(), build_hooks_json(&spec.hooks));
         }
         if !settings_obj.is_empty() {
             let settings_path = dir.join("settings.json");
@@ -161,6 +168,14 @@ impl Harness for Claude {
         args.push("--mcp-config".to_string());
         args.push(mcp_path.display().to_string());
         args.push("--strict-mcp-config".to_string());
+        // Resume: `--resume <id>` works in both passthrough and headless
+        // (structured) invocation, so it's appended here rather than
+        // branching on `structured`. Only added when a resume id is set —
+        // resumeless runs keep byte-identical argv.
+        if let Some(id) = &spec.resume {
+            args.push("--resume".to_string());
+            args.push(id.clone());
+        }
         if structured {
             args.extend(
                 [
@@ -274,6 +289,30 @@ fn server_json(server: &McpServer) -> Value {
             Value::Object(obj)
         }
     }
+}
+
+/// Build the `settings.json` `"hooks"` object: grouped by native event name,
+/// each event's array holding one `{"matcher": …, "hooks": [{"type": "command",
+/// "command": …}]}` entry per [`HookRef`] in that event. The `"matcher"` key
+/// is included only when the hook carries one — events like `UserPromptSubmit`
+/// / `Stop` take no matcher.
+fn build_hooks_json(hooks: &[HookRef]) -> Value {
+    let mut by_event: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for hook in hooks {
+        let mut entry = serde_json::Map::new();
+        if let Some(matcher) = &hook.matcher {
+            entry.insert("matcher".to_string(), json!(matcher));
+        }
+        entry.insert(
+            "hooks".to_string(),
+            json!([{ "type": "command", "command": hook.command }]),
+        );
+        by_event
+            .entry(hook.event.clone())
+            .or_default()
+            .push(Value::Object(entry));
+    }
+    json!(by_event)
 }
 
 /// Build the `{"mcpServers": {...}}` document from `spec.mcps`.
@@ -442,6 +481,79 @@ mod tests {
             permissions.get("deny").unwrap().as_array().unwrap().len(),
             1
         );
+    }
+
+    #[test]
+    fn provision_hooks_writes_settings_json_hooks_object() {
+        use crate::spec::HookRef;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.policy = Some(Policy {
+            permission_mode: Some("restricted".to_string()),
+            allow: vec![],
+            ask: vec![],
+            deny: vec![],
+        });
+        spec.hooks.push(HookRef {
+            id: "notify".to_string(),
+            event: "PreToolUse".to_string(),
+            command: "notify-send hi".to_string(),
+            matcher: Some("Bash".to_string()),
+        });
+        spec.hooks.push(HookRef {
+            id: "on-stop".to_string(),
+            event: "Stop".to_string(),
+            command: "echo done".to_string(),
+            matcher: None,
+        });
+
+        let claude = Claude::new();
+        claude.provision(&spec, config_dir.path()).unwrap();
+
+        let settings_path = config_dir.path().join("settings.json");
+        let settings: Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+
+        // existing keys survive alongside hooks.
+        assert_eq!(
+            settings["permissions"]["defaultMode"].as_str(),
+            Some("restricted")
+        );
+
+        let pre_tool_use = &settings["hooks"]["PreToolUse"][0];
+        assert_eq!(pre_tool_use["matcher"].as_str(), Some("Bash"));
+        assert_eq!(
+            pre_tool_use["hooks"][0]["command"].as_str(),
+            Some("notify-send hi")
+        );
+        assert_eq!(pre_tool_use["hooks"][0]["type"].as_str(), Some("command"));
+
+        let stop = &settings["hooks"]["Stop"][0];
+        assert!(stop.get("matcher").is_none());
+        assert_eq!(stop["hooks"][0]["command"].as_str(), Some("echo done"));
+    }
+
+    #[test]
+    fn provision_no_hooks_omits_hooks_key_and_matches_prior_output() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.policy = Some(Policy {
+            permission_mode: Some("restricted".to_string()),
+            allow: vec![],
+            ask: vec![],
+            deny: vec![],
+        });
+
+        let claude = Claude::new();
+        claude.provision(&spec, config_dir.path()).unwrap();
+
+        let settings_path = config_dir.path().join("settings.json");
+        let settings: Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert!(settings.get("hooks").is_none());
     }
 
     #[test]
@@ -646,6 +758,87 @@ mod tests {
         // The mcp-config plumbing stays present in both modes.
         assert!(launch.args.contains(&"--mcp-config".to_string()));
         assert!(launch.args.contains(&"--strict-mcp-config".to_string()));
+    }
+
+    #[test]
+    fn provision_resume_appends_resume_flag() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.resume = Some("abc".to_string());
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        let resume_idx = launch
+            .args
+            .iter()
+            .position(|a| a == "--resume")
+            .expect("--resume present");
+        assert_eq!(launch.args.get(resume_idx + 1), Some(&"abc".to_string()));
+    }
+
+    #[test]
+    fn provision_no_resume_omits_resume_flag() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn provision_mcp_as_skill_writes_skill_md_and_keeps_mcp_injected() {
+        use crate::spec::McpAsSkill;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.mcps.push(McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec![],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }));
+        spec.mcp_as_skill.push(McpAsSkill {
+            id: "postgres".to_string(),
+            summary: Some("Query a DB.".to_string()),
+        });
+
+        let claude = Claude::new();
+        claude.provision(&spec, config_dir.path()).unwrap();
+
+        // The generated SKILL.md pointer exists and carries the summary.
+        let skill_md_path = config_dir.path().join("skills/postgres/SKILL.md");
+        assert!(skill_md_path.exists());
+        let content = std::fs::read_to_string(&skill_md_path).unwrap();
+        assert!(content.contains("name: postgres"));
+        assert!(content.contains("description: Query a DB."));
+
+        // Invariant: the MCP stays injected as normal — this is a stepping
+        // stone, not a replacement.
+        let mcp_json_path = config_dir.path().join("mcp.json");
+        let mcp_json: Value =
+            serde_json::from_str(&std::fs::read_to_string(&mcp_json_path).unwrap()).unwrap();
+        assert!(mcp_json["mcpServers"]["postgres"].is_object());
+    }
+
+    #[test]
+    fn provision_no_mcp_as_skill_writes_no_skills_dir_entries() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+
+        let claude = Claude::new();
+        claude.provision(&spec, config_dir.path()).unwrap();
+
+        // Byte-identical-config invariant: no mcp_as_skill entries means no
+        // skills dir is created at all.
+        assert!(!config_dir.path().join("skills").exists());
     }
 
     #[test]

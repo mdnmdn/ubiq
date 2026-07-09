@@ -59,12 +59,41 @@ impl std::fmt::Debug for InProcessMcpHandle {
     }
 }
 
-/// A hook to wire into the harness's native hook slots. Placeholder until P2/P3.
+/// Intent to expose a catalog MCP **as a skill** for this run: a latent
+/// `SKILL.md` pointer generated alongside the MCP's normal injection.
+///
+/// This is the Phase-3 "MCP-as-skill" stepping stone (see
+/// `_docs/target/mcp-as-skill.md`): the MCP named by `id` stays injected as a
+/// normal, always-on tool set in `spec.mcps` — this does **not** yet save
+/// context. It only additionally causes the provisioner to write a
+/// documented `SKILL.md` pointer for it. The "expand on demand" mechanism
+/// that would actually defer the MCP's context cost is explicitly deferred
+/// to a later step.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+pub struct McpAsSkill {
+    /// Catalog MCP id (must also appear, resolved, in `spec.mcps`).
+    pub id: String,
+    /// One-line summary seeding the generated skill's `description:`, if the
+    /// catalog entry (or an equivalent lookup) provided one.
+    pub summary: Option<String>,
+}
+
+/// A hook to wire into the harness's native hook slots.
+///
+/// `event` is the harness-native lifecycle event name for now (e.g. Claude's
+/// `"PreToolUse"`/`"PostToolUse"`/`"UserPromptSubmit"`/`"Stop"`/…); a neutral
+/// cross-harness event mapping can come later.
+#[derive(Debug, Clone)]
 pub struct HookRef {
     /// Hook id.
     pub id: String,
+    /// Native lifecycle event name (harness-native for now, e.g. Claude's
+    /// "PreToolUse"/"PostToolUse"/"UserPromptSubmit"/"Stop"/…).
+    pub event: String,
+    /// Shell command to run for the hook.
+    pub command: String,
+    /// Optional tool-name matcher (Claude tool events); None = no matcher.
+    pub matcher: Option<String>,
 }
 
 /// Always-on instructions / first prompt to seed.
@@ -93,9 +122,8 @@ pub enum ConfigStrategy {
     Fixed(PathBuf),
 }
 
-/// Sandbox settings (isol8). Off by default. Placeholder until P3.
+/// Sandbox settings (isol8). Off by default.
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub enum Isolation {
     /// No sandbox (default).
     #[default]
@@ -146,6 +174,10 @@ pub struct RunSpec {
     pub skills: Vec<SkillRef>,
     /// Resolved MCP servers to inject.
     pub mcps: Vec<McpRef>,
+    /// Catalog MCPs additionally exposed as a latent skill pointer. Additive
+    /// only — every id here also appears (resolved) in `mcps`. See
+    /// [`McpAsSkill`]. (P3 stepping stone; empty by default.)
+    pub mcp_as_skill: Vec<McpAsSkill>,
     /// Hooks to wire in. (P2/P3)
     pub hooks: Vec<HookRef>,
     /// Resolved account/credential reference, if any. Holds only references
@@ -166,6 +198,11 @@ pub struct RunSpec {
     pub passthrough_args: Vec<String>,
     /// Working directory for the agent.
     pub cwd: PathBuf,
+    /// Harness-native session id to resume; when set, the provisioner
+    /// appends the harness's native resume flag (e.g. Claude Code's
+    /// `--resume <id>`, opencode's `--session <id>`). `None` (the default)
+    /// leaves resumeless runs byte-identical to before this field existed.
+    pub resume: Option<String>,
 }
 
 impl RunSpec {
@@ -176,6 +213,7 @@ impl RunSpec {
             harness,
             skills: Vec::new(),
             mcps: Vec::new(),
+            mcp_as_skill: Vec::new(),
             hooks: Vec::new(),
             account: None,
             policy: None,
@@ -185,6 +223,7 @@ impl RunSpec {
             io: IoModes::Passthrough,
             passthrough_args: Vec::new(),
             cwd,
+            resume: None,
         }
     }
 }
@@ -203,6 +242,7 @@ mod tests {
         assert_eq!(spec.cwd, cwd);
         assert!(spec.skills.is_empty());
         assert!(spec.mcps.is_empty());
+        assert!(spec.mcp_as_skill.is_empty());
         assert!(spec.hooks.is_empty());
         assert!(spec.account.is_none());
         assert!(spec.policy.is_none());
@@ -211,6 +251,7 @@ mod tests {
         assert!(matches!(spec.isolation, Isolation::None));
         assert_eq!(spec.io, IoModes::Passthrough);
         assert!(spec.passthrough_args.is_empty());
+        assert!(spec.resume.is_none());
     }
 
     #[test]

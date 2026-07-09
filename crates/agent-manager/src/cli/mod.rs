@@ -4,12 +4,14 @@
 //! `am catalog|account|session|help` are reserved subcommands for managing
 //! the tool itself (see `_docs/target/cli.md`). This module implements the
 //! full `resolve → provision → run` spine, including `--print-config` for
-//! inspecting a provisioned run without launching it; `session` is stubbed
-//! until its own step lands.
+//! inspecting a provisioned run without launching it; `session ls|show` list
+//! and inspect recorded session history, and `session resume` is stubbed
+//! until its own step (F2) lands.
 
 mod run;
 mod catalog;
 mod account;
+mod session;
 
 use std::path::PathBuf;
 
@@ -42,6 +44,7 @@ fn dispatch(args: &[String]) -> Result<()> {
         }
         Some("catalog") => catalog::run(&args[1..]),
         Some("account") => account::run(&args[1..]),
+        Some("session") => session::run(&args[1..]),
         Some(word) if RESERVED.contains(&word) => {
             println!("{word}: not yet implemented");
             Ok(())
@@ -100,6 +103,9 @@ struct RunArgs {
     /// Account/credential profile to use. (P2)
     #[arg(long)]
     account: Option<String>,
+    /// Named hooks (defined in the settings file) to enable for this run.
+    #[arg(long, value_delimiter = ',')]
+    hooks: Option<Vec<String>>,
     /// Shorthand restricted-policy preset.
     #[arg(long)]
     safe: bool,
@@ -124,6 +130,26 @@ struct RunArgs {
     /// I/O mode: `passthrough` (default) or `structured` (alias: `jsonl`).
     #[arg(long)]
     io: Option<String>,
+    /// Output projection for `--io structured` events: `events` (default,
+    /// the raw neutral `AgentEvent` NDJSON), `acp`, or `agui` (alias:
+    /// `ag-ui`).
+    #[arg(long)]
+    output: Option<String>,
+    /// Run inside an isol8 sandbox. Bare `--isolate` uses no named profile;
+    /// `--isolate=<profile>` selects a profile. Absent by default (no
+    /// isolation).
+    #[arg(long, num_args = 0..=1)]
+    isolate: Option<Option<String>>,
+    /// Resume a prior harness-native session by id (raw harness id, not an
+    /// `am` session id — for resuming from `am`'s own session history use
+    /// `am session resume <id>` instead).
+    #[arg(long)]
+    resume: Option<String>,
+    /// Additionally expose these already-injected catalog mcp ids as a
+    /// latent skill pointer for this run (merged with any catalog entries
+    /// marked `expose = "skill"`; see `_docs/target/mcp-as-skill.md`).
+    #[arg(long = "mcp-as-skill", value_delimiter = ',')]
+    mcp_as_skill: Option<Vec<String>>,
 }
 
 /// Parse the `--io` flag's string value into an [`crate::spec::IoModes`].
@@ -144,9 +170,38 @@ fn parse_io_mode(raw: Option<&str>) -> anyhow::Result<crate::spec::IoModes> {
     }
 }
 
+/// Which projection `--io structured` prints events through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputMode {
+    /// The raw neutral `AgentEvent` NDJSON (today's only behavior).
+    Events,
+    /// Project each event through [`crate::io::to_acp`].
+    Acp,
+    /// Project each event through [`crate::io::to_agui`].
+    AgUi,
+}
+
+/// Parse the `--output` flag's string value into an [`OutputMode`].
+///
+/// Accepts `"events"`, `"acp"`, and `"agui"`/`"ag-ui"` (aliases for the same
+/// AG-UI projection); anything else is an error naming the value and the
+/// accepted set. `None` (flag not given) defaults to [`OutputMode::Events`].
+fn parse_output_mode(raw: Option<&str>) -> anyhow::Result<OutputMode> {
+    match raw {
+        None => Ok(OutputMode::Events),
+        Some("events") => Ok(OutputMode::Events),
+        Some("acp") => Ok(OutputMode::Acp),
+        Some("agui") | Some("ag-ui") => Ok(OutputMode::AgUi),
+        Some(other) => bail!(
+            "unknown --output value '{other}'; expected 'events', 'acp', or 'agui' (alias: 'ag-ui')"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     #[test]
     fn split_passthrough_splits_at_first_double_dash() {
@@ -219,5 +274,57 @@ mod tests {
     fn parse_io_mode_bogus_value_is_an_error() {
         let err = parse_io_mode(Some("bogus")).unwrap_err();
         assert!(err.to_string().contains("bogus"));
+    }
+
+    #[test]
+    fn parse_output_mode_defaults_to_events() {
+        assert_eq!(parse_output_mode(None).unwrap(), OutputMode::Events);
+    }
+
+    #[test]
+    fn parse_output_mode_accepts_events_acp_agui_and_ag_ui_alias() {
+        assert_eq!(
+            parse_output_mode(Some("events")).unwrap(),
+            OutputMode::Events
+        );
+        assert_eq!(parse_output_mode(Some("acp")).unwrap(), OutputMode::Acp);
+        assert_eq!(parse_output_mode(Some("agui")).unwrap(), OutputMode::AgUi);
+        assert_eq!(parse_output_mode(Some("ag-ui")).unwrap(), OutputMode::AgUi);
+    }
+
+    #[test]
+    fn parse_output_mode_bogus_value_is_an_error() {
+        let err = parse_output_mode(Some("bogus")).unwrap_err();
+        assert!(err.to_string().contains("bogus"));
+    }
+
+    #[test]
+    fn isolate_flag_absent_is_none() {
+        let args = RunArgs::try_parse_from(["am-run"]).unwrap();
+        assert_eq!(args.isolate, None);
+    }
+
+    #[test]
+    fn isolate_flag_bare_is_some_none() {
+        let args = RunArgs::try_parse_from(["am-run", "--isolate"]).unwrap();
+        assert_eq!(args.isolate, Some(None));
+    }
+
+    #[test]
+    fn isolate_flag_with_value_is_some_some() {
+        let args = RunArgs::try_parse_from(["am-run", "--isolate=dev"]).unwrap();
+        assert_eq!(args.isolate, Some(Some("dev".to_string())));
+    }
+
+    #[test]
+    fn resume_flag_is_parsed() {
+        let args = RunArgs::try_parse_from(["am-run", "--resume", "abc"]).unwrap();
+        assert_eq!(args.resume, Some("abc".to_string()));
+    }
+
+    #[test]
+    fn resume_flag_absent_is_none() {
+        let args = RunArgs::try_parse_from(["am-run"]).unwrap();
+        assert_eq!(args.resume, None);
     }
 }

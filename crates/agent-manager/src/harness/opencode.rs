@@ -87,6 +87,17 @@ impl Harness for Opencode {
                 )
             })?;
         }
+        // 2b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
+        // harness::write_mcp_as_skill_pointers's doc). No-op when
+        // spec.mcp_as_skill is empty.
+        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
+
+        // Hooks: opencode has no documented native hook slot (unlike Claude
+        // Code's `settings.json` `hooks` or Codex's `hooks.json` /
+        // `[[hooks.<Event>]]`), so we don't invent one here. If `spec.hooks`
+        // is non-empty this is simply a no-op for opencode — not an error —
+        // since selecting a hook that a particular harness can't render is a
+        // fidelity gap, not a user mistake.
 
         // 3. Instructions: write <dir>/AGENTS.md if instructions are present.
         if let Some(instructions) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
@@ -105,6 +116,13 @@ impl Harness for Opencode {
                     "json".to_string(),
                     "--dangerously-skip-permissions".to_string(),
                 ];
+                // Resume: `--session <id>` is only meaningful for the
+                // structured `opencode run` form; only added when a resume
+                // id is set, so resumeless runs keep byte-identical argv.
+                if let Some(id) = &spec.resume {
+                    structured_args.push("--session".to_string());
+                    structured_args.push(id.clone());
+                }
                 structured_args.extend(spec.passthrough_args.clone());
                 if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
                     structured_args.push(prompt.clone());
@@ -112,7 +130,9 @@ impl Harness for Opencode {
                 structured_args
             }
             IoModes::Passthrough => {
-                // Passthrough mode: just the original args + prompt (current behavior).
+                // Passthrough mode: just the original args + prompt (current
+                // behavior). No CLI resume flag exists for interactive
+                // opencode, so `spec.resume` is intentionally ignored here.
                 let mut passthrough_args = spec.passthrough_args.clone();
                 if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
                     passthrough_args.push(prompt.clone());
@@ -519,6 +539,44 @@ mod tests {
     }
 
     #[test]
+    fn provision_mcp_as_skill_writes_skill_md_and_keeps_mcp_injected() {
+        use crate::spec::McpAsSkill;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.mcps.push(McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec![],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }));
+        spec.mcp_as_skill.push(McpAsSkill {
+            id: "postgres".to_string(),
+            summary: Some("Query a DB.".to_string()),
+        });
+
+        let opencode = Opencode::new();
+        opencode.provision(&spec, config_dir.path()).unwrap();
+
+        let skill_md_path = config_dir.path().join("skills/postgres/SKILL.md");
+        assert!(skill_md_path.exists());
+        let content = std::fs::read_to_string(&skill_md_path).unwrap();
+        assert!(content.contains("name: postgres"));
+        assert!(content.contains("description: Query a DB."));
+
+        // Invariant: the MCP stays injected as normal in opencode.json.
+        let config_json: Value = serde_json::from_str(
+            &std::fs::read_to_string(config_dir.path().join("opencode.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(config_json["mcp"]["postgres"].is_object());
+    }
+
+    #[test]
     fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
         use crate::account::Account;
 
@@ -616,6 +674,56 @@ mod tests {
         assert_eq!(launch.args[3], "--dangerously-skip-permissions");
         // Prompt should be the final positional argument
         assert_eq!(launch.args.last(), Some(&"hello world".to_string()));
+    }
+
+    #[test]
+    fn provision_structured_resume_appends_session_flag() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+        spec.resume = Some("abc".to_string());
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        let idx = launch
+            .args
+            .iter()
+            .position(|a| a == "--session")
+            .expect("--session present");
+        assert_eq!(launch.args.get(idx + 1), Some(&"abc".to_string()));
+    }
+
+    #[test]
+    fn provision_structured_no_resume_omits_session_flag() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"--session".to_string()));
+    }
+
+    #[test]
+    fn provision_passthrough_resume_has_no_cli_flag() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.resume = Some("abc".to_string());
+        // spec.io defaults to Passthrough.
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"--session".to_string()));
+        assert!(!launch.args.contains(&"abc".to_string()));
     }
 
     #[test]

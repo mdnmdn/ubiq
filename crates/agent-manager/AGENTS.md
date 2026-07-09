@@ -3,17 +3,16 @@
 > A wrapper for a running AI agent harness.
 > Configure once, launch anywhere.
 
-> **Phase 2 landed.** `agent-manager` wraps and launches agent harnesses (`claude`,
-> `codex`, `opencode`, …) end-to-end: `am claude --mcps postgres --skills web-designer`
-> and `am codex --prompt "…"` and `am opencode --account work` compose runs, inject
-> skills/MCPs/accounts/initial instructions, provision ephemeral configs, and launch
-> the real harness through a PTY. Accounts are now live: `am account ls|use|import`.
-> Structured I/O (JSONL/ACP) is implemented; passthrough is the default. In-process MCP
+> **Phase 3 complete.** `agent-manager` wraps and launches agent harnesses (`claude`,
+> `codex`, `opencode`, …) end-to-end with advanced lifecycle support: `am claude --mcps postgres --skills web-designer`,
+> `am codex --prompt "…" --hooks validator`, `am session ls|resume`, structured output
+> (events/ACP/AG-UI), session history with resume, isolation (isol8), and hooks for lifecycle automation.
+> Passthrough PTY (all harnesses) and structured I/O bridges (all three) are fully implemented. In-process MCP
 > (lib mode) lets embedders inject custom MCPs the harness can call.
 >
 > **Phase 1 shipped** (Claude Code end-to-end: passthrough PTY, catalog injection, skills/MCPs/roles).
-> **Phase 2 now shipped** (codex/opencode wrapped, accounts, instructions/prompt, structured I/O,
-> in-process MCP for lib mode).
+> **Phase 2 shipped** (codex/opencode wrapped, accounts, instructions/prompt, structured I/O, in-process MCP).
+> **Phase 3 shipped** (isolation via isol8, session history + resume, output adapters ACP/AG-UI, hooks).
 >
 > - The **target design** lives in [`_docs/target/`](_docs/target/) — start at
 >   [`_docs/target/README.md`](_docs/target/README.md).
@@ -121,15 +120,20 @@ agent-manager/
     │   ├── structured.rs  #   IoBridge trait for harness-neutral structured I/O (core, P2)
     │   ├── jsonl.rs       #   Claude stream-json input bridge (core, P2)
     │   ├── codex.rs       #   Codex JSON-RPC app-server input bridge (core, P2)
-    │   └── opencode.rs    #   opencode NDJSON run input bridge (core, P2)
+    │   ├── opencode.rs    #   opencode NDJSON run input bridge (core, P2)
+    │   ├── acp.rs         #   ACP event adapter (core, P3)
+    │   └── agui.rs        #   AG-UI event adapter (core, P3)
     ├── mcp/               # in-process MCP hosting (feature: inproc-mcp)
     │   ├── mod.rs         #   McpService trait for embedders (core, P2)
     │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
+    ├── session.rs         # session history + metadata persistence (core, P3)
+    ├── isolate.rs         # isol8 sandbox integration (core, P3)
     ├── cli/               # the `am` command surface (feature: cli)
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
     │   ├── catalog.rs     #   `am catalog ls|show|path|import`
-    │   └── account.rs     #   `am account ls|use|import` (P2)
+    │   ├── account.rs     #   `am account ls|use|import` (P2)
+    │   └── session.rs     #   `am session ls|show|resume` (P3)
     └── tui.rs             # ratatui front end (parked, feature: tui)
 ```
 
@@ -247,16 +251,16 @@ alias. The `inproc-mcp` feature enables in-process MCP hosting for lib mode. See
 
 ## Status
 
-Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**:
+Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**; **Phase 3 complete**:
 
-**Phase 1:**
+**Phase 1 ✅**
 - [x] core model (`RunSpec`) + filesystem catalog (`am catalog ls|show|path`)
 - [x] settings + resolve (flags/config → `RunSpec`, replace-by-default merge)
 - [x] `Harness` trait + Claude provisioner (`am claude --print-config`)
 - [x] PTY passthrough runner (`am claude …` launches for real, exit code propagated)
 - [x] `am catalog import` (read-only ingest of `~/.claude` / `~/.agent` / project dirs)
 
-**Phase 2:**
+**Phase 2 ✅**
 - [x] `am account` commands (ls/use/import); accounts store credential *references*, never secrets
 - [x] `--instructions` (seed always-on memory) and `--prompt` (seed initial prompt)
 - [x] `Harness` impls for Codex and opencode (both support passthrough and structured I/O)
@@ -264,5 +268,11 @@ Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**:
 - [x] structured I/O bridges: Claude (stream-json JSONL), codex (JSON-RPC app-server), opencode (NDJSON run)
 - [x] in-process MCP (lib mode): `McpService` trait for embedders, hosted on loopback HTTP MCP endpoint
 
-Next (P3): isolation (`isol8`), session history, output adapters (ACP/AG-UI), hooks. See
-[`_docs/target/roadmap.md`](_docs/target/roadmap.md).
+**Phase 3 ✅**
+- [x] isolation (`--isolate[=profile]` via isol8): `src/isolate.rs`, settings template, core-gated
+- [x] session history: `am session ls|show|resume`; persistent transcripts + metadata; `--resume <id>` (harness-native)
+- [x] output adapters: `--output <events|acp|agui>` on structured runs; stateless best-effort mappers (`src/io/{acp,agui}.rs`)
+- [x] hooks: per-run hook selection (`--hooks a,b`); provisioner wires into harness-native slots (Claude/codex/opencode)
+- [x] MCP-as-skill schema + stepping stone: `expose = "tools" | "skill"`, `summary`, `--mcp-as-skill` CLI flag, generated SKILL.md pointers (deferred-load mechanism deferred)
+
+See [`_docs/target/roadmap.md`](_docs/target/roadmap.md).

@@ -64,7 +64,10 @@ pub struct RunSpec {
     /// Resolved MCP servers to inject (from the catalog, inline, or in-process).
     pub mcps: Vec<McpRef>,
 
-    /// Hooks to wire into the harness's native hook slots.        (P3)
+    /// Hooks to wire into the harness's native hook slots. (H1, landed:
+    /// selected via `--hooks`/settings, rendered into Claude's
+    /// `settings.json` `hooks` and Codex's `hooks.json`; opencode has no
+    /// native slot yet, so it's a no-op there.)
     pub hooks: Vec<HookRef>,
 
     /// Resolved account/credential profile (references only, never secrets). (P2)
@@ -76,7 +79,7 @@ pub struct RunSpec {
     /// Where the ephemeral config dir lives and whether to keep it.
     pub config: ConfigStrategy,     // Ephemeral (default) | Fixed(path)
 
-    /// Sandbox settings (isol8) — off by default.                   (P3)
+    /// Sandbox settings (isol8) — off by default.                   (P3 ✅)
     pub isolation: Isolation,
 
     /// How `am` talks to the agent and exposes it outward.          (P2)
@@ -174,18 +177,20 @@ src/
 │   ├── structured.rs #   IoBridge trait                             (core, P2)
 │   ├── jsonl.rs      #   Claude stream-json input                   (P2)
 │   ├── codex.rs      #   Codex JSON-RPC app-server input            (P2)
-│   └── opencode.rs   #   opencode NDJSON run input                  (P2)
+│   ├── opencode.rs   #   opencode NDJSON run input                  (P2)
+│   ├── acp.rs        #   ACP event adapter (stateless mapper)       (P3 ✅)
+│   └── agui.rs       #   AG-UI event adapter (stateless mapper)     (P3 ✅)
 ├── mcp/              # in-process MCP hosting (feature: inproc-mcp)
 │   ├── mod.rs        #   McpService trait for embedders    (core, P2)
 │   └── server.rs     #   HTTP server for in-process MCPs   (feature: inproc-mcp, P2)
-├── session.rs        # session history store (list/resume/record)  (P3)
-└── isolate.rs        # isol8 integration                            (P3)
+├── session.rs        # session history + metadata; ls/show/resume + transcript recording (P3 ✅)
+└── isolate.rs        # isol8 integration via command template wrapper (P3 ✅)
 ```
 
 Phase 1 needs `spec`, `resolve`, `settings`, `registry`, `harness` (claude),
 `provision`, `run`, and `io/passthrough`. Phase 2 adds `account`, `harness`
 (codex/opencode), `io/{model,structured,jsonl,codex,opencode}`, and `mcp`.
-The rest arrive with Phase 3.
+Phase 3 completes the set with `session`, `isolate`, `io/{acp,agui}`, and `cli/session`.
 
 ## The `Harness` trait
 

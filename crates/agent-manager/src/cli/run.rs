@@ -18,7 +18,7 @@ use crate::registry::{resolve_catalog_root, FsRegistry, OverlayRegistry};
 use crate::resolve::{resolve, RunFlags};
 use crate::settings::{self, Settings};
 
-use super::{parse_io_mode, split_passthrough, RunArgs};
+use super::{parse_io_mode, parse_output_mode, split_passthrough, OutputMode, RunArgs};
 
 /// Run `harness` against the remaining argv (everything after the harness
 /// name on the command line).
@@ -51,11 +51,15 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         skills: run_args.skills.clone(),
         mcp_json: run_args.mcp_json.clone(),
         account: run_args.account.clone(),
+        hooks: run_args.hooks.clone(),
         safe: run_args.safe,
         instructions,
         prompt: run_args.prompt.clone(),
         passthrough_args,
         cwd: cwd.clone(),
+        isolate: run_args.isolate.clone(),
+        resume: run_args.resume.clone(),
+        mcp_as_skill: run_args.mcp_as_skill.clone(),
     };
 
     let accounts = build_account_store();
@@ -71,32 +75,136 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
 
     spec.io = parse_io_mode(run_args.io.as_deref())?;
 
-    let provisioned = provision::provision(harness, &spec)?;
+    let mut provisioned = provision::provision(harness, &spec)?;
+
+    if !matches!(spec.isolation, crate::spec::Isolation::None) {
+        let template = crate::isolate::IsolateTemplate {
+            command: settings
+                .isolate
+                .command
+                .clone()
+                .unwrap_or_else(|| crate::isolate::IsolateTemplate::default().command),
+        };
+        provisioned.launch =
+            crate::isolate::wrap_launch(&provisioned.launch, &spec.isolation, &template);
+    }
 
     if run_args.print_config {
         print_config(&provisioned.dir, &provisioned.launch, run_args.keep_config);
         return Ok(());
     }
 
+    let sessions_root = crate::session::sessions_root(None);
+
+    // `--output` only matters for `--io structured`; keep it ungated from
+    // parsing (and any bogus-value error) in passthrough mode, matching the
+    // pre-refactor behavior where `parse_output_mode` was only ever called
+    // inside the structured branch.
+    let output = if spec.io == crate::spec::IoModes::Structured {
+        parse_output_mode(run_args.output.as_deref())?
+    } else {
+        OutputMode::Events
+    };
+
+    run_provisioned(
+        harness,
+        &spec,
+        &provisioned,
+        &cwd,
+        output,
+        sessions_root,
+        run_args.keep_config,
+    )
+}
+
+/// The "provision is done → run it" tail shared by [`run_harness`] and
+/// `crate::cli::session::resume`: build a [`crate::session::SessionMeta`],
+/// dispatch to the structured or passthrough path based on `spec.io`, and
+/// (passthrough only) exit the process with the child's own exit code.
+///
+/// `output` is only consulted for `--io structured`. `keep_config` is only
+/// consulted for passthrough (structured runs never delete their dir); when
+/// a session recorder actually starts, the config dir is retained regardless
+/// of `keep_config` — a resume needs the retained dir to point the harness
+/// back at.
+pub(super) fn run_provisioned(
+    harness: &dyn Harness,
+    spec: &crate::spec::RunSpec,
+    provisioned: &provision::Provisioned,
+    cwd: &Path,
+    output: OutputMode,
+    sessions_root: Option<PathBuf>,
+    keep_config: bool,
+) -> Result<()> {
+    let io_label = if spec.io == crate::spec::IoModes::Structured {
+        "structured"
+    } else {
+        "passthrough"
+    };
+    let meta = crate::session::SessionMeta::new(
+        spec.harness.clone(),
+        cwd.to_path_buf(),
+        launch_argv(&provisioned.launch),
+        spec.account.as_ref().map(|a| a.id.clone()),
+        io_label.to_string(),
+        provisioned.dir.clone(),
+    );
+
     if spec.io == crate::spec::IoModes::Structured {
-        return run_structured(harness, &spec, &provisioned, &cwd);
+        return run_structured(harness, spec, provisioned, cwd, output, sessions_root, meta);
     }
 
-    let code = crate::run::run(&provisioned, &cwd, run_args.keep_config)?;
+    // Passthrough: record metadata-only (no transcript events), and finish
+    // the recorder BEFORE `std::process::exit` — that call skips destructors,
+    // so `finish`'s write of `finished_at`/`exit_code` must happen explicitly
+    // first. Recording is best-effort: a missing/unwritable sessions root
+    // must never fail or alter the run's own outcome.
+    let recorder = sessions_root.and_then(|root| crate::session::start(&root, meta).ok());
+
+    // Resume needs the retained config dir to point the harness back at, so
+    // once a session is actually being recorded, keep the dir even if
+    // `--keep-config` wasn't passed. (Fixed dirs — e.g. a resume's own
+    // re-provision — are never deleted regardless; see `run::cleanup`'s
+    // `ephemeral` check.)
+    let keep_config = keep_config || recorder.is_some();
+
+    let code = crate::run::run(provisioned, cwd, keep_config)?;
+
+    if let Some(recorder) = recorder {
+        let _ = recorder.finish(Some(code));
+    }
+
     std::process::exit(code);
 }
 
+/// The launch program + args actually run, as recorded in [`crate::session::SessionMeta::argv`].
+fn launch_argv(launch: &crate::harness::Launch) -> Vec<String> {
+    std::iter::once(launch.program.clone())
+        .chain(launch.args.iter().cloned())
+        .collect()
+}
+
 /// The `--io structured` path: build a structured bridge, optionally send
-/// the seeded initial prompt, then drain events as NDJSON on stdout.
+/// the seeded initial prompt, then drain events on stdout as NDJSON,
+/// projected through `output` (see [`OutputMode`]).
 ///
 /// This is a framework stub — real per-harness bridges land in C2/C3/C4, so
 /// today every harness's `structured_bridge` bails with a clear "not
 /// supported yet" error via [`Harness::structured_bridge`]'s default impl.
+///
+/// When `sessions_root` is available, records every drained event to
+/// `meta`'s session transcript and finishes the recorder with `Some(0)` once
+/// the stream drains cleanly (structured runs have no child exit code
+/// surfaced today; an error propagating out of this function simply leaves
+/// the recorder unfinished rather than failing the run over recording).
 fn run_structured(
     harness: &dyn Harness,
     spec: &crate::spec::RunSpec,
     provisioned: &provision::Provisioned,
     cwd: &Path,
+    output: OutputMode,
+    sessions_root: Option<PathBuf>,
+    meta: crate::session::SessionMeta,
 ) -> Result<()> {
     if !harness.io_support().structured {
         anyhow::bail!(
@@ -104,6 +212,8 @@ fn run_structured(
             harness.id()
         );
     }
+
+    let mut recorder = sessions_root.and_then(|root| crate::session::start(&root, meta).ok());
 
     let mut bridge = harness.structured_bridge(provisioned, cwd)?;
 
@@ -114,7 +224,26 @@ fn run_structured(
     }
 
     while let Some(ev) = bridge.next_event()? {
-        println!("{}", serde_json::to_string(&ev)?);
+        if let Some(recorder) = recorder.as_mut() {
+            let _ = recorder.record_event(&ev);
+        }
+
+        let line = match output {
+            OutputMode::Events => Some(serde_json::to_string(&ev)?),
+            OutputMode::Acp => crate::io::to_acp(&ev)
+                .map(|v| serde_json::to_string(&v))
+                .transpose()?,
+            OutputMode::AgUi => crate::io::to_agui(&ev)
+                .map(|v| serde_json::to_string(&v))
+                .transpose()?,
+        };
+        if let Some(line) = line {
+            println!("{line}");
+        }
+    }
+
+    if let Some(recorder) = recorder {
+        let _ = recorder.finish(Some(0));
     }
 
     Ok(())

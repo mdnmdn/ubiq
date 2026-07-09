@@ -68,7 +68,27 @@ args = ["-y", "@figma/mcp"]
 id = "docs"
 transport = "http"
 url = "https://example.com/mcp/"
+
+[[mcp]]
+id = "postgres"
+transport = "stdio"
+command = "postgres-mcp"
+expose = "skill"        # "tools" (default) | "skill" — see mcp-as-skill.md
+summary = "Query and inspect a Postgres database."   # seeds the generated skill's description
 ```
+
+Two extra, optional `[[mcp]]` fields (`catalog.toml`-only — a single-file
+`mcp/*.json` entry has no room for them, and always defaults to
+`expose = "tools"` / `summary = None`):
+
+- `expose` — `"tools"` (default) injects the MCP as a normal, always-on tool
+  set, same as today. `"skill"` additionally causes the provisioner to
+  generate a latent `SKILL.md` pointer for the MCP (see
+  [`mcp-as-skill.md`](./mcp-as-skill.md)) — as of the schema+pointer pass
+  that landed, the MCP still stays injected as normal either way; `expose`
+  only controls whether a skill pointer is *also* written.
+- `summary` — a one-line description seeding the generated skill's
+  `description:` frontmatter when `expose = "skill"`. Ignored otherwise.
 
 Skills are **always** folders (a `SKILL.md` + supporting files), because that is
 the portable on-disk shape every harness already understands. The registry

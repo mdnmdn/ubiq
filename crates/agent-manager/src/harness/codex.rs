@@ -20,7 +20,7 @@ use std::path::Path;
 use anyhow::{bail, Context};
 
 use crate::config::{McpServer, McpTransport};
-use crate::spec::{McpRef, RunSpec};
+use crate::spec::{HookRef, McpRef, RunSpec};
 use crate::Result;
 
 use super::{copy_dir_recursive, Harness, IoSupport, Launch};
@@ -118,6 +118,10 @@ impl Harness for Codex {
                 )
             })?;
         }
+        // 2b. MCP-as-skill: latent SKILL.md pointers into the same skills
+        // dir (stepping stone; see harness::write_mcp_as_skill_pointers's
+        // doc). No-op when spec.mcp_as_skill is empty.
+        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
 
         // 3. Instructions: <config_home>/AGENTS.md (the CODEX_HOME/global
         // memory tier — never the user's cwd). Plain Markdown; no managed-
@@ -130,7 +134,21 @@ impl Harness for Codex {
                 .with_context(|| format!("writing {}", agents_md_path.display()))?;
         }
 
-        // 4. Build the launch. Structured mode launches the JSON-RPC
+        // 4. Hooks: <config_home>/hooks.json, written only when spec.hooks is
+        // non-empty (hookless runs are unaffected). codex.md lists
+        // `hooks.json` as an accepted (legacy) hooks representation
+        // alongside inline `[[hooks.<Event>]]` in config.toml, but does not
+        // pin its exact schema — this shape is a best-effort guess, not a
+        // verified-against-source-schema fidelity claim like the mcp/config
+        // rendering above.
+        if !spec.hooks.is_empty() {
+            let hooks_json = build_hooks_json(&spec.hooks)?;
+            let hooks_json_path = config_home.join("hooks.json");
+            std::fs::write(&hooks_json_path, hooks_json)
+                .with_context(|| format!("writing {}", hooks_json_path.display()))?;
+        }
+
+        // 5. Build the launch. Structured mode launches the JSON-RPC
         // `app-server` (`codex app-server --listen stdio://`), with the
         // prompt delivered via `turn/start` by the bridge rather than a
         // trailing positional argument; passthrough mode keeps the
@@ -145,6 +163,12 @@ impl Harness for Codex {
         }
         args.extend(spec.passthrough_args.iter().cloned());
 
+        // Resume: codex has no CLI resume flag. Resuming a prior codex
+        // session is an app-server `thread/resume` JSON-RPC call (a bridge
+        // concern), not something expressible in launch argv — so
+        // `spec.resume` is a documented no-op here, deferred to a later
+        // step. Do NOT invent a flag.
+
         // Append prompt as trailing positional argument, passthrough mode
         // only — structured mode's bridge sends it via `turn/start`.
         if !structured
@@ -153,7 +177,7 @@ impl Harness for Codex {
             args.push(prompt.clone());
         }
 
-        // 5. Account: inject credential *references* into the child's env.
+        // 6. Account: inject credential *references* into the child's env.
         // `am`'s account store never holds secret material — only env-var
         // NAMES, a base URL, a helper command, and/or a home dir path. The
         // only place a secret value is ever touched is the transient
@@ -297,6 +321,40 @@ fn map_sandbox_mode(mode: &str) -> Option<&'static str> {
         "danger-full-access" => Some("danger-full-access"),
         _ => None,
     }
+}
+
+/// One `hooks.json` entry: `{"command": …, "matcher": …}`. `matcher` is
+/// omitted (not just `null`) when the hook carries none.
+///
+/// NOTE(fidelity caveat): codex.md documents `hooks.json` as an accepted
+/// (legacy) hooks representation but does not pin its exact schema (only the
+/// inline `config.toml` `[[hooks.<Event>]]` form is spelled out). This shape
+/// — `{ "<event>": [ { "command": …, "matcher": … } ] }` — is a best-effort
+/// guess at the sibling JSON file's shape, not verified against a real Codex
+/// schema; treat it as provisional until codex.md documents `hooks.json`
+/// directly.
+#[derive(Debug, serde::Serialize)]
+struct HooksJsonEntry {
+    command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matcher: Option<String>,
+}
+
+/// Build the `hooks.json` document: grouped by native event name, each
+/// event's array holding one [`HooksJsonEntry`] per [`HookRef`] in that
+/// event.
+fn build_hooks_json(hooks: &[HookRef]) -> Result<String> {
+    let mut by_event: BTreeMap<String, Vec<HooksJsonEntry>> = BTreeMap::new();
+    for hook in hooks {
+        by_event
+            .entry(hook.event.clone())
+            .or_default()
+            .push(HooksJsonEntry {
+                command: hook.command.clone(),
+                matcher: hook.matcher.clone(),
+            });
+    }
+    serde_json::to_string_pretty(&by_event).context("serializing hooks.json")
 }
 
 /// Build the full `config.toml` body: optional top-level permission keys
@@ -451,6 +509,46 @@ mod tests {
     }
 
     #[test]
+    fn provision_hooks_writes_hooks_json() {
+        use crate::spec::HookRef;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.hooks.push(HookRef {
+            id: "notify".to_string(),
+            event: "PreToolUse".to_string(),
+            command: "notify-send hi".to_string(),
+            matcher: Some("Bash".to_string()),
+        });
+
+        let codex = Codex::new();
+        codex.provision(&spec, config_dir.path()).unwrap();
+
+        let hooks_json_path = config_dir.path().join("hooks.json");
+        assert!(hooks_json_path.exists());
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&hooks_json_path).unwrap()).unwrap();
+        assert_eq!(
+            parsed["PreToolUse"][0]["command"].as_str(),
+            Some("notify-send hi")
+        );
+        assert_eq!(parsed["PreToolUse"][0]["matcher"].as_str(), Some("Bash"));
+    }
+
+    #[test]
+    fn provision_no_hooks_does_not_write_hooks_json() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+
+        let codex = Codex::new();
+        codex.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!config_dir.path().join("hooks.json").exists());
+    }
+
+    #[test]
     fn provision_missing_skill_path_is_an_error() {
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
@@ -589,6 +687,44 @@ mod tests {
     }
 
     #[test]
+    fn provision_mcp_as_skill_writes_skill_md_and_keeps_mcp_injected() {
+        use crate::spec::McpAsSkill;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.mcps.push(McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec![],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }));
+        spec.mcp_as_skill.push(McpAsSkill {
+            id: "postgres".to_string(),
+            summary: Some("Query a DB.".to_string()),
+        });
+
+        let codex = Codex::new();
+        codex.provision(&spec, config_dir.path()).unwrap();
+
+        let skill_md_path = config_dir
+            .path()
+            .join(".agents/skills/postgres/SKILL.md");
+        assert!(skill_md_path.exists());
+        let content = std::fs::read_to_string(&skill_md_path).unwrap();
+        assert!(content.contains("name: postgres"));
+        assert!(content.contains("description: Query a DB."));
+
+        // Invariant: the MCP stays injected as normal in config.toml.
+        let config_toml =
+            std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
+        assert!(config_toml.contains("[mcp_servers.postgres]"));
+    }
+
+    #[test]
     fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
         use crate::account::Account;
 
@@ -630,6 +766,26 @@ mod tests {
         // config.toml landed in the account's home, not the ephemeral dir.
         assert!(account_home.path().join("config.toml").exists());
         assert!(!config_dir.path().join("config.toml").exists());
+    }
+
+    #[test]
+    fn provision_resume_is_a_noop_argv_stays_unchanged() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+
+        let base_spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        let mut base_spec_fixed = base_spec.clone();
+        base_spec_fixed.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+
+        let codex = Codex::new();
+        let launch_without_resume = codex.provision(&base_spec_fixed, config_dir.path()).unwrap();
+
+        let config_dir2 = tempfile::TempDir::new().unwrap();
+        let mut resumed_spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        resumed_spec.config = ConfigStrategy::Fixed(config_dir2.path().to_path_buf());
+        resumed_spec.resume = Some("abc".to_string());
+        let launch_with_resume = codex.provision(&resumed_spec, config_dir2.path()).unwrap();
+
+        assert_eq!(launch_without_resume.args, launch_with_resume.args);
     }
 
     #[test]
