@@ -70,8 +70,31 @@ am claude --mcps postgres --mcp-as-skill postgres
 
 ## Status
 
-This is a **Phase 2/3** feature and a design sketch, not a committed mechanism.
-The two open decisions — deferred-load vs proxy-tool, and how much of it depends
-on harness support — are called out as questions to resolve before building it.
-It is documented here so the catalog schema (`expose`, `summary`) and the
-provisioner are designed with room for it from the start.
+**Landed (Phase 3, step I1): the schema + `SKILL.md`-generation stepping stone.**
+
+- The catalog schema — `[[mcp]]` `expose = "tools" | "skill"` and `summary`
+  in `catalog.toml` (see [`registry.md`](./registry.md)) — is implemented and
+  parsed by `FsRegistry`.
+- A per-run `--mcp-as-skill a,b` CLI flag additionally marks already-injected
+  mcp ids for a skill pointer without touching the catalog (see
+  [`cli.md`](./cli.md)); it merges (deduped) with any catalog `expose =
+  "skill"` entries.
+- `resolve()` carries the intent into `RunSpec.mcp_as_skill: Vec<McpAsSkill>`
+  (`{ id, summary }`). This is **additive**: the named mcp still lands in
+  `RunSpec.mcps` exactly as it does today.
+- Every provisioner (Claude Code, Codex, opencode) that sees a non-empty
+  `mcp_as_skill` writes one generated `SKILL.md` per entry into its normal
+  skills dir (`<config>/skills/<id>/SKILL.md` for Claude Code/opencode,
+  `<CODEX_HOME>/.agents/skills/<id>/SKILL.md` for Codex), with a `description:`
+  seeded from `summary` (or a generic fallback) and a body that explicitly
+  says the MCP is *not yet* deferred.
+- Runs that don't use the feature (`mcp_as_skill` empty) produce
+  byte-identical provisioned config to before this landed — no new dir/file
+  is written.
+
+**Still deferred: the "expand on demand" mechanism.** The generated
+`SKILL.md` today is a *documented pointer only* — it does **not** save any
+context, because the MCP's tools are still injected as a normal, always-on
+tool set alongside it. Making the skill's on-demand nature real (deferred
+load vs. proxy tool, per the two mechanisms sketched above, and how much each
+depends on harness support) is unbuilt and left to a later step.

@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use crate::config::McpServer;
-use crate::registry::{McpEntry, Registry, SkillEntry, SkillMeta};
+use crate::registry::{McpEntry, McpExpose, Registry, SkillEntry, SkillMeta};
 use crate::Result;
 use anyhow::anyhow;
 
@@ -80,7 +80,12 @@ impl Registry for FsRegistry {
             let content = std::fs::read_to_string(&catalog_toml_path)?;
             let catalog: CatalogToml = toml::from_str(&content)?;
 
-            for server in catalog.mcp {
+            for entry in catalog.mcp {
+                let McpToml {
+                    server,
+                    expose,
+                    summary,
+                } = entry;
                 if seen_ids.contains(&server.id) {
                     return Err(anyhow!(
                         "MCP id collision: '{}' appears in both catalog.toml and mcp/*.json",
@@ -91,6 +96,8 @@ impl Registry for FsRegistry {
                 entries.push(McpEntry {
                     id: server.id.clone(),
                     def: server,
+                    expose,
+                    summary,
                 });
             }
         }
@@ -128,6 +135,11 @@ impl Registry for FsRegistry {
                 entries.push(McpEntry {
                     id,
                     def: server,
+                    // Raw `mcp/*.json` server defs carry no `expose`/`summary`
+                    // catalog metadata (that's a `catalog.toml` `[[mcp]]`-only
+                    // concept); they always default to `tools`/`None`.
+                    expose: McpExpose::Tools,
+                    summary: None,
                 });
             }
         }
@@ -142,7 +154,23 @@ impl Registry for FsRegistry {
 struct CatalogToml {
     /// Inline MCP definitions.
     #[serde(default)]
-    mcp: Vec<McpServer>,
+    mcp: Vec<McpToml>,
+}
+
+/// One `[[mcp]]` entry in `catalog.toml`: the raw [`McpServer`] fields
+/// (flattened) plus catalog-only metadata (`expose`, `summary`) that only
+/// `catalog.toml`-declared MCPs can carry (single-file `mcp/*.json` entries
+/// have no room for it).
+#[derive(Debug, serde::Deserialize)]
+struct McpToml {
+    #[serde(flatten)]
+    server: McpServer,
+    /// `expose = "tools"` (default) | `"skill"`. See [`McpExpose`].
+    #[serde(default)]
+    expose: McpExpose,
+    /// Seeds the generated skill's `description:` when `expose = "skill"`.
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 /// Parse YAML frontmatter from a Markdown file.
@@ -272,6 +300,49 @@ mod tests {
 
         assert!(skill.is_none());
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_fs_registry_mcp_expose_skill_and_summary_parse() -> Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
+        let root = temp_dir.path();
+
+        fs::create_dir_all(root)?;
+        fs::write(
+            root.join("catalog.toml"),
+            r#"
+[[mcp]]
+id = "postgres"
+transport = "stdio"
+command = "postgres-mcp"
+expose = "skill"
+summary = "Query and inspect a Postgres database."
+
+[[mcp]]
+id = "figma"
+transport = "stdio"
+command = "figma-mcp"
+"#,
+        )?;
+
+        let registry = FsRegistry::new(root);
+        let mcps = registry.mcps()?;
+
+        let postgres = mcps.iter().find(|m| m.id == "postgres").expect("postgres");
+        assert_eq!(postgres.expose, McpExpose::Skill);
+        assert_eq!(
+            postgres.summary.as_deref(),
+            Some("Query and inspect a Postgres database.")
+        );
+
+        // `expose`/`summary` are optional: an entry that omits them defaults
+        // to `tools`/`None`.
+        let figma = mcps.iter().find(|m| m.id == "figma").expect("figma");
+        assert_eq!(figma.expose, McpExpose::Tools);
+        assert!(figma.summary.is_none());
+
+        temp_dir.close()?;
         Ok(())
     }
 

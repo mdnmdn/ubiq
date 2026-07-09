@@ -87,6 +87,18 @@ stream-json on stdin.
    embedder ◀─(AG-UI out)──  am  ◀─(JSONL stdout)──  claude
 ```
 
+**Status (G1):** `crate::io::{to_acp, to_agui}` now exist as **core**
+(`src/io/acp.rs`, `src/io/agui.rs`) — stateless, best-effort mappers from one
+`AgentEvent` to one ACP `sessionUpdate` value / one AG-UI event value,
+covering the variants that translate cleanly (`AssistantText`, `Thinking`,
+`ToolCall`, `ToolResult`, plus `SessionStarted`/`Result` for AG-UI); anything
+else maps to `None` and is skipped. They do **not** emit full protocol
+framing (JSON-RPC envelopes, message/tool-call lifecycle brackets, thread ids)
+— that's a fuller, stateful adapter for later work. Selectable on the CLI via
+`--io structured --output acp` or `--output agui` (alias `ag-ui`); default
+`--output events` (or the flag omitted) keeps today's raw `AgentEvent` NDJSON,
+byte-for-byte.
+
 ### The `IoBridge` trait
 
 Each per-harness bridge is an implementation of a small trait
@@ -144,14 +156,12 @@ wires piped stdin/stdout (stderr inherited).
 
 ## Phasing
 
-- **Phase 1** — passthrough only. `IoModes` has one variant (`Passthrough`).
-- **Phase 2** — the neutral `AgentInput`/`AgentEvent` model + `IoBridge` trait
-  + `spawn_piped` helper land as **core** (this step, C1); `IoModes::Structured`
+- **Phase 1 ✅** — passthrough only. `IoModes` has one variant (`Passthrough`).
+- **Phase 2 ✅** — the neutral `AgentInput`/`AgentEvent` model + `IoBridge` trait
+  + `spawn_piped` helper land as **core**; `IoModes::Structured`
   is added to the spec and `--io structured` is wired through the CLI.
   Concrete per-harness bridges (Claude stream-json, codex `app-server`
-  JSON-RPC, opencode NDJSON) land in follow-up steps (C2/C3/C4) — until a
-  given harness's bridge lands, `Harness::io_support().structured` is `false`
-  and `Harness::structured_bridge` returns a "not supported yet" error by
-  default.
-- **Phase 3** — ACP and AG-UI **output** adapters; the web/headless surface that
-  consumes them.
+  JSON-RPC, opencode NDJSON) all implemented.
+- **Phase 3 ✅** — ACP and AG-UI **output** adapters (stateless mappers in `crate::io::{to_acp, to_agui}`,
+  `--output acp` / `--output agui`, best-effort subset covering core event types) are shipped.
+  Full stateful protocol framing (JSON-RPC envelopes, message lifecycle, thread ids) is deferred.

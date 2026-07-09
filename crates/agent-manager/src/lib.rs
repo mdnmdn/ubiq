@@ -24,9 +24,15 @@
 //! - [`mcp`]       — in-process MCP for lib mode: the embedder-facing
 //!   `McpService` trait is core; the loopback HTTP server that hosts it
 //!   (`mcp::server`) is gated behind the `inproc-mcp` feature.
+//! - [`isolate`]   — wraps a provisioned [`harness::Launch`] in an isol8
+//!   sandbox invocation via a configurable command template. Core (no
+//!   feature gate) — a pure transform over `Launch`.
 //! - [`run`]       — spawns + supervises the harness child through a PTY:
 //!   tty forwarding, `SIGWINCH` resize, exit-code propagation, ephemeral-dir
 //!   cleanup. (`pty` feature)
+//! - [`session`]   — session history: metadata + transcript for each
+//!   `am`-launched run, recorded under `am`'s own state dir. Core (no
+//!   feature gate).
 //! - [`tui`]       — the ratatui-based interactive front end.
 //! - [`cli`]       — the clap-based command-line front end.
 //!
@@ -42,12 +48,14 @@ pub mod cli;
 pub mod config;
 pub mod harness;
 pub mod io;
+pub mod isolate;
 pub mod mcp;
 pub mod provision;
 pub mod registry;
 pub mod resolve;
 #[cfg(feature = "pty")]
 pub mod run;
+pub mod session;
 pub mod settings;
 pub mod spec;
 #[cfg(feature = "tui")]

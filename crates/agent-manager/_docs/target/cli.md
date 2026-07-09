@@ -12,7 +12,7 @@ and otherwise treats the first positional as a **harness name** to wrap:
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
 am account   <ls|use|import> …                  # manage accounts
-am session   <ls|show|resume> …                 # manage session history  (P3)
+am session   <ls|show|resume> …                 # manage session history  (ls/show/resume landed)
 am help | am --version
 ```
 
@@ -42,10 +42,14 @@ am opencode --config ./run.toml
 | `--keep-config`          | Don't delete the ephemeral config dir on exit (debugging).          |
 | `--print-config`         | Provision only; print the generated dir + argv + env; don't launch. |
 | `--account <id>`         | Account/credential profile to use.                                  |
+| `--hooks a,b`            | Enable named hooks (defined in the settings file) for this run.     |
 | `--instructions <path>`  | Seed always-on instructions into the harness config.                |
 | `--prompt <text>`        | Seed an initial prompt for the first harness message.               |
 | `--io <mode>`            | I/O mode: `passthrough` (default) or `structured` (alias `jsonl`).  |
-| `--isolate[=profile]`    | Run inside an isol8 sandbox.                             (P3)       |
+| `--output <mode>`        | `--io structured` event projection: `events` (default), `acp`, or `agui` (alias `ag-ui`). |
+| `--isolate[=profile]`    | Run inside an isol8 sandbox.                                        |
+| `--resume <id>`          | Resume a prior run by its *harness-native* session id (see below).  |
+| `--mcp-as-skill a,b`     | Expose these already-injected catalog mcp ids as a latent skill pointer for this run (see [`mcp-as-skill.md`](./mcp-as-skill.md)). |
 | `-- <harness-args…>`     | Everything after `--` is forwarded verbatim to the harness binary.  |
 
 *(1)* `--safe` is a named **preset** resolved from the settings file / built-in
@@ -150,6 +154,37 @@ An account holds credential **references**, never secret material: environment v
 private `home` directory. When injected with `--account <id>`, the account's references are
 resolved into the harness's native auth slots. Full account schema in [`overview.md`](./overview.md).
 
+## Session commands
+
+```bash
+am session ls                 # list recorded sessions, newest first
+am session show <id>          # show one session's metadata + transcript summary
+am session resume <id>        # resume a prior am-recorded session
+```
+
+Every real run (passthrough or structured) is recorded under `am`'s own state
+dir; `am session resume <id>` re-launches a *recorded* `am` session by
+resuming the harness's own conversation, using the session's retained config
+dir plus the harness's native resume flag:
+
+- **Claude Code:** `--resume <session-id>` (both passthrough and headless).
+- **opencode:** `--session <id>` on the structured `opencode run` form only —
+  interactive opencode has no CLI resume flag.
+- **codex:** not yet — codex has no CLI resume flag at all; resuming a codex
+  session is an app-server `thread/resume` JSON-RPC call, deferred to a later
+  (bridge) step.
+
+Resume only works for sessions that captured a harness-native session id
+(structured runs) and whose config dir is still on disk (recorded sessions
+now retain their config dir rather than deleting it — see "Exit codes &
+passthrough fidelity" below). Per-run mcps/skills/hooks/account from the
+original run are **not** re-applied on resume — only the conversation itself,
+via the retained config dir.
+
+There's also a direct, from-scratch form: `am <harness> --resume <id>` takes
+a raw harness-native session id (no `am` session history lookup) and injects
+the same native resume flag.
+
 ## I/O modes
 
 The default is **passthrough**: `am` forwards the harness's terminal I/O directly,
@@ -168,3 +203,12 @@ In passthrough mode `am` is meant to be invisible: it forwards the tty, forwards
 signals, and **exits with the harness's own exit code**. A wrapper that swallows
 Ctrl-C or rewrites the exit status would break scripts, so faithful passthrough
 is a Phase-1 acceptance criterion (see [io-modes.md](./io-modes.md)).
+
+### Config-dir retention for recorded sessions
+
+Ephemeral config dirs are normally deleted after the run unless `--keep-config`
+is given. When a session is actually being recorded (i.e. a sessions root is
+configured and recording started successfully), the config dir is retained
+regardless of `--keep-config` — `am session resume` needs it still on disk to
+point the harness back at. Runs with no active recorder are unaffected and
+keep the original ephemeral-cleanup behavior.

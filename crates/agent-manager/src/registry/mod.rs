@@ -34,6 +34,27 @@ pub struct SkillMeta {
     pub description: Option<String>,
 }
 
+/// How a catalog MCP is exposed to the harness.
+///
+/// `Tools` (the default) is today's behavior: the MCP is injected as a
+/// normal, always-on tool set. `Skill` marks intent to *also* generate a
+/// latent `SKILL.md` pointer for the MCP (see `_docs/target/mcp-as-skill.md`)
+/// — as of this pass that is a stepping stone only: the MCP still stays
+/// injected as normal (the SKILL.md is a documented pointer, not a context
+/// savings mechanism yet).
+///
+/// `#[serde(rename_all = "snake_case")]` so this round-trips as `"tools"` /
+/// `"skill"` in `catalog.toml`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpExpose {
+    /// Injected as a normal, always-on MCP tool set (today's behavior).
+    #[default]
+    Tools,
+    /// Also generate a latent `SKILL.md` pointer for this MCP.
+    Skill,
+}
+
 /// A resolved MCP server in the catalog.
 #[derive(Debug, Clone)]
 pub struct McpEntry {
@@ -41,6 +62,12 @@ pub struct McpEntry {
     pub id: String,
     /// MCP server definition.
     pub def: McpServer,
+    /// How this MCP is exposed to the harness (`tools` default, or `skill`).
+    pub expose: McpExpose,
+    /// One-line summary seeding the generated skill's `description:`, when
+    /// `expose = "skill"`. `mcp/*.json`-sourced entries never carry one
+    /// (only `catalog.toml` `[[mcp]]` entries can set it).
+    pub summary: Option<String>,
 }
 
 /// A source of injectable skills and MCP servers, resolved by id.

@@ -9,7 +9,9 @@
 
 use std::path::Path;
 
-use crate::spec::{HarnessId, RunSpec};
+use anyhow::Context;
+
+use crate::spec::{HarnessId, McpAsSkill, RunSpec};
 use crate::Result;
 
 mod claude;
@@ -37,6 +39,54 @@ pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
             }
             std::fs::copy(entry.path(), &target)?;
         }
+    }
+    Ok(())
+}
+
+/// Render the `SKILL.md` body for one [`McpAsSkill`] pointer.
+///
+/// Shared by every provisioner so the generated content is byte-identical
+/// across harnesses (each provisioner just picks its own skills dir to write
+/// it into via [`write_mcp_as_skill_pointers`]).
+///
+/// **Honest about scope** (see `_docs/target/mcp-as-skill.md`): this is the
+/// schema + pointer stepping stone only. The MCP named by `entry.id` stays
+/// injected as a normal, always-on tool set — generating this file does
+/// **not** yet save any context. The body says so explicitly rather than
+/// implying a context-saving mechanism that isn't built yet. The "expand on
+/// demand" mechanism (deferred-load / proxy-tool) that would actually defer
+/// the MCP's context cost is explicitly deferred to a later step.
+pub(crate) fn mcp_as_skill_markdown(entry: &McpAsSkill) -> String {
+    let description = entry
+        .summary
+        .clone()
+        .unwrap_or_else(|| format!("Access the {} MCP server's tools.", entry.id));
+    format!(
+        "---\nname: {id}\ndescription: {description}\n---\n\n\
+The `{id}` MCP server's tools are available for this run — use them when \
+relevant to the task.\n\n\
+Note: this MCP is currently loaded as normal, always-on tools (not deferred \
+on demand); this skill is a documented pointer to it, not a context-saving \
+mechanism yet.\n",
+        id = entry.id,
+        description = description,
+    )
+}
+
+/// Write one `SKILL.md` pointer per `spec.mcp_as_skill` entry into
+/// `<skills_dir>/<id>/SKILL.md`.
+///
+/// No-op when `spec.mcp_as_skill` is empty (the common case today) — runs
+/// that don't use `--mcp-as-skill` / a catalog `expose = "skill"` entry
+/// produce byte-identical config to before this existed, since `skills_dir`
+/// itself is never touched.
+pub(crate) fn write_mcp_as_skill_pointers(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
+    for entry in &spec.mcp_as_skill {
+        let dir = skills_dir.join(&entry.id);
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        let skill_md_path = dir.join("SKILL.md");
+        std::fs::write(&skill_md_path, mcp_as_skill_markdown(entry))
+            .with_context(|| format!("writing {}", skill_md_path.display()))?;
     }
     Ok(())
 }

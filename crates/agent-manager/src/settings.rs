@@ -15,6 +15,19 @@ use serde::Deserialize;
 
 use crate::spec::Policy;
 
+/// One entry in the hook catalog (`[hooks.<id>]`): a native lifecycle event,
+/// the shell command to run, and an optional tool-name matcher.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct HookDef {
+    /// Native lifecycle event name (harness-native for now).
+    pub event: String,
+    /// Shell command to run for the hook.
+    pub command: String,
+    /// Optional tool-name matcher (Claude tool events); `None` = no matcher.
+    #[serde(default)]
+    pub matcher: Option<String>,
+}
+
 /// Candidate settings file basenames, in the order they are tried within a
 /// single directory. The first one that exists wins.
 const CANDIDATE_BASENAMES: &[&str] = &[
@@ -47,6 +60,12 @@ pub struct Settings {
     /// Named presets (`[presets.safe]`) that flags like `--safe` expand to.
     #[serde(default)]
     pub presets: BTreeMap<String, Policy>,
+    /// Hook catalog (`[hooks.<id>]`), keyed by hook id. Mirrors `presets`.
+    #[serde(default)]
+    pub hooks: BTreeMap<String, HookDef>,
+    /// isol8 sandbox settings (`[isolate]`).
+    #[serde(default)]
+    pub isolate: IsolateSettings,
 }
 
 /// One layer of defaults (either `[defaults]` or a `[harness.<id>]` table).
@@ -68,6 +87,19 @@ pub struct HarnessDefaults {
     /// Account/credential profile id.
     #[serde(default)]
     pub account: Option<String>,
+    /// Catalog hook ids to select. Same None-vs-empty distinction.
+    #[serde(default)]
+    pub hooks: Option<Vec<String>>,
+}
+
+/// The `[isolate]` settings table: overrides how `--isolate` wraps the
+/// launch command in an isol8 invocation.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct IsolateSettings {
+    /// Custom command template (see [`crate::isolate::IsolateTemplate`]).
+    /// `None` means "use the built-in default template".
+    #[serde(default)]
+    pub command: Option<String>,
 }
 
 /// Load a settings file from an explicit path.
@@ -220,6 +252,58 @@ deny = ["Bash(rm *)", "WebFetch"]
         assert_eq!(
             safe.deny,
             vec!["Bash(rm *)".to_string(), "WebFetch".to_string()]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_toml_hooks_catalog_and_selection() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let path = temp.path().join("am.toml");
+        fs::write(
+            &path,
+            r#"
+[hooks.notify]
+event = "PreToolUse"
+command = "notify-send hi"
+matcher = "Bash"
+
+[defaults]
+hooks = ["notify"]
+"#,
+        )?;
+
+        let settings = load(&path)?;
+        let notify = settings.hooks.get("notify").expect("hooks.notify");
+        assert_eq!(notify.event, "PreToolUse");
+        assert_eq!(notify.command, "notify-send hi");
+        assert_eq!(notify.matcher.as_deref(), Some("Bash"));
+
+        assert_eq!(
+            settings.defaults.hooks,
+            Some(vec!["notify".to_string()])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_toml_isolate_command() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let path = temp.path().join("am.toml");
+        fs::write(
+            &path,
+            r#"
+[isolate]
+command = "isol8 run {profile_opt} -- {cmd}"
+"#,
+        )?;
+
+        let settings = load(&path)?;
+        assert_eq!(
+            settings.isolate.command.as_deref(),
+            Some("isol8 run {profile_opt} -- {cmd}")
         );
 
         Ok(())

@@ -1,8 +1,8 @@
 # Roadmap
 
 The target design lands in phases. Each phase is independently useful and is
-implemented across multiple sessions. **Phase 1 and Phase 2 are complete.**
-Next: Phase 3 adds isolation (isol8), session history, output adapters (ACP/AG-UI), and hooks.
+implemented across multiple sessions. **Phase 1, Phase 2, and Phase 3 are complete.**
+Next: OAuth MCP, web mode, and ACP server (see "Beyond").
 
 ## Phase 1 — CLI wrapper with catalog injection ✅ (shipped)
 
@@ -48,19 +48,24 @@ programmatically (lib mode). **Done.**
 in-process MCP + initial prompt), run it with JSONL or JSON-RPC or NDJSON input, and read back
 normalized events. All three harnesses wrap and launch end-to-end.
 
-## Phase 3 — isolation, sessions, output protocols, hooks
+## Phase 3 — isolation, sessions, output protocols, hooks ✅ (shipped)
 
-**Goal:** production-grade runs and outward-facing event streams.
+**Goal:** production-grade runs and outward-facing event streams. **Done.**
 
-- **Isolation:** `--isolate` runs the harness inside
-  [isol8](https://github.com/mdnmdn/isol8) (filesystem/network confinement).
+- **Isolation:** `--isolate[=profile]` wraps the harness launch in an
+  [isol8](https://github.com/mdnmdn/isol8) sandbox (filesystem/network confinement). Configurable
+  via settings `[isolate] command` template (default `isol8 run {profile_opt} -- {cmd}`).
 - **Session history:** `am session ls|show|resume`; persist transcripts +
-  metadata; resume a prior run (`--resume`).
-- **Output protocols:** ACP-events and AG-UI-events output adapters over the
-  neutral event model.
-- **Hooks:** wire lifecycle hooks into each harness's native hook slots.
-- **MCP-as-skill:** implement the deferred-load / proxy-tool mechanism
-  (see [`mcp-as-skill.md`](./mcp-as-skill.md)).
+  metadata under `am`'s own state dir; resume a prior run via `am session resume <id>` or
+  direct `--resume <harness-session-id>` (Claude + opencode; codex deferred to app-server).
+- **Output protocols:** `--output <events|acp|agui>` on structured runs; stateless best-effort
+  mappers (`crate::io::{to_acp, to_agui}`) over the neutral event model, covering core event types
+  (AssistantText, Thinking, ToolCall, ToolResult, SessionStarted, Result).
+- **Hooks:** per-run hook selection (`--hooks a,b` / settings `[defaults].hooks`); wired into
+  harness-native hook slots (Claude `settings.json`, Codex `hooks.json`; opencode no-op).
+- **MCP-as-skill:** schema + stepping stone only — `[[mcp]] expose = "tools" | "skill"` and `summary`
+  in catalog; `--mcp-as-skill a,b` CLI flag; provisioner generates `SKILL.md` pointers (the deferred-load /
+  proxy-tool expand-on-demand mechanism is deferred to a later step).
 
 ## Beyond — mentioned, not committed
 
@@ -85,9 +90,9 @@ Cross-reference with the responsibilities table in
 | Initial instructions / prompt      | P2 ✅ |
 | Agent trait (JSONL / JSON-RPC / NDJSON input) | P2 ✅ |
 | Custom in-process MCP (lib mode)   | P2 ✅ |
-| Isolated environment (isol8)       | P3    |
-| Session history                    | P3    |
-| Hooks                              | P3    |
-| Output protocols (ACP / AG-UI)     | P3    |
-| MCP-as-skill                       | P3    |
+| Isolated environment (isol8)       | P3 ✅ |
+| Session history + resume           | P3 ✅ |
+| Hooks (wired into harness slots)   | P3 ✅ |
+| Output protocols (ACP / AG-UI)     | P3 ✅ |
+| MCP-as-skill (schema + stepping stone) | P3 ✅ |
 | OAuth MCP / web mode / ACP server  | future|
