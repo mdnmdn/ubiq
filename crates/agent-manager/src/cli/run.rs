@@ -27,6 +27,15 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
 
     let run_args = RunArgs::try_parse_from(std::iter::once("am-run".to_string()).chain(before))?;
 
+    // `--list-models`: discover and print, then exit. Needs neither a resolved
+    // RunSpec nor a provisioned dir — it only asks the harness what models it
+    // can run (which may consult the ambient login / network).
+    if run_args.list_models {
+        let models = harness.discover_models()?;
+        print_models(harness, &models);
+        return Ok(());
+    }
+
     let cwd = std::env::current_dir()?;
 
     let settings = load_settings(&run_args, &cwd)?;
@@ -51,6 +60,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         skills: run_args.skills.clone(),
         mcp_json: run_args.mcp_json.clone(),
         account: run_args.account.clone(),
+        model: run_args.model.clone(),
         hooks: run_args.hooks.clone(),
         safe: run_args.safe,
         instructions,
@@ -286,6 +296,25 @@ fn find_project_catalog(cwd: &Path) -> Option<PathBuf> {
         current = dir.parent().map(|p| p.to_path_buf());
     }
     None
+}
+
+/// Print the models discovered for `--list-models`: one per line, the id
+/// first (with a trailing `(default)` marker on the harness default) then an
+/// optional description. Prints a friendly line rather than nothing when the
+/// harness reports an empty set.
+fn print_models(harness: &dyn Harness, models: &[crate::harness::ModelInfo]) {
+    if models.is_empty() {
+        println!("no models reported for '{}'", harness.id());
+        return;
+    }
+    let width = models.iter().map(|m| m.id.len()).max().unwrap_or(0);
+    for m in models {
+        let marker = if m.default { "  (default)" } else { "" };
+        match &m.description {
+            Some(desc) => println!("{:width$}{marker}  {desc}", m.id, width = width),
+            None => println!("{:width$}{marker}", m.id, width = width),
+        }
+    }
 }
 
 /// Print the provisioned config dir, launch argv, and env — the

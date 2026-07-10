@@ -56,6 +56,31 @@ impl Harness for Opencode {
         }
     }
 
+    /// opencode lists the models available to the configured providers via
+    /// `opencode models`, one `provider/model-id` per line. We shell out to it
+    /// (it uses the ambient login/config) and take each non-empty line as an id.
+    fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
+        let output = std::process::Command::new("opencode")
+            .arg("models")
+            .output()
+            .with_context(|| "running `opencode models` (is the opencode binary on PATH?)")?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "`opencode models` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let out: Vec<super::ModelInfo> = stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(super::ModelInfo::new)
+            .collect();
+        Ok(out)
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // Ensure the target directory exists.
         std::fs::create_dir_all(dir)
@@ -116,6 +141,12 @@ impl Harness for Opencode {
                     "json".to_string(),
                     "--dangerously-skip-permissions".to_string(),
                 ];
+                // Model selection: `--model <provider/model-id>`. Only added
+                // when set, so runs without `--model` keep byte-identical argv.
+                if let Some(model) = &spec.model {
+                    structured_args.push("--model".to_string());
+                    structured_args.push(model.clone());
+                }
                 // Resume: `--session <id>` is only meaningful for the
                 // structured `opencode run` form; only added when a resume
                 // id is set, so resumeless runs keep byte-identical argv.
@@ -134,6 +165,11 @@ impl Harness for Opencode {
                 // behavior). No CLI resume flag exists for interactive
                 // opencode, so `spec.resume` is intentionally ignored here.
                 let mut passthrough_args = spec.passthrough_args.clone();
+                // Model selection: `--model <provider/model-id>`.
+                if let Some(model) = &spec.model {
+                    passthrough_args.push("--model".to_string());
+                    passthrough_args.push(model.clone());
+                }
                 if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
                     passthrough_args.push(prompt.clone());
                 }

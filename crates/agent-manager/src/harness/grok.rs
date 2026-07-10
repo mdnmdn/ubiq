@@ -73,6 +73,49 @@ impl Harness for Grok {
         }
     }
 
+    /// Grok has no `models` CLI command; it caches the models its login can
+    /// use in `~/.grok/models_cache.json` (refreshed from the xAI API on an
+    /// authenticated run). Read that cache — the `models` object is keyed by
+    /// model id, each entry carrying an `info.description`/`info.name`.
+    fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
+        let home = directories::BaseDirs::new()
+            .map(|b| b.home_dir().to_path_buf())
+            .ok_or_else(|| anyhow::anyhow!("could not determine the home directory"))?;
+        let cache = home.join(".grok").join("models_cache.json");
+        if !cache.exists() {
+            anyhow::bail!(
+                "no Grok model cache at {} — run `grok` once (authenticated) to populate it",
+                cache.display()
+            );
+        }
+        let content = std::fs::read_to_string(&cache)
+            .with_context(|| format!("reading {}", cache.display()))?;
+        let parsed: serde_json::Value = serde_json::from_str(&content)
+            .with_context(|| format!("parsing {}", cache.display()))?;
+        let models = parsed
+            .get("models")
+            .and_then(|m| m.as_object())
+            .ok_or_else(|| anyhow::anyhow!("no 'models' object in {}", cache.display()))?;
+        let mut out: Vec<super::ModelInfo> = models
+            .iter()
+            .map(|(id, v)| {
+                let info = v.get("info");
+                let desc = info
+                    .and_then(|i| i.get("description"))
+                    .or_else(|| info.and_then(|i| i.get("name")))
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string);
+                super::ModelInfo {
+                    id: id.clone(),
+                    description: desc,
+                    default: false,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(out)
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
 
@@ -131,6 +174,13 @@ impl Harness for Grok {
         // a run must not write to), so `spec.initial.instructions` is folded
         // into the prompt text rather than written to disk.
         let mut args = spec.passthrough_args.clone();
+        // Model selection: `-m <id>` (Grok also honors `GROK_MODEL`). Only
+        // added when a model is set, so runs without `--model` keep
+        // byte-identical argv.
+        if let Some(model) = &spec.model {
+            args.push("-m".to_string());
+            args.push(model.clone());
+        }
         // Resume: `--session <id>` (Grok also accepts `--session latest`).
         // Only added when a resume id is set, so resumeless runs keep
         // byte-identical argv.

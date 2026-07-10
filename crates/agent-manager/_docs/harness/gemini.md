@@ -585,6 +585,54 @@ profiles without restarting the CLI.
 - `--api-key foo` was rejected → no such flag; the CLI only reads
   from env / `.env` / `settings.json`.
 
+### Credential capture & reuse (agent-manager)
+
+> How `am account capture` / `am account login` snapshot and replay this
+> harness's login into an ephemeral run. Records file **structure and non-secret
+> metadata only** — token values are copied opaquely.
+
+> **Disk/source correction (gemini-cli-core 0.9.0):** the live OAuth store is
+> **no longer** plaintext `oauth_creds.json` by default. It is keychain-first
+> (via `keytar`, service `gemini-cli-oauth`) falling back to an **AES-256-GCM
+> encrypted file** `~/.gemini/mcp-oauth-tokens-v2.json`. `keytar` is frequently
+> absent from a global npm install, so the encrypted file is often the effective
+> default. Also: **no `$GEMINI_CLI_HOME` exists** — only `$HOME` relocates
+> `~/.gemini/`. Trust source over the Quick Reference above.
+
+- **Bundle files (the credential snapshot):**
+  - `~/.gemini/mcp-oauth-tokens-v2.json` — current encrypted store (main token
+    keyed `main-account`). **Portable only on the same host + same OS username**
+    (key is re-derived from `<hostname>-<username>`), which is the common
+    same-box, different-config-dir case.
+  - `~/.gemini/oauth_creds.json` — *legacy plaintext*; consumed & **deleted** on
+    next launch as a one-time migration — copy it before relaunching.
+  - `~/.gemini/google_accounts.json` — identity only (`active`/`old` emails).
+  - `~/.gemini/settings.json` — for `security.auth.selectedType` (which method).
+- **Relocation lever:** `HOME` only (relocates all of `~/.gemini/`).
+- **Force file storage (skip keychain):** **`GEMINI_FORCE_FILE_STORAGE=true`** —
+  skips the keychain probe, forces `FileTokenStorage`. Result is the encrypted
+  file (not plaintext), decryptable on the same host/user. Set it *before* the
+  credential is first created. No "force plaintext" switch exists.
+- **Login command (fresh-auth-into-temp):**
+  `HOME=/tmp/x GEMINI_FORCE_FILE_STORAGE=true gemini` (or `gemini /auth`) —
+  browser OAuth. **No device-code/headless OAuth.** For headless, use
+  `GEMINI_API_KEY` (never touches `~/.gemini/`).
+- **Extractable metadata (non-secret):**
+
+  | field | source | identifies |
+  |---|---|---|
+  | `security.auth.selectedType` | `settings.json` | active auth type (`oauth-personal`/`gemini-api-key`/`vertex-ai`/`cloud-shell`) |
+  | `active` | `google_accounts.json` | signed-in email *(identifying — redact)* |
+  | `old[]` | `google_accounts.json` | previously-used emails |
+  | `expiry_date` / `expiresAt` | token file | token expiry (epoch ms) |
+  | `scope` | token file | granted OAuth scopes |
+
+  **Plan tier is NOT on disk** — fetched live from the Code Assist API with the
+  token each session; it can only be inferred by calling the API, not read from a
+  file.
+- **Do not copy:** `tmp/<project_hash>/`, `cli-browser-profile/`, `bin/litert/`,
+  and any `antigravity-cli/*` (a separate tool sharing `~/.gemini/`).
+
 ## Permissions
 
 Gemini CLI has **three** independent layers: approval mode, the Policy
@@ -855,6 +903,24 @@ Skills and Policies/Rules/Memory.)
   `GEMINI_CLI_TRUST_WORKSPACE=true` for CI.
 - Cancellation: terminate the process; the non-interactive path has no
   documented in-band cancel message.
+
+### Model discovery & selection (agent-manager)
+
+> How `am gemini --list-models` would enumerate models and `am gemini --model <id>`
+> selects one. *(Gemini has a runtime contract here but no `Harness` impl yet —
+> these are the facts a future impl transcribes.)*
+
+- **Discover (list models):** no machine-readable list command. Fallback is the
+  curated set of known ids (below) or `gemini --help`. The interactive `/model`
+  picker reflects account entitlements but needs a real tty. Needs
+  network/auth: **no** (static fallback).
+- **Select at launch (passthrough):** `-m <id>` / `--model <id>`, or the
+  `GEMINI_MODEL` env var.
+- **Model id format:** bare id (no provider prefix).
+- **Example ids (verified):** `gemini-2.5-pro`, `gemini-2.5-flash`,
+  `gemini-2.0-flash`.
+- **Default model:** `gemini-2.5-pro` unless overridden by `--model` /
+  `GEMINI_MODEL` / a settings `model` key.
 
 ## Format quirks / gotchas
 

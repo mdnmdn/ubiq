@@ -373,6 +373,51 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
 - `apiKeyHelper` returns the same stale value → process is cached;
   restart Claude Code.
 
+### Credential capture & reuse (agent-manager)
+
+> How `am account capture` / `am account login` snapshot and replay this
+> harness's subscription login into an ephemeral run. This records file
+> **structure and non-secret metadata only** — token values are copied opaquely,
+> never parsed into `am`'s account store.
+
+- **Bundle files (the credential snapshot):**
+  - `~/.claude/.credentials.json` — **required**; the OAuth token blob (single
+    top-level key `claudeAiOauth`). *(Doc historically calls this
+    `credentials.json`; the real file name has a leading dot — trust disk.)*
+  - `~/.claude.json` — *optional*; carries the `oauthAccount` identity block
+    (email/org/plan) and `userID`. Capture it for metadata; the harness re-fetches
+    most of it from the API on next launch.
+- **Relocation lever:** `HOME` moves the whole tree (`~/.claude/` +
+  `~/.claude.json`) — this is the reliable isolation lever `am` uses.
+  `CLAUDE_CONFIG_DIR` relocates `.claude/` (and therefore `.credentials.json`)
+  but **not** `~/.claude.json`, so it is insufficient alone for a full snapshot.
+- **Force file storage (skip keychain):** no documented config knob (unlike
+  Codex). Claude Code falls back to the plaintext `.credentials.json` when the OS
+  keychain is unreachable — running `login` inside the isol8/iter8 sandbox (no
+  Keychain access) reliably forces the file. Verify post-login that
+  `$HOME/.claude/.credentials.json` exists.
+- **Default backend / observed:** macOS Keychain service `Claude Code-credentials`
+  per doc; **observed file-based on this machine** (no Keychain entry) — trust disk.
+- **Login command (fresh-auth-into-temp):** `HOME=/tmp/x claude auth login`
+  (browser OAuth). No device-code flow is documented; for CI prefer an
+  `ANTHROPIC_API_KEY` reference account over an OAuth snapshot.
+- **Extractable metadata (non-secret):**
+
+  | field | source | identifies |
+  |---|---|---|
+  | `subscriptionType` | `.credentials.json → claudeAiOauth.subscriptionType` | plan tier (e.g. `pro`) |
+  | `rateLimitTier` | `.credentials.json → claudeAiOauth.rateLimitTier` | rate-limit bucket |
+  | `scopes` | `.credentials.json → claudeAiOauth.scopes` | OAuth scopes → auth type = subscription OAuth |
+  | `expiresAt` / `refreshTokenExpiresAt` | `.credentials.json → claudeAiOauth.*` | token expiry (epoch ms) |
+  | `emailAddress` | `~/.claude.json → oauthAccount.emailAddress` | account email *(identifying — store hashed/redacted)* |
+  | `organizationName` / `organizationType` | `~/.claude.json → oauthAccount.*` | org name / plan class (e.g. `claude_pro`) |
+  | `billingType` | `~/.claude.json → oauthAccount.billingType` | billing (e.g. `stripe_subscription`) |
+
+- **Do not copy:** `projects/`, `history.jsonl`, `sessions/`, `session-env/`,
+  `shell-snapshots/`, `tasks/`, `telemetry/`, `cache/`, `backups/`,
+  `file-history/` — session/telemetry/machine-bound state. `~/.claude.json`'s
+  `machineID` is machine-bound; let the harness regenerate it.
+
 ## Permissions
 
 ### Location
@@ -525,6 +570,17 @@ With `--permission-mode bypassPermissions`, Claude Code still emits a `control_r
 - Framing: prompt in on stdin (NDJSON), events out on stdout (NDJSON), diagnostics on stderr.
 - Cancellation: close stdin, then close the stdout reader to unblock the scanner; allow ~10s for the process to drain before killing.
 - Minimum version: the stream-JSON input/output contract is stable from **Claude Code ≥ 2.0.0**.
+
+### Model discovery & selection (agent-manager)
+
+> How `am claude-code --list-models` enumerates models and `am claude-code --model <id>`
+> selects one. Facts verified against the installed binary (v2.1.206) on 2026-07-10.
+
+- **Discover (list models):** No dedicated list/JSON command exists. Best sources, both text-only: (1) `claude --help` — the `--model` flag's description enumerates live alias examples (`fable`, `opus`, `sonnet`) and one full-id example (`claude-fable-5`); (2) the interactive-only `/model` picker inside a live TUI session, which prints the complete current set with one-line descriptions and marks the account's current default. `/model` is not scriptable/headless — it requires a real TTY and human keypresses. Needs network/auth: `--help` text is static (bundled, no network); the `/model` picker reflects the logged-in account's plan/entitlements (it showed a promotional-access banner for one model), so treat it as auth-aware. Output: plain text in both cases, no JSON.
+- **Select at launch (passthrough):** `--model <id>` on the normal interactive `claude` launch — verified to accept both a short alias (`sonnet`, `opus`, `fable`, `haiku`) and a full id (`claude-opus-4-8`, `claude-fable-5`). `am` should inject this flag directly. If omitted, Claude Code falls back to the `model` key in `~/.claude/settings.json` (persisted by the `/model` picker's "set as default" action), else its own built-in default.
+- **Model id format:** two interchangeable forms — a short alias (`default`, `sonnet`, `opus`, `fable`, `haiku`) or a full id `claude-<family>-<version>[-<date>]`. Aliases resolve server-side to whichever concrete id is "latest" for that family/account.
+- **Example ids (verified):** `sonnet` → `claude-sonnet-5`; `opus` → `claude-opus-4-8`; `fable` → `claude-fable-5`; every run's `modelUsage` also showed `claude-haiku-4-5-20251001` used internally as a background helper regardless of the selected `--model`.
+- **Default model:** the `model` key in `~/.claude/settings.json` if present (verified on this machine: `"model": "opus"`, and an unset `--model` run indeed resolved to `claude-opus-4-8`); otherwise Claude Code's own default, shown by the `/model` picker as "Default (recommended) → Sonnet 5". `--model` on the CLI overrides both for that single invocation.
 
 ## Format quirks / gotchas
 

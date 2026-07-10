@@ -43,6 +43,9 @@ pub struct RunFlags {
     pub mcp_json: Option<PathBuf>,
     /// `--account <id>`, if given.
     pub account: Option<String>,
+    /// `--model <id>`, if given: harness-native model id to launch with.
+    /// Passed straight through to `spec.model` (no catalog lookup).
+    pub model: Option<String>,
     /// `--hooks a,b`, if given: catalog hook ids to enable for this run.
     pub hooks: Option<Vec<String>>,
     /// `--safe`: expand the `[presets.safe]` policy.
@@ -315,6 +318,7 @@ pub fn resolve(
     spec.hooks = hooks;
     spec.account = account;
     spec.policy = policy;
+    spec.model = flags.model.clone();
     spec.passthrough_args = flags.passthrough_args.clone();
 
     // --- instructions & prompt ---

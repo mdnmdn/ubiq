@@ -73,6 +73,31 @@ explaining why (e.g. Gemini CLI has no per-agent memory above `AGENTS.md`).
     one is active. Group by auth method (each its own H3) when
     there are more than one; put the precedence order and
     troubleshooting at the end of the section.
+
+    This section **must end** with a mandatory H3 subsection
+    `### Credential capture & reuse (agent-manager)` documenting how
+    `am account capture` (snapshot the live login) and `am account login`
+    (authenticate into a throwaway config dir, then snapshot) reproduce this
+    harness's subscription/login in an ephemeral run. It is `am`-specific
+    (like §15 Renderer notes) and records **structure and non-secret metadata
+    only — never token values**. Cover, as a bullet list, in this order:
+    - **Bundle files** — the minimal set of credential files to snapshot to
+      reproduce the login (mark each required / optional).
+    - **Relocation lever** — the env var that moves the whole credential tree
+      to a throwaway dir (`CODEX_HOME`, `XDG_DATA_HOME`, `HOME`, …).
+    - **Force file storage (skip keychain)** — the config key / env var that
+      forces a file backend instead of the OS keychain (critical under the
+      isol8/iter8 sandbox where the keychain is unavailable), or "always file",
+      or "none" with the fallback behavior spelled out.
+    - **Default backend / observed** — the documented per-OS default and what
+      the live disk on a real machine actually does (trust disk; note conflicts).
+    - **Login command (fresh-auth-into-temp)** — the exact command(s) to
+      authenticate into the relocated dir, plus any headless/device-code path.
+    - **Extractable metadata (non-secret)** — a compact table of
+      `field | source | identifies` for user id / email / plan-tier / auth type
+      / token expiry, with all secret values redacted.
+    - **Do not copy** — session/telemetry/machine-bound files that must be
+      excluded from the snapshot.
 11. **Permissions** — locations, rule syntax, the actions or decisions
     the harness supports (`allow` / `deny` / `ask`, or whatever the
     harness calls them), evaluation order, and any sandbox or approval
@@ -112,6 +137,21 @@ explaining why (e.g. Gemini CLI has no per-agent memory above `AGENTS.md`).
 
     A harness with no documented non-interactive contract gets an
     explicit "Not supported" note instead of this section.
+
+    This section **must end** with a mandatory H3 subsection
+    `### Model discovery & selection (agent-manager)` documenting how
+    `am <harness> --list-models` enumerates the models the harness can run and
+    how `am <harness> --model <id>` selects one. It is `am`-specific (like §15
+    Renderer notes). Cover, as a bullet list, in this order:
+    - **Discover (list models)** — the exact command (`codex debug models
+      --bundled`, `opencode models`, …), cached file, or static fallback when
+      the harness has no list command; whether it needs network/auth; and the
+      output shape (JSON fields / plain text).
+    - **Select at launch (passthrough)** — the exact CLI flag / config key /
+      env var `am` injects into a passthrough (interactive-tty) run.
+    - **Model id format** — the id shape (bare alias, `provider/model-id`, …).
+    - **Example ids (verified)** — a few real ids the binary accepts.
+    - **Default model** — how the harness picks a model when none is selected.
 14. **Format quirks / gotchas** — bullet list of non-obvious behaviours
     an external sync tool must respect. Every entry should be
     actionable: "do X, not Y" or "X is true, not Y".
