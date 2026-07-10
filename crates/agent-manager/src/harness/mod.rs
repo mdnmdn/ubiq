@@ -16,9 +16,11 @@ use crate::Result;
 
 mod claude;
 mod codex;
+mod grok;
 mod opencode;
 pub use claude::Claude;
 pub use codex::Codex;
+pub use grok::Grok;
 pub use opencode::Opencode;
 
 /// Recursively copy `src` into `dst`, creating directories as needed.
@@ -152,6 +154,7 @@ pub fn all() -> Vec<Box<dyn Harness>> {
     vec![
         Box::new(Claude::new()),
         Box::new(Codex::new()),
+        Box::new(Grok::new()),
         Box::new(Opencode::new()),
     ]
 }
@@ -187,15 +190,32 @@ mod tests {
     }
 
     #[test]
-    fn all_harnesses_support_structured_io() {
-        // All three harnesses (Claude Code, Codex, opencode) have landed
-        // their structured bridges and report structured support.
+    fn every_harness_supports_passthrough() {
+        // Passthrough (raw-tty pump) is the universal baseline every wrapped
+        // harness must support.
         for h in all() {
-            let support = h.io_support();
-            assert!(support.passthrough, "{} should support passthrough", h.id());
             assert!(
-                support.structured,
-                "{} should report structured support",
+                h.io_support().passthrough,
+                "{} should support passthrough",
+                h.id()
+            );
+        }
+    }
+
+    #[test]
+    fn structured_io_support_matches_landed_bridges() {
+        // Claude Code, Codex, and opencode have landed their structured
+        // bridges; Grok is passthrough-only for now (its `--format json`
+        // event field shapes aren't documented enough to build a faithful
+        // bridge yet — see `_docs/harness/grok.md`). This test pins that
+        // split so adding a bridge (or a new passthrough-only harness) is a
+        // deliberate, visible change.
+        for h in all() {
+            let expected_structured = matches!(h.id().as_str(), "claude-code" | "codex" | "opencode");
+            assert_eq!(
+                h.io_support().structured,
+                expected_structured,
+                "{} structured support mismatch",
                 h.id()
             );
         }

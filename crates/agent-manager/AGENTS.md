@@ -7,7 +7,7 @@
 > `codex`, `opencode`, …) end-to-end with advanced lifecycle support: `am claude --mcps postgres --skills web-designer`,
 > `am codex --prompt "…" --hooks validator`, `am session ls|resume`, structured output
 > (events/ACP/AG-UI), session history with resume, isolation (isol8), and hooks for lifecycle automation.
-> Passthrough PTY (all harnesses) and structured I/O bridges (all three) are fully implemented. In-process MCP
+> Passthrough PTY (all harnesses) and structured I/O bridges (Claude Code, Codex, opencode) are fully implemented. In-process MCP
 > (lib mode) lets embedders inject custom MCPs the harness can call.
 >
 > **Phase 1 shipped** (Claude Code end-to-end: passthrough PTY, catalog injection, skills/MCPs/roles).
@@ -89,6 +89,7 @@ agent-manager/
 │   │   ├── codex.md
 │   │   ├── copilot.md
 │   │   ├── gemini.md
+│   │   ├── grok.md
 │   │   └── opencode.md
 │   └── reference/         # external-system reads (cite refs/ submodules)
 │       └── multica.md
@@ -110,6 +111,7 @@ agent-manager/
     │   ├── mod.rs         #   Harness trait, Launch, IoSupport, resolve()/all()
     │   ├── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
     │   ├── codex.rs       #   Codex provisioner (P2, Harness impl)
+    │   ├── grok.rs        #   Grok CLI provisioner (ephemeral-HOME bridge, passthrough-only)
     │   └── opencode.rs    #   opencode provisioner (P2, Harness impl)
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
     ├── run.rs             # PTY spawn/supervise + exit-code + cleanup (feature: pty)
@@ -172,10 +174,11 @@ the `Harness` trait, and the module layout — is in
 | `codex`       | Codex             | **wrapped** (P2, `Harness` impl) |
 | `copilot`     | GitHub Copilot    | documented (`Harness` impl TBD) |
 | `gemini`      | Gemini CLI        | documented (`Harness` impl TBD) |
+| `grok`        | Grok CLI          | **wrapped** (passthrough; structured TBD) |
 | `opencode`    | opencode          | **wrapped** (P2, `Harness` impl) |
 
-`claude-code`, `codex`, and `opencode` each have `Harness` implementations
-(`src/harness/{claude,codex,opencode}.rs`); the others have a runtime contract in
+`claude-code`, `codex`, `grok`, and `opencode` each have `Harness` implementations
+(`src/harness/{claude,codex,grok,opencode}.rs`); the others have a runtime contract in
 `_docs/harness/` and become wrappable by transcribing that doc into a new
 `Harness` impl — no core change.
 
@@ -218,6 +221,7 @@ cargo run -- claude --prompt "summarize the repo" --io structured  # structured 
 cargo run -- claude --account work --instructions ./system.md    # account + instructions
 cargo run -- codex --skills reviewer --io structured            # codex with structured I/O
 cargo run -- opencode --account personal --io structured        # opencode with account
+cargo run -- grok --mcps postgres --skills reviewer             # Grok CLI (passthrough; ephemeral $HOME)
 cargo run -- claude -- --version            # everything after `--` goes to claude
 cargo run -- account ls                     # list available accounts
 cargo run -- account use work               # set default account

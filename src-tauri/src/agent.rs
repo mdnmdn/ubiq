@@ -1,5 +1,5 @@
 use crate::messages::AgentTypeInfo;
-use agent_manager::harness::Harness;
+use agent_manager::harness::{self, Harness};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -29,14 +29,14 @@ pub struct AgentDef {
 
 impl AgentDef {
     /// Build a definition from a portable [`Harness`].
-    fn from_harness(h: &Harness) -> Self {
+    fn from_harness(h: &dyn Harness) -> Self {
         Self {
-            name: h.command.to_string(),
-            command: h.command.to_string(),
-            description: h.display_name.to_string(),
-            default_args: h.default_args.clone(),
-            harness_id: Some(h.id.clone()),
-            config_root: Some(h.config_root.display().to_string()),
+            name: h.command().to_string(),
+            command: h.command().to_string(),
+            description: h.display_name().to_string(),
+            default_args: Vec::new(),
+            harness_id: Some(h.id()),
+            config_root: None,
         }
     }
 }
@@ -67,10 +67,10 @@ pub struct AgentRegistry {
 impl AgentRegistry {
     /// Registry seeded purely from the built-in `agent_manager` harnesses.
     pub fn builtin() -> Self {
-        let agents = Harness::all()
+        let agents = harness::all()
             .iter()
             .map(|h| {
-                let def = AgentDef::from_harness(h);
+                let def = AgentDef::from_harness(h.as_ref());
                 (def.name.clone(), def)
             })
             .collect();
@@ -108,7 +108,7 @@ impl AgentRegistry {
         println!(
             "Loaded {} agent type(s) ({} built-in + overrides from {})",
             registry.agents.len(),
-            Harness::all().len(),
+            harness::all().len(),
             path.display()
         );
 
@@ -118,12 +118,12 @@ impl AgentRegistry {
     /// Merge a raw `agents.toml` entry with portable harness knowledge.
     fn merge(raw: RawAgentDef) -> AgentDef {
         // Resolve harness knowledge by name or command (handles aliases too).
-        let harness = Harness::resolve(&raw.name).or_else(|| Harness::resolve(&raw.command));
+        let harness = harness::resolve(&raw.name).or_else(|| harness::resolve(&raw.command));
 
         let description = if raw.description.is_empty() {
             harness
                 .as_ref()
-                .map(|h| h.display_name.to_string())
+                .map(|h| h.display_name().to_string())
                 .unwrap_or_default()
         } else {
             raw.description
@@ -134,8 +134,8 @@ impl AgentRegistry {
             command: raw.command,
             description,
             default_args: raw.default_args,
-            harness_id: harness.as_ref().map(|h| h.id.clone()),
-            config_root: harness.map(|h| h.config_root.display().to_string()),
+            harness_id: harness.as_ref().map(|h| h.id()),
+            config_root: None,
         }
     }
 
