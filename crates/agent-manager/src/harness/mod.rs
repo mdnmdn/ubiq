@@ -106,6 +106,41 @@ pub struct Launch {
     pub env_remove: Vec<String>,
 }
 
+/// One model a harness can run, as surfaced by `am <harness> --list-models`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelInfo {
+    /// Harness-native model id to pass to `--model` (e.g. `sonnet`,
+    /// `gpt-5-codex`, `anthropic/claude-sonnet-4-5`).
+    pub id: String,
+    /// Optional one-line human note (tier, aliases, context window, …).
+    pub description: Option<String>,
+    /// True if this is the harness's default when no model is selected.
+    pub default: bool,
+}
+
+impl ModelInfo {
+    /// A model entry with just an id (no description, not the default).
+    pub fn new(id: impl Into<String>) -> Self {
+        ModelInfo {
+            id: id.into(),
+            description: None,
+            default: false,
+        }
+    }
+
+    /// Builder: attach a human description.
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Builder: mark this entry as the harness default.
+    pub fn as_default(mut self) -> Self {
+        self.default = true;
+        self
+    }
+}
+
 /// Which I/O modes a harness can support. Only passthrough is used in P1.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IoSupport {
@@ -132,6 +167,21 @@ pub trait Harness {
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch>;
     /// Which I/O modes this harness supports.
     fn io_support(&self) -> IoSupport;
+    /// Discover the models available for this harness, for
+    /// `am <harness> --list-models`.
+    ///
+    /// Implementations either shell out to the harness's own list command
+    /// (e.g. `codex debug models`, `opencode models`) or return a curated
+    /// static list when the harness exposes no discovery command. May consult
+    /// the ambient login/network. Default: an error naming this harness, so a
+    /// harness that hasn't wired discovery yet fails clearly rather than
+    /// silently returning nothing.
+    fn discover_models(&self) -> Result<Vec<ModelInfo>> {
+        anyhow::bail!(
+            "model discovery for harness '{}' is not implemented",
+            self.id()
+        )
+    }
     /// Build a structured-I/O bridge for a provisioned run.
     ///
     /// Default: unsupported (an error naming this harness). Overridden by

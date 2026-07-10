@@ -71,6 +71,23 @@ impl Harness for Claude {
         }
     }
 
+    /// Claude Code exposes no machine-readable model-list command (only the
+    /// interactive `/model` TUI picker and the alias hints in `claude --help`),
+    /// so this is a **curated static list** of the aliases `--model` accepts —
+    /// verified against `claude --help`. A full id (e.g. `claude-opus-4-8`,
+    /// `claude-sonnet-5`) also works. The default when `--model` is omitted is
+    /// the `model` key in `~/.claude/settings.json`, so no entry is marked
+    /// default here. See `_docs/harness/claude-code.md`
+    /// §"Model discovery & selection".
+    fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
+        Ok(vec![
+            super::ModelInfo::new("opus").with_description("most capable"),
+            super::ModelInfo::new("sonnet").with_description("balanced"),
+            super::ModelInfo::new("haiku").with_description("fastest"),
+            super::ModelInfo::new("fable").with_description("Fable family"),
+        ])
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // 1. Skills: copy each skill folder into <dir>/skills/<id>/.
         let skills_dir = dir.join("skills");
@@ -168,6 +185,13 @@ impl Harness for Claude {
         args.push("--mcp-config".to_string());
         args.push(mcp_path.display().to_string());
         args.push("--strict-mcp-config".to_string());
+        // Model selection: `--model <id>` works in both passthrough and
+        // structured invocation. Only added when a model is set, so runs
+        // without `--model` keep byte-identical argv.
+        if let Some(model) = &spec.model {
+            args.push("--model".to_string());
+            args.push(model.clone());
+        }
         // Resume: `--resume <id>` works in both passthrough and headless
         // (structured) invocation, so it's appended here rather than
         // branching on `structured`. Only added when a resume id is set —
@@ -857,5 +881,43 @@ mod tests {
         let claude = Claude::new();
         let err = claude.provision(&spec, config_dir.path()).unwrap_err();
         assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
+    }
+
+    #[test]
+    fn provision_injects_model_flag_when_set() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.model = Some("sonnet".to_string());
+
+        let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+
+        // `--model sonnet` appears as an adjacent pair in argv.
+        let pair = launch
+            .args
+            .windows(2)
+            .any(|w| w[0] == "--model" && w[1] == "sonnet");
+        assert!(pair, "expected `--model sonnet` in argv: {:?}", launch.args);
+    }
+
+    #[test]
+    fn provision_without_model_has_no_model_flag() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+
+        let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+        assert!(
+            !launch.args.iter().any(|a| a == "--model"),
+            "no --model expected when spec.model is None: {:?}",
+            launch.args
+        );
+    }
+
+    #[test]
+    fn discover_models_lists_curated_aliases() {
+        let models = Claude::new().discover_models().unwrap();
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"opus") && ids.contains(&"sonnet") && ids.contains(&"haiku"));
     }
 }

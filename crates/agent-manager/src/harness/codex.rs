@@ -66,6 +66,50 @@ impl Harness for Codex {
         }
     }
 
+    /// Codex exposes its model catalogue via `codex debug models --bundled`
+    /// (JSON; the bundled list needs no network). Each entry has a `slug` (the
+    /// id passed to `model`), a `display_name`, and a `visibility` — we surface
+    /// the ones marked `list`. Requires Codex ≥ 0.131.0.
+    fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
+        let output = std::process::Command::new("codex")
+            .args(["debug", "models", "--bundled"])
+            .output()
+            .with_context(|| "running `codex debug models --bundled` (is the codex binary on PATH, ≥ 0.131.0?)")?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "`codex debug models --bundled` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .context("parsing `codex debug models --bundled` JSON")?;
+        let models = parsed
+            .get("models")
+            .and_then(|m| m.as_array())
+            .ok_or_else(|| anyhow::anyhow!("no 'models' array in `codex debug models` output"))?;
+        let out: Vec<super::ModelInfo> = models
+            .iter()
+            .filter(|m| {
+                // Keep only user-listable models; skip hidden/internal ones.
+                m.get("visibility").and_then(|v| v.as_str()) != Some("hidden")
+            })
+            .filter_map(|m| {
+                let slug = m.get("slug").and_then(|s| s.as_str())?;
+                let desc = m
+                    .get("display_name")
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string);
+                Some(super::ModelInfo {
+                    id: slug.to_string(),
+                    description: desc,
+                    default: false,
+                })
+            })
+            .collect();
+        Ok(out)
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // Codex unifies config + `auth.json` under one root (`$CODEX_HOME`),
         // unlike Claude Code which can split `CLAUDE_CONFIG_DIR` (injected
@@ -300,6 +344,13 @@ fn build_mcp_servers_block(mcps: &[McpRef]) -> Result<String> {
 /// Top-level permission keys (System A only — see codex.md "Permissions"
 /// §"System A: legacy `sandbox_mode` + `approval_policy`"). Serialized with
 /// the `toml` crate for correctness rather than hand-formatted strings.
+/// The top-level `model` key in codex's `config.toml`. Serialized with the
+/// `toml` crate so the id is correctly escaped.
+#[derive(Debug, serde::Serialize)]
+struct ModelToml {
+    model: String,
+}
+
 #[derive(Debug, Default, serde::Serialize)]
 struct PermissionToml {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -362,6 +413,16 @@ fn build_hooks_json(hooks: &[HookRef]) -> Result<String> {
 /// BEGIN/END comment markers.
 fn build_config_toml(spec: &RunSpec) -> Result<String> {
     let mut out = String::new();
+
+    // Model selection: the top-level `model` key in config.toml is honored by
+    // both interactive (passthrough) codex and the app-server, so `am`'s
+    // mode-agnostic `spec.model` maps here rather than to a CLI flag. Emitted
+    // first so it stays a top-level key (before any `[table]`). Only written
+    // when set, so runs without `--model` keep a byte-identical config.toml.
+    if let Some(model) = &spec.model {
+        out.push_str(&toml::to_string(&ModelToml { model: model.clone() }).context("serializing model")?);
+        out.push('\n');
+    }
 
     if let Some(policy) = &spec.policy {
         match policy.permission_mode.as_deref().and_then(map_sandbox_mode) {
@@ -837,5 +898,26 @@ mod tests {
         assert!(!launch.args.contains(&"--listen".to_string()));
         assert!(!launch.args.contains(&"stdio://".to_string()));
         assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
+    }
+
+    #[test]
+    fn config_toml_carries_model_when_set() {
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.model = Some("gpt-5-codex".to_string());
+        let toml = build_config_toml(&spec).unwrap();
+        assert!(
+            toml.contains("model = \"gpt-5-codex\""),
+            "config.toml should carry the model key:\n{toml}"
+        );
+    }
+
+    #[test]
+    fn config_toml_omits_model_when_unset() {
+        let spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        let toml = build_config_toml(&spec).unwrap();
+        assert!(
+            !toml.contains("model ="),
+            "config.toml should not carry a model key when unset:\n{toml}"
+        );
     }
 }

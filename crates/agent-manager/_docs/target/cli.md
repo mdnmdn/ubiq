@@ -42,6 +42,8 @@ am opencode --config ./run.toml
 | `--keep-config`          | Don't delete the ephemeral config dir on exit (debugging).          |
 | `--print-config`         | Provision only; print the generated dir + argv + env; don't launch. |
 | `--account <id>`         | Account/credential profile to use.                                  |
+| `--model <id>`           | Launch with a specific harness-native model id (discover with `--list-models`). |
+| `--list-models`          | List the models available for this harness and exit (don't launch). |
 | `--hooks a,b`            | Enable named hooks (defined in the settings file) for this run.     |
 | `--instructions <path>`  | Seed always-on instructions into the harness config.                |
 | `--prompt <text>`        | Seed an initial prompt for the first harness message.               |

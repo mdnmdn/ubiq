@@ -103,6 +103,13 @@ struct RunArgs {
     /// Account/credential profile to use. (P2)
     #[arg(long)]
     account: Option<String>,
+    /// Model id to launch with (harness-native id). Discover valid ids with
+    /// `--list-models`.
+    #[arg(long)]
+    model: Option<String>,
+    /// List the models available for this harness and exit (don't launch).
+    #[arg(long)]
+    list_models: bool,
     /// Named hooks (defined in the settings file) to enable for this run.
     #[arg(long, value_delimiter = ',')]
     hooks: Option<Vec<String>>,

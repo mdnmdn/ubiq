@@ -219,6 +219,8 @@ cargo run -- claude --print-config          # provision only; show dir + argv + 
 cargo run -- claude --mcps postgres --skills web-designer   # launch for real
 cargo run -- claude --prompt "summarize the repo" --io structured  # structured I/O mode
 cargo run -- claude --account work --instructions ./system.md    # account + instructions
+cargo run -- codex --list-models            # discover the harness's available models
+cargo run -- claude --model sonnet          # launch with a specific model
 cargo run -- codex --skills reviewer --io structured            # codex with structured I/O
 cargo run -- opencode --account personal --io structured        # opencode with account
 cargo run -- grok --mcps postgres --skills reviewer             # Grok CLI (passthrough; ephemeral $HOME)

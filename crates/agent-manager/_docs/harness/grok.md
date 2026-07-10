@@ -280,6 +280,44 @@ isolation, pass `-k`/`GROK_API_KEY` and `-u`/`GROK_BASE_URL` in the child
 process environment. Interactive auth is not required for `--prompt`
 mode, so headless/CI runs only need the env vars set.
 
+### Credential capture & reuse (agent-manager)
+
+> How `am account capture` / `am account login` snapshot and replay this
+> harness's login into an ephemeral run. Records file **structure and non-secret
+> metadata only** — token values are copied opaquely.
+
+> **Disk correction:** the sections above describe an API-key model
+> (`~/.grok/user-settings.json → apiKey`). On disk the live login is OAuth 2.0
+> (OIDC to `https://auth.x.ai`) stored in **`~/.grok/auth.json`** — trust disk.
+> The API-key path still works via `GROK_API_KEY` but is not what an interactive
+> subscription login writes.
+
+- **Bundle files (the credential snapshot):**
+  - `~/.grok/auth.json` — **required**; JSON keyed by `<oidc_issuer>::<user_id>`
+    (e.g. `https://auth.x.ai::<uuid>`), each entry holding `key` (JWT),
+    `refresh_token`, `expires_at`, plus identity fields.
+  - `~/.grok/user-settings.json` — *optional*; only if an `apiKey` / model
+    override is in use.
+- **Relocation lever:** no config-dir override env var — set `HOME` to relocate
+  the whole `~/.grok/` tree.
+- **Force file storage (skip keychain):** N/A — Grok is **always plaintext file**
+  (mode `0600`), no OS keychain integration. The ideal case for capture.
+- **Login command (fresh-auth-into-temp):** no documented `grok auth login`
+  verb; the interactive TUI triggers the OAuth flow on first run under a fresh
+  `HOME`. Headless: inject `GROK_API_KEY` instead of snapshotting OAuth.
+- **Extractable metadata (non-secret):**
+
+  | field | source | identifies |
+  |---|---|---|
+  | `email` | `auth.json → <entry>.email` | account email *(identifying — redact)* |
+  | `user_id` / `principal_id` | `auth.json → <entry>.user_id` | user account id (UUID) |
+  | `team_id` | `auth.json → <entry>.team_id` | team/org membership (UUID) |
+  | `expires_at` | `auth.json → <entry>.expires_at` | token expiry (ISO 8601) |
+  | `auth_mode` / `oidc_issuer` | `auth.json → <entry>.*` | auth type (`oidc`) + provider |
+
+- **Do not copy:** `sessions/`, `projects/`, `logs/`, `worktrees.db`,
+  `models_cache.json`, `agent_id`, `*.lock` — session/machine-bound state.
+
 ## Permissions
 
 Grok CLI does **not** expose an allow/deny/ask rule file. Its permission
@@ -401,6 +439,17 @@ stream as of 2026-07-09.
   handshake, since the prompt is an argv flag, not a stdin stream).
 - Minimum CLI version: not documented. The `--format json` event set is
   characterised from the current README as of 2026-07-09.
+
+### Model discovery & selection (agent-manager)
+
+> How `am <harness> --list-models` enumerates models and `am <harness> --model <id>`
+> selects one. Facts verified against the installed binary on 2026-07-10.
+
+- **Discover (list models):** `~/.grok/models_cache.json` (JSON file, `models` key contains model objects keyed by id). No documented CLI command; cache is populated on first authenticated run. Needs network/auth: yes (to refresh from xAI API).
+- **Select at launch (passthrough):** `-m` / `--model <id>` CLI flag, or `GROK_MODEL` environment variable.
+- **Model id format:** Kebab-case identifiers (lowercase alphanumerics and hyphens).
+- **Example ids (verified):** `grok-build`, `grok-composer-2.5-fast`.
+- **Default model:** Resolved per precedence (highest first): `GROK_MODEL` env → `-m` flag → `.grok/settings.json` → `model` key → `~/.grok/user-settings.json` → `defaultModel` key → built-in fallback.
 
 ## Format quirks / gotchas
 

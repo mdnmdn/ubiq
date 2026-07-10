@@ -702,6 +702,41 @@ minimal set.
 - `COPILOT_TOKEN expired` → re-run `copilot auth setup-token`
   on a developer machine and update the secret.
 
+### Credential capture & reuse (agent-manager)
+
+> How `am account capture` / `am account login` snapshot and replay this
+> harness's login into an ephemeral run. Records file **structure and non-secret
+> metadata only** — token values are copied opaquely.
+
+- **Bundle files (the credential snapshot):**
+  - `~/.copilot/config.json` — **required**; Copilot CLI's own store, holding
+    `copilotTokens` (keyed `<host>:<login>`), `lastLoggedInUser`, `loggedInUsers`.
+  - `~/.config/gh/hosts.yml` — *recommended*; GitHub CLI interop, `oauth_token`
+    per host/user. Capture both for full multi-account fidelity.
+- **Relocation lever:** no dedicated override — set `HOME` to relocate
+  `~/.copilot/` and `~/.config/gh/`.
+- **Force file storage (skip keychain):** file storage is the default when no
+  token env var is set; there is no keychain mode to disable for `~/.copilot/`.
+  On macOS the `gh` fallback *can* read the Keychain (`gh:GitHub.com`), so a
+  clean snapshot prefers the plaintext `hosts.yml`/`config.json`.
+- **Login command (fresh-auth-into-temp):** `HOME=/tmp/x copilot auth login` (or
+  `gh auth login`). Headless/CI: inject `COPILOT_TOKEN` or `GITHUB_TOKEN` as a
+  reference account instead of snapshotting (`copilot auth setup-token` mints a
+  token for that path). Env precedence: `COPILOT_TOKEN` → `GITHUB_TOKEN`/`GH_TOKEN`
+  → `hosts.yml` → macOS Keychain.
+- **Extractable metadata (non-secret):**
+
+  | field | source | identifies |
+  |---|---|---|
+  | `lastLoggedInUser.login` | `~/.copilot/config.json` | active GitHub username *(identifying)* |
+  | `lastLoggedInUser.host` | `~/.copilot/config.json` | GitHub instance (e.g. `github.com`) |
+  | `loggedInUsers[]` | `~/.copilot/config.json` | all authenticated accounts |
+  | `copilotTokens` keys | `~/.copilot/config.json` | `<host>:<login>` pairs (values are secret) |
+  | `github.com.user` | `~/.config/gh/hosts.yml` | active `gh` username |
+
+- **Do not copy:** `session-state/`, `session-store.db*`,
+  `command-history-state.json`, `logs/` — session/machine-bound state.
+
 ## Permissions
 
 Copilot's permission system has **three layers**:
@@ -1037,6 +1072,17 @@ A coordinator materialises skills into `<workdir>/.github/skills/<name>/SKILL.md
 - Cancellation: close the stdout reader on cancel and collect the process exit status; the `result` event's `exitCode` is the authoritative outcome.
 - Session resume: pass `--resume <session-id>` (value from a prior `session.start` event) to continue a previous session.
 - Minimum version: the `--output-format json` envelope is stable from **Copilot CLI ≥ 1.0.0**.
+
+### Model discovery & selection (agent-manager)
+
+> How `am <harness> --list-models` enumerates models and `am <harness> --model <id>`
+> selects one. Facts verified against the installed binary on 2026-07-10.
+
+- **Discover (list models):** `copilot help config` → `model:` setting lists available models (depends on GitHub plan; static list in help docs). Needs network/auth: no (list shown in help without auth).
+- **Select at launch (passthrough):** `--model <id>` CLI flag, or `COPILOT_MODEL` environment variable.
+- **Model id format:** Bare model name (e.g., `gpt-5.4`, `claude-sonnet-4.5`) or optional qualified form `<name> (<vendor>)`.
+- **Example ids (verified):** `gpt-5.4`, `gpt-5.4-mini`, `claude-sonnet-4.5`, `claude-haiku-4.5`, `gemini-3.5-flash`, `kimi-k2.7-code`.
+- **Default model:** Resolved per precedence (highest first): `COPILOT_MODEL` env → `--model` flag → `~/.copilot/settings.json` → `model` key → last selected model in session.
 
 ## Format quirks / gotchas
 

@@ -170,6 +170,12 @@ pub struct Policy {
 pub struct RunSpec {
     /// Which harness to wrap.
     pub harness: HarnessId,
+    /// Model id to launch with (harness-native id, e.g. `sonnet`,
+    /// `gpt-5-codex`, `anthropic/claude-sonnet-4-5`). `None` (the default)
+    /// leaves the harness to pick its own default, keeping runs that don't
+    /// select a model byte-identical to before this field existed. Discover
+    /// valid ids with `am <harness> --list-models`.
+    pub model: Option<String>,
     /// Resolved skills to inject.
     pub skills: Vec<SkillRef>,
     /// Resolved MCP servers to inject.
@@ -211,6 +217,7 @@ impl RunSpec {
     pub fn new(harness: HarnessId, cwd: PathBuf) -> Self {
         Self {
             harness,
+            model: None,
             skills: Vec::new(),
             mcps: Vec::new(),
             mcp_as_skill: Vec::new(),

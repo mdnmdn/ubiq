@@ -500,6 +500,52 @@ the best available store per platform.
 - `auth.json has no key` → set `CODEX_HOME` to a directory you own,
   or run `codex login` to bootstrap it.
 
+### Credential capture & reuse (agent-manager)
+
+> How `am account capture` / `am account login` snapshot and replay this
+> harness's login into an ephemeral run. Records file **structure and non-secret
+> metadata only** — token values are copied opaquely, never parsed into `am`'s
+> account store.
+
+- **Bundle files (the credential snapshot):**
+  - `~/.codex/auth.json` — **required**; the sole credential file (`auth_mode`,
+    `OPENAI_API_KEY`, `tokens.{id_token,access_token,refresh_token,account_id}`,
+    `last_refresh`).
+  - `~/.codex/config.toml` — *optional*; only if `cli_auth_credentials_store` /
+    model overrides should travel with the identity. **Strip `[projects.*]`**
+    (machine/path-bound trust entries) before reuse.
+- **Relocation lever:** `CODEX_HOME` (default `~/.codex/`) moves the entire tree
+  including `auth.json` — the clean, first-class isolation lever.
+- **Force file storage (skip keychain):** `cli_auth_credentials_store = "file"`
+  in `$CODEX_HOME/config.toml` — the documented, explicit knob. Write it *before*
+  `codex login` so the token lands in `auth.json` instead of the OS keychain
+  (critical under isol8/iter8 where the keychain is unavailable). Values:
+  `auto` | `file` | `keyring`.
+- **Default backend / observed:** macOS Keychain service `Codex Auth`
+  (`keyring`) per doc; **observed file-based on this machine** (no Keychain
+  entry; token present in `auth.json`) — trust disk.
+- **Login command (fresh-auth-into-temp):**
+  `CODEX_HOME=/tmp/x codex login` (browser OAuth), or headless
+  `codex login --device-code` (prints URL + code — the sandbox-friendly path),
+  or `codex login --api-key "$OPENAI_API_KEY"` (writes `auth.json` directly, no
+  browser). Set `cli_auth_credentials_store = "file"` first.
+- **Extractable metadata (non-secret):**
+
+  | field | source | identifies |
+  |---|---|---|
+  | `auth_mode` | `auth.json → auth_mode` | auth type: `chatgpt` (subscription OAuth) vs API key |
+  | `OPENAI_API_KEY` presence | `auth.json → OPENAI_API_KEY` | API-key path in use vs `null` |
+  | `tokens.account_id` | `auth.json → tokens.account_id` | ChatGPT account id *(identifying — redact)* |
+  | `last_refresh` | `auth.json → last_refresh` | token freshness (>30 days forces re-login) |
+
+  Codex stores **less** plan/org metadata locally than Claude — subscription
+  tier/org lives only inside the JWT `id_token`/`access_token` claims, which are
+  treated as opaque secrets and **not decoded**.
+- **Do not copy:** `history.jsonl`, `sessions/`, `logs_*.sqlite*`,
+  `state_*.sqlite*`, `memories_*.sqlite*`, `installation_id`, `cache/`,
+  `shell_snapshots/`, `models_cache.json` — session/machine-bound state
+  (`installation_id` is a machine identity, do not transplant).
+
 ## Permissions
 
 Codex has **two parallel systems**. Choose one per run; they do not
@@ -709,6 +755,17 @@ The app-server issues server→client approval requests; auto-accept all of them
 - **Framing:** newline-delimited JSON-RPC in both directions over stdio.
 - **Cancellation:** close stdin to signal the app-server to stop → wait ~10 s for the reader to drain → `Wait` up to ~10 s more → if still alive, `SIGKILL` the entire process group (negative PID on Unix).
 - **Minimum versions:** `app-server --listen stdio://` requires Codex ≥ 0.100.0; per-model reasoning discovery requires ≥ 0.131.0.
+
+### Model discovery & selection (agent-manager)
+
+> How `am codex --list-models` enumerates models and `am codex --model <id>` selects
+> one. Facts verified against the installed binary (codex-cli 0.142.5) on 2026-07-10.
+
+- **Discover (list models):** `codex debug models --bundled` (Codex ≥ 0.131.0). Needs network/auth: no — verified it returns the full 6-model catalog even with `CODEX_HOME` pointed at an empty, unauthenticated directory; it is purely the static catalog compiled into the binary. Without `--bundled`, `codex debug models` additionally reads/refreshes `$CODEX_HOME/models_cache.json` and returns the account-curated subset instead (3 of 6 models on this login); with no cache/auth available it silently falls back to the same bundled 6-model list rather than erroring, so listing never hard-fails either way. Output: JSON, top-level `{"models":[...]}` (the cache file additionally wraps this with `fetched_at`/`etag`/`client_version`). Per-model fields verified: `slug`, `display_name`, `description`, `default_reasoning_level`, `supported_reasoning_levels` (array of `{effort, description}`), `shell_type`, `visibility` (`list` | `hide`), `supported_in_api`, `priority`, `additional_speed_tiers`, `service_tiers`, `availability_nux`, `upgrade`, `base_instructions`.
+- **Select at launch (passthrough):** top-level `-m`/`--model <id>` flag on the normal interactive `codex` launch (the same flag also exists on `codex exec`) — verified via the run preamble's `model: <id>` line. This is distinct from the headless app-server RPC path documented above, where the model travels inside `thread/start` params, not a CLI flag; for a passthrough tty run, `am` should inject `-m <id>` directly. If omitted, Codex falls back to the `model` key in `$CODEX_HOME/config.toml` (verified: `model = "gpt-5.5"` on disk was used when `-m` was omitted). `-c model=<id>` is an equivalent generic config-override mechanism for the same effect.
+- **Model id format:** a flat slug, no vendor prefix and no alias layer — the slug itself is the id, e.g. `gpt-5.5`, `gpt-5.4-mini`, `gpt-5.3-codex`.
+- **Example ids (verified):** bundled/static catalog — `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`, `codex-auto-review` (this last one has `visibility: "hide"` — an internal review model, not meant to be user-selected). Account-curated live subset on this login: `gpt-5.5`, `gpt-5.4-mini`.
+- **Default model:** the `model` key in `$CODEX_HOME/config.toml` (here: `gpt-5.5`, paired with `model_reasoning_effort = "medium"`); `-m`/`--model` (or `-c model=<id>`) on the CLI overrides it for that invocation only.
 
 ## Format quirks / gotchas
 

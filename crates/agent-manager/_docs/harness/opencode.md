@@ -652,6 +652,43 @@ secret stays in the runner's secret store.
 - `/connect` hangs → behind a corporate proxy; set `HTTPS_PROXY`
   and retry.
 
+### Credential capture & reuse (agent-manager)
+
+> How `am account capture` / `am account login` snapshot and replay this
+> harness's login into an ephemeral run. Records file **structure and non-secret
+> metadata only** — token values are copied opaquely.
+
+- **Bundle files (the credential snapshot):**
+  - `~/.local/share/opencode/auth.json` — **required**; the sole auth store,
+    a JSON map `providerID → {type, …}`.
+- **Relocation lever:** `XDG_DATA_HOME` relocates the data dir
+  (`$XDG_DATA_HOME/opencode/auth.json`); `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`
+  move only the *config* tier, not the auth store.
+- **Force file storage (skip keychain):** N/A — `auth.json` is **always
+  plaintext** (mode `0600`); opencode has no keychain backend of its own. The
+  ideal capture case. *(Exception: the Anthropic-OAuth path can auto-discover
+  Claude Code's macOS Keychain entry — then there is no opencode file to copy;
+  capture via the Claude Code recipe instead.)*
+- **Login command (fresh-auth-into-temp):** `opencode auth login` under a
+  relocated `XDG_DATA_HOME` (interactive TUI: pick provider, paste key or OAuth).
+  API-key / `{env:…}` providers are fully headless and never write `auth.json`.
+- **Default backend / observed:** plaintext file on every OS. *(Doc claim of
+  `~/Library/Application Support/opencode/` on macOS is stale — disk uses the XDG
+  path uniformly. Trust disk.)*
+- **Extractable metadata (non-secret):**
+
+  | field | source | identifies |
+  |---|---|---|
+  | top-level key | `auth.json` → key | provider id (`anthropic`, `openai`, `github-copilot`, …) |
+  | `type` | `auth.json → <provider>.type` | auth type: `oauth` / `api` / `wellknown` |
+  | `expires` | `auth.json → <provider>.expires` | token expiry (epoch ms, oauth) |
+  | `enterpriseUrl` | `auth.json → <provider>.enterpriseUrl` | enterprise/self-hosted endpoint |
+
+  No email / account-uuid / plan-tier is stored — opencode leaves that to the
+  upstream provider.
+- **Do not copy:** `opencode.db*` (session history — can be huge), `log/`,
+  `storage/`, `snapshot/`, `repos/`, `tool-output/`.
+
 ## Permissions
 
 ### Top-level config
@@ -903,6 +940,24 @@ A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.
 - Framing: prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
 - Cancellation: send `SIGTERM` to the process group, wait ~5 s, then `SIGKILL` the group; close the stdout reader afterward.
 - Session resume: pass `--session <id>` to continue a prior session.
+
+### Model discovery & selection (agent-manager)
+
+> How `am opencode --list-models` enumerates models and `am opencode --model <id>`
+> selects one.
+
+- **Discover (list models):** `opencode models` — one `provider/model-id` per
+  line across every configured provider (`opencode models --verbose` adds each
+  model's `variants` map). Needs network/auth: **partial** — reflects the
+  providers configured for the current login. Output: plain text, one id/line.
+  `am` shells out to it and takes each non-empty line as a model id.
+- **Select at launch (passthrough):** `--model <provider/model-id>` (injected
+  into both the interactive launch and the structured `opencode run` form).
+- **Model id format:** `provider/model-id` (provider prefix required).
+- **Example ids (verified):** `anthropic/claude-sonnet-4-5`, `openai/gpt-5`,
+  `google/gemini-2.5-pro`.
+- **Default model:** the `model` key in `opencode.json` (or the last model
+  selected in the TUI) when `--model` is omitted.
 
 ## Format quirks / gotchas
 
