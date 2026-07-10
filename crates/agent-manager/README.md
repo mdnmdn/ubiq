@@ -43,6 +43,9 @@ am claude --account work --instructions ./system.md --io structured
 am codex --skills reviewer --account work
 am opencode --prompt "find bugs" --io structured
 
+# Launch Grok CLI (passthrough; ephemeral $HOME isolates ~/.grok).
+am grok --mcps postgres --skills reviewer --account xai
+
 # Inspect what would be provisioned, without launching.
 am claude --print-config
 
@@ -150,6 +153,7 @@ agent-manager/
     ├── harness/           # Harness trait + implementations (core)
     │   ├── claude.rs      # Claude Code (P1)
     │   ├── codex.rs       # Codex (P2)
+    │   ├── grok.rs        # Grok CLI (passthrough; ephemeral-HOME bridge)
     │   └── opencode.rs    # opencode (P2)
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
     ├── io/                # I/O bridging (core: model + bridges; pty-gated: passthrough)
