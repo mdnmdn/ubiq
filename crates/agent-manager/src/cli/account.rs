@@ -1,5 +1,6 @@
 //! `am account` subcommands: `ls`, `use`, `import`.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
@@ -32,6 +33,15 @@ enum AccountCommand {
         #[arg(long)]
         write: bool,
     },
+    /// Log into a harness inside a persistent per-account home and capture its
+    /// credential file for reuse via `--account <id>`.
+    Login {
+        /// Account id to create/update (its home dir under the accounts root).
+        id: String,
+        /// Harness to log into (e.g. `claude`, `codex`).
+        #[arg(long)]
+        harness: String,
+    },
 }
 
 /// Run an account subcommand, given argv AFTER the `account` word.
@@ -51,6 +61,7 @@ pub(super) fn run(args: &[String]) -> Result<()> {
         AccountCommand::List => cmd_list(),
         AccountCommand::Use { id } => cmd_use(&id),
         AccountCommand::Import { write } => cmd_import(write),
+        AccountCommand::Login { id, harness } => cmd_login(&id, &harness),
     }
 }
 
@@ -149,9 +160,7 @@ fn cmd_use(id: &str) -> Result<()> {
 
 /// Path to the global settings file that `[defaults]` lives in.
 fn global_config_path() -> Result<PathBuf> {
-    directories::ProjectDirs::from("", "", "agent-manager")
-        .map(|dirs| dirs.config_dir().join("config.toml"))
-        .ok_or_else(|| anyhow!("could not determine the global config directory for this OS"))
+    crate::settings::global_config_write_path()
 }
 
 /// `am account import [--write]`: read-only discovery of credential
@@ -201,15 +210,40 @@ fn cmd_import(write: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Idempotency: never suggest or append an id that already exists in the
+    // store — whether from a prior `import --write` or an `account login`
+    // per-file entry. Re-running `import [--write]` is therefore a no-op once
+    // everything is already present.
+    let root = account::resolve_accounts_root(None)
+        .ok_or_else(|| anyhow!("could not determine the accounts root for this OS"))?;
+    let existing_ids: BTreeSet<String> = if root.is_dir() {
+        FsAccountStore::new(&root)
+            .accounts()?
+            .into_iter()
+            .map(|a| a.id)
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
+
+    let (to_add, skipped) = partition_new(&existing_ids, suggestions);
+    for id in &skipped {
+        println!("skip (already present): {id}");
+    }
+
+    if to_add.is_empty() {
+        println!();
+        println!("all suggested accounts already present — nothing to add (idempotent).");
+        return Ok(());
+    }
+
     println!();
-    println!("suggested account(s) (references only; edit ids/env names as needed):");
-    for acct in &suggestions {
+    println!("new suggested account(s) (references only; edit ids/env names as needed):");
+    for acct in &to_add {
         print!("{}", account_toml_snippet(acct));
     }
 
     if write {
-        let root = account::resolve_accounts_root(None)
-            .ok_or_else(|| anyhow!("could not determine the accounts root for this OS"))?;
         std::fs::create_dir_all(&root)?;
         let toml_path = root.join("accounts.toml");
         let mut existing = if toml_path.exists() {
@@ -217,17 +251,111 @@ fn cmd_import(write: bool) -> Result<()> {
         } else {
             String::new()
         };
-        for acct in &suggestions {
+        for acct in &to_add {
+            // Keep array-of-tables well-separated even if the prior content
+            // didn't end in a newline.
+            if !existing.is_empty() && !existing.ends_with('\n') {
+                existing.push('\n');
+            }
             existing.push('\n');
             existing.push_str(&account_toml_snippet(acct));
         }
         std::fs::write(&toml_path, existing)?;
         println!();
-        println!("appended to {}", toml_path.display());
+        println!(
+            "appended {} new account(s) to {}",
+            to_add.len(),
+            toml_path.display()
+        );
     } else {
         println!();
         println!("(dry run — nothing written; pass --write to append to accounts.toml)");
     }
+
+    Ok(())
+}
+
+/// Split `suggestions` into `(to_add, skipped_ids)`: entries whose id is not
+/// already in `existing_ids`, de-duplicated by id within the batch (order
+/// preserved), plus the ids skipped as already-present or intra-batch
+/// duplicates. Pure — the idempotency core of `am account import`, unit-tested
+/// without touching the filesystem.
+fn partition_new(
+    existing_ids: &BTreeSet<String>,
+    suggestions: Vec<Account>,
+) -> (Vec<Account>, Vec<String>) {
+    let mut to_add = Vec::new();
+    let mut skipped = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for acct in suggestions {
+        if existing_ids.contains(&acct.id) || !seen.insert(acct.id.clone()) {
+            skipped.push(acct.id);
+            continue;
+        }
+        to_add.push(acct);
+    }
+    (to_add, skipped)
+}
+
+/// `am account login <id> --harness <h>`: interactively log `harness_key`
+/// into a persistent per-account home dir, verify the resulting credential
+/// file landed on disk, and record `home` on the account so `am <h> --account
+/// <id>` reuses it. `am` never parses or copies the credential file's
+/// contents — it only points the harness's own credential store at the
+/// capture home and checks that the harness wrote *something* there.
+fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
+    let root = account::resolve_accounts_root(None)
+        .ok_or_else(|| anyhow!("no accounts root; set AM_ACCOUNTS"))?;
+    let home = root.join(id);
+    std::fs::create_dir_all(&home)?;
+
+    let harness = crate::harness::resolve(harness_key).ok_or_else(|| {
+        anyhow!(
+            "unknown harness '{harness_key}'; known: {}",
+            crate::harness::known_ids().join(", ")
+        )
+    })?;
+
+    let plan = harness.login(&home)?;
+
+    let provisioned = crate::provision::Provisioned {
+        dir: home.clone(),
+        launch: plan.launch,
+        ephemeral: false, // persistent home — never auto-deleted
+        #[cfg(feature = "inproc-mcp")]
+        inproc_servers: Vec::new(),
+    };
+    let cwd = std::env::current_dir()?;
+    let code = crate::run::run(&provisioned, &cwd, true)?; // keep_config: persistent
+    if code != 0 {
+        bail!("harness login exited with code {code}; no account recorded");
+    }
+
+    let primary = home.join(&plan.credential_files[0]);
+    if !primary.exists() {
+        bail!(
+            "login did not produce a credential file at {}",
+            primary.display()
+        );
+    }
+
+    let store = FsAccountStore::new(&root);
+    let mut acct = store.account(id)?.unwrap_or(Account {
+        id: id.to_string(),
+        ..Default::default()
+    });
+    acct.home = Some(home.clone());
+    let path = store.save(&acct)?;
+
+    println!("captured credential file(s):");
+    for rel in &plan.credential_files {
+        let full = home.join(rel);
+        if full.exists() {
+            println!("  {}", full.display());
+        }
+    }
+    println!("account '{id}' written to {}", path.display());
+    println!("reuse with: am {harness_key} --account {id}");
 
     Ok(())
 }
@@ -253,4 +381,45 @@ fn account_toml_snippet(acct: &Account) -> String {
         s.push_str(&format!("home = \"{}\"\n", v.display()));
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acct(id: &str) -> Account {
+        Account {
+            id: id.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn partition_new_skips_already_present_ids() {
+        let existing: BTreeSet<String> = ["anthropic-api-key".to_string()].into_iter().collect();
+        let (to_add, skipped) =
+            partition_new(&existing, vec![acct("anthropic-api-key"), acct("codex-auth-home")]);
+        assert_eq!(
+            to_add.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["codex-auth-home"]
+        );
+        assert_eq!(skipped, vec!["anthropic-api-key"]);
+    }
+
+    #[test]
+    fn partition_new_dedupes_within_batch() {
+        let existing = BTreeSet::new();
+        let (to_add, skipped) = partition_new(&existing, vec![acct("dup"), acct("dup")]);
+        assert_eq!(to_add.len(), 1);
+        assert_eq!(skipped, vec!["dup"]);
+    }
+
+    #[test]
+    fn partition_new_all_present_is_empty_add() {
+        // Idempotency: a second import when everything already exists adds nothing.
+        let existing: BTreeSet<String> = ["a".to_string(), "b".to_string()].into_iter().collect();
+        let (to_add, skipped) = partition_new(&existing, vec![acct("a"), acct("b")]);
+        assert!(to_add.is_empty());
+        assert_eq!(skipped, vec!["a", "b"]);
+    }
 }

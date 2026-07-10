@@ -227,6 +227,7 @@ cargo run -- grok --mcps postgres --skills reviewer             # Grok CLI (pass
 cargo run -- claude -- --version            # everything after `--` goes to claude
 cargo run -- account ls                     # list available accounts
 cargo run -- account use work               # set default account
+cargo run -- account login personal --harness codex   # capture a login into a per-account home for reuse
 cargo run -- catalog ls                     # list catalog skills + MCPs
 cargo run -- catalog import --dry-run       # preview ingest of ~/.claude etc.
 ```

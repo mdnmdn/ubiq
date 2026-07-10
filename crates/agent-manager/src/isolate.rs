@@ -31,14 +31,14 @@ use crate::spec::Isolation;
 /// - any other token is kept literally.
 #[derive(Debug, Clone)]
 pub struct IsolateTemplate {
-    /// The template string, e.g. `"isol8 run {profile_opt} -- {cmd}"`.
+    /// The template string, e.g. `"isol8 {profile_opt} -- {cmd}"`.
     pub command: String,
 }
 
 impl Default for IsolateTemplate {
     fn default() -> Self {
         Self {
-            command: "isol8 run {profile_opt} -- {cmd}".to_string(),
+            command: "isol8 {profile_opt} -- {cmd}".to_string(),
         }
     }
 }
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn default_template_with_profile_wraps_in_isol8_run() {
+    fn default_template_with_profile_wraps_in_isol8() {
         let launch = sample_launch();
         let wrapped = wrap_launch(
             &launch,
@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(wrapped.program, "isol8");
         assert_eq!(
             wrapped.args,
-            vec!["run", "--profile", "dev", "--", "claude", "--foo", "bar"]
+            vec!["--profile", "dev", "--", "claude", "--foo", "bar"]
         );
         // env/env_remove carried through unchanged.
         assert_eq!(wrapped.env, launch.env);
@@ -159,7 +159,7 @@ mod tests {
         );
 
         assert_eq!(wrapped.program, "isol8");
-        assert_eq!(wrapped.args, vec!["run", "--", "claude", "--foo", "bar"]);
+        assert_eq!(wrapped.args, vec!["--", "claude", "--foo", "bar"]);
     }
 
     #[test]

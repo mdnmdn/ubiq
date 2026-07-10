@@ -269,6 +269,37 @@ impl Harness for Claude {
         })
     }
 
+    /// Log Claude Code into `home`, capturing the resulting credential file.
+    ///
+    /// Verified against `claude auth --help`: `claude auth login` is a real
+    /// subcommand ("Sign in to your Anthropic account"), so this launches
+    /// that rather than the bare interactive `/login` fallback.
+    ///
+    /// HOME relocation moves the whole `~/.claude` tree (creds +
+    /// `~/.claude.json`) into the capture home; running login with the OS
+    /// keychain unreachable (no real `HOME`) forces the plaintext
+    /// `.credentials.json` (no documented file-storage knob). Deliberately
+    /// does NOT set `CLAUDE_CONFIG_DIR` here — we want the default
+    /// HOME-relative layout so the reuse path (which sets `HOME =
+    /// account.home` in `provision()` above, `CLAUDE_CONFIG_DIR` staying
+    /// separate) finds the creds where Claude Code natively looks for them.
+    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
+        let env = vec![("HOME".to_string(), home.display().to_string())];
+        let args = vec!["auth".to_string(), "login".to_string()];
+        Ok(super::LoginPlan {
+            launch: Launch {
+                program: "claude".to_string(),
+                args,
+                env,
+                env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
+            },
+            credential_files: vec![
+                std::path::PathBuf::from(".claude/.credentials.json"), // required
+                std::path::PathBuf::from(".claude.json"),              // optional metadata
+            ],
+        })
+    }
+
     fn structured_bridge(
         &self,
         provisioned: &crate::provision::Provisioned,
@@ -912,6 +943,24 @@ mod tests {
             "no --model expected when spec.model is None: {:?}",
             launch.args
         );
+    }
+
+    #[test]
+    fn login_points_home_at_capture_dir_and_names_credentials_file() {
+        let home = tempfile::TempDir::new().unwrap();
+
+        let plan = Claude::new().login(home.path()).unwrap();
+
+        assert!(plan
+            .launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string()));
+        assert!(!plan.credential_files.is_empty());
+        assert!(plan.credential_files[0]
+            .to_str()
+            .unwrap()
+            .ends_with(".credentials.json"));
     }
 
     #[test]

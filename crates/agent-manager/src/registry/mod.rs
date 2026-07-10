@@ -96,12 +96,12 @@ pub trait Registry {
     }
 }
 
-/// The default catalog root: `<config_dir>/agent-manager/catalog`
-/// (e.g. `~/.config/agent-manager/catalog` on Linux, or platform-specific).
-/// Uses the `directories` crate to locate the platform's standard config directory.
+/// The default catalog root: `~/.config/agent-manager/catalog` on all
+/// platforms — the same base dir as the config file
+/// ([`crate::settings::default_config_dir`]), so the config-like stores live
+/// together. Overridable by `AM_CATALOG` (see [`resolve_catalog_root`]).
 pub fn default_catalog_root() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "agent-manager")
-        .map(|dirs| dirs.config_dir().join("catalog"))
+    crate::settings::default_config_dir().map(|d| d.join("catalog"))
 }
 
 /// Resolve the catalog root from (highest first): an explicit path,

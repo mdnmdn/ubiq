@@ -141,6 +141,20 @@ impl ModelInfo {
     }
 }
 
+/// A plan for an interactive credential login into a relocated home dir,
+/// produced by [`Harness::login`]. The launch runs in passthrough (the user
+/// completes the harness's native login); afterwards the caller verifies
+/// `credential_files[0]` appeared under the home dir and records the account.
+#[derive(Debug, Clone)]
+pub struct LoginPlan {
+    /// Interactive login launch. Its env points the harness's credential store
+    /// at the capture home and forces file-based storage where supported.
+    pub launch: Launch,
+    /// Credential file paths RELATIVE TO the capture home dir. `[0]` is required
+    /// (absent after login = capture failed); any others are optional metadata.
+    pub credential_files: Vec<std::path::PathBuf>,
+}
+
 /// Which I/O modes a harness can support. Only passthrough is used in P1.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IoSupport {
@@ -181,6 +195,13 @@ pub trait Harness {
             "model discovery for harness '{}' is not implemented",
             self.id()
         )
+    }
+    /// Build a [`LoginPlan`] to interactively log this harness into `home` (a
+    /// persistent per-account dir) and capture the resulting credential file(s).
+    /// Implementations may write force-file-storage config into `home` before
+    /// returning. Default: an error — no login-capture support for this harness.
+    fn login(&self, _home: &Path) -> Result<LoginPlan> {
+        anyhow::bail!("credential login-capture for harness '{}' is not implemented", self.id())
     }
     /// Build a structured-I/O bridge for a provisioned run.
     ///

@@ -11,7 +11,7 @@
 //! embedders can back it with whatever they like, and a filesystem-backed
 //! implementation ([`FsAccountStore`]) for the CLI.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context};
@@ -25,7 +25,7 @@ use crate::Result;
 /// provider base URL, a helper-command string (never run by `am` itself —
 /// only wired into the harness's native key-helper slot), and/or a path to a
 /// private home directory. No field here can hold a secret value.
-#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 pub struct Account {
     /// Stable account identifier (the store key). Required for entries inline
     /// in `accounts.toml`; defaults to the file stem for per-file entries.
@@ -35,28 +35,33 @@ pub struct Account {
     /// native API-key env var (e.g. `ANTHROPIC_API_KEY`) at launch. The value
     /// itself is read transiently from `am`'s environment at launch time and
     /// is never written to disk by `am`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
     /// NAME of an env var whose value is passed through to the harness's
     /// native auth-token env var (e.g. `ANTHROPIC_AUTH_TOKEN`) at launch.
     /// Same never-written-to-disk rule as [`Self::api_key_env`].
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_token_env: Option<String>,
     /// Provider base URL (e.g. a gateway/proxy endpoint), passed through to
     /// the harness's native base-URL env var.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
     /// A command whose stdout yields the key, wired into the harness's native
     /// key-helper slot (e.g. Claude Code's `apiKeyHelper` setting). `am`
     /// never runs this command or sees its output — the harness does.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub helper: Option<String>,
     /// A private config/credentials directory. The child process gets this
     /// via `HOME`, so a harness's own OAuth/keychain credential store
     /// (independent of `am`'s injected skills/mcp config) can be kept
     /// per-account.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<PathBuf>,
+    /// Non-secret metadata captured at login (auth type, plan tier, redacted
+    /// identity). Never a token/secret value. Empty unless populated by an
+    /// `am account login` capture.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub captured: BTreeMap<String, String>,
 }
 
 /// A source of [`Account`]s, resolved by id.
@@ -97,6 +102,20 @@ impl FsAccountStore {
     /// Create a store rooted at the given path.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         FsAccountStore { root: root.into() }
+    }
+
+    /// Persist `account` as a per-file `<id>.toml` under the store root
+    /// (creating the root). Overwrites an existing per-file entry. Holds only
+    /// references/metadata — never a secret value (same invariant as the rest
+    /// of this module).
+    pub fn save(&self, account: &Account) -> Result<PathBuf> {
+        std::fs::create_dir_all(&self.root)
+            .with_context(|| format!("creating {}", self.root.display()))?;
+        let path = self.root.join(format!("{}.toml", account.id));
+        let body = toml::to_string_pretty(account)
+            .with_context(|| format!("serializing account '{}'", account.id))?;
+        std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
     }
 }
 
@@ -184,12 +203,12 @@ impl AccountStore for FsAccountStore {
     }
 }
 
-/// The default accounts root: `<config_dir>/agent-manager/accounts`
-/// (e.g. `~/.config/agent-manager/accounts` on Linux, or platform-specific).
-/// Uses the same `directories`-crate resolution as [`crate::registry::default_catalog_root`].
+/// The default accounts root: `~/.config/agent-manager/accounts` on all
+/// platforms — the same base dir as the config file
+/// ([`crate::settings::default_config_dir`]), so `config.toml` and `accounts/`
+/// live together. Overridable by `AM_ACCOUNTS` (see [`resolve_accounts_root`]).
 pub fn default_accounts_root() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "agent-manager")
-        .map(|dirs| dirs.config_dir().join("accounts"))
+    crate::settings::default_config_dir().map(|d| d.join("accounts"))
 }
 
 /// Resolve the accounts root from (highest first): an explicit path, the
@@ -309,5 +328,30 @@ api_key_env = "WORK_KEY"
         let store = EmptyAccountStore;
         assert!(store.accounts().unwrap().is_empty());
         assert!(store.account("anything").unwrap().is_none());
+    }
+
+    #[test]
+    fn fs_account_store_save_round_trips_id_and_home() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path().join("accounts");
+
+        let account = Account {
+            id: "cap".to_string(),
+            home: Some(PathBuf::from("/private/cap-home")),
+            ..Default::default()
+        };
+
+        let store = FsAccountStore::new(&root);
+        let path = store.save(&account)?;
+        assert!(path.exists());
+
+        let loaded = FsAccountStore::new(&root)
+            .account("cap")?
+            .expect("saved account should be found");
+        assert_eq!(loaded.id, "cap");
+        assert_eq!(loaded.home, Some(PathBuf::from("/private/cap-home")));
+
+        temp.close()?;
+        Ok(())
     }
 }

@@ -266,6 +266,49 @@ impl Harness for Codex {
         })
     }
 
+    /// Log Codex into `home`, capturing the resulting `auth.json`.
+    ///
+    /// Per codex.md "Credential capture & reuse": `CODEX_HOME` is the clean
+    /// relocation lever (moves the whole tree, including `auth.json`), so
+    /// pointing it at `home` here mirrors exactly what the reuse path
+    /// (`provision()` above) does for a private-home account. Before
+    /// launching login, force file-based credential storage by writing
+    /// `cli_auth_credentials_store = "file"` into `home/config.toml` — this
+    /// is the documented knob to skip the OS keychain (critical under
+    /// sandboxes where no keychain is reachable), and it must be written
+    /// *before* `codex login` runs so the token lands in `auth.json` rather
+    /// than the keychain. `home` is fresh at capture time (a new account's
+    /// login dir), so a plain overwrite is fine here; the reuse path's
+    /// `provision()` re-provisions `config.toml` on every run anyway, so
+    /// this file isn't "owned" by login in any lasting sense.
+    ///
+    /// Verified against the installed `codex login --help` (codex-cli
+    /// 0.142.5): plain `codex login` (browser OAuth) is used here. Note
+    /// codex.md's "Login command" line mentions a headless `codex login
+    /// --device-code`, but the installed CLI's actual flag for the
+    /// browserless path is `--device-auth` (no `--device-code` exists in
+    /// this version) — that's the sandbox-friendly alternative to swap in
+    /// if a headless capture flow is needed later.
+    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
+        std::fs::create_dir_all(home)
+            .with_context(|| format!("creating {}", home.display()))?;
+        let config_toml_path = home.join("config.toml");
+        std::fs::write(&config_toml_path, "cli_auth_credentials_store = \"file\"\n")
+            .with_context(|| format!("writing {}", config_toml_path.display()))?;
+
+        let env = vec![("CODEX_HOME".to_string(), home.display().to_string())];
+        let args = vec!["login".to_string()];
+        Ok(super::LoginPlan {
+            launch: Launch {
+                program: "codex".to_string(),
+                args,
+                env,
+                env_remove: Vec::new(),
+            },
+            credential_files: vec![std::path::PathBuf::from("auth.json")],
+        })
+    }
+
     fn structured_bridge(
         &self,
         provisioned: &crate::provision::Provisioned,
@@ -919,5 +962,27 @@ mod tests {
             !toml.contains("model ="),
             "config.toml should not carry a model key when unset:\n{toml}"
         );
+    }
+
+    #[test]
+    fn login_points_codex_home_at_capture_dir_names_auth_json_and_forces_file_store() {
+        let home = tempfile::TempDir::new().unwrap();
+
+        let plan = Codex::new().login(home.path()).unwrap();
+
+        assert_eq!(plan.launch.program, "codex");
+        assert!(plan.launch.args.contains(&"login".to_string()));
+        assert!(plan
+            .launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "CODEX_HOME" && v == &home.path().display().to_string()));
+        assert_eq!(
+            plan.credential_files.first(),
+            Some(&PathBuf::from("auth.json"))
+        );
+
+        let config_toml = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
+        assert!(config_toml.contains("cli_auth_credentials_store = \"file\""));
     }
 }
