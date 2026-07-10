@@ -483,6 +483,17 @@ stream as of 2026-07-09.
 - **`user-settings.json` is written mode `0600`.** Preserve permissions
   when editing.
 - **`--max-tool-rounds` default is 400.** Lower it for bounded CI runs.
+- **Relocating `HOME` isolates config but has been observed NOT to isolate
+  session/log writes.** A real launch with `HOME` set to an ephemeral dir
+  still wrote to the user's real `~/.grok/sessions/…` and `~/.grok/logs/…` —
+  a known non-invasiveness gap, not yet closed. Likely mechanism (verified
+  as general Node.js/macOS behavior, not confirmed against grok-cli's exact
+  source for the build that showed the leak): Node's `os.homedir()` honors
+  `$HOME`, but `os.userInfo().homedir` — a common choice for session/log/state
+  paths — always resolves the real home via the OS user database (`getpwuid`)
+  and ignores `$HOME` entirely; no environment variable overrides this. Until
+  verified otherwise against the installed binary, treat the isolation lever
+  as config/skills-only, not full-home isolation.
 
 ## Renderer notes (planned)
 

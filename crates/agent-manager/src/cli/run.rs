@@ -56,12 +56,12 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
 
     let flags = RunFlags {
         harness: harness.id(),
-        mcps: run_args.mcps.clone(),
-        skills: run_args.skills.clone(),
+        mcps: clean_ids(run_args.mcps.clone()),
+        skills: clean_ids(run_args.skills.clone()),
         mcp_json: run_args.mcp_json.clone(),
         account: run_args.account.clone(),
         model: run_args.model.clone(),
-        hooks: run_args.hooks.clone(),
+        hooks: clean_ids(run_args.hooks.clone()),
         safe: run_args.safe,
         instructions,
         prompt: run_args.prompt.clone(),
@@ -69,7 +69,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         cwd: cwd.clone(),
         isolate: run_args.isolate.clone(),
         resume: run_args.resume.clone(),
-        mcp_as_skill: run_args.mcp_as_skill.clone(),
+        mcp_as_skill: clean_ids(run_args.mcp_as_skill.clone()),
     };
 
     let accounts = build_account_store();
@@ -275,10 +275,21 @@ fn load_settings(run_args: &RunArgs, cwd: &Path) -> Result<Settings> {
     if let Some(path) = &run_args.config {
         settings::load(path)
     } else {
-        Ok(settings::discover(cwd)?
-            .map(|(s, _)| s)
-            .unwrap_or_default())
+        Ok(settings::resolve(cwd)?.map(|(s, _)| s).unwrap_or_default())
     }
+}
+
+/// Normalize a repeatable id flag: trim entries and drop empties, preserving
+/// the None-vs-Some distinction. `--mcps ''` (clap yields `Some([""])`) becomes
+/// `Some([])` — the explicit-empty set the resolver treats as "replace with
+/// nothing" — instead of a bogus id `''`.
+fn clean_ids(v: Option<Vec<String>>) -> Option<Vec<String>> {
+    v.map(|list| {
+        list.into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    })
 }
 
 /// Look for a project-local catalog overlay (`<dir>/.agent-manager/catalog`),
@@ -332,4 +343,31 @@ fn print_config(dir: &Path, launch: &crate::harness::Launch, keep_config: bool) 
     }
     println!("env_remove: {}", launch.env_remove.join(", "));
     println!("keep_config: {keep_config}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_ids_none_stays_none() {
+        assert_eq!(clean_ids(None), None);
+    }
+
+    #[test]
+    fn test_clean_ids_single_empty_becomes_empty_some() {
+        assert_eq!(clean_ids(Some(vec!["".to_string()])), Some(vec![]));
+    }
+
+    #[test]
+    fn test_clean_ids_trims_and_drops_empties() {
+        assert_eq!(
+            clean_ids(Some(vec![
+                "a".to_string(),
+                "".to_string(),
+                " b ".to_string(),
+            ])),
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+    }
 }

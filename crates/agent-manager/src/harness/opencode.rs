@@ -233,6 +233,41 @@ impl Harness for Opencode {
         })
     }
 
+    /// Log opencode into `home`, capturing the resulting `auth.json`.
+    ///
+    /// Per opencode.md "Credential capture & reuse": `~/.local/share/opencode/auth.json`
+    /// is the sole auth store and is **always plaintext** (no keychain, so no
+    /// force-file-storage knob is needed here, unlike Claude Code/Codex).
+    /// `HOME` is the relocation lever this provisioner already uses for the
+    /// reuse path (see `provision()` above, which sets `HOME = account.home`
+    /// so the HOME-relative auth store resolves inside the private home) —
+    /// pointing `HOME` at the capture home here mirrors that exactly.
+    /// Deliberately does NOT set `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR` —
+    /// login only needs the auth store; the reuse path injects config
+    /// separately.
+    ///
+    /// Login command: `opencode auth login` (interactive TUI: pick provider,
+    /// paste key or complete OAuth). Not verified against the installed
+    /// binary in this environment (opencode is not on `PATH` here) — this
+    /// matches the documented command in opencode.md and should be
+    /// re-verified against `opencode auth --help` when the binary is
+    /// available.
+    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
+        let env = vec![("HOME".to_string(), home.display().to_string())];
+        let args = vec!["auth".to_string(), "login".to_string()];
+        Ok(super::LoginPlan {
+            launch: Launch {
+                program: "opencode".to_string(),
+                args,
+                env,
+                env_remove: Vec::new(),
+            },
+            credential_files: vec![std::path::PathBuf::from(
+                ".local/share/opencode/auth.json",
+            )],
+        })
+    }
+
     fn structured_bridge(
         &self,
         provisioned: &crate::provision::Provisioned,
@@ -760,6 +795,24 @@ mod tests {
 
         assert!(!launch.args.contains(&"--session".to_string()));
         assert!(!launch.args.contains(&"abc".to_string()));
+    }
+
+    #[test]
+    fn login_points_home_at_capture_dir_and_names_auth_json() {
+        let home = tempfile::TempDir::new().unwrap();
+
+        let plan = Opencode::new().login(home.path()).unwrap();
+
+        assert!(plan
+            .launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string()));
+        assert!(!plan.credential_files.is_empty());
+        assert!(plan.credential_files[0]
+            .to_str()
+            .unwrap()
+            .ends_with("opencode/auth.json"));
     }
 
     #[test]

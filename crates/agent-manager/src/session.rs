@@ -88,17 +88,13 @@ impl SessionMeta {
     }
 }
 
-/// The default sessions root: `<state>/sessions`, using the same
-/// `directories`-crate state/data-dir resolution as
-/// [`crate::provision::new_run_dir`].
+/// The default sessions root: `~/.config/agent-manager/sessions` on all
+/// platforms — the same base dir as the config file
+/// ([`crate::settings::default_config_dir`]), so every agent-manager store
+/// lives together under `~/.config/agent-manager/`. Overridable by
+/// `AM_SESSIONS` (see [`sessions_root`]).
 fn default_sessions_root() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "agent-manager").map(|dirs| {
-        let state = dirs
-            .state_dir()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| dirs.data_local_dir().to_path_buf());
-        state.join("sessions")
-    })
+    crate::settings::default_config_dir().map(|d| d.join("sessions"))
 }
 
 /// Resolve the sessions root from (highest first): an explicit path, the

@@ -126,20 +126,20 @@ fn host_inproc_mcps(
     Ok((effective, servers))
 }
 
-/// Generate a fresh `<state>/runs/<run-id>/` path for an ephemeral run.
+/// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.
 ///
-/// `<state>` prefers the OS state dir, falling back to the local data dir,
-/// under the `agent-manager` project namespace. `<run-id>` is
+/// `<runs-root>` is the `AM_RUNS` env var if set, else
+/// `~/.config/agent-manager/runs` ([`crate::settings::default_config_dir`]) —
+/// the same base dir as every other agent-manager store. `<run-id>` is
 /// `<unix-millis>-<pid>`, which is unique enough for a single-host tool
 /// without pulling in a UUID dependency.
 fn new_run_dir() -> Result<PathBuf> {
-    let base = directories::ProjectDirs::from("", "", "agent-manager")
-        .map(|dirs| {
-            dirs.state_dir()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| dirs.data_local_dir().to_path_buf())
-        })
-        .context("could not determine a state/data directory for this OS")?;
+    let base = std::env::var("AM_RUNS")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| crate::settings::default_config_dir().map(|d| d.join("runs")))
+        .context("could not determine a runs directory for this OS")?;
 
     let run_id = format!(
         "{}-{}",
@@ -150,7 +150,7 @@ fn new_run_dir() -> Result<PathBuf> {
         std::process::id()
     );
 
-    Ok(base.join("runs").join(run_id))
+    Ok(base.join(run_id))
 }
 
 #[cfg(test)]

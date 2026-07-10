@@ -7,13 +7,35 @@
 //! The isolation lever: Grok CLI (`superagent-ai/grok-cli`, npm
 //! `@vibe-kit/grok-cli`) has **no `GROK_CONFIG_DIR`-style override** — its
 //! global config dir (`~/.grok/`) and user-tier skills (`~/.agents/skills/`)
-//! are derived from the OS home. So provisioning relocates `HOME` to the
-//! ephemeral dir: `~/.grok/user-settings.json` becomes
-//! `<dir>/.grok/user-settings.json` and `~/.agents/skills/` becomes
-//! `<dir>/.agents/skills/`. Injected MCP servers and skills land there, the
-//! user's real `~/.grok` is never read or written, and ambient user-tier MCP
-//! servers are suppressed (the relocated HOME has none). The agent still runs
-//! against the user's real project (`spec.cwd`); only its config home moves.
+//! are derived from the OS home. So provisioning relocates `HOME` to a
+//! `config_home`: normally the ephemeral `dir`, but when the run's account
+//! carries a private `home`, `config_home` becomes that `home` instead (see
+//! the account-home tradeoff note on `provision()` below — this mirrors how
+//! `Codex::provision` unifies config + credentials under one root, since
+//! Grok, like Codex, has no way to split a credential-store HOME from an
+//! injected-config dir). `~/.grok/user-settings.json` becomes
+//! `<config_home>/.grok/user-settings.json` and `~/.agents/skills/` becomes
+//! `<config_home>/.agents/skills/`. Injected MCP servers and skills land
+//! there, the user's real `~/.grok` is never read or written, and ambient
+//! user-tier MCP servers are suppressed (the relocated HOME has none). The
+//! agent still runs against the user's real project (`spec.cwd`); only its
+//! config home moves.
+//!
+//! **Known non-invasiveness gap:** relocating `HOME` has been observed to
+//! isolate config/skill reads (`user-settings.json`, `.agents/skills/`) but
+//! NOT session/log writes — a real launch was seen writing to the user's
+//! real `~/.grok/sessions/…` and `~/.grok/logs/…` even with `HOME` set to the
+//! ephemeral dir. No verified env-var lever closes this: Grok CLI is
+//! Node-based, and Node's `os.homedir()` honors `$HOME` while
+//! `os.userInfo().homedir` (a common choice for session/log/state dirs)
+//! always resolves the real home via the OS user database (`getpwuid`),
+//! which no environment variable can override. See `_docs/harness/grok.md`
+//! § "Format quirks / gotchas" for detail. Do not add speculative
+//! `XDG_*`/config-dir env vars to `provision`'s `Launch.env` to try to fix
+//! this without first verifying, against the actual installed binary, that
+//! they (a) redirect session/log writes AND (b) still let Grok read the
+//! injected config this provisioner writes under `<dir>/.grok/` — an
+//! unverified lever risks silently breaking MCP/skill injection instead.
 //!
 //! Grok has no non-invasive always-on memory slot (its `AGENTS.md` is
 //! merged from the git root down to cwd — the user's real project, which a
@@ -119,11 +141,32 @@ impl Harness for Grok {
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
 
-        // 1. Skills: copy each skill folder into <dir>/.agents/skills/<id>/.
-        // With HOME relocated to `dir`, this is the user-tier
-        // `~/.agents/skills/` Grok discovers (the agent-neutral path, not
-        // `.grok/`).
-        let skills_dir = dir.join(".agents").join("skills");
+        // Grok has no way to split a credential-store HOME from an injected-
+        // config dir (unlike Claude Code's `CLAUDE_CONFIG_DIR`/`HOME` split or
+        // opencode's `OPENCODE_CONFIG_DIR`/HOME-relative-auth split) — its
+        // only lever is relocating `HOME` wholesale, and both `.grok/` and
+        // `.agents/skills/` resolve from it. So when the run's account
+        // carries a private `home`, that dir becomes both the write target
+        // for injected config AND the `HOME` the child sees, mirroring
+        // `Codex::provision`'s `config_home` handling: a private-home Grok
+        // account relocates HOME to that home, so its captured OAuth
+        // credentials (from `Grok::login`) and injected config live together
+        // there — the documented Grok tradeoff. When no account.home is set,
+        // `config_home == dir` and behavior is byte-identical to before this
+        // reconciliation.
+        let config_home = spec
+            .account
+            .as_ref()
+            .and_then(|a| a.home.clone())
+            .unwrap_or_else(|| dir.to_path_buf());
+        std::fs::create_dir_all(&config_home)
+            .with_context(|| format!("creating {}", config_home.display()))?;
+
+        // 1. Skills: copy each skill folder into
+        // <config_home>/.agents/skills/<id>/. With HOME relocated to
+        // `config_home`, this is the user-tier `~/.agents/skills/` Grok
+        // discovers (the agent-neutral path, not `.grok/`).
+        let skills_dir = config_home.join(".agents").join("skills");
         for skill in &spec.skills {
             if !skill.path.exists() {
                 bail!(
@@ -147,15 +190,16 @@ impl Harness for Grok {
         // spec.mcp_as_skill is empty.
         super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
 
-        // 2. MCP: write <dir>/.grok/user-settings.json with `mcpServers` when
-        // there are servers to inject. There is no `--mcp-config` flag, so the
-        // user-settings file (under the relocated HOME) is the only injection
-        // channel. Written only when non-empty so unused runs stay minimal;
-        // ambient user-tier servers are already suppressed by the relocated
-        // HOME, not by writing an empty file.
+        // 2. MCP: write <config_home>/.grok/user-settings.json with
+        // `mcpServers` when there are servers to inject. There is no
+        // `--mcp-config` flag, so the user-settings file (under the
+        // relocated HOME) is the only injection channel. Written only when
+        // non-empty so unused runs stay minimal; ambient user-tier servers
+        // are already suppressed by the relocated HOME, not by writing an
+        // empty file.
         let mcp_map = build_mcp_servers(&spec.mcps)?;
         if !mcp_map.is_empty() {
-            let grok_dir = dir.join(".grok");
+            let grok_dir = config_home.join(".grok");
             std::fs::create_dir_all(&grok_dir)
                 .with_context(|| format!("creating {}", grok_dir.display()))?;
             let settings = json!({ "mcpServers": Value::Object(mcp_map) });
@@ -200,12 +244,14 @@ impl Harness for Grok {
         // and a base URL; the secret value is read transiently below and
         // passed to the child in-memory, never written to disk.
         //
-        // HOME is relocated to the ephemeral dir so Grok's `~/.grok` and
+        // HOME is relocated to `config_home` so Grok's `~/.grok` and
         // `~/.agents/skills` resolve inside it (the isolation lever; see the
-        // module docs). `account.home` is intentionally not honored for Grok:
-        // HOME is reserved for config isolation and Grok's credentials are
-        // env-based, so a private credential-store home isn't needed.
-        let mut env = vec![("HOME".to_string(), dir.display().to_string())];
+        // module docs). When an account carries a private `home`,
+        // `config_home` (and thus HOME) is that home — the same dir that
+        // holds the injected config above — since Grok has no way to keep
+        // credentials and injected config in separate places (unlike Claude
+        // Code/opencode's HOME/config-dir split).
+        let mut env = vec![("HOME".to_string(), config_home.display().to_string())];
         if let Some(account) = &spec.account {
             if let Some(base_url) = &account.base_url {
                 env.push(("GROK_BASE_URL".to_string(), base_url.clone()));
@@ -227,6 +273,36 @@ impl Harness for Grok {
             args,
             env,
             env_remove: Vec::new(),
+        })
+    }
+
+    /// Log Grok CLI into `home`, capturing the resulting OAuth `auth.json`.
+    ///
+    /// Per grok.md "Credential capture & reuse": `~/.grok/auth.json` is the
+    /// sole OAuth credential file and is **always plaintext** (no keychain,
+    /// so no force-file-storage knob is needed here, unlike Claude Code/
+    /// Codex). `HOME` is the only relocation lever Grok exposes (no
+    /// `GROK_CONFIG_DIR`-style override), and this provisioner's reuse path
+    /// now relocates HOME to `config_home` (== `account.home` when set — see
+    /// `provision()` above), so pointing `HOME` at the capture `home` here
+    /// mirrors that exactly.
+    ///
+    /// There is no documented `grok auth login` verb: the interactive TUI
+    /// triggers the OAuth flow on first run under a fresh `HOME`, so the
+    /// launch is bare (no subcommand args). Not verified against the
+    /// installed binary in this environment (grok is not on `PATH` here) —
+    /// this matches grok.md's documented behavior and should be re-verified
+    /// against `grok --help` when the binary is available.
+    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
+        let env = vec![("HOME".to_string(), home.display().to_string())];
+        Ok(super::LoginPlan {
+            launch: Launch {
+                program: "grok".to_string(),
+                args: Vec::new(),
+                env,
+                env_remove: Vec::new(),
+            },
+            credential_files: vec![std::path::PathBuf::from(".grok/auth.json")],
         })
     }
 }
@@ -543,6 +619,47 @@ mod tests {
     }
 
     #[test]
+    fn provision_account_home_relocates_home_and_becomes_write_target() {
+        use crate::account::Account;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let account_home = tempfile::TempDir::new().unwrap();
+
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "private-home".to_string(),
+            home: Some(account_home.path().to_path_buf()),
+            ..Default::default()
+        });
+        spec.mcps.push(McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec![],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }));
+
+        let grok = Grok::new();
+        let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+        // HOME relocates to the account's private home, not the ephemeral dir.
+        assert!(launch.env.iter().any(
+            |(k, v)| k == "HOME" && v == &account_home.path().display().to_string()
+        ));
+
+        // Injected config (.grok/user-settings.json) lands in the account
+        // home too, not the ephemeral dir — creds and config live together.
+        assert!(account_home
+            .path()
+            .join(".grok/user-settings.json")
+            .exists());
+        assert!(!config_dir.path().join(".grok").exists());
+    }
+
+    #[test]
     fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
         use crate::account::Account;
 
@@ -601,6 +718,23 @@ mod tests {
     #[test]
     fn resolve_grok_by_id_and_command() {
         assert_eq!(super::super::resolve("grok").unwrap().id(), "grok");
+    }
+
+    #[test]
+    fn login_points_home_at_capture_dir_and_names_auth_json() {
+        let home = tempfile::TempDir::new().unwrap();
+
+        let plan = Grok::new().login(home.path()).unwrap();
+
+        assert!(plan
+            .launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string()));
+        assert_eq!(
+            plan.credential_files[0],
+            std::path::PathBuf::from(".grok/auth.json")
+        );
     }
 
     #[test]

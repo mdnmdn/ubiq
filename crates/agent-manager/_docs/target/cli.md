@@ -11,7 +11,7 @@ and otherwise treats the first positional as a **harness name** to wrap:
 ```
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
-am account   <ls|use|import> …                  # manage accounts
+am account   <ls|use|import|login> …            # manage accounts
 am session   <ls|show|resume> …                 # manage session history  (ls/show/resume landed)
 am help | am --version
 ```
@@ -68,8 +68,20 @@ highest first:
 
 1. **CLI flags** (`--mcps`, `--account`, …).
 2. **`--config <path>`** if given, else the **discovered** settings file.
-3. **Environment** (`AM_CATALOG`, `AM_CONFIG`, …).
+3. **Environment** (`AM_CATALOG`, `AM_CONFIG_FILE`, `AM_CONFIG_FOLDER`, …).
 4. **Built-in defaults.**
+
+### Config file resolution (precedence)
+
+The settings file is resolved using this hierarchy, **highest → lowest**:
+
+1. **`--config <path>`** (CLI flag): full path to a settings file (toml/yaml).
+2. **`AM_CONFIG_FILE`** (environment): full path to a settings file.
+3. **`$AM_CONFIG_FOLDER/config.{toml,yaml,yml}`** (environment): a directory containing the settings file.
+4. **Project walk**: nearest `am.toml`/`agent-manager.*`/dotfile from CWD, walking up to git root.
+5. **`~/.config/agent-manager/config.toml`** (global default; `.yaml`/`.yml` also accepted).
+
+Note: the **catalog root**, **accounts**, and **session state** (`AM_CATALOG`, `AM_ACCOUNTS`, `AM_SESSIONS`) each have independent environment variable overrides and platform-specific fallbacks. They are unaffected by the settings file precedence above.
 
 ### Discovery order for the settings file
 
@@ -124,6 +136,38 @@ This keeps the effective set easy to reason about: the highest layer that
 mentions a key wins outright. Both TOML and YAML are accepted; TOML is the
 documented default.
 
+## Storage locations & environment variables
+
+All of `am`'s state lives under a single base — **`~/.config/agent-manager/`** on
+every platform (Linux, macOS, Windows alike; `am` does not scatter into
+OS-specific `Application Support` / `%APPDATA%` / state dirs). Each store can be
+relocated independently by its own environment variable (highest precedence),
+and some also by a CLI flag.
+
+| Store | Default | Env override | CLI flag |
+|-------|---------|--------------|----------|
+| Settings file | `~/.config/agent-manager/config.toml` | `AM_CONFIG_FILE` (full path to a config file) · `AM_CONFIG_FOLDER` (a dir holding `config.{toml,yaml,yml}`) | `--config <path>` |
+| Accounts | `~/.config/agent-manager/accounts/` | `AM_ACCOUNTS` | — |
+| Catalog | `~/.config/agent-manager/catalog/` | `AM_CATALOG` | `--catalog <path>` |
+| Sessions | `~/.config/agent-manager/sessions/` | `AM_SESSIONS` | — |
+| Ephemeral run dirs | `~/.config/agent-manager/runs/` | `AM_RUNS` | `--keep-config` (retains, doesn't relocate) |
+
+Notes:
+
+- A **project-local** settings file (`am.toml` …) discovered by walking up to the
+  git root still wins over the global `config.toml` default — see the
+  precedence list above. The two settings env vars govern **only** the settings
+  file; they have no effect on the accounts/catalog/sessions/runs roots, each of
+  which has its own env var in the table.
+- **Accounts** and **catalog** are user-curated config-like stores. **Sessions**
+  (recorded run history) and **run dirs** (per-run ephemeral config, normally
+  deleted on exit) are working state; they live under the same base purely for a
+  single, predictable location. Point `AM_SESSIONS` / `AM_RUNS` elsewhere (e.g. a
+  `tmpfs` or a scratch dir) if you'd rather keep transient state out of `~/.config`.
+- `am account use <id>` and `am account login <id>` **write** into these roots
+  (the global `config.toml` and `accounts/` respectively), always resolving the
+  same path the read side uses.
+
 ## Catalog commands
 
 ```bash
@@ -144,9 +188,10 @@ those dirs; it never writes back to them. Full behavior in
 ## Account commands
 
 ```bash
-am account ls                 # list available accounts
-am account use <id>           # set the default account for future runs
-am account import             # ingest account definitions from well-known locations
+am account ls                                  # list available accounts
+am account use <id>                            # set the default account for future runs
+am account login <id> --harness <h>            # provision a per-account home & capture login
+am account import                              # ingest account definitions from well-known locations
 am account import --from ~/.claude --write
 ```
 
@@ -155,6 +200,20 @@ An account holds credential **references**, never secret material: environment v
 (`api_key_env`, `auth_token_env`), a `base_url`, a credential helper command, and/or a
 private `home` directory. When injected with `--account <id>`, the account's references are
 resolved into the harness's native auth slots. Full account schema in [`overview.md`](./overview.md).
+
+### Capturing a login with `am account login`
+
+`am account login <id> --harness <h>` provisions a persistent, per-account home directory
+under the accounts root (`<accounts-root>/<id>/`) and runs the harness's native interactive
+login flow there. The harness writes its own credential files (e.g. auth tokens, API keys)
+into that isolated home — `am` never parses or copies secret values, only points the harness
+at the directory via `HOME` / `CODEX_HOME` / etc., and forces file-based storage where the
+harness supports it (e.g. Codex's `cli_auth_credentials_store="file"`). On success, `am` verifies
+the credential file appeared and records the account's `home` reference in the account's
+`<id>.toml` entry, so future `am <h> --account <id>` runs reuse that login without re-authenticating.
+This is the "capture a login into an ephemeral/isolated environment" flow. Per-harness
+credential-file locations and configuration levers are documented in each `_docs/harness/<h>.md`
+under "Credential capture & reuse".
 
 ## Session commands
 

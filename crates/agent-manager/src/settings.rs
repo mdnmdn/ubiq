@@ -102,6 +102,25 @@ pub struct IsolateSettings {
     pub command: Option<String>,
 }
 
+/// First existing `config.{toml,yaml,yml}` in `dir`, if any.
+fn config_in_dir(dir: &Path) -> Option<PathBuf> {
+    for ext in ["toml", "yaml", "yml"] {
+        let candidate = dir.join(format!("config.{ext}"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// The shared agent-manager base dir: `~/.config/agent-manager` (all
+/// platforms). Holds `config.toml` and the config-like stores that default
+/// under it (`accounts/`, `catalog/`) — each still overridable by its own env
+/// var (`AM_CONFIG_*`, `AM_ACCOUNTS`, `AM_CATALOG`).
+pub fn default_config_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|b| b.home_dir().join(".config").join("agent-manager"))
+}
+
 /// Load a settings file from an explicit path.
 ///
 /// The format is chosen by extension: `.toml` parses as TOML, anything else
@@ -131,7 +150,7 @@ pub fn load(path: &Path) -> Result<Settings> {
 /// Ascent stops after checking a directory that contains a `.git` entry
 /// (that directory is still checked before stopping). If nothing is found
 /// while walking, falls back to the global config file at
-/// `<config_dir>/agent-manager/config.{toml,yaml,yml}`. Returns `Ok(None)`
+/// `~/.config/agent-manager/config.{toml,yaml,yml}`. Returns `Ok(None)`
 /// if nothing exists anywhere.
 pub fn discover(cwd: &Path) -> Result<Option<(Settings, PathBuf)>> {
     let mut current = Some(cwd.to_path_buf());
@@ -148,19 +167,48 @@ pub fn discover(cwd: &Path) -> Result<Option<(Settings, PathBuf)>> {
         current = dir.parent().map(|p| p.to_path_buf());
     }
 
-    // Fall back to the global config file.
-    if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "agent-manager") {
-        let config_dir = proj_dirs.config_dir();
-        for ext in ["toml", "yaml", "yml"] {
-            let candidate = config_dir.join(format!("config.{ext}"));
-            if candidate.is_file() {
-                let settings = load(&candidate)?;
-                return Ok(Some((settings, candidate)));
-            }
-        }
+    // Fall back to the global config file at ~/.config/agent-manager/config.*
+    if let Some(path) = default_config_dir().and_then(|d| config_in_dir(&d)) {
+        let settings = load(&path)?;
+        return Ok(Some((settings, path)));
     }
 
     Ok(None)
+}
+
+/// Resolve the effective settings honoring the env overrides that sit above
+/// project/global discovery: `AM_CONFIG_FILE` (a full path) then
+/// `AM_CONFIG_FOLDER` (a dir holding `config.*`), else fall through to
+/// [`discover`] (project walk, then the `~/.config/agent-manager` global
+/// default). `--config` is handled by the caller above this.
+pub fn resolve(cwd: &Path) -> Result<Option<(Settings, PathBuf)>> {
+    if let Some(file) = std::env::var("AM_CONFIG_FILE").ok().filter(|s| !s.is_empty()) {
+        let path = PathBuf::from(file);
+        let settings = load(&path)?;
+        return Ok(Some((settings, path)));
+    }
+    if let Some(folder) = std::env::var("AM_CONFIG_FOLDER").ok().filter(|s| !s.is_empty())
+        && let Some(path) = config_in_dir(Path::new(&folder))
+    {
+        let settings = load(&path)?;
+        return Ok(Some((settings, path)));
+    }
+    discover(cwd)
+}
+
+/// Where `am account use` (and any global-config writer) should write: the
+/// same location `resolve`/`discover` treat as the global default.
+/// `AM_CONFIG_FILE` → `$AM_CONFIG_FOLDER/config.toml` → `~/.config/agent-manager/config.toml`.
+pub fn global_config_write_path() -> Result<PathBuf> {
+    if let Some(file) = std::env::var("AM_CONFIG_FILE").ok().filter(|s| !s.is_empty()) {
+        return Ok(PathBuf::from(file));
+    }
+    if let Some(folder) = std::env::var("AM_CONFIG_FOLDER").ok().filter(|s| !s.is_empty()) {
+        return Ok(PathBuf::from(folder).join("config.toml"));
+    }
+    default_config_dir()
+        .map(|d| d.join("config.toml"))
+        .ok_or_else(|| anyhow::anyhow!("could not determine the global config directory for this OS"))
 }
 
 /// Try each candidate basename in `dir`, in order; load and return the first
@@ -340,6 +388,31 @@ presets:
         assert_eq!(claude.account.as_deref(), Some("work"));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_config_in_dir_none_when_empty() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        assert_eq!(config_in_dir(temp.path()), None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_config_in_dir_prefers_toml() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        fs::write(temp.path().join("config.yaml"), "catalog: /from-yaml\n")?;
+        fs::write(temp.path().join("config.toml"), "catalog = \"/from-toml\"\n")?;
+
+        let found = config_in_dir(temp.path()).expect("should find config.toml");
+        assert_eq!(found, temp.path().join("config.toml"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_default_config_dir_ends_with_config_agent_manager() {
+        if let Some(dir) = default_config_dir() {
+            assert!(dir.ends_with(".config/agent-manager"));
+        }
     }
 
     #[test]
