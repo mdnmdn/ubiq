@@ -19,7 +19,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
 use crate::Result;
 
-use super::{Harness, IoSupport, Launch};
+use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
 /// Environment variables stripped from the child so a nested `am`/Claude Code
 /// invocation doesn't inherit the parent session's identity.
@@ -68,6 +68,21 @@ impl Harness for Claude {
         IoSupport {
             passthrough: true,
             structured: true,
+        }
+    }
+
+    /// Class A: `CLAUDE_CONFIG_DIR` relocates the entire config — credentials
+    /// and `.claude.json` included (verified against Claude Code 2.1.206) — so
+    /// a captured login is the two files below, seeded into the ephemeral dir
+    /// while the real `HOME` stays intact. See `_docs/target/profiles.md` §5.
+    fn config_anchor(&self) -> ConfigAnchor {
+        ConfigAnchor {
+            levers: vec![("CLAUDE_CONFIG_DIR".to_string(), Relocate::All)],
+            login_seed: vec![
+                SeedFile::new(".claude/.credentials.json", ".credentials.json"),
+                SeedFile::new(".claude.json", ".claude.json"),
+            ],
+            requires_home_relocation: false,
         }
     }
 
@@ -267,7 +282,8 @@ impl Harness for Claude {
                 // shell rc, PATH shims — none of which exist under a bare
                 // account home. Seeding into `CLAUDE_CONFIG_DIR` fixes the auth
                 // half while leaving the real HOME (and toolchain) intact.
-                seed_account_login(dir, home)?;
+                // The seed list is declared once in `config_anchor()`.
+                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -293,7 +309,8 @@ impl Harness for Claude {
     /// HOME-relative layout (`<home>/.claude/.credentials.json`,
     /// `<home>/.claude.json`) so the reuse path can find and seed those files:
     /// `provision()` above copies them into the ephemeral `CLAUDE_CONFIG_DIR`
-    /// (see [`seed_account_login`]) rather than relocating the child's `HOME`.
+    /// (via [`super::seed_login`] driven by [`Claude::config_anchor`]) rather
+    /// than relocating the child's `HOME`.
     fn login(&self, home: &Path) -> Result<super::LoginPlan> {
         let env = vec![("HOME".to_string(), home.display().to_string())];
         let args = vec!["auth".to_string(), "login".to_string()];
@@ -379,41 +396,6 @@ fn build_hooks_json(hooks: &[HookRef]) -> Value {
             .push(Value::Object(entry));
     }
     json!(by_event)
-}
-
-/// Seed an account's captured Claude Code login (credentials + identity) into
-/// the ephemeral config dir, so a run reuses a prior `am account login` without
-/// re-triggering onboarding — and **without** touching the child's `HOME`.
-///
-/// Claude Code ≥2.x relocates its *entire* config into `CLAUDE_CONFIG_DIR`
-/// (`.claude.json`, `projects/`, `sessions/`, and `.credentials.json` all move;
-/// `HOME` is left untouched — verified empirically against 2.1.206). So the two
-/// files that make a session "logged in" are seeded straight into `dir`:
-///
-/// - `<home>/.claude/.credentials.json` → `<dir>/.credentials.json` — the OAuth
-///   token blob; its absence is what forces the login/onboarding prompt.
-/// - `<home>/.claude.json` → `<dir>/.claude.json` — carries the
-///   `hasCompletedOnboarding` flag and the `oauthAccount` identity block.
-///
-/// Files are *copied* (not symlinked): the run is ephemeral and Claude Code
-/// rewrites `.claude.json` in place during a session, so the account's canonical
-/// store must not be mutated by a run. (A refreshed OAuth token therefore stays
-/// in the ephemeral dir and is discarded at cleanup; persisting refreshes back
-/// to the account store is a profile-layer concern — see
-/// `_docs/target/profiles.md`.) Missing source files are silently skipped so a
-/// reference-only or partially-captured account still launches.
-fn seed_account_login(dir: &Path, home: &Path) -> Result<()> {
-    let creds_src = home.join(".claude").join(".credentials.json");
-    if creds_src.exists() {
-        std::fs::copy(&creds_src, dir.join(".credentials.json"))
-            .with_context(|| format!("seeding credentials from {}", creds_src.display()))?;
-    }
-    let json_src = home.join(".claude.json");
-    if json_src.exists() {
-        std::fs::copy(&json_src, dir.join(".claude.json"))
-            .with_context(|| format!("seeding identity from {}", json_src.display()))?;
-    }
-    Ok(())
 }
 
 /// Build the `{"mcpServers": {...}}` document from `spec.mcps`.

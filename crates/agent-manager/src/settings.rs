@@ -84,12 +84,18 @@ pub struct HarnessDefaults {
     /// Catalog skill ids. Same None-vs-empty distinction.
     #[serde(default)]
     pub skills: Option<Vec<String>>,
-    /// Account/credential profile id.
+    /// Account/credential id to use.
     #[serde(default)]
     pub account: Option<String>,
     /// Catalog hook ids to select. Same None-vs-empty distinction.
     #[serde(default)]
     pub hooks: Option<Vec<String>>,
+    /// Profile to resolve for this run (`[defaults].profile`, or a per-harness
+    /// `[harness.<id>].profile`). Selected before the composition merge; its
+    /// fields sit between CLI flags and the per-harness/defaults layers. `am
+    /// profile use <name>` writes this into `[defaults]`. See [`crate::profile`].
+    #[serde(default)]
+    pub profile: Option<String>,
 }
 
 /// The `[isolate]` settings table: overrides how `--isolate` wraps the

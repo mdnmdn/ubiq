@@ -226,27 +226,50 @@ supports it — an agent is a profile preset with the overlay locked. Project-sc
 profiles/agents (`<project>/.agent-manager/profiles/…`) are a later layer;
 global profiles come first.
 
-## 11. Phased plan
+## 11. Phased plan — **status: all landed**
 
-1. **Bug fix (done, Claude):** seed login into `CLAUDE_CONFIG_DIR`, stop
-   clobbering `HOME`. Validated end-to-end.
-2. **Generalize seeding:** add `ConfigAnchor`/`SeedFile` to the `Harness` trait;
-   port Codex (Class A) and opencode (Class B — identify its data-dir lever);
-   document grok (Class C) as isolation-preferred.
-3. **Profile store + resolve:** `profiles/<name>/{base,profile.toml}`, resolution
-   order (§7), `am profile ls|use|show`, implicit lazy-captured `default`.
-4. **Materialize + GC:** symlink-else-copy overlay, manifest, day-later sweep,
-   Windows fallback.
-5. **Agents:** frozen sub-profiles; then project-scoped profiles/agents.
+1. **Bug fix (Claude) ✅** seed login into `CLAUDE_CONFIG_DIR`, stop clobbering
+   `HOME`. Validated end-to-end (AUTH_OK).
+2. **Generalize seeding ✅** `ConfigAnchor`/`SeedFile`/`seed_login` on the
+   `Harness` trait; Codex (Class A, `CODEX_HOME`), opencode (Class A after the
+   `XDG_DATA_HOME` probe verified — B-1 below), grok (Class C, HOME-relocation +
+   seed). Each declares `config_anchor()`.
+3. **Profile store + resolve ✅** `src/profile.rs` (`Profile`/`ProfileStore`/
+   `FsProfileStore`, `extends` inheritance via `resolve_chain`/`flatten`);
+   `--profile` flag + `[defaults].profile` with precedence `flags > profile >
+   per-harness > defaults` (§7); `am profile ls|show|use|create`; zero-config
+   login reuse (`seed_zero_config_login`) instead of a materialized `default`
+   profile file.
+4. **Materialize + GC ✅** `src/overlay.rs`: `materialize` (symlink-else-copy of
+   the profile `base/<harness>/` overlay, leaf-wins, never clobbers `am`-managed
+   files, Windows copy fallback) + `sweep_old_runs` (day-later GC of the runs
+   root, `AM_RUNS_TTL_DAYS`, default 7). No manifest needed — only files are
+   linked, so `remove_dir_all` unlinks without following into `base/`.
+5. **Agents ✅** `am agent <name>` = a profile with a `harness` pin run frozen
+   (no composition flags). Project-scoped profiles/agents remain a later layer.
 
-## 12. Open decisions
+## 12. Decisions (resolved)
 
-- **B-1.** opencode data-dir lever: does it honor `XDG_DATA_HOME` for
-  `~/.local/share/opencode`? If yes, opencode joins Class A cleanly; if no, its
-  creds stay HOME-relocating (Class C for auth only). *Needs a probe like the
-  one run for Claude 2.1.206.*
-- **B-2.** Credential-refresh persistence: copy-back on exit vs. live symlink.
-- **B-3.** Does `profile` fully subsume `account` in the CLI (account becomes an
-  internal field), or do both stay independently selectable? Leaning: keep
-  accounts as a store, profiles reference them; `--account` remains a per-run
-  override of the profile's account.
+- **B-1 ✅ resolved = Class A-clean.** opencode's `XDG_DATA_HOME` **does** relocate
+  its data/credential tier — verified empirically against opencode 1.17.18
+  (`auth list` read `$XDG_DATA_HOME/opencode/auth.json` and overrode the
+  HOME-relative default). So opencode seeds like Claude/Codex and drops HOME
+  relocation. Recorded in `_docs/harness/opencode.md`.
+- **B-2 → copy (for now).** Credentials are *copied* into the run dir; a
+  refreshed OAuth token stays in the ephemeral dir and is discarded at cleanup.
+  Copy-back-on-exit persistence is a future refinement. The config *overlay*
+  (non-credential) is symlinked.
+- **B-3 → independent.** Accounts stay their own store; a profile *references* an
+  account by id, and `--account` remains a per-run override that wins over the
+  profile's account (implemented in `resolve.rs`).
+
+## 13. Where it lives (implementation map)
+
+- `src/harness/mod.rs` — `Relocate`/`SeedFile`/`ConfigAnchor`, `Harness::config_anchor`, generic `seed_login`.
+- `src/harness/{claude,codex,opencode,grok}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
+- `src/profile.rs` — profile store + `extends` inheritance.
+- `src/resolve.rs` — profile selection + 4-layer `pick` + `config_bases`.
+- `src/overlay.rs` — `materialize` + `sweep_old_runs`.
+- `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login`.
+- `src/cli/{profile,agent}.rs` + `src/cli/mod.rs` — `am profile` / `am agent`.
+- `src/settings.rs` — `[defaults].profile`.

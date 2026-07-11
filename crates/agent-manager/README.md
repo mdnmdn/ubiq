@@ -100,8 +100,36 @@ am account import                 # add accounts from well-known locations
 Accounts are stored under `~/.config/agent-manager/accounts/` (env: `AM_ACCOUNTS`).
 An account holds credential *references*, never secrets: environment variable names
 (`api_key_env`, `auth_token_env`), a `base_url`, a credential helper command, and/or
-a private `home` directory. When injected, the account's references are resolved into
-the harness's native auth slots.
+a private `home` directory holding a captured login. A `home`-based login is **seeded**
+(copied) into the run's relocated config dir — `am` never overrides the child's `HOME`,
+so your toolchain (`nvm`/`mise`/`pyenv`, shell rc, PATH) stays intact.
+
+## Profiles
+
+A **profile** is a named, reusable base — an account, composition defaults, and an
+optional isolation policy — that a run draws from, with per-run flags overriding it.
+Profiles support **inheritance** (`extends`) at both the defaults and config-overlay
+levels.
+
+```bash
+am profile ls                                   # list profiles
+am profile create work --account work --harness claude --model sonnet
+am profile create reviewer --extends work --model haiku   # inherits account/harness
+am profile show reviewer                        # print the flattened profile
+am profile use work                             # set the default profile
+
+am claude --profile work                        # run with the profile
+am claude --profile work --model haiku          # per-run flag overrides the profile
+am agent reviewer -- -p "find bugs"             # run a profile as a frozen agent
+```
+
+Precedence is **flag > profile > per-harness settings > defaults**. Profiles live under
+`~/.config/agent-manager/profiles/<name>/` (env: `AM_PROFILES`) as `profile.toml` plus an
+optional `base/<harness>/` config overlay (symlinked into each run, leaf-of-the-chain
+wins, never clobbering `am`-managed files). With no `--profile`, an implicit `default`
+is used if present; otherwise a bare `am <harness>` reuses your existing login by seeding
+it from your real home (zero-config). Ephemeral run dirs are GC'd after
+`AM_RUNS_TTL_DAYS` (default 7).
 
 ## Settings
 

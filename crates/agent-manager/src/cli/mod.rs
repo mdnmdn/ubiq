@@ -11,6 +11,8 @@
 mod run;
 mod catalog;
 mod account;
+mod profile;
+mod agent;
 mod session;
 
 use std::path::PathBuf;
@@ -20,7 +22,7 @@ use anyhow::{bail, Result};
 use crate::harness;
 
 /// Reserved first-positional words that are never harness ids.
-const RESERVED: &[&str] = &["catalog", "account", "session"];
+const RESERVED: &[&str] = &["catalog", "account", "profile", "agent", "session"];
 
 /// Entry point called by `main.rs`. Parses `std::env::args`, dispatches, and
 /// returns the process-level result (errors become a non-zero exit via
@@ -44,6 +46,8 @@ fn dispatch(args: &[String]) -> Result<()> {
         }
         Some("catalog") => catalog::run(&args[1..]),
         Some("account") => account::run(&args[1..]),
+        Some("profile") => profile::run(&args[1..]),
+        Some("agent") => agent::run(&args[1..]),
         Some("session") => session::run(&args[1..]),
         Some(word) if RESERVED.contains(&word) => {
             println!("{word}: not yet implemented");
@@ -69,6 +73,8 @@ fn print_usage() {
     println!("    am <harness> [flags] [-- <harness-args>…]   wrap & run a harness");
     println!("    am catalog   <ls|import|show|path> …         manage the catalog");
     println!("    am account   <ls|use|import> …                manage accounts");
+    println!("    am profile   <ls|show|use|create> …           manage profiles");
+    println!("    am agent     <name> [-- <harness-args>…]       run a profile as a frozen agent");
     println!("    am session   <ls|show|resume> …               manage session history");
     println!("    am help | am --version");
     println!();
@@ -100,9 +106,14 @@ struct RunArgs {
     /// Inline MCP definition file (bypasses the catalog).
     #[arg(long)]
     mcp_json: Option<PathBuf>,
-    /// Account/credential profile to use. (P2)
+    /// Account/credential id to use.
     #[arg(long)]
     account: Option<String>,
+    /// Profile to resolve: composition defaults + account + isolation, with
+    /// `extends` inheritance. Explicit flags override its fields. Absent = the
+    /// implicit `default` profile (if one exists).
+    #[arg(long)]
+    profile: Option<String>,
     /// Model id to launch with (harness-native id). Discover valid ids with
     /// `--list-models`.
     #[arg(long)]
@@ -243,6 +254,7 @@ mod tests {
     fn dispatch_reserved_word_does_not_error() {
         assert!(dispatch(&["catalog".to_string()]).is_ok());
         assert!(dispatch(&["account".to_string()]).is_ok());
+        assert!(dispatch(&["profile".to_string()]).is_ok());
         assert!(dispatch(&["session".to_string()]).is_ok());
     }
 

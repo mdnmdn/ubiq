@@ -663,7 +663,14 @@ secret stays in the runner's secret store.
     a JSON map `providerID → {type, …}`.
 - **Relocation lever:** `XDG_DATA_HOME` relocates the data dir
   (`$XDG_DATA_HOME/opencode/auth.json`); `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`
-  move only the *config* tier, not the auth store.
+  move only the *config* tier, not the auth store. **VERIFIED empirically against
+  opencode 1.17.18** (macOS): with `XDG_DATA_HOME` set, `opencode auth list`
+  reads `$XDG_DATA_HOME/opencode/auth.json` and it *overrides* the HOME-relative
+  `~/.local/share/opencode/auth.json` default (control: with the lever unset it
+  falls back to that default). This resolves `_docs/target/profiles.md` open
+  decision **B-1 as Class A-clean**: `am` sets both `OPENCODE_CONFIG_DIR` and
+  `XDG_DATA_HOME` to the ephemeral dir and *seeds* the captured `auth.json` in —
+  no child-`HOME` relocation (the user's real toolchain stays intact).
 - **Force file storage (skip keychain):** N/A — `auth.json` is **always
   plaintext** (mode `0600`); opencode has no keychain backend of its own. The
   ideal capture case. *(Exception: the Anthropic-OAuth path can auto-discover

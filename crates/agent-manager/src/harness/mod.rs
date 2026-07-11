@@ -7,7 +7,7 @@
 //! `_docs/harness/<id>.md` for the curated per-harness notes each impl
 //! transcribes.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
@@ -167,6 +167,87 @@ pub struct IoSupport {
     pub structured: bool,
 }
 
+/// How a harness's native env lever relocates its config/credentials into a
+/// dir `am` controls (so the real `HOME` — and the user's toolchain — is left
+/// intact). See `_docs/target/profiles.md` §5 for the A/B/C taxonomy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Relocate {
+    /// Relocates the entire config tree, credentials included (e.g. Claude's
+    /// `CLAUDE_CONFIG_DIR`, Codex's `CODEX_HOME`). Class A.
+    All,
+    /// Relocates only the config tier, not the credential store (e.g. opencode's
+    /// `OPENCODE_CONFIG_DIR`). Class B — pair with a `Data` lever.
+    Config,
+    /// Relocates the data/credential tier (e.g. `XDG_DATA_HOME`).
+    Data,
+}
+
+/// One captured-login file to copy from an account's persistent home into a
+/// harness's relocated config dir. `src`/`dst` are the two ends of that copy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeedFile {
+    /// Source path RELATIVE TO the account home (as written by
+    /// [`Harness::login`], e.g. `.claude/.credentials.json`).
+    pub src: PathBuf,
+    /// Destination path RELATIVE TO the relocated dir (e.g. `.credentials.json`).
+    pub dst: PathBuf,
+}
+
+impl SeedFile {
+    /// A seed-file mapping from an account-home-relative `src` to a
+    /// relocated-dir-relative `dst`.
+    pub fn new(src: impl Into<PathBuf>, dst: impl Into<PathBuf>) -> Self {
+        SeedFile {
+            src: src.into(),
+            dst: dst.into(),
+        }
+    }
+}
+
+/// A declarative description of how a harness relocates its config/credentials
+/// and which files constitute a captured login. This is what makes credential
+/// seeding generic across harnesses (rather than bespoke per provisioner) and
+/// what lazy default-profile capture and the isolation model read. See
+/// `_docs/target/profiles.md` §5.1.
+#[derive(Debug, Clone)]
+pub struct ConfigAnchor {
+    /// Env vars (with their relocation semantics) that point the harness's
+    /// config/data at a dir `am` controls while leaving `HOME` real. Empty for
+    /// Class-C harnesses that have no lever (see `requires_home_relocation`).
+    pub levers: Vec<(String, Relocate)>,
+    /// The files that make a session "logged in", seeded from an account home
+    /// into the relocated dir by [`seed_login`].
+    pub login_seed: Vec<SeedFile>,
+    /// True only for Class-C harnesses (no config lever): the credential store
+    /// is reachable only by relocating `HOME`, which strips the toolchain — so
+    /// these should be paired with isol8. False for Class A/B.
+    pub requires_home_relocation: bool,
+}
+
+/// Seed captured-login files from an account's persistent `home` into a
+/// harness's relocated config `dir`, per a [`ConfigAnchor::login_seed`].
+///
+/// Copies (never symlinks — a run is ephemeral and the harness rewrites some of
+/// these in place), creating parent dirs, and **skips any source that doesn't
+/// exist** so a reference-only or partially-captured account still launches.
+/// Deliberately leaves `HOME` untouched (see `_docs/target/profiles.md` §3).
+pub(crate) fn seed_login(dir: &Path, home: &Path, seed: &[SeedFile]) -> Result<()> {
+    for file in seed {
+        let src = home.join(&file.src);
+        if !src.exists() {
+            continue;
+        }
+        let dst = dir.join(&file.dst);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::copy(&src, &dst)
+            .with_context(|| format!("seeding login from {}", src.display()))?;
+    }
+    Ok(())
+}
+
 /// A wrappable agent harness: how to identify, provision, and launch it.
 pub trait Harness {
     /// Canonical stable id (e.g. `claude-code`).
@@ -179,6 +260,21 @@ pub trait Harness {
     fn aliases(&self) -> &[&str];
     /// Populate `dir` (the ephemeral config dir) from `spec`; return how to launch.
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch>;
+    /// How this harness relocates its config/credentials and which files make up
+    /// a captured login. Backs generic credential seeding ([`seed_login`]), lazy
+    /// default-profile capture, and the isolation model — see
+    /// `_docs/target/profiles.md` §5.
+    ///
+    /// The default is a conservative empty anchor (no levers, no seed, no HOME
+    /// relocation); **every real harness overrides it**. It exists only so the
+    /// crate keeps compiling while harness ports land incrementally.
+    fn config_anchor(&self) -> ConfigAnchor {
+        ConfigAnchor {
+            levers: Vec::new(),
+            login_seed: Vec::new(),
+            requires_home_relocation: false,
+        }
+    }
     /// Which I/O modes this harness supports.
     fn io_support(&self) -> IoSupport;
     /// Discover the models available for this harness, for

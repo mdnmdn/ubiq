@@ -7,7 +7,7 @@
 //! `_docs/target/architecture.md` §"The provisioner and the custom config
 //! folder bridge".
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
@@ -71,6 +71,9 @@ pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
     {
         let (effective_spec, inproc_servers) = host_inproc_mcps(spec)?;
         let launch = harness.provision(&effective_spec, &dir)?;
+        // Layer the profile config overlay on top of the harness-written config.
+        crate::overlay::materialize(&dir, &spec.config_bases)?;
+        seed_zero_config_login(harness, spec, &dir)?;
         Ok(Provisioned {
             dir,
             launch,
@@ -81,6 +84,9 @@ pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
     #[cfg(not(feature = "inproc-mcp"))]
     {
         let launch = harness.provision(spec, &dir)?;
+        // Layer the profile config overlay on top of the harness-written config.
+        crate::overlay::materialize(&dir, &spec.config_bases)?;
+        seed_zero_config_login(harness, spec, &dir)?;
         Ok(Provisioned {
             dir,
             launch,
@@ -126,6 +132,38 @@ fn host_inproc_mcps(
     Ok((effective, servers))
 }
 
+/// Zero-config login reuse (tier A "just works"): when a bare `am <harness>`
+/// run got no login from an account home or a profile overlay, seed the
+/// harness's captured login from the user's **real** `HOME` so it reuses the
+/// existing session instead of onboarding.
+///
+/// No-op when: the harness declares no `login_seed`; a login was already placed
+/// (an account home or overlay seeded it — that wins); the account supplies
+/// env/key/helper credentials (those manage their own auth); or `HOME` is
+/// unset. Missing source files are skipped (see [`crate::harness::seed_login`]),
+/// so this only ever *adds* an existing login and never fails a run for the lack
+/// of one. Never overrides `HOME`.
+fn seed_zero_config_login(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Result<()> {
+    let anchor = harness.config_anchor();
+    if anchor.login_seed.is_empty() {
+        return Ok(());
+    }
+    // A login was already materialized (account home or overlay) — respect it.
+    if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
+        return Ok(());
+    }
+    // Env/key/helper accounts manage their own auth; don't seed a stale OAuth login.
+    if let Some(acct) = &spec.account
+        && (acct.api_key_env.is_some() || acct.auth_token_env.is_some() || acct.helper.is_some())
+    {
+        return Ok(());
+    }
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Ok(());
+    };
+    crate::harness::seed_login(dir, &home, &anchor.login_seed)
+}
+
 /// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.
 ///
 /// `<runs-root>` is the `AM_RUNS` env var if set, else
@@ -140,6 +178,10 @@ fn new_run_dir() -> Result<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| crate::settings::default_config_dir().map(|d| d.join("runs")))
         .context("could not determine a runs directory for this OS")?;
+
+    // Opportunistic GC: sweep run dirs older than the TTL. Best-effort — never
+    // fails a run (an unreadable/locked runs dir just leaves stale dirs).
+    let _ = crate::overlay::sweep_old_runs(&base);
 
     let run_id = format!(
         "{}-{}",

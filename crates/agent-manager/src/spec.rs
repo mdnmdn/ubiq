@@ -209,6 +209,14 @@ pub struct RunSpec {
     /// `--resume <id>`, opencode's `--session <id>`). `None` (the default)
     /// leaves resumeless runs byte-identical to before this field existed.
     pub resume: Option<String>,
+    /// Profile config-overlay base dirs to materialize into the ephemeral
+    /// config dir, ordered **root → leaf** across the profile `extends` chain.
+    /// Each is a `<profiles-root>/<name>/base/<harness>` dir of user config
+    /// (settings fragments, memory, extra skills) layered on top of what the
+    /// harness provisioner wrote — leaf overrides root, and neither overrides
+    /// an `am`-managed file. Empty (the default) = no overlay. See
+    /// [`crate::overlay::materialize`] and `_docs/target/profiles.md` §9.
+    pub config_bases: Vec<PathBuf>,
 }
 
 impl RunSpec {
@@ -231,6 +239,7 @@ impl RunSpec {
             passthrough_args: Vec::new(),
             cwd,
             resume: None,
+            config_bases: Vec::new(),
         }
     }
 }
