@@ -51,10 +51,14 @@ pub struct Account {
     /// never runs this command or sees its output — the harness does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub helper: Option<String>,
-    /// A private config/credentials directory. The child process gets this
-    /// via `HOME`, so a harness's own OAuth/keychain credential store
-    /// (independent of `am`'s injected skills/mcp config) can be kept
-    /// per-account.
+    /// A private directory holding this account's captured harness login
+    /// (written by `am account login`, laid out HOME-relative, e.g.
+    /// `<home>/.claude/.credentials.json` + `<home>/.claude.json`). At launch a
+    /// harness *seeds* the relevant login files from here into its relocated
+    /// config dir (e.g. `CLAUDE_CONFIG_DIR`) — it does **not** override the
+    /// child's `HOME`, which would strip the user's toolchain (nvm/mise/pyenv,
+    /// shell rc, PATH shims). Harnesses with no config-dir lever (grok) are the
+    /// exception and must relocate `HOME`; see `_docs/target/profiles.md`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<PathBuf>,
     /// Non-secret metadata captured at login (auth type, plan tier, redacted

@@ -387,10 +387,21 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
   - `~/.claude.json` — *optional*; carries the `oauthAccount` identity block
     (email/org/plan) and `userID`. Capture it for metadata; the harness re-fetches
     most of it from the API on next launch.
-- **Relocation lever:** `HOME` moves the whole tree (`~/.claude/` +
-  `~/.claude.json`) — this is the reliable isolation lever `am` uses.
-  `CLAUDE_CONFIG_DIR` relocates `.claude/` (and therefore `.credentials.json`)
-  but **not** `~/.claude.json`, so it is insufficient alone for a full snapshot.
+- **Relocation lever:** `CLAUDE_CONFIG_DIR` relocates Claude Code's **entire**
+  config into one dir — `.credentials.json`, `.claude.json`, `projects/`,
+  `sessions/`, `backups/` all move there; `HOME` is left untouched. *(Verified
+  empirically against Claude Code 2.1.206: with `CLAUDE_CONFIG_DIR` set to a
+  temp dir, `.claude.json` was created inside it and `HOME` stayed empty. This
+  supersedes older behavior where `CLAUDE_CONFIG_DIR` moved only `.claude/` and
+  `~/.claude.json` stayed HOME-relative.)* So `CLAUDE_CONFIG_DIR` alone is a
+  **full** snapshot lever — and the one `am` uses, because relocating `HOME`
+  instead would strip the user's toolchain (`nvm`/`mise`/`pyenv`, shell rc, PATH
+  shims). `HOME` relocation is reserved for full isol8-style isolation.
+- **Login reuse (seeding):** to reuse an `am account login` without re-onboarding,
+  `am` *copies* the captured `<home>/.claude/.credentials.json` →
+  `$CLAUDE_CONFIG_DIR/.credentials.json` and `<home>/.claude.json` →
+  `$CLAUDE_CONFIG_DIR/.claude.json` into the ephemeral run dir, leaving `HOME`
+  (and the real `~/.claude*`) untouched. See `_docs/target/profiles.md`.
 - **Force file storage (skip keychain):** no documented config knob (unlike
   Codex). Claude Code falls back to the plaintext `.credentials.json` when the OS
   keychain is unreachable — running `login` inside the isol8/iter8 sandbox (no
