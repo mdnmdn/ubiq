@@ -50,6 +50,8 @@ pub mod harness;
 pub mod io;
 pub mod isolate;
 pub mod mcp;
+pub mod overlay;
+pub mod profile;
 pub mod provision;
 pub mod registry;
 pub mod resolve;

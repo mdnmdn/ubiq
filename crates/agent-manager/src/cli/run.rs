@@ -13,6 +13,7 @@ use clap::Parser;
 
 use crate::account::{resolve_accounts_root, AccountStore, EmptyAccountStore, FsAccountStore};
 use crate::harness::Harness;
+use crate::profile::{resolve_profiles_root, EmptyProfileStore, FsProfileStore, ProfileStore};
 use crate::provision;
 use crate::registry::{resolve_catalog_root, FsRegistry, OverlayRegistry};
 use crate::resolve::{resolve, RunFlags};
@@ -70,17 +71,19 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         isolate: run_args.isolate.clone(),
         resume: run_args.resume.clone(),
         mcp_as_skill: clean_ids(run_args.mcp_as_skill.clone()),
+        profile: run_args.profile.clone(),
     };
 
     let accounts = build_account_store();
+    let profiles = build_profile_store();
 
     let mut spec = match find_project_catalog(&cwd) {
         Some(project_root) => {
             let project = FsRegistry::new(project_root);
             let overlay = OverlayRegistry::new(global, Some(project));
-            resolve(&flags, &settings, &overlay, accounts.as_ref())?
+            resolve(&flags, &settings, &overlay, accounts.as_ref(), profiles.as_ref())?
         }
-        None => resolve(&flags, &settings, &global, accounts.as_ref())?,
+        None => resolve(&flags, &settings, &global, accounts.as_ref(), profiles.as_ref())?,
     };
 
     spec.io = parse_io_mode(run_args.io.as_deref())?;
@@ -267,6 +270,16 @@ fn build_account_store() -> Box<dyn AccountStore> {
     match resolve_accounts_root(None) {
         Some(root) if root.is_dir() => Box::new(FsAccountStore::new(root)),
         _ => Box::new(EmptyAccountStore),
+    }
+}
+
+/// Build the profile store from the default profiles root (honors
+/// `AM_PROFILES` / the default location). Falls back to an empty store when no
+/// profiles root exists, so profileless runs are unaffected.
+fn build_profile_store() -> Box<dyn ProfileStore> {
+    match resolve_profiles_root(None) {
+        Some(root) if root.is_dir() => Box::new(FsProfileStore::new(root)),
+        _ => Box::new(EmptyProfileStore),
     }
 }
 

@@ -5,9 +5,12 @@
 //!
 //! The "dual-env" bridge: opencode's config (skills, MCP, memory) lives under
 //! `OPENCODE_CONFIG_DIR` (a dir) and `OPENCODE_CONFIG` (a JSON file). Its
-//! credential store (`~/.local/share/opencode/`) is separate, allowing a
-//! private-HOME account to keep its own OAuth tokens while still getting
-//! injected config. This split mirrors Claude Code, unlike Codex which unifies
+//! credential store (`opencode/auth.json`) lives under the XDG data dir, which
+//! `XDG_DATA_HOME` relocates (verified against opencode 1.17.18 — see
+//! `config_anchor`). Pointing both `OPENCODE_CONFIG_DIR` and `XDG_DATA_HOME` at
+//! the ephemeral dir means a captured login can be *seeded* in (Class A-clean)
+//! without ever relocating the child's `HOME` — leaving the user's real
+//! toolchain intact. This mirrors Claude Code, unlike Codex which unifies
 //! everything under a single `$CODEX_HOME`.
 
 use std::path::Path;
@@ -19,7 +22,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec, IoModes};
 use crate::Result;
 
-use super::{copy_dir_recursive, Harness, IoSupport, Launch};
+use super::{copy_dir_recursive, ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
 /// The opencode harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -53,6 +56,29 @@ impl Harness for Opencode {
         IoSupport {
             passthrough: true,
             structured: true,
+        }
+    }
+
+    /// Class A-clean: `OPENCODE_CONFIG_DIR` relocates the config tier and
+    /// `XDG_DATA_HOME` relocates the data/credential tier — opencode reads its
+    /// auth store from `$XDG_DATA_HOME/opencode/auth.json` (verified
+    /// empirically against opencode 1.17.18: `opencode auth list` reads that
+    /// path and it overrides the HOME-relative `~/.local/share/opencode/auth.json`
+    /// default). So a captured login is a single file seeded into the ephemeral
+    /// dir while the real `HOME` (and the user's toolchain) stays intact — no
+    /// HOME relocation needed. Resolves `_docs/target/profiles.md` open
+    /// decision B-1 as Class A-clean.
+    fn config_anchor(&self) -> ConfigAnchor {
+        ConfigAnchor {
+            levers: vec![
+                ("OPENCODE_CONFIG_DIR".to_string(), Relocate::Config),
+                ("XDG_DATA_HOME".to_string(), Relocate::Data),
+            ],
+            login_seed: vec![SeedFile::new(
+                ".local/share/opencode/auth.json",
+                "opencode/auth.json",
+            )],
+            requires_home_relocation: false,
         }
     }
 
@@ -186,6 +212,11 @@ impl Harness for Opencode {
         let mut env = vec![
             ("OPENCODE_CONFIG".to_string(), config_json_path.display().to_string()),
             ("OPENCODE_CONFIG_DIR".to_string(), dir.display().to_string()),
+            // Relocate the data/credential tier into the same ephemeral dir:
+            // opencode reads its auth store from `$XDG_DATA_HOME/opencode/auth.json`
+            // (verified — see `config_anchor`), so seeding a captured login there
+            // needs no HOME relocation.
+            ("XDG_DATA_HOME".to_string(), dir.display().to_string()),
         ];
         if let Some(account) = &spec.account {
             // opencode is provider-agnostic. We don't know which provider
@@ -217,11 +248,15 @@ impl Harness for Opencode {
             // TODO(P2+): base_url → provider.options.baseURL config; opencode
             // uses provider-specific config, not a single env var.
             if let Some(home) = &account.home {
-                // opencode's auth store (~/.local/share/opencode/) is HOME-relative
-                // and separate from the config (OPENCODE_CONFIG_DIR), so a
-                // private-HOME account keeps its own creds while still getting
-                // injected config.
-                env.push(("HOME".to_string(), home.display().to_string()));
+                // Reuse a prior `am account login` by *seeding* the captured
+                // auth store into the relocated data dir
+                // (`$XDG_DATA_HOME/opencode/auth.json`, i.e. `dir/opencode/auth.json`)
+                // — deliberately WITHOUT overriding the child's `HOME`. Since
+                // `XDG_DATA_HOME` (set above) relocates opencode's data/credential
+                // tier, the seeded auth.json resolves without stripping the user's
+                // real toolchain (nvm/mise/pyenv, shell rc, PATH shims). The seed
+                // list is declared once in `config_anchor()`.
+                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -238,13 +273,15 @@ impl Harness for Opencode {
     /// Per opencode.md "Credential capture & reuse": `~/.local/share/opencode/auth.json`
     /// is the sole auth store and is **always plaintext** (no keychain, so no
     /// force-file-storage knob is needed here, unlike Claude Code/Codex).
-    /// `HOME` is the relocation lever this provisioner already uses for the
-    /// reuse path (see `provision()` above, which sets `HOME = account.home`
-    /// so the HOME-relative auth store resolves inside the private home) —
-    /// pointing `HOME` at the capture home here mirrors that exactly.
-    /// Deliberately does NOT set `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR` —
-    /// login only needs the auth store; the reuse path injects config
-    /// separately.
+    /// Login relocates `HOME` to the capture home so the default
+    /// HOME-relative layout (`<home>/.local/share/opencode/auth.json`) is
+    /// written where the reuse path can find it: `provision()` above *seeds*
+    /// that file into the ephemeral data dir (`$XDG_DATA_HOME/opencode/auth.json`,
+    /// via [`super::seed_login`] driven by [`Opencode::config_anchor`]) rather
+    /// than relocating the child's `HOME`. Deliberately does NOT set
+    /// `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`/`XDG_DATA_HOME` — login only needs
+    /// the auth store at the default HOME-relative path; the reuse path injects
+    /// config separately.
     ///
     /// Login command: `opencode auth login` (interactive TUI: pick provider,
     /// paste key or complete OAuth). Not verified against the installed
@@ -666,12 +703,20 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_home_is_set_in_env() {
+    fn provision_account_seeds_auth_into_data_dir_without_touching_home() {
         use crate::account::Account;
 
-        let config_dir = tempfile::TempDir::new().unwrap();
+        // A persistent per-account "home" holding a captured login, laid out
+        // exactly as `login()` writes it: `<home>/.local/share/opencode/auth.json`.
         let account_home = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(account_home.path().join(".local/share/opencode")).unwrap();
+        std::fs::write(
+            account_home.path().join(".local/share/opencode/auth.json"),
+            r#"{"anthropic":{"type":"api","key":"tok"}}"#,
+        )
+        .unwrap();
 
+        let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.account = Some(Account {
@@ -683,9 +728,29 @@ mod tests {
         let opencode = Opencode::new();
         let launch = opencode.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch.env.iter().any(
-            |(k, v)| k == "HOME" && v == &account_home.path().display().to_string()
-        ));
+        // XDG_DATA_HOME relocates the data/credential tier into the ephemeral dir.
+        assert!(launch
+            .env
+            .iter()
+            .any(|(k, v)| k == "XDG_DATA_HOME" && v == &config_dir.path().display().to_string()));
+
+        // The captured login is seeded INTO the ephemeral data dir at the
+        // XDG-relative path opencode reads (`$XDG_DATA_HOME/opencode/auth.json`).
+        let seeded_auth = config_dir.path().join("opencode/auth.json");
+        assert!(
+            seeded_auth.exists(),
+            "auth.json should be seeded into $XDG_DATA_HOME/opencode/"
+        );
+        assert!(std::fs::read_to_string(&seeded_auth).unwrap().contains("anthropic"));
+
+        // ...and the child's HOME is left untouched, so the user's real
+        // toolchain (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
+        assert!(
+            !launch.env.iter().any(|(k, _)| k == "HOME"),
+            "HOME must not be overridden by a `home` account: {:?}",
+            launch.env
+        );
+
         // Config stays in the ephemeral dir, not in the account home.
         assert!(config_dir.path().join("opencode.json").exists());
     }
