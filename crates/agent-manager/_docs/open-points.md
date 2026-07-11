@@ -151,3 +151,8 @@ catalog, sessions, runs), each with its own env override
   a neutral cross-harness hook mapping later.
 - **gemini / copilot** are documented but unwrapped (no `Harness` impl); the
   9 reference harnesses likewise. Transcribing a doc into an impl is the on-ramp.
+
+
+--
+
+## 8. harness alias: `claude-code` should be activable also with `claude`

@@ -253,11 +253,21 @@ impl Harness for Claude {
                 env.push(("ANTHROPIC_AUTH_TOKEN".to_string(), value));
             }
             if let Some(home) = &account.home {
-                // CLAUDE_CONFIG_DIR stays pointed at the ephemeral dir
-                // (skills/mcp injection); OAuth/keychain credentials resolve
-                // relative to HOME, so a private-HOME account keeps its own
-                // credential store while still getting injected skills/mcp.
-                env.push(("HOME".to_string(), home.display().to_string()));
+                // Reuse a prior `am account login` by *seeding* the ephemeral
+                // config dir with that account's credentials + identity —
+                // deliberately WITHOUT overriding the child's `HOME`.
+                //
+                // Overriding `HOME` (the previous behavior) had two fatal
+                // problems: (1) Claude Code ≥2.x relocates its *entire* config
+                // — `.claude.json` included, not just `.claude/.credentials.json`
+                // — into `CLAUDE_CONFIG_DIR`, which points at the *empty*
+                // ephemeral dir, so the HOME-resident creds were never read and
+                // every run re-triggered onboarding; and (2) a per-account HOME
+                // strips the user's real environment — `nvm`/`mise`/`pyenv`,
+                // shell rc, PATH shims — none of which exist under a bare
+                // account home. Seeding into `CLAUDE_CONFIG_DIR` fixes the auth
+                // half while leaving the real HOME (and toolchain) intact.
+                seed_account_login(dir, home)?;
             }
         }
 
@@ -280,9 +290,10 @@ impl Harness for Claude {
     /// keychain unreachable (no real `HOME`) forces the plaintext
     /// `.credentials.json` (no documented file-storage knob). Deliberately
     /// does NOT set `CLAUDE_CONFIG_DIR` here — we want the default
-    /// HOME-relative layout so the reuse path (which sets `HOME =
-    /// account.home` in `provision()` above, `CLAUDE_CONFIG_DIR` staying
-    /// separate) finds the creds where Claude Code natively looks for them.
+    /// HOME-relative layout (`<home>/.claude/.credentials.json`,
+    /// `<home>/.claude.json`) so the reuse path can find and seed those files:
+    /// `provision()` above copies them into the ephemeral `CLAUDE_CONFIG_DIR`
+    /// (see [`seed_account_login`]) rather than relocating the child's `HOME`.
     fn login(&self, home: &Path) -> Result<super::LoginPlan> {
         let env = vec![("HOME".to_string(), home.display().to_string())];
         let args = vec!["auth".to_string(), "login".to_string()];
@@ -368,6 +379,41 @@ fn build_hooks_json(hooks: &[HookRef]) -> Value {
             .push(Value::Object(entry));
     }
     json!(by_event)
+}
+
+/// Seed an account's captured Claude Code login (credentials + identity) into
+/// the ephemeral config dir, so a run reuses a prior `am account login` without
+/// re-triggering onboarding — and **without** touching the child's `HOME`.
+///
+/// Claude Code ≥2.x relocates its *entire* config into `CLAUDE_CONFIG_DIR`
+/// (`.claude.json`, `projects/`, `sessions/`, and `.credentials.json` all move;
+/// `HOME` is left untouched — verified empirically against 2.1.206). So the two
+/// files that make a session "logged in" are seeded straight into `dir`:
+///
+/// - `<home>/.claude/.credentials.json` → `<dir>/.credentials.json` — the OAuth
+///   token blob; its absence is what forces the login/onboarding prompt.
+/// - `<home>/.claude.json` → `<dir>/.claude.json` — carries the
+///   `hasCompletedOnboarding` flag and the `oauthAccount` identity block.
+///
+/// Files are *copied* (not symlinked): the run is ephemeral and Claude Code
+/// rewrites `.claude.json` in place during a session, so the account's canonical
+/// store must not be mutated by a run. (A refreshed OAuth token therefore stays
+/// in the ephemeral dir and is discarded at cleanup; persisting refreshes back
+/// to the account store is a profile-layer concern — see
+/// `_docs/target/profiles.md`.) Missing source files are silently skipped so a
+/// reference-only or partially-captured account still launches.
+fn seed_account_login(dir: &Path, home: &Path) -> Result<()> {
+    let creds_src = home.join(".claude").join(".credentials.json");
+    if creds_src.exists() {
+        std::fs::copy(&creds_src, dir.join(".credentials.json"))
+            .with_context(|| format!("seeding credentials from {}", creds_src.display()))?;
+    }
+    let json_src = home.join(".claude.json");
+    if json_src.exists() {
+        std::fs::copy(&json_src, dir.join(".claude.json"))
+            .with_context(|| format!("seeding identity from {}", json_src.display()))?;
+    }
+    Ok(())
 }
 
 /// Build the `{"mcpServers": {...}}` document from `spec.mcps`.
@@ -694,8 +740,24 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_base_url_helper_and_home_are_injected() {
+    fn provision_account_seeds_login_into_config_dir_without_touching_home() {
         use crate::account::Account;
+
+        // A persistent per-account "home" holding a captured login, laid out
+        // exactly as `login()` writes it: `<home>/.claude/.credentials.json`
+        // and `<home>/.claude.json`.
+        let account_home = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
+        std::fs::write(
+            account_home.path().join(".claude").join(".credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            account_home.path().join(".claude.json"),
+            r#"{"hasCompletedOnboarding":true}"#,
+        )
+        .unwrap();
 
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
@@ -704,27 +766,60 @@ mod tests {
             id: "gateway".to_string(),
             base_url: Some("https://gw/".to_string()),
             helper: Some("get-key".to_string()),
-            home: Some(PathBuf::from("/tmp/acct")),
+            home: Some(account_home.path().to_path_buf()),
             ..Default::default()
         });
 
         let claude = Claude::new();
         let launch = claude.provision(&spec, config_dir.path()).unwrap();
 
+        // base_url + apiKeyHelper still wired as before.
         assert!(launch
             .env
             .iter()
             .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://gw/"));
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == "/tmp/acct"));
-
         let settings_path = config_dir.path().join("settings.json");
         assert!(settings_path.exists());
         let settings: Value =
             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
         assert_eq!(settings.get("apiKeyHelper").unwrap().as_str(), Some("get-key"));
+
+        // The captured login is seeded INTO the ephemeral config dir...
+        let seeded_creds = config_dir.path().join(".credentials.json");
+        let seeded_json = config_dir.path().join(".claude.json");
+        assert!(seeded_creds.exists(), "credentials should be seeded into CLAUDE_CONFIG_DIR");
+        assert!(seeded_json.exists(), ".claude.json should be seeded into CLAUDE_CONFIG_DIR");
+        assert!(std::fs::read_to_string(&seeded_creds).unwrap().contains("claudeAiOauth"));
+
+        // ...and the child's HOME is left untouched, so the user's real
+        // toolchain (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
+        assert!(
+            !launch.env.iter().any(|(k, _)| k == "HOME"),
+            "HOME must not be overridden by a `home` account: {:?}",
+            launch.env
+        );
+    }
+
+    #[test]
+    fn provision_account_with_missing_home_files_still_launches() {
+        use crate::account::Account;
+
+        // A `home` that exists but has no captured login yet: seeding is a
+        // no-op, provisioning still succeeds (reference-only / partial account).
+        let account_home = tempfile::TempDir::new().unwrap();
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.account = Some(Account {
+            id: "empty-home".to_string(),
+            home: Some(account_home.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let claude = Claude::new();
+        let launch = claude.provision(&spec, config_dir.path()).unwrap();
+        assert!(!config_dir.path().join(".credentials.json").exists());
+        assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
     }
 
     #[test]
