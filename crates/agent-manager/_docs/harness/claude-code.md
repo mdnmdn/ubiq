@@ -234,9 +234,17 @@ whitelists; `disabledMcpjsonServers` always wins.
 ### Built-in
 
 `/clear`, `/compact`, `/help`, `/init`, `/login`, `/logout`, `/mcp`,
-`/memory`, `/model`, `/permissions`, `/plan`, `/review`, `/status`,
-`/vim`, `/cost`, `/doctor`, `/terminal-setup`, `/agents`, `/skills`,
-and others. Full list in the [Commands reference].
+`/memory`, `/model`, `/effort`, `/permissions`, `/plan`, `/review`,
+`/status`, `/vim`, `/cost`, `/doctor`, `/terminal-setup`, `/agents`,
+`/skills`, and others. Full list in the [Commands reference].
+
+Some built-ins are **headless-safe** when delivered as the prompt on a
+`-p` / stream-json run (they do not open a TUI picker). `/model` and
+`/effort` return a short **synthetic** usage/status string with
+`message.model: "<synthetic>"`, `num_turns: 0`, and zero token cost —
+useful for discovery. Prefer the stream-json (JSONL) path documented
+under [Model discovery & selection](#model-discovery--selection-agent-manager);
+the interactive TUI picker for `/model` is still TTY-only.
 
 ### Custom
 
@@ -555,7 +563,13 @@ Note: token usage is best read from the per-model `modelUsage` map in the `resul
 ### Model & reasoning at launch
 
 - Model: `--model <id>`. (Cross-reference Authentication.)
-- Reasoning effort: `--effort <level>`, values `low | medium | high | xhigh | max`, discoverable from `claude --help`. Per-model allow-list: Opus supports all five (incl. `xhigh`); Sonnet supports `low|medium|high|max` (no `xhigh`); Haiku supports `low|medium|high`. Default `medium`.
+- Reasoning effort: `--effort <level>`. `claude --help` documents
+  `low | medium | high | xhigh | max`. The live `/effort` slash command
+  also accepts `ultracode` and `auto` (model-dependent — see discovery
+  below). Prefer discovering the allow-list via headless `/effort` over
+  trusting the static help text. Default when unset is Claude Code's own
+  default (often `medium`); current effort is reported on the `/model`
+  status line (`Current model: … (effort: low)`), not on bare `/effort`.
 
 ### MCP at launch
 
@@ -584,14 +598,121 @@ With `--permission-mode bypassPermissions`, Claude Code still emits a `control_r
 
 ### Model discovery & selection (agent-manager)
 
-> How `am claude-code --list-models` enumerates models and `am claude-code --model <id>`
-> selects one. Facts verified against the installed binary (v2.1.206) on 2026-07-10.
+> How `am claude-code --list-models` enumerates models and
+> `am claude-code --model <id>` selects one — plus the related
+> effort-level discovery path (`/effort`). Facts re-verified against
+> the installed binary (**v2.1.207**) on 2026-07-19 (stream-json
+> slash-command path). Earlier note (v2.1.206 / 2026-07-10) that
+> `/model` was not headless is **superseded**.
 
-- **Discover (list models):** No dedicated list/JSON command exists. Best sources, both text-only: (1) `claude --help` — the `--model` flag's description enumerates live alias examples (`fable`, `opus`, `sonnet`) and one full-id example (`claude-fable-5`); (2) the interactive-only `/model` picker inside a live TUI session, which prints the complete current set with one-line descriptions and marks the account's current default. `/model` is not scriptable/headless — it requires a real TTY and human keypresses. Needs network/auth: `--help` text is static (bundled, no network); the `/model` picker reflects the logged-in account's plan/entitlements (it showed a promotional-access banner for one model), so treat it as auth-aware. Output: plain text in both cases, no JSON.
-- **Select at launch (passthrough):** `--model <id>` on the normal interactive `claude` launch — verified to accept both a short alias (`sonnet`, `opus`, `fable`, `haiku`) and a full id (`claude-opus-4-8`, `claude-fable-5`). `am` should inject this flag directly. If omitted, Claude Code falls back to the `model` key in `~/.claude/settings.json` (persisted by the `/model` picker's "set as default" action), else its own built-in default.
-- **Model id format:** two interchangeable forms — a short alias (`default`, `sonnet`, `opus`, `fable`, `haiku`) or a full id `claude-<family>-<version>[-<date>]`. Aliases resolve server-side to whichever concrete id is "latest" for that family/account.
-- **Example ids (verified):** `sonnet` → `claude-sonnet-5`; `opus` → `claude-opus-4-8`; `fable` → `claude-fable-5`; every run's `modelUsage` also showed `claude-haiku-4-5-20251001` used internally as a background helper regardless of the selected `--model`.
-- **Default model:** the `model` key in `~/.claude/settings.json` if present (verified on this machine: `"model": "opus"`, and an unset `--model` run indeed resolved to `claude-opus-4-8`); otherwise Claude Code's own default, shown by the `/model` picker as "Default (recommended) → Sonnet 5". `--model` on the CLI overrides both for that single invocation.
+- **Discover (list models):** No dedicated list/JSON command exists
+  (`claude --list-models` is not a thing). **Preferred headless source
+  (JSONL / stream-json):** launch once with the stream-json argv
+  skeleton, write a single NDJSON user line whose text is `"/model"`,
+  parse free-text from the `assistant` / `result` events. Prefer this
+  over plain `claude -p "/model"`: JSONL is the wire `am` already
+  speaks, returns the `system/init` event (resolved full model id) in
+  the same process, and avoids an extra `-p` text invocation that can
+  count against subscription usage depending on account/billing path.
+
+  ```
+  claude -p --output-format stream-json --input-format stream-json \
+    --verbose --permission-mode bypassPermissions --max-turns 1
+  ```
+
+  Stdin:
+
+  ```json
+  {"type":"user","message":{"role":"user","content":[{"type":"text","text":"/model"}]}}
+  ```
+
+  Completes in tens of ms with `result.total_cost_usd: 0`,
+  `num_turns: 0`, `modelUsage: {}`, and
+  `assistant.message.model: "<synthetic>"` — no model API turn.
+  Needs a working `claude` + auth for process launch; the slash
+  command itself does not bill tokens. Output shape (plain text, not
+  JSON — same string on `assistant` and `result`):
+
+  ```text
+  Current model: Opus 4.8 (effort: high)
+  Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], opus[1m], fable[1m], opusplan, default, or a full model ID.
+  ```
+
+  Regex the `Available:` clause for aliases. The same run's
+  `system`/`init` event carries `model` (resolved full id, e.g.
+  `claude-opus-4-8`) and lists `"model"` under `slash_commands`.
+
+  **Fallbacks (worse):** (1) `claude --help` — static incomplete alias
+  *examples* only; (2) plain `claude -p "/model"` — same free-text as
+  JSONL but prefer stream-json (above); (3) interactive `/model` TUI
+  picker — TTY + keypresses only; has one-line descriptions,
+  recommended markers, promo banners (auth/plan-aware). Headless
+  `/model` does **not** return those richer picker fields.
+
+  **`am claude --list-models` today:** curated static aliases
+  (`opus` / `sonnet` / `haiku` / `fable`) — a **subset** of live
+  `/model` output. Use the stream-json `/model` recipe when a live
+  list is required.
+
+- **Select at launch (passthrough):** `--model <id>` on the normal
+  interactive `claude` launch (and on headless `-p` runs). Verified to
+  accept short aliases and full ids. `am` injects this flag when
+  `RunSpec.model` is set. If omitted, Claude Code falls back to the
+  `model` key in `~/.claude/settings.json` (persisted by the TUI
+  picker's "set as default"), else its built-in default. Effort is
+  selected the same way with `--effort <level>` (prefer the CLI flag
+  over mid-session `/effort <level>` for reproducible runs).
+
+- **Model id format:** two interchangeable forms — a short alias
+  (`default`, `sonnet`, `opus`, `fable`, `haiku`, `best`, `opusplan`,
+  `sonnet[1m]`, …) or a full id `claude-<family>-<version>[-<date>]`.
+  Aliases resolve server-side to whichever concrete id is "latest" for
+  that family/account.
+
+- **Example ids (verified):** `sonnet` → `claude-sonnet-5`; `opus` →
+  `claude-opus-4-8`; `fable` → `claude-fable-5`; `haiku` →
+  `claude-haiku-4-5-20251001` (also used internally as a background
+  helper on many runs regardless of selected `--model`). Live
+  `/model` Available list (sample): `sonnet`, `opus`, `haiku`,
+  `fable`, `best`, `sonnet[1m]`, `opus[1m]`, `fable[1m]`, `opusplan`,
+  `default`.
+
+- **Default model:** the `model` key in `~/.claude/settings.json` if
+  present; otherwise Claude Code's own default, shown by the TUI
+  `/model` picker as "Default (recommended) → Sonnet 5". `--model` on
+  the CLI overrides both for that single invocation.
+
+#### Effort discovery (related)
+
+Same preferred recipe: stream-json with prompt text `"/effort"` (not
+plain `-p`). Synthetic zero-token response. Bare `/effort` prints
+**usage only** (no current value); current effort appears on the
+`/model` status line (`Current model: … (effort: low)`).
+
+```text
+Usage: /effort <low|medium|high|xhigh|max|ultracode|auto>
+```
+
+| Source | Headless? | Notes |
+|--------|-----------|-------|
+| stream-json + `/effort` (**preferred**) | yes | Model-aware allow-list in free-text usage. |
+| `claude --help` (`--effort`) | yes | Static: `low, medium, high, xhigh, max` only — misses `ultracode` / `auto`. |
+| `/effort <level>` (set) | yes | Session-only confirmation; invalid values restate valid options. |
+
+Allow-list from bare `/effort` (v2.1.207):
+
+| Launch model | Levels listed |
+|--------------|---------------|
+| Opus / Sonnet | `low`, `medium`, `high`, `xhigh`, `max`, `ultracode`, `auto` |
+| Haiku (`--model haiku`) | `low`, `medium`, `high`, `xhigh`, `max`, `auto` (**no** `ultracode`) |
+
+- `/effort ultracode` on Haiku is rejected with an explicit message
+  naming xhigh-capable models (Fable 5, Opus 4.7+, Sonnet 5).
+- `init` has **no** effort field; `slash_commands` includes `"effort"`.
+- Level blurbs when setting: `low` minimal overhead; `medium`
+  balanced; `high` comprehensive; `xhigh` deeper than high; `max`
+  deepest (token warning); `ultracode` = xhigh + dynamic workflow
+  orchestration; `auto` enables auto effort.
 
 ## Format quirks / gotchas
 

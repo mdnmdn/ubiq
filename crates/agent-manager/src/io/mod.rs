@@ -36,6 +36,9 @@ pub use codex::CodexBridge;
 pub mod opencode;
 pub use opencode::OpencodeBridge;
 
+pub mod copilot;
+pub use copilot::CopilotBridge;
+
 #[cfg(feature = "pty")]
 mod passthrough;
 #[cfg(feature = "pty")]

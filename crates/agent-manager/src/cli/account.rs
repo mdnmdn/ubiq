@@ -36,7 +36,11 @@ enum AccountCommand {
     /// Log into a harness inside a persistent per-account home and capture its
     /// credential file for reuse via `--account <id>`.
     Login {
-        /// Account id to create/update (its home dir under the accounts root).
+        /// Identity to capture (e.g. `mdn`). Logging in a second harness
+        /// under the same id reuses the same home dir — each harness only
+        /// reads its own subpath there, so captures for different harnesses
+        /// coexist without colliding (`am account ls` shows which harnesses
+        /// an id has an effective login for).
         id: String,
         /// Harness to log into (e.g. `claude`, `codex`).
         #[arg(long)]
@@ -100,6 +104,31 @@ fn describe_refs(acct: &Account) -> String {
     }
 }
 
+/// Which harnesses have an *effective* captured login under `home`: for each
+/// harness `am` knows about, its primary credential file
+/// ([`crate::harness::ConfigAnchor::login_seed`]'s first entry, `src`
+/// relative to `home`) exists on disk. Sorted by harness id.
+///
+/// Derived from the filesystem at call time, never stored — a shared home
+/// dir (one account, multiple harnesses each captured separately via
+/// `am account login <id> --harness <h>`) can never drift out of sync with
+/// what's actually captured there, because there's no separate bookkeeping
+/// to drift.
+fn effective_harnesses(home: &std::path::Path) -> Vec<String> {
+    let mut ids: Vec<String> = crate::harness::all()
+        .into_iter()
+        .filter(|h| {
+            h.config_anchor()
+                .login_seed
+                .first()
+                .is_some_and(|seed| home.join(&seed.src).exists())
+        })
+        .map(|h| h.id())
+        .collect();
+    ids.sort();
+    ids
+}
+
 /// `am account ls`
 fn cmd_list() -> Result<()> {
     let store = build_store();
@@ -111,7 +140,14 @@ fn cmd_list() -> Result<()> {
     }
 
     for acct in accounts {
-        println!("{}  {}", acct.id, describe_refs(&acct));
+        let mut line = format!("{}  {}", acct.id, describe_refs(&acct));
+        if let Some(home) = &acct.home {
+            let captured = effective_harnesses(home);
+            if !captured.is_empty() {
+                line.push_str(&format!("  [captured: {}]", captured.join(", ")));
+            }
+        }
+        println!("{line}");
     }
 
     Ok(())
@@ -183,11 +219,12 @@ fn cmd_import(write: bool) -> Result<()> {
 
     if let Some(base_dirs) = directories::BaseDirs::new() {
         let home = base_dirs.home_dir();
-        let candidates: [(&str, PathBuf); 4] = [
+        let candidates: [(&str, PathBuf); 5] = [
             ("claude-credentials", home.join(".claude/credentials.json")),
             ("claude-json", home.join(".claude.json")),
             ("codex-auth", home.join(".codex/auth.json")),
             ("opencode-auth", home.join(".local/share/opencode/auth.json")),
+            ("copilot-config", home.join(".copilot/config.json")),
         ];
 
         for (label, path) in candidates {
@@ -299,10 +336,25 @@ fn partition_new(
 
 /// `am account login <id> --harness <h>`: interactively log `harness_key`
 /// into a persistent per-account home dir, verify the resulting credential
-/// file landed on disk, and record `home` on the account so `am <h> --account
-/// <id>` reuses it. `am` never parses or copies the credential file's
-/// contents — it only points the harness's own credential store at the
-/// capture home and checks that the harness wrote *something* there.
+/// file landed on disk, and record `home` on the account so
+/// `am <h> --account <id>` reuses it.
+///
+/// The stored account id is the bare `id` the caller typed — `am account
+/// login mdn --harness claude` and `am account login mdn --harness copilot`
+/// share **one** home dir (`accounts/mdn/`) and **one** account-store entry.
+/// This is safe, not a collision: each harness's [`crate::harness::Harness::
+/// config_anchor`] seeds from its own harness-specific relative subpath
+/// under `home` (e.g. Claude's `.claude/.credentials.json` vs Copilot's
+/// `config.json`), so two harnesses' captured logins coexist in the same
+/// home without overwriting each other — exactly like a real `$HOME` holds
+/// `.claude/`, `.copilot/`, `.codex/` side by side today. Which harnesses a
+/// given account actually has an effective login for is never stored
+/// separately (nothing to let drift out of sync); it's derived at display
+/// time by [`effective_harnesses`], which checks each harness's primary
+/// credential file for real on disk. `am` never parses or copies the
+/// credential file's contents — it only points the harness's own credential
+/// store at the capture home and checks that the harness wrote *something*
+/// there.
 fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
     let root = account::resolve_accounts_root(None)
         .ok_or_else(|| anyhow!("no accounts root; set AM_ACCOUNTS"))?;
@@ -388,6 +440,15 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
         }
     }
     println!("account '{id}' written to {}", path.display());
+    let captured = effective_harnesses(&home);
+    if captured.len() > 1 {
+        println!(
+            "note: '{id}' now has effective logins for multiple harnesses ({}) — they share \
+             this home dir but don't share credentials, each harness only reads its own \
+             subpath",
+            captured.join(", ")
+        );
+    }
     println!("reuse with: am {harness_key} --account {id}");
 
     Ok(())
@@ -454,5 +515,35 @@ mod tests {
         let (to_add, skipped) = partition_new(&existing, vec![acct("a"), acct("b")]);
         assert!(to_add.is_empty());
         assert_eq!(skipped, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn effective_harnesses_empty_home_is_empty() {
+        let home = tempfile::TempDir::new().unwrap();
+        assert!(effective_harnesses(home.path()).is_empty());
+    }
+
+    #[test]
+    fn effective_harnesses_detects_multiple_harnesses_sharing_one_home() {
+        // A shared home dir (one account id, captured for two harnesses):
+        // each harness's primary credential file laid out at its own
+        // harness-specific relative subpath, exactly as `login()` writes it —
+        // no collision, both detected.
+        let home = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(home.path().join(".claude")).unwrap();
+        std::fs::write(home.path().join(".claude/.credentials.json"), "{}").unwrap();
+        std::fs::write(home.path().join("config.json"), "{}").unwrap();
+
+        let captured = effective_harnesses(home.path());
+        assert_eq!(captured, vec!["claude-code".to_string(), "copilot".to_string()]);
+    }
+
+    #[test]
+    fn effective_harnesses_only_lists_harnesses_actually_captured() {
+        let home = tempfile::TempDir::new().unwrap();
+        std::fs::write(home.path().join("config.json"), "{}").unwrap();
+
+        let captured = effective_harnesses(home.path());
+        assert_eq!(captured, vec!["copilot".to_string()]);
     }
 }
