@@ -13,8 +13,14 @@ Everything a run needs from a harness's config splits into two halves with
 
 | Concern | Examples | Lifetime | Scope |
 |---|---|---|---|
-| **Identity / base state** | credentials, `hasCompletedOnboarding`, user settings, theme | **persist** across runs | per *account* |
+| **Identity / base state** | credentials | **persist** across runs | per *account* |
 | **Run composition** | skills, MCP servers, hooks, instructions, model | **ephemeral**, per run | per *run* |
+| **Preference defaults** | theme, TUI mode, first-run opt-ins | **persist**, editable | per *harness*, global (§14) |
+
+`hasCompletedOnboarding` and the per-project trust dialog look like identity
+but aren't stored anywhere persistent at all — they're forced fresh on every
+ephemeral run instead (§14.2), since they're wizard-completion flags, not
+state a user would ever want to differ per account.
 
 The current code puts composition in an ephemeral config dir and tried to get
 identity by relocating `HOME` to a per-account directory. That was wrong on two
@@ -265,11 +271,80 @@ global profiles come first.
 
 ## 13. Where it lives (implementation map)
 
-- `src/harness/mod.rs` — `Relocate`/`SeedFile`/`ConfigAnchor`, `Harness::config_anchor`, generic `seed_login`.
+- `src/harness/mod.rs` — `Relocate`/`SeedFile`/`ConfigAnchor`, `Harness::config_anchor`, generic `seed_login`; `TemplateFile`, `Harness::templates`, generic `apply_templates` (§14); `Harness::post_seed` (§14).
 - `src/harness/{claude,codex,opencode,grok}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
+- `src/harness/claude.rs` — `templates()` (theme/tui/Claude-in-Chrome defaults) + `post_seed()` (onboarding/trust-dialog fix-ups); see §14.
 - `src/profile.rs` — profile store + `extends` inheritance.
 - `src/resolve.rs` — profile selection + 4-layer `pick` + `config_bases`.
 - `src/overlay.rs` — `materialize` + `sweep_old_runs`.
-- `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login`.
+- `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login` + `apply_templates` + `post_seed` (§14).
 - `src/cli/{profile,agent}.rs` + `src/cli/mod.rs` — `am profile` / `am agent`.
 - `src/settings.rs` — `[defaults].profile`.
+
+## 14. Preference templates and structural post-seed fix-ups
+
+Beyond identity (§1's "persist per account") and composition (§1's "ephemeral
+per run"), a harness has a **third kind of state**: cosmetic/first-run
+preferences (theme, TUI mode, "enable this integration?" opt-ins) that are
+neither secret nor run-specific, but that the harness's own onboarding wizard
+normally sets interactively — a wizard an ephemeral, always-first-run
+`CLAUDE_CONFIG_DIR` never gets to go through. Left unset, every single `am`
+run would hit that wizard. Two different fixes apply, split by whether the
+value is a genuine user preference or a correctness requirement:
+
+### 14.1 Templates — user-editable preferences
+
+`Harness::templates() -> Vec<TemplateFile>` declares JSON files (relative to
+the harness's relocated config root, e.g. `settings.json`, `.claude.json`)
+that should be **merged in from an editable template store** rather than
+hardcoded in Rust. Each `TemplateFile { name, default }` pairs a destination
+filename with a `fn() -> serde_json::Value` used only to seed the template the
+first time it's read.
+
+`crate::harness::apply_templates(dir, harness_id, templates)` (called
+generically from `provision::provision()`, after all login seeding, for every
+harness — most have an empty `templates()` and it's a no-op):
+
+1. Resolves the template store root (`~/.config/agent-manager/templates` by
+   default, overridable via `AM_TEMPLATES` — same pattern as
+   `AM_ACCOUNTS`/`account::resolve_accounts_root`).
+2. For each declared file, if `templates/<harness-id>/<name>` doesn't exist
+   yet, creates it from `default()` — so there's always a real, editable file
+   on disk, not a value hidden in Rust that a user would have to read source
+   to discover.
+3. Shallow-merges that template's keys into the run's `dir/<name>`,
+   **gap-filling only**: any key the run itself already generated (policy,
+   `apiKeyHelper`, hooks, seeded credentials, …) wins; the template supplies
+   only keys nothing else set.
+
+Editing `~/.config/agent-manager/templates/claude-code/settings.json` (e.g.
+changing `"theme": "dark"` to `"light"`) takes effect on the very next run —
+no rebuild, no per-account duplication. Because the store is keyed by
+`harness-id`, adding template defaults for another harness (codex, opencode,
+grok) is purely `impl Harness::templates()` for that harness — no core
+change, matching every other harness-extension seam in this codebase.
+
+Claude's current templates: `settings.json` (`theme`, `tui`) and
+`.claude.json` (`claudeInChromeDefaultEnabled`).
+
+### 14.2 `post_seed` — structural fix-ups, never template-overridable
+
+`Harness::post_seed(spec, dir)` (default no-op; also called generically from
+`provision::provision()`, last in the pipeline) is for values that look
+similar but are **not** preferences — they're correctness requirements of
+`am`'s always-ephemeral-config model that must always be forced, never left
+to a user-editable file a stray edit could break:
+
+- `hasCompletedOnboarding: true` — a login captured non-interactively (§4,
+  `am account login`) never runs the wizard that normally sets this, so a
+  fully-authenticated seeded config would otherwise still show the onboarding
+  UI.
+- `projects[spec.cwd].hasTrustDialogAccepted: true` — Claude Code gates a
+  per-project trust dialog on this, keyed by the exact cwd string; a fresh
+  `CLAUDE_CONFIG_DIR` has no record of any cwd, so every run would otherwise
+  hit that dialog too.
+
+Rule of thumb for future additions: if a value is something a user might
+reasonably want to change, it's a **template** (§14.1). If unsetting it would
+just reintroduce a wizard/dialog `am`'s ephemeral model makes unavoidable
+otherwise, it belongs in **`post_seed`**.
