@@ -16,10 +16,12 @@ use crate::Result;
 
 mod claude;
 mod codex;
+mod copilot;
 mod grok;
 mod opencode;
 pub use claude::Claude;
 pub use codex::Codex;
+pub use copilot::Copilot;
 pub use grok::Grok;
 pub use opencode::Opencode;
 
@@ -425,6 +427,7 @@ pub fn all() -> Vec<Box<dyn Harness>> {
     vec![
         Box::new(Claude::new()),
         Box::new(Codex::new()),
+        Box::new(Copilot::new()),
         Box::new(Grok::new()),
         Box::new(Opencode::new()),
     ]
@@ -482,7 +485,8 @@ mod tests {
         // split so adding a bridge (or a new passthrough-only harness) is a
         // deliberate, visible change.
         for h in all() {
-            let expected_structured = matches!(h.id().as_str(), "claude-code" | "codex" | "opencode");
+            let expected_structured =
+                matches!(h.id().as_str(), "claude-code" | "codex" | "opencode" | "copilot");
             assert_eq!(
                 h.io_support().structured,
                 expected_structured,

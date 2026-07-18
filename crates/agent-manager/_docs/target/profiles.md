@@ -107,9 +107,16 @@ the *same* dir. Three structural classes:
 
 | Class | Harnesses | Config lever (relocatable, HOME-independent) | Credential store | Clean strategy |
 |---|---|---|---|---|
-| **A — unified root** | Claude Code (`CLAUDE_CONFIG_DIR`), Codex (`CODEX_HOME`) | one env var relocates config **and** creds | inside that root | point lever at ephemeral dir → **seed creds in** → keep real `HOME` |
+| **A — unified root** | Claude Code (`CLAUDE_CONFIG_DIR`), Codex (`CODEX_HOME`), Copilot CLI (`COPILOT_HOME`) | one env var relocates config **and** creds | inside that root | point lever at ephemeral dir → **seed creds in** → keep real `HOME` |
 | **B — split store** | opencode (`OPENCODE_CONFIG_DIR` for config; auth under `~/.local/share/opencode`, HOME-relative) | config only | HOME-relative *data* dir | relocate config via lever **and** relocate the data dir via its own lever (`XDG_DATA_HOME`?) → seed creds there → keep real `HOME`. If no data-dir lever exists, fall back to Class C for creds only. |
 | **C — HOME-only** | grok (`~/.grok`, no `GROK_CONFIG_DIR`) | none | HOME-relative | **must** relocate `HOME` → toolchain caveat applies → prefer pairing with isol8 (§8) |
+
+Copilot CLI is a cautionary tale for this classification: an initial pass
+assumed Class C (no config lever documented), until `COPILOT_HOME` was
+actually tested against the installed binary and found to relocate the whole
+tree — Class A, no `HOME` relocation needed at all. **Verify against the real
+binary before classifying a harness**, not just its doc — see
+`_docs/harness/copilot.md`'s and `src/harness/copilot.rs`'s correction notes.
 
 So the generalized design: **the same seed-into-relocated-dir pattern for A and
 B; `HOME` relocation only for C.** Class C is precisely the case that motivates
@@ -238,8 +245,10 @@ global profiles come first.
    `HOME`. Validated end-to-end (AUTH_OK).
 2. **Generalize seeding ✅** `ConfigAnchor`/`SeedFile`/`seed_login` on the
    `Harness` trait; Codex (Class A, `CODEX_HOME`), opencode (Class A after the
-   `XDG_DATA_HOME` probe verified — B-1 below), grok (Class C, HOME-relocation +
-   seed). Each declares `config_anchor()`.
+   `XDG_DATA_HOME` probe verified — B-1 below), Copilot CLI (Class A after the
+   `COPILOT_HOME` lever was verified — an initial pass assumed Class C from
+   the doc alone), grok (Class C, HOME-relocation + seed — the one harness so
+   far with no config lever at all). Each declares `config_anchor()`.
 3. **Profile store + resolve ✅** `src/profile.rs` (`Profile`/`ProfileStore`/
    `FsProfileStore`, `extends` inheritance via `resolve_chain`/`flatten`);
    `--profile` flag + `[defaults].profile` with precedence `flags > profile >
@@ -272,7 +281,7 @@ global profiles come first.
 ## 13. Where it lives (implementation map)
 
 - `src/harness/mod.rs` — `Relocate`/`SeedFile`/`ConfigAnchor`, `Harness::config_anchor`, generic `seed_login`; `TemplateFile`, `Harness::templates`, generic `apply_templates` (§14); `Harness::post_seed` (§14).
-- `src/harness/{claude,codex,opencode,grok}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
+- `src/harness/{claude,codex,opencode,grok,copilot}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
 - `src/harness/claude.rs` — `templates()` (theme/tui/Claude-in-Chrome defaults) + `post_seed()` (onboarding/trust-dialog fix-ups); see §14.
 - `src/profile.rs` — profile store + `extends` inheritance.
 - `src/resolve.rs` — profile selection + 4-layer `pick` + `config_bases`.

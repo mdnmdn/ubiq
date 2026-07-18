@@ -7,7 +7,7 @@
 > `codex`, `opencode`, …) end-to-end with advanced lifecycle support: `am claude --mcps postgres --skills web-designer`,
 > `am codex --prompt "…" --hooks validator`, `am session ls|resume`, structured output
 > (events/ACP/AG-UI), session history with resume, isolation (isol8), and hooks for lifecycle automation.
-> Passthrough PTY (all harnesses) and structured I/O bridges (Claude Code, Codex, opencode) are fully implemented. In-process MCP
+> Passthrough PTY (all harnesses) and structured I/O bridges (Claude Code, Codex, opencode, GitHub Copilot) are fully implemented. In-process MCP
 > (lib mode) lets embedders inject custom MCPs the harness can call.
 >
 > **Phase 1 shipped** (Claude Code end-to-end: passthrough PTY, catalog injection, skills/MCPs/roles).
@@ -111,6 +111,7 @@ agent-manager/
     │   ├── mod.rs         #   Harness trait, Launch, IoSupport, resolve()/all()
     │   ├── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
     │   ├── codex.rs       #   Codex provisioner (P2, Harness impl)
+    │   ├── copilot.rs     #   GitHub Copilot CLI provisioner (Class A, COPILOT_HOME bridge)
     │   ├── grok.rs        #   Grok CLI provisioner (ephemeral-HOME bridge, passthrough-only)
     │   └── opencode.rs    #   opencode provisioner (P2, Harness impl)
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
@@ -123,6 +124,7 @@ agent-manager/
     │   ├── jsonl.rs       #   Claude stream-json input bridge (core, P2)
     │   ├── codex.rs       #   Codex JSON-RPC app-server input bridge (core, P2)
     │   ├── opencode.rs    #   opencode NDJSON run input bridge (core, P2)
+    │   ├── copilot.rs     #   GitHub Copilot CLI NDJSON output bridge (core)
     │   ├── acp.rs         #   ACP event adapter (core, P3)
     │   └── agui.rs        #   AG-UI event adapter (core, P3)
     ├── mcp/               # in-process MCP hosting (feature: inproc-mcp)
@@ -172,15 +174,17 @@ the `Harness` trait, and the module layout — is in
 |---------------|-------------------|--------------------------------|
 | `claude-code` | Claude Code       | **wrapped** (P1, `Harness` impl) |
 | `codex`       | Codex             | **wrapped** (P2, `Harness` impl) |
-| `copilot`     | GitHub Copilot    | documented (`Harness` impl TBD) |
+| `copilot`     | GitHub Copilot    | **wrapped** (Class A via `COPILOT_HOME`, `Harness` impl; passthrough + structured) |
 | `gemini`      | Gemini CLI        | documented (`Harness` impl TBD) |
 | `grok`        | Grok CLI          | **wrapped** (passthrough; structured TBD) |
 | `opencode`    | opencode          | **wrapped** (P2, `Harness` impl) |
 
-`claude-code`, `codex`, `grok`, and `opencode` each have `Harness` implementations
-(`src/harness/{claude,codex,grok,opencode}.rs`); the others have a runtime contract in
-`_docs/harness/` and become wrappable by transcribing that doc into a new
-`Harness` impl — no core change.
+`claude-code`, `codex`, `copilot`, `grok`, and `opencode` each have `Harness`
+implementations (`src/harness/{claude,codex,copilot,grok,opencode}.rs`); the
+others have a runtime contract in `_docs/harness/` and become wrappable by
+transcribing that doc into a new `Harness` impl — no core change. See
+[`_docs/harness/harness-implementation-checklist.md`](_docs/harness/harness-implementation-checklist.md)
+for the concrete checklist to work through when adding one.
 
 ### Reference harnesses (documented, not yet wrapped)
 
@@ -224,6 +228,8 @@ cargo run -- claude --model sonnet          # launch with a specific model
 cargo run -- codex --skills reviewer --io structured            # codex with structured I/O
 cargo run -- opencode --account personal --io structured        # opencode with account
 cargo run -- grok --mcps postgres --skills reviewer             # Grok CLI (passthrough; ephemeral $HOME)
+cargo run -- copilot --mcps postgres --skills reviewer          # GitHub Copilot CLI (COPILOT_HOME relocation; real $HOME untouched)
+cargo run -- copilot --prompt "summarize the repo" --io structured  # Copilot headless (-p, NDJSON)
 cargo run -- claude -- --version            # everything after `--` goes to claude
 cargo run -- account ls                     # list available accounts
 cargo run -- account use work               # set default account

@@ -30,7 +30,7 @@ Vendor: GitHub / Microsoft
 | **VS Code (macOS)**   | `~/Library/Application Support/Code/User/`             | `mcp.json`, `settings.json` (`chat.*`, `github.copilot.*`), per-profile `prompts/`, `agents/`, `instructions/`, `hooks/`, `skills/` |
 | **VS Code (Linux)**   | `~/.config/Code/User/`                                 | same as above                                                                                                          |
 | **VS Code (Windows)** | `%APPDATA%\Code\User\`                                 | same as above                                                                                                          |
-| **Copilot CLI**       | `~/.copilot/`                                          | `copilot-instructions.md`, `agents/`, `skills/`, `lsp-config.json`, `installed-plugins/`, `mcp.json`                  |
+| **Copilot CLI**       | `~/.copilot/` (relocatable via `COPILOT_HOME` — verified, see "Authentication" §"Credential capture & reuse") | `copilot-instructions.md`, `agents/`, `skills/`, `lsp-config.json`, `installed-plugins/`, `mcp-config.json` (not `mcp.json` — verified, see "MCP servers") |
 | **github.com**        | user account settings (no on-disk file)                | Personal instructions live in github.com → Copilot → Personal instructions                                            |
 | **Interop**           | `~/.claude/`                                           | `CLAUDE.md`, `rules/`, `settings.json`, `agents/`, `skills/`                                                          |
 
@@ -42,10 +42,10 @@ Vendor: GitHub / Microsoft
 ├── skills/<name>/SKILL.md             # user skills
 ├── prompts/<name>.prompt.md           # user prompt files
 ├── instructions/<name>.instructions.md # user instructions
-├── hooks/                             # user hooks
+├── hooks/                             # user hooks — NOT confirmed in 1.0.69 (see "Permissions" §Layer 3 note)
 ├── lsp-config.json                    # user LSP config
 ├── installed-plugins/                 # CLI-installed plugins
-└── mcp.json                           # CLI MCP config (does NOT read .vscode/mcp.json)
+└── mcp-config.json                    # CLI MCP config, key `mcpServers` (verified; does NOT read .vscode/mcp.json)
 
 # Interop
 ~/.claude/
@@ -398,6 +398,18 @@ You are in planning mode. Your task is to generate an implementation plan...
 > `.github/copilot/mcp.json` is **`servers`**. In a **plugin's**
 > `plugin.json` / `.mcp.json` the top-level key is **`mcpServers`**.
 
+> **Correction, Copilot CLI's own user-profile store only (verified against
+> 1.0.69, 2026-07-19).** The CLI's actual own MCP config file is
+> **`mcp-config.json`**, not `mcp.json` as the table above claims — and its
+> top-level key is **`mcpServers`**, not `servers`. Confirmed with
+> `copilot mcp add` under a scratch `COPILOT_HOME` for stdio (`type:
+> "local"`, not `"stdio"`), `http`, and `sse` transports, plus `--env`/
+> `--header`. This table's claims about VS Code's own `mcp.json` and the
+> workspace `.github/copilot/mcp.json` are not re-verified and may still be
+> accurate — only the CLI's *user-profile* file (the one `am`'s `Harness`
+> impl writes to) was checked. See `src/harness/copilot.rs`'s
+> `mcp_server_json` for the exact verified per-transport schema.
+
 ### `mcp.json` top-level structure
 
 ```json
@@ -524,19 +536,35 @@ Settings controlling slash command exposure:
 
 ## Authentication
 
+> **Correction (verified against the installed binary, GitHub Copilot CLI
+> 1.0.69, 2026-07-19).** This section as originally written described an
+> `auth`-namespaced command set (`copilot auth login`/`logout`/`status`/
+> `setup-token`) and a `COPILOT_TOKEN` env var that **do not exist** in the
+> real CLI — this caused a real `am account login --harness copilot` failure
+> (`Invalid command format`). The real command set has **no `auth`
+> namespace at all**: `login` is a top-level command
+> (`copilot login [--host <host>]`), and there is no `logout`/`status`/
+> `setup-token` subcommand in this version. The real token env var
+> precedence (from `copilot login --help` and `copilot help environment`) is
+> `COPILOT_GITHUB_TOKEN` > `GH_TOKEN` > `GITHUB_TOKEN` — `COPILOT_TOKEN`
+> doesn't exist. See `src/harness/copilot.rs`'s module doc for the full list
+> of verified corrections (MCP config filename/schema, `COPILOT_HOME`
+> relocation lever, hooks, argv shape). The rest of this section is kept
+> as originally researched (VS Code / github.com specifics not re-verified
+> here) but should be treated with the same "verify before trusting"
+> caution the CLI-specific claims above needed.
+
 GitHub Copilot is the only harness in this set whose auth is
 **inherited from the host's GitHub identity** — there is no per-CLI
 API key by default. The CLI shells out to the same auth stores VS
 Code uses, and adds an API-key path for the Copilot SDK only.
 
-The CLI's own auth command set:
+The CLI's own auth command (verified against 1.0.69):
 
-- `copilot auth login` — opens a browser to the GitHub OAuth flow.
-- `copilot auth logout` — clears the local token.
-- `copilot auth status` — shows the active account and the auth
-  method.
-- `copilot auth setup-token` — issues a short-lived token for CI
-  use (requires an interactive session first).
+- `copilot login [--host <host>]` — opens a browser to the GitHub OAuth
+  device flow (`--host` for GitHub Enterprise Cloud data residency).
+  **Not** `copilot auth login` — there is no `auth` subcommand namespace.
+- No `logout`/`status`/`setup-token` subcommand exists in this version.
 
 ### GitHub.com (personal account)
 
@@ -614,20 +642,19 @@ The same `{env:...}` / `{file:...}` substitution syntax is
 > <https://docs.github.com/en/copilot/customizing-copilot/using-your-own-api-key>
 > for the current SDK-BYOK guide.
 
-### `GITHUB_TOKEN` and `COPILOT_TOKEN` env vars
+### `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` env vars
 
-For CI and scripted use, the CLI accepts:
+**Corrected against `copilot login --help`/`copilot help environment`
+(1.0.69) — there is no `COPILOT_TOKEN` env var and no `setup-token`
+command; the real precedence, highest first, is:**
 
-- `GITHUB_TOKEN` (or `GH_TOKEN`) — a fine-grained PAT with the
-  `copilot` scope. Treated as a github.com user; no device flow.
-- `COPILOT_TOKEN` — a Copilot-specific token issued by
-  `copilot auth setup-token` from an interactive session. Scoped
-  to the model catalogue the user has access to; rotates every
-  ~24h.
-
-`COPILOT_TOKEN` is preferred over `GITHUB_TOKEN` in CI: it does
-not carry the user's full GitHub scopes and is the supported
-path per the official CI guide.
+- `COPILOT_GITHUB_TOKEN` — takes precedence over any previously stored
+  credentials. Supported token types: fine-grained PATs (v2) with the
+  "Copilot Requests" permission, OAuth tokens from the GitHub Copilot CLI
+  app, and OAuth tokens from the GitHub CLI (`gh`) app. Classic PATs
+  (`ghp_...`) are **not** supported.
+- `GH_TOKEN` — same supported token types, lower precedence.
+- `GITHUB_TOKEN` — same supported token types, lowest of the three.
 
 ### SecretStorage (VS Code extension)
 
@@ -657,14 +684,22 @@ needs a specific identity, the calling script must set
 
 ### Precedence summary
 
-Highest to lowest for a single `copilot` invocation:
+**Corrected** (`copilot login --help`, 1.0.69) — highest to lowest for a
+single `copilot` invocation:
 
-1. `COPILOT_TOKEN` env var.
-2. `GITHUB_TOKEN` / `GH_TOKEN` env var.
-3. VS Code `SecretStorage` (only when launched from the
-   extension).
-4. `gh` CLI's active host token (`~/.config/gh/hosts.yml`).
-5. `copilot auth login` cached token in OS keychain.
+1. `COPILOT_GITHUB_TOKEN` env var.
+2. `GH_TOKEN` env var.
+3. `GITHUB_TOKEN` env var.
+4. `copilot login` cached token (OS credential store, or a plaintext
+   fallback file under `~/.copilot/` if no credential store is reachable —
+   exact filename not independently verified, see
+   `src/harness/copilot.rs`'s module doc).
+
+VS Code `SecretStorage` and `gh`'s own `~/.config/gh/hosts.yml` are **not**
+read directly by the CLI's login/env chain in this version — only the three
+env vars above and the CLI's own stored-token flow. (The original
+`gh auth login` interop claim in this doc is unverified against 1.0.69;
+don't rely on it without checking `copilot login --help` again.)
 
 For the SDK BYOK path, `models.<id>.apiKey` is resolved first;
 only if it returns empty does the CLI fall back to the user's
@@ -672,35 +707,33 @@ GitHub-issued Copilot quota.
 
 ### Headless / CI
 
-The supported CI pattern is:
+**Corrected** — there is no `setup-token` command in 1.0.69, so the
+originally-documented `COPILOT_TOKEN`-minting flow doesn't exist. The
+supported CI pattern instead is:
 
-1. Run `copilot auth login` once on a developer machine.
-2. Run `copilot auth setup-token` and copy the printed token into
-   the CI secret store as `COPILOT_TOKEN`.
-3. In the CI job, export `COPILOT_TOKEN` before invoking the CLI.
+1. Mint a fine-grained PAT (v2) with the "Copilot Requests" permission (or
+   reuse an existing GitHub CLI / Copilot CLI OAuth token).
+2. Store it in the CI secret store as `COPILOT_GITHUB_TOKEN` (highest
+   precedence — see above).
+3. In the CI job, export `COPILOT_GITHUB_TOKEN` before invoking the CLI.
 
-Never commit the token; never commit `GITHUB_TOKEN` with broad
-scopes. Fine-grained PATs with only the `copilot` scope are
-sufficient.
-
-For self-hosted runners that need full GitHub access (not just
-Copilot), `GITHUB_TOKEN` with `repo:read` and `copilot` is the
-minimal set.
+Never commit the token. Classic PATs (`ghp_...`) are not accepted by any of
+the three env vars — only fine-grained PATs and OAuth tokens are.
 
 ### Troubleshooting
 
-- `401 Not logged in` → `gh auth status` shows the active host;
-  if it is not what you expect, `gh auth switch --user <name>`.
-- `404 model not found` → your plan does not include the
-  requested model. Run `copilot auth status` to see the plan.
-- SSO loop → the org requires SSO but the active token was
-  issued before the SSO policy was applied; rerun
-  `gh auth login` and complete the IdP step.
+- `401 Not logged in` → run `copilot login` again, or check whether
+  `COPILOT_GITHUB_TOKEN`/`GH_TOKEN`/`GITHUB_TOKEN` is set to a stale value.
+- `404 model not found` → your plan does not include the requested model;
+  cross-check against `copilot help config`'s `` `model`: `` settings entry
+  (the live, per-install list — see "Model discovery & selection" below).
 - `BYOK 401` → the env var named in `{env:...}` is unset; the
   literal string `"{env:OPENAI_API_KEY}"` is being sent to the
   provider.
-- `COPILOT_TOKEN expired` → re-run `copilot auth setup-token`
-  on a developer machine and update the secret.
+- Everything above involving `auth status`/`auth setup-token`/
+  `COPILOT_TOKEN` in an older draft of this doc referred to commands/env
+  vars that don't exist in 1.0.69 — see the correction note at the top of
+  this section.
 
 ### Credential capture & reuse (agent-manager)
 
@@ -708,32 +741,53 @@ minimal set.
 > harness's login into an ephemeral run. Records file **structure and non-secret
 > metadata only** — token values are copied opaquely.
 
+> **Corrected against the installed binary (1.0.69), 2026-07-19.** The
+> relocation lever, login command, and env-var precedence below were wrong in
+> an earlier draft of this doc (`COPILOT_CONFIG_DIR` doesn't exist and
+> neither does `copilot auth login`) — this caused a real, reported
+> `am account login --harness copilot` failure. See `src/harness/copilot.rs`'s
+> module doc for the full verification trail (the actual `Harness` impl is
+> the source of truth for anything re-verified since; this doc section is
+> kept in sync with it, not the other way around).
+
 - **Bundle files (the credential snapshot):**
-  - `~/.copilot/config.json` — **required**; Copilot CLI's own store, holding
-    `copilotTokens` (keyed `<host>:<login>`), `lastLoggedInUser`, `loggedInUsers`.
-  - `~/.config/gh/hosts.yml` — *recommended*; GitHub CLI interop, `oauth_token`
-    per host/user. Capture both for full multi-account fidelity.
-- **Relocation lever:** no dedicated override — set `HOME` to relocate
-  `~/.copilot/` and `~/.config/gh/`.
-- **Force file storage (skip keychain):** file storage is the default when no
-  token env var is set; there is no keychain mode to disable for `~/.copilot/`.
-  On macOS the `gh` fallback *can* read the Keychain (`gh:GitHub.com`), so a
-  clean snapshot prefers the plaintext `hosts.yml`/`config.json`.
-- **Login command (fresh-auth-into-temp):** `HOME=/tmp/x copilot auth login` (or
-  `gh auth login`). Headless/CI: inject `COPILOT_TOKEN` or `GITHUB_TOKEN` as a
-  reference account instead of snapshotting (`copilot auth setup-token` mints a
-  token for that path). Env precedence: `COPILOT_TOKEN` → `GITHUB_TOKEN`/`GH_TOKEN`
-  → `hosts.yml` → macOS Keychain.
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | `lastLoggedInUser.login` | `~/.copilot/config.json` | active GitHub username *(identifying)* |
-  | `lastLoggedInUser.host` | `~/.copilot/config.json` | GitHub instance (e.g. `github.com`) |
-  | `loggedInUsers[]` | `~/.copilot/config.json` | all authenticated accounts |
-  | `copilotTokens` keys | `~/.copilot/config.json` | `<host>:<login>` pairs (values are secret) |
-  | `github.com.user` | `~/.config/gh/hosts.yml` | active `gh` username |
-
+  - `~/.copilot/config.json` — **required**; the CLI's plaintext
+    credential-fallback file per `copilot login --help` ("if a credential
+    store is not found... stored in a plain text config file under
+    `~/.copilot/`"). The *filename* `config.json` is carried over from this
+    doc's original research and is plausible but **not independently
+    confirmed** — no plaintext fallback file was observed to name for
+    certain during re-verification (that environment authenticated via the
+    OS keychain / an env var instead). Re-verify the next time a real
+    plaintext-fallback capture is exercised.
+  - ~~`~/.config/gh/hosts.yml`~~ — **dropped.** `copilot login --help`'s
+    documented env-var precedence (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`,
+    `GITHUB_TOKEN`) reads only environment variables, not this file
+    directly, so capturing it in isolation doesn't help reuse a login.
+- **Relocation lever:** `COPILOT_HOME` — **verified, corrects "no dedicated
+  override" in an earlier draft.** `COPILOT_HOME` relocates the CLI's entire
+  config/state tree and **is** the `~/.copilot`-equivalent directory itself
+  (not a parent whose child is `.copilot/`) — confirmed by writing an MCP
+  server under a fresh `COPILOT_HOME` and observing it land directly at
+  `<dir>/mcp-config.json`, never touching the real `~/.copilot/`. This makes
+  Copilot CLI Class A (unified root, like Claude/Codex), not Class C — no
+  `HOME` relocation, no toolchain-stripping cost.
+- **Force file storage (skip keychain):** file storage is the default
+  fallback when no OS credential store is reachable; there is no dedicated
+  config knob to force it (matches the original doc's claim; no correction
+  needed here).
+- **Login command (fresh-auth-into-temp), corrected:**
+  `COPILOT_HOME=/tmp/x copilot login` — **not** `copilot auth login` (no
+  `auth` namespace exists in 1.0.69). Headless/CI: inject
+  `COPILOT_GITHUB_TOKEN` as a reference account instead of snapshotting (no
+  `setup-token`-style minting command exists — mint a fine-grained PAT
+  instead, see "Headless / CI" above). Env precedence: `COPILOT_GITHUB_TOKEN`
+  → `GH_TOKEN` → `GITHUB_TOKEN` → OS credential store.
+- **Extractable metadata (non-secret):** not independently re-verified this
+  pass (no real `config.json` credential-fallback file was available to
+  inspect) — treat the original doc's `lastLoggedInUser`/`loggedInUsers`/
+  `copilotTokens`-keys claims as unconfirmed until checked against a real
+  plaintext capture.
 - **Do not copy:** `session-state/`, `session-store.db*`,
   `command-history-state.json`, `logs/` — session/machine-bound state.
 
@@ -794,6 +848,16 @@ matching, use the object form: `"foo": { "approve": true,
 > exact token matches. `"*": true` does **not** allow everything.
 
 ### Layer 3 — Hooks
+
+> **Not confirmed against the installed binary (1.0.69).** `hook` does not
+> appear anywhere in `copilot --help` or its help topics (`copilot help
+> <topic>` for any topic listed under "Help Topics") — re-verification found
+> no evidence this CLI version reads any of the locations below. This
+> section may describe a VS Code-only feature, a not-yet-released CLI
+> feature, or a real-but-undocumented one; `src/harness/copilot.rs` treats
+> `spec.hooks` as a documented no-op for this harness rather than writing a
+> file the CLI was never confirmed to read. Re-verify before building on
+> this section.
 
 Hooks are programmatic gatekeepers. A hook can deny a single tool
 call without stopping the session.
@@ -1078,10 +1142,10 @@ A coordinator materialises skills into `<workdir>/.github/skills/<name>/SKILL.md
 > How `am <harness> --list-models` enumerates models and `am <harness> --model <id>`
 > selects one. Facts verified against the installed binary on 2026-07-10.
 
-- **Discover (list models):** `copilot help config` → `model:` setting lists available models (depends on GitHub plan; static list in help docs). Needs network/auth: no (list shown in help without auth).
+- **Discover (list models):** `copilot help config` → `` `model`: `` setting lists available models (depends on GitHub plan; static list in help docs). Needs network/auth: no (list shown in help without auth). **This section's original assessment held up on re-verification (2026-07-19, 1.0.69) and is now actually implemented**, not just documented: `Copilot::discover_models()` in `src/harness/copilot.rs` shells out to `copilot help config` and parses the quoted bullet list under the `` `model`: `` entry — a stable, machine-parseable block, confirmed by scraping it live.
 - **Select at launch (passthrough):** `--model <id>` CLI flag, or `COPILOT_MODEL` environment variable.
 - **Model id format:** Bare model name (e.g., `gpt-5.4`, `claude-sonnet-4.5`) or optional qualified form `<name> (<vendor>)`.
-- **Example ids (verified):** `gpt-5.4`, `gpt-5.4-mini`, `claude-sonnet-4.5`, `claude-haiku-4.5`, `gemini-3.5-flash`, `kimi-k2.7-code`.
+- **Example ids (re-verified 2026-07-19, 1.0.69 — the live list is larger and grows over time; don't hardcode it):** `claude-fable-5`, `claude-haiku-4.5`, `claude-opus-4.5`, `claude-opus-4.6`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-sonnet-4.5`, `claude-sonnet-4.6`, `claude-sonnet-5`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`, `kimi-k2.7-code`.
 - **Default model:** Resolved per precedence (highest first): `COPILOT_MODEL` env → `--model` flag → `~/.copilot/settings.json` → `model` key → last selected model in session.
 
 ## Format quirks / gotchas
