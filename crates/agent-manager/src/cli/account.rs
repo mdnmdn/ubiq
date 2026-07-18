@@ -318,6 +318,14 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
 
     let plan = harness.login(&home)?;
 
+    // Record the primary credential file's mtime *before* launching login, so
+    // a harness that exits 0 without actually writing fresh credentials (e.g.
+    // Claude Code aborting the persist step after a keychain-unreachable
+    // error, but still completing the rest of the OAuth flow) can't leave a
+    // stale pre-existing file behind and be reported as a success.
+    let primary = home.join(&plan.credential_files[0]);
+    let mtime_before = std::fs::metadata(&primary).and_then(|m| m.modified()).ok();
+
     let provisioned = crate::provision::Provisioned {
         dir: home.clone(),
         launch: plan.launch,
@@ -325,18 +333,43 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
         #[cfg(feature = "inproc-mcp")]
         inproc_servers: Vec::new(),
     };
+    // Login capture relocates HOME to `home` (a bare dir with no
+    // ~/Library/Keychains) precisely so the harness can't reach the OS
+    // keychain and falls back to writing a portable credential file instead
+    // — see the `login()` docs on each harness. On macOS that fallback is
+    // preceded by a keychain-lookup error printed straight to the terminal;
+    // it's expected and harmless, so flag it before it appears rather than
+    // let it read as a failure.
+    #[cfg(target_os = "macos")]
+    println!(
+        "note: macOS may print \"A keychain cannot be found to store '{}'\" below — that's \
+         expected, am relocates HOME during capture so credentials land in a portable file \
+         instead of your system keychain",
+        std::env::var("USER").unwrap_or_else(|_| "you".to_string())
+    );
     let cwd = std::env::current_dir()?;
     let code = crate::run::run(&provisioned, &cwd, true)?; // keep_config: persistent
     if code != 0 {
         bail!("harness login exited with code {code}; no account recorded");
     }
 
-    let primary = home.join(&plan.credential_files[0]);
-    if !primary.exists() {
-        bail!(
+    let mtime_after = std::fs::metadata(&primary).and_then(|m| m.modified()).ok();
+    match (mtime_before, mtime_after) {
+        (_, None) => bail!(
             "login did not produce a credential file at {}",
             primary.display()
-        );
+        ),
+        (Some(before), Some(after)) if after <= before => bail!(
+            "login exited successfully but did not refresh the credential file at {} \
+             (mtime unchanged since before this run) — a stale credential was left in \
+             place. On macOS this usually means the OS keychain was unreachable (relocated \
+             HOME has no ~/Library/Keychains) and Claude Code aborted persisting the new \
+             token instead of falling back to plaintext; rerun and check for a keychain \
+             error, or delete {} and try again",
+            primary.display(),
+            home.display()
+        ),
+        _ => {}
     }
 
     let store = FsAccountStore::new(&root);

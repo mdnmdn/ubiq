@@ -336,6 +336,74 @@ impl Harness for Claude {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
         Ok(Box::new(crate::io::JsonlBridge::new(child)?))
     }
+
+    /// User-editable preference defaults, merged into the run by
+    /// [`super::apply_templates`] rather than hardcoded here — see
+    /// `~/.config/agent-manager/templates/claude-code/`. `settings.json`
+    /// carries `theme`/`tui` (unset otherwise triggers Claude Code's
+    /// first-run theme picker); `.claude.json` carries
+    /// `claudeInChromeDefaultEnabled` (unset triggers the Claude-in-Chrome
+    /// opt-in prompt). Both are genuine user preferences, unlike the
+    /// structural fix-ups in [`Claude::post_seed`].
+    fn templates(&self) -> Vec<super::TemplateFile> {
+        vec![
+            super::TemplateFile {
+                name: "settings.json",
+                default: || json!({ "theme": "dark", "tui": "fullscreen" }),
+            },
+            super::TemplateFile {
+                name: ".claude.json",
+                default: || json!({ "claudeInChromeDefaultEnabled": false }),
+            },
+        ]
+    }
+
+    /// Structural fix-ups to the seeded `.claude.json`, always forced
+    /// (never template-overridable, unlike [`Claude::templates`] — these
+    /// aren't preferences, they're correctness requirements for `am`'s
+    /// ephemeral-config model):
+    ///
+    /// 1. A login captured via `claude auth login` (the non-interactive path
+    ///    `am account login` drives, under a HOME-relocated,
+    ///    keychain-unreachable capture home — see [`Claude::login`]) never
+    ///    runs the interactive onboarding wizard, so the file lacks
+    ///    `hasCompletedOnboarding`. Seeded as-is, Claude Code is fully
+    ///    authenticated but still opens its onboarding UI on launch.
+    /// 2. Claude Code gates a per-project trust dialog on
+    ///    `projects[cwd].hasTrustDialogAccepted`, keyed by the exact cwd
+    ///    string. A fresh/ephemeral `CLAUDE_CONFIG_DIR` has no record of
+    ///    `spec.cwd`, so every run would otherwise hit that dialog too.
+    fn post_seed(&self, spec: &RunSpec, dir: &Path) -> Result<()> {
+        let path = dir.join(".claude.json");
+        let mut doc: Value = match std::fs::read_to_string(&path) {
+            Ok(raw) => {
+                serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?
+            }
+            Err(_) => json!({}),
+        };
+        let Value::Object(map) = &mut doc else {
+            return Ok(());
+        };
+
+        map.insert("hasCompletedOnboarding".to_string(), json!(true));
+
+        let projects = map
+            .entry("projects")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Value::Object(projects) = projects {
+            let cwd_key = spec.cwd.display().to_string();
+            let entry = projects
+                .entry(cwd_key)
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+            if let Value::Object(entry) = entry {
+                entry.insert("hasTrustDialogAccepted".to_string(), json!(true));
+            }
+        }
+
+        std::fs::write(&path, serde_json::to_string_pretty(&doc)?)
+            .with_context(|| format!("writing {}", path.display()))?;
+        Ok(())
+    }
 }
 
 /// Render one [`McpServer`] into the JSON shape Claude Code's `--mcp-config`

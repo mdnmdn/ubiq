@@ -248,6 +248,90 @@ pub(crate) fn seed_login(dir: &Path, home: &Path, seed: &[SeedFile]) -> Result<(
     Ok(())
 }
 
+/// A JSON file, relative to a harness's relocated config root, whose content
+/// is merged into the run's config from a per-harness, user-editable
+/// **template store** rather than being computed as a Rust literal. See
+/// [`apply_templates`].
+#[derive(Clone, Copy)]
+pub struct TemplateFile {
+    /// Path relative to the config root, e.g. `"settings.json"`.
+    pub name: &'static str,
+    /// Content written to the template store the first time it's created, so
+    /// there's always something on disk to read and edit.
+    pub default: fn() -> serde_json::Value,
+}
+
+/// The template store root: `~/.config/agent-manager/templates` — sibling to
+/// `accounts/`. Overridable by `AM_TEMPLATES`.
+pub fn default_templates_root() -> Option<PathBuf> {
+    crate::settings::default_config_dir().map(|d| d.join("templates"))
+}
+
+/// Resolve the template store root from (highest first): an explicit path,
+/// `AM_TEMPLATES`, then the default.
+pub fn resolve_templates_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
+    explicit
+        .or_else(|| std::env::var("AM_TEMPLATES").ok().map(PathBuf::from))
+        .or_else(default_templates_root)
+}
+
+/// Merge each of `harness_id`'s [`TemplateFile`]s into `dir` on every run.
+///
+/// `templates/<harness_id>/<name>` is the per-harness template store; created
+/// (with `default()` content) the first time it's read, so a user always has
+/// a real file to edit rather than a hardcoded default hidden in Rust. The
+/// merge is shallow and gap-filling: any key the run itself already
+/// generated (credentials, onboarding flags, policy, hooks, …) wins; the
+/// template only supplies keys nothing else set. A malformed template or
+/// destination file is left untouched rather than failing the run — templates
+/// are a convenience layer, not load-bearing.
+pub(crate) fn apply_templates(dir: &Path, harness_id: &str, templates: &[TemplateFile]) -> Result<()> {
+    if templates.is_empty() {
+        return Ok(());
+    }
+    let Some(root) = resolve_templates_root(None) else {
+        return Ok(());
+    };
+    let harness_root = root.join(harness_id);
+
+    for tpl in templates {
+        let tpl_path = harness_root.join(tpl.name);
+        if !tpl_path.exists() {
+            std::fs::create_dir_all(&harness_root)
+                .with_context(|| format!("creating {}", harness_root.display()))?;
+            std::fs::write(&tpl_path, serde_json::to_string_pretty(&(tpl.default)())?)
+                .with_context(|| format!("writing {}", tpl_path.display()))?;
+        }
+
+        let Ok(tpl_raw) = std::fs::read_to_string(&tpl_path) else {
+            continue;
+        };
+        let Ok(serde_json::Value::Object(tpl_map)) = serde_json::from_str(&tpl_raw) else {
+            continue;
+        };
+
+        let dest_path = dir.join(tpl.name);
+        let mut dest: serde_json::Value = match std::fs::read_to_string(&dest_path) {
+            Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({})),
+            Err(_) => serde_json::json!({}),
+        };
+        let serde_json::Value::Object(dest_map) = &mut dest else {
+            continue;
+        };
+        for (k, v) in tpl_map {
+            dest_map.entry(k).or_insert(v);
+        }
+
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&dest_path, serde_json::to_string_pretty(&dest)?)
+            .with_context(|| format!("writing {}", dest_path.display()))?;
+    }
+    Ok(())
+}
+
 /// A wrappable agent harness: how to identify, provision, and launch it.
 pub trait Harness {
     /// Canonical stable id (e.g. `claude-code`).
@@ -275,6 +359,14 @@ pub trait Harness {
             requires_home_relocation: false,
         }
     }
+    /// User-editable JSON template files merged into `dir` on every run —
+    /// see [`apply_templates`]. Default: none. Overridden by harnesses with
+    /// preference-style defaults that should live in an editable file under
+    /// `~/.config/agent-manager/templates/<harness-id>/` instead of a Rust
+    /// literal — e.g. Claude Code's theme/tui/Claude-in-Chrome defaults.
+    fn templates(&self) -> Vec<TemplateFile> {
+        Vec::new()
+    }
     /// Which I/O modes this harness supports.
     fn io_support(&self) -> IoSupport;
     /// Discover the models available for this harness, for
@@ -298,6 +390,18 @@ pub trait Harness {
     /// returning. Default: an error — no login-capture support for this harness.
     fn login(&self, _home: &Path) -> Result<LoginPlan> {
         anyhow::bail!("credential login-capture for harness '{}' is not implemented", self.id())
+    }
+    /// Fix up `dir` after all login seeding (account-based and zero-config)
+    /// has landed. Default: no-op. Overridden by harnesses whose captured
+    /// login needs a tweak beyond a byte-for-byte file copy — e.g. Claude
+    /// Code, whose non-interactive `claude auth login` capture never runs
+    /// the interactive onboarding wizard, so the seeded `.claude.json` is
+    /// missing `hasCompletedOnboarding`, and the harness still shows its
+    /// onboarding UI on an otherwise fully-authenticated run; the same file
+    /// also gates the per-project trust dialog, which every run — seeded
+    /// login or not — should preempt for `spec.cwd`.
+    fn post_seed(&self, _spec: &RunSpec, _dir: &Path) -> Result<()> {
+        Ok(())
     }
     /// Build a structured-I/O bridge for a provisioned run.
     ///

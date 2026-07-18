@@ -74,6 +74,8 @@ pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
         seed_zero_config_login(harness, spec, &dir)?;
+        crate::harness::apply_templates(&dir, &harness.id(), &harness.templates())?;
+        harness.post_seed(&effective_spec, &dir)?;
         Ok(Provisioned {
             dir,
             launch,
@@ -87,6 +89,8 @@ pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
         seed_zero_config_login(harness, spec, &dir)?;
+        crate::harness::apply_templates(&dir, &harness.id(), &harness.templates())?;
+        harness.post_seed(spec, &dir)?;
         Ok(Provisioned {
             dir,
             launch,
