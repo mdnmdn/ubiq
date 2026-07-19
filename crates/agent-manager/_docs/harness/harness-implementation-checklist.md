@@ -10,7 +10,7 @@ harnesses actually wrapped so far — `claude.rs`, `codex.rs`, `opencode.rs`,
 harness's *native* runtime contract, harness-neutral). This file governs the
 *implementation* step that turns that contract into Rust — read it alongside
 whichever `<id>.md` you're transcribing. See `AGENTS.md`'s "Supported
-harnesses" table for current status and `_docs/target/profiles.md` §5 for the
+harnesses" table for current status and `_docs/profiles.md` §5 for the
 Class A/B/C taxonomy referenced throughout.
 
 Per this repo's standing rule: **adding a harness is a pure extension** — a
@@ -56,7 +56,7 @@ you actually implement against it, not settled truth.**
 
 ## 2. Classify the config/credential relocation model (Class A/B/C)
 
-Per `_docs/target/profiles.md` §5 — this decision drives `config_anchor()`
+Per `_docs/profiles.md` §5 — this decision drives `config_anchor()`
 and the whole `provision()` shape, so make it first and get it right:
 
 - [ ] **Class A — unified root**: one env var relocates config *and*
@@ -92,6 +92,14 @@ and the whole `provision()` shape, so make it first and get it right:
       that mistake for a new harness without checking.
 
 ## 3. `config_anchor()`
+
+> A new harness needs **no** store changes. Credential seeding flows generically
+> through `super::seed_login(dir, &Source, login_seed)` (the login content comes
+> from `AccountStore::login_source`, a `Source` that is a dir for the filesystem
+> store or bytes for a database-backed one), and preference templates flow
+> through the injected `TemplateStore`. You declare only `config_anchor()` and
+> (optionally) `templates()`; the stores are harness-agnostic. See
+> `_docs/am-as-library.md`.
 
 - [ ] `levers`: the env var(s) + `Relocate` variant from step 2 (empty for
       Class C).
@@ -258,7 +266,7 @@ no-op here — a fidelity gap, not a user mistake").
 
 Most harnesses need neither; both default to no-ops. Reach for one only when
 the harness's own onboarding wizard would otherwise block every ephemeral,
-always-first-run config dir (see `_docs/target/profiles.md` §14 for the full
+always-first-run config dir (see `_docs/profiles.md` §14 for the full
 rationale):
 
 - [ ] **`Harness::templates()`** — for genuine, user-tunable *preferences*
@@ -339,7 +347,7 @@ and the second `clippy` pass catch different things than the default build
       it to the "each have `Harness` implementations" sentence, add
       `<id>.rs` to the `src/harness/` (and `src/io/`, if applicable)
       repository-layout tree, add a `cargo run -- <id> ...` example line.
-- [ ] `_docs/target/profiles.md` §5's Class A/B/C table: add the harness to
+- [ ] `_docs/profiles.md` §5's Class A/B/C table: add the harness to
       its class's example list if it's a new instance of an existing class
       (or document a genuinely new class, if one shows up). Update §11/§13
       ("Where it lives") if the file list changed.

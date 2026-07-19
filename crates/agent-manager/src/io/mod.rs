@@ -1,6 +1,6 @@
 //! I/O bridging between `am` and a running harness.
 //!
-//! Two independent things live here (see `_docs/target/io-modes.md`):
+//! Two independent things live here (see `_docs/io-modes.md`):
 //!
 //! - **Core** — the harness-neutral [`model`] ([`AgentInput`], [`AgentEvent`],
 //!   [`IoBridge`]) and the piped-spawn helper in [`structured`]. These only

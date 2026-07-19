@@ -409,7 +409,7 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
   `am` *copies* the captured `<home>/.claude/.credentials.json` →
   `$CLAUDE_CONFIG_DIR/.credentials.json` and `<home>/.claude.json` →
   `$CLAUDE_CONFIG_DIR/.claude.json` into the ephemeral run dir, leaving `HOME`
-  (and the real `~/.claude*`) untouched. See `_docs/target/profiles.md`.
+  (and the real `~/.claude*`) untouched. See `_docs/profiles.md`.
 - **Force file storage (skip keychain):** no documented config knob (unlike
   Codex). Claude Code falls back to the plaintext `.credentials.json` when the OS
   keychain is unreachable — running `login` inside the isol8/iter8 sandbox (no

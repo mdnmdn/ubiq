@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use crate::config::McpServer;
 use crate::registry::{McpEntry, McpExpose, Registry, SkillEntry, SkillMeta};
+use crate::source::Source;
 use crate::Result;
 use anyhow::anyhow;
 
@@ -61,7 +62,7 @@ impl Registry for FsRegistry {
 
             entries.push(SkillEntry {
                 id,
-                path,
+                source: Source::Dir(path),
                 meta,
             });
         }

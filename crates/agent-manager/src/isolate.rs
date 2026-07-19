@@ -9,7 +9,7 @@
 //! `std` — no new crate dependency, no feature gate — so it stays part of
 //! the crate's core (still builds and is usable with
 //! `--no-default-features`, e.g. for lib-mode embedders that never touch
-//! clap/pty). See `_docs/target/architecture.md` and `_docs/target/cli.md`
+//! clap/pty). See `_docs/architecture.md` and `_docs/cli.md`
 //! for the `--isolate[=profile]` / `[isolate] command` surface this backs.
 
 use crate::harness::Launch;

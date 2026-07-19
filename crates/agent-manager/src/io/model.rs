@@ -10,7 +10,7 @@
 //! later steps) and the raw-tty [`super::passthrough`] module need extra
 //! deps, and stay feature-gated.
 //!
-//! See `_docs/target/io-modes.md` §"The `IoBridge` trait" for the design
+//! See `_docs/io-modes.md` §"The `IoBridge` trait" for the design
 //! this transcribes.
 
 use serde::{Deserialize, Serialize};

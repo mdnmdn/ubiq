@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use crate::account::Account;
 use crate::config::McpServer;
+use crate::source::Source;
 
 /// Stable, lowercase harness identifier (e.g. `claude-code`).
 pub type HarnessId = String;
@@ -15,13 +16,15 @@ pub type HarnessId = String;
 /// Account / credential profile id — the [`crate::account::AccountStore`] key.
 pub type AccountId = String;
 
-/// A resolved skill to inject: its id and the on-disk folder to materialize.
+/// A resolved skill to inject: its id and the content to materialize.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillRef {
     /// Catalog skill id.
     pub id: String,
-    /// Path to the skill folder (contains `SKILL.md`).
-    pub path: PathBuf,
+    /// The skill folder's content (a [`Source::Dir`] for the filesystem
+    /// catalog, or [`Source::Files`] for a database-backed one). Materialized
+    /// into `<config-dir>/skills/<id>/` by the harness provisioner.
+    pub source: Source,
 }
 
 /// A resolved MCP server to inject.
@@ -63,7 +66,7 @@ impl std::fmt::Debug for InProcessMcpHandle {
 /// `SKILL.md` pointer generated alongside the MCP's normal injection.
 ///
 /// This is the Phase-3 "MCP-as-skill" stepping stone (see
-/// `_docs/target/mcp-as-skill.md`): the MCP named by `id` stays injected as a
+/// `_docs/mcp-as-skill.md`): the MCP named by `id` stays injected as a
 /// normal, always-on tool set in `spec.mcps` — this does **not** yet save
 /// context. It only additionally causes the provisioner to write a
 /// documented `SKILL.md` pointer for it. The "expand on demand" mechanism
@@ -143,7 +146,7 @@ pub enum IoModes {
     #[default]
     Passthrough,
     /// Drive the agent over a harness-neutral [`crate::io::IoBridge`]
-    /// (Phase 2+). See `_docs/target/io-modes.md`.
+    /// (Phase 2+). See `_docs/io-modes.md`.
     Structured,
 }
 
@@ -190,6 +193,15 @@ pub struct RunSpec {
     /// (env-var names, a base URL, a helper command, a private home dir) —
     /// never a secret value; see [`Account`].
     pub account: Option<Account>,
+    /// The account's captured-login content, resolved from the account store
+    /// ([`crate::account::AccountStore::login_source`]). A [`Source::Dir`] for
+    /// the filesystem store (the account's `home`), or [`Source::Files`] for a
+    /// database-backed one. Seeded into the harness's relocated config dir by
+    /// the provisioner per the harness's [`crate::harness::ConfigAnchor`]. Kept
+    /// separate from [`Account`] (a serde-on-disk reference record) so the spec
+    /// stays self-contained and secret-free at rest. `None` when the account
+    /// has no captured login (env/key/helper accounts, or no account).
+    pub account_login: Option<Source>,
     /// Resolved permission/policy preset (from `--safe`), if any.
     pub policy: Option<Policy>,
     /// Always-on instructions / first prompt. (P2)
@@ -209,14 +221,15 @@ pub struct RunSpec {
     /// `--resume <id>`, opencode's `--session <id>`). `None` (the default)
     /// leaves resumeless runs byte-identical to before this field existed.
     pub resume: Option<String>,
-    /// Profile config-overlay base dirs to materialize into the ephemeral
-    /// config dir, ordered **root → leaf** across the profile `extends` chain.
-    /// Each is a `<profiles-root>/<name>/base/<harness>` dir of user config
-    /// (settings fragments, memory, extra skills) layered on top of what the
-    /// harness provisioner wrote — leaf overrides root, and neither overrides
-    /// an `am`-managed file. Empty (the default) = no overlay. See
-    /// [`crate::overlay::materialize`] and `_docs/target/profiles.md` §9.
-    pub config_bases: Vec<PathBuf>,
+    /// Profile config-overlay bases to materialize into the ephemeral config
+    /// dir, ordered **root → leaf** across the profile `extends` chain. Each is
+    /// the content of a `<profiles-root>/<name>/base/<harness>` overlay
+    /// ([`crate::profile::ProfileStore::base_source`]) — user config (settings
+    /// fragments, memory, extra skills) layered on top of what the harness
+    /// provisioner wrote: leaf overrides root, and neither overrides an
+    /// `am`-managed file. Empty (the default) = no overlay. See
+    /// [`crate::overlay::materialize`] and `_docs/profiles.md` §9.
+    pub config_bases: Vec<Source>,
 }
 
 impl RunSpec {
@@ -231,6 +244,7 @@ impl RunSpec {
             mcp_as_skill: Vec::new(),
             hooks: Vec::new(),
             account: None,
+            account_login: None,
             policy: None,
             initial: None,
             config: ConfigStrategy::Ephemeral,
@@ -274,7 +288,7 @@ mod tests {
     fn test_serde_skill_ref() {
         let skill = SkillRef {
             id: "my-skill".to_string(),
-            path: PathBuf::from("/path/to/skill"),
+            source: Source::Dir(PathBuf::from("/path/to/skill")),
         };
 
         let json = serde_json::to_string(&skill).expect("serialize");

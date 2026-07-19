@@ -163,7 +163,8 @@ fn cmd_resume(id: &str) -> Result<()> {
         );
     };
 
-    let provisioned = crate::provision::provision(harness.as_ref(), &spec)?;
+    let templates = crate::harness::FsTemplateStore::from_default();
+    let provisioned = crate::provision::provision(harness.as_ref(), &spec, &templates)?;
     let new_sessions_root = session::sessions_root(None);
 
     // `output` only matters for `--io structured`; there's no `--output`

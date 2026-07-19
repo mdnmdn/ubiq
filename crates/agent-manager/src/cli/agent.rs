@@ -5,7 +5,7 @@
 //! launches that harness with the profile applied and **no** `am` composition
 //! flags of its own — only harness passthrough args after `--`. Everything
 //! reuses the normal resolve → provision → run spine via
-//! [`super::run::run_harness`]; see `_docs/target/profiles.md` §10.
+//! [`super::run::run_harness`]; see `_docs/profiles.md` §10.
 
 use anyhow::{bail, Context, Result};
 

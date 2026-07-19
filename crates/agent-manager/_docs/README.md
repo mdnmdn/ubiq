@@ -1,9 +1,9 @@
-# `_docs/target/` — the target design (agent-runtime era)
+# `_docs/` — the design (agent-runtime era)
 
-> **This is the direction we are building toward.** It supersedes the
-> config-sync design archived in [`../old/`](../old/). Implementation happens
+> **This is the shipped implementation.** It supersedes the
+> config-sync design (archived). Implementation is rolling out
 > incrementally, one session at a time, guided by the
-> [roadmap](./roadmap.md) and the [transition plan](../transition-plan.md).
+> [roadmap](./roadmap.md).
 
 ## One-line pitch
 
@@ -47,8 +47,8 @@ am claude --mcps postgres,figma --skills web-designer --safe
 
 ## Related, unchanged
 
-- [`../harness/`](../harness/) — per-harness runtime contracts (launch flags,
+- [`./harness/`](./harness/) — per-harness runtime contracts (launch flags,
   output stream protocol, injection seams). **Authoritative and still current**
-  — the target design consumes these directly.
-- [`../reference/multica.md`](../reference/multica.md) — how a real
+  — the implementation consumes these directly.
+- [`./reference/multica.md`](./reference/multica.md) — how a real
   orchestrator drives these harnesses end-to-end.

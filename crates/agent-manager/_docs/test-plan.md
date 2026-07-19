@@ -470,13 +470,13 @@ implementation**. Quick to do and they catch drift.
 
 | id | Check | Expected |
 |----|-------|----------|
-| T-16a | `_docs/target/cli.md` flag table vs `RunArgs` | every implemented flag (§5 list) is documented, incl. `--model` / `--list-models`; no documented-but-absent flags |
+| T-16a | `_docs/cli.md` flag table vs `RunArgs` | every implemented flag (§5 list) is documented, incl. `--model` / `--list-models`; no documented-but-absent flags |
 | T-16b | `_docs/harness/{claude-code,codex,grok,opencode}.md` — each has the mandatory `### Credential capture & reuse (agent-manager)` (§10) and `### Model discovery & selection (agent-manager)` (§13) subsections, correctly placed | present, one each |
 | T-16c | `_docs/harness/structure.md` registers both agent-manager subsections as mandatory | present in §10 and §13 templates |
 | T-16d | `_docs/harness/gemini.md`, `copilot.md` also carry both subsections (documented-not-wrapped) | present |
 | T-16e | `AGENTS.md` "Build & run" examples all execute as written (`--print-config`, `--list-models`, `--model sonnet`, `catalog ls`, `account ls`, …) | each runs without error (login-gated ones may `BLOCKED`) |
 | T-16f | `AGENTS.md` supported-harness table matches `harness::all()` (claude/codex/grok/opencode wrapped; rest documented/reference) | matches |
-| T-16g | `_docs/target/io-modes.md` structured-support claims match code | claude/codex/opencode structured; grok passthrough-only |
+| T-16g | `_docs/io-modes.md` structured-support claims match code | claude/codex/opencode structured; grok passthrough-only |
 | T-16h | `_docs/reference/multica.md` + `refs/multica/` submodule present and cited | file exists; submodule checked out |
 
 ---

@@ -61,7 +61,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
 use crate::Result;
 
-use super::{copy_dir_recursive, ConfigAnchor, Harness, IoSupport, Launch, SeedFile};
+use super::{ConfigAnchor, Harness, IoSupport, Launch, SeedFile};
 
 /// The Grok CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -106,7 +106,7 @@ impl Harness for Grok {
     /// `levers` is empty and `requires_home_relocation` is true (relocating
     /// HOME strips the user's toolchain — the isol8-pairing signal). A captured
     /// login is the single plaintext `~/.grok/auth.json`, seeded into the
-    /// relocated HOME's `.grok/auth.json`. See `_docs/target/profiles.md` §5.
+    /// relocated HOME's `.grok/auth.json`. See `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![],
@@ -178,22 +178,11 @@ impl Harness for Grok {
         // path, not `.grok/`).
         let skills_dir = dir.join(".agents").join("skills");
         for skill in &spec.skills {
-            if !skill.path.exists() {
-                bail!(
-                    "skill '{}' points at a path that does not exist: {}",
-                    skill.id,
-                    skill.path.display()
-                );
-            }
             let dest = skills_dir.join(&skill.id);
-            copy_dir_recursive(&skill.path, &dest).with_context(|| {
-                format!(
-                    "copying skill '{}' from {} to {}",
-                    skill.id,
-                    skill.path.display(),
-                    dest.display()
-                )
-            })?;
+            skill
+                .source
+                .materialize(&dest, crate::source::LinkMode::Copy, true)
+                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
         }
         // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
         // harness::write_mcp_as_skill_pointers's doc). No-op when
@@ -277,8 +266,8 @@ impl Harness for Grok {
             // HOME), so grok finds its credentials at launch. No-op when the
             // account home holds no captured login yet. The seed list is
             // declared once in `config_anchor()`.
-            if let Some(home) = &account.home {
-                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
+            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -427,7 +416,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "my-skill".to_string(),
-            path: skill_path,
+            source: crate::source::Source::Dir(skill_path),
         });
         spec.mcps.push(McpRef::Catalog(McpServer {
             id: "postgres".to_string(),
@@ -503,7 +492,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
         });
 
         let grok = Grok::new();

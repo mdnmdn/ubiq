@@ -14,14 +14,9 @@
 > **Phase 2 shipped** (codex/opencode wrapped, accounts, instructions/prompt, structured I/O, in-process MCP).
 > **Phase 3 shipped** (isolation via isol8, session history + resume, output adapters ACP/AG-UI, hooks).
 >
-> - The **target design** lives in [`_docs/target/`](_docs/target/) — start at
->   [`_docs/target/README.md`](_docs/target/README.md).
-> - The **migration record** (what each old `src/` file became) is in
->   [`_docs/transition-plan.md`](_docs/transition-plan.md).
-> - The **previous** (config-sync) design is archived in
->   [`_docs/old/`](_docs/old/) for reference.
->
-> When in doubt, the `target/` docs win.
+> - The **design** lives in [`_docs/`](_docs/) — start at
+>   [`_docs/README.md`](_docs/README.md).
+> - The **previous** (config-sync) design is archived (see `git log`).
 
 `agent-manager` is a CLI + library (Rust) that **wraps a running agent
 harness**. You run `am claude --mcps postgres,figma --skills web-designer` and
@@ -63,8 +58,7 @@ real config untouched.
 - Being a secrets manager (accounts inject *references*, not secret material).
 - Being an MCP server/client of its own (except hosting an embedder's
   *in-process* MCP in lib mode).
-- Config-*sync* into the user's real dirs as the primary purpose — retired; see
-  [`_docs/old/`](_docs/old/).
+- Config-*sync* into the user's real dirs as the primary purpose — retired.
 
 ## Repository layout
 
@@ -73,17 +67,16 @@ agent-manager/
 ├── AGENTS.md              # this file
 ├── Cargo.toml             # library + binary in one package
 ├── _docs/                 # design + per-harness notes (humans)
-│   ├── target/            # ⭐ the design we are building toward (start here)
-│   │   ├── README.md      #    index
-│   │   ├── overview.md    #    vision, responsibilities, two modes
-│   │   ├── architecture.md#    runtime pipeline, RunSpec, provisioner, modules
-│   │   ├── cli.md         #    the `am` command surface
-│   │   ├── registry.md    #    the MCP/skill catalog
-│   │   ├── io-modes.md    #    passthrough / ACP / JSONL / AG-UI
-│   │   ├── mcp-as-skill.md#    expose an MCP as a skill
-│   │   └── roadmap.md     #    phased plan (P1 → P2 → P3)
-│   ├── transition-plan.md # migration from today's code to Phase 1
-│   ├── old/               # archived config-sync design (superseded)
+│   ├── README.md          # ⭐ design overview (start here)
+│   ├── overview.md        # vision, responsibilities, two modes
+│   ├── architecture.md    # runtime pipeline, RunSpec, provisioner, modules
+│   ├── cli.md             # the `am` command surface
+│   ├── registry.md        # the MCP/skill catalog
+│   ├── io-modes.md        # passthrough / ACP / JSONL / AG-UI
+│   ├── mcp-as-skill.md    # expose an MCP as a skill
+│   ├── profiles.md        # profiles & agents: persistent base + ephemeral overlay
+│   ├── am-as-library.md   # embedding the crate: the storage-trait extension points
+│   ├── roadmap.md         # phased plan (P1 → P2 → P3)
 │   ├── harness/           # per-harness runtime contracts (current, authoritative)
 │   │   ├── claude-code.md
 │   │   ├── codex.md
@@ -95,20 +88,23 @@ agent-manager/
 │       └── multica.md
 ├── refs/                  # external projects as git submodules (reference only)
 │   └── multica/           # git@github.com:multica-ai/multica.git
-└── src/                   # Phase-1 implementation (see transition-plan for history)
+└── src/                   # implementation (core + all phases)
     ├── lib.rs             # crate root (#![forbid(unsafe_code)])
     ├── main.rs            # thin binary entry point → cli::run()
     ├── config.rs          # resource types (Skill/McpServer/McpTransport)
-    ├── spec.rs            # RunSpec + McpRef/SkillRef/ConfigStrategy/IoModes/Policy (core)
+    ├── source.rs          # Source (Dir|Files) content seam every store hands the provisioner (core)
+    ├── spec.rs            # RunSpec (skills carry Source; account_login/config_bases) + McpRef/SkillRef/… (core)
     ├── settings.rs        # discover + load the am.toml/.yaml settings file (core)
     ├── resolve.rs         # (flags + settings + catalog) → RunSpec, replace-by-default (core)
     ├── registry/          # the catalog (core)
     │   ├── mod.rs         #   Registry trait, entries, OverlayRegistry, root resolution
     │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/)
     │   └── import.rs      #   read-only ingest of ~/.claude, ~/.agent, project dirs
-    ├── account.rs         # account catalog + credential-reference injection (core, P2)
+    ├── account.rs         # AccountStore trait (login_source/login_home/capture_login) + FsAccountStore (core, P2)
+    ├── profile.rs         # ProfileStore trait (base_source/put_base) + FsProfileStore, extends inheritance (core)
+    ├── overlay.rs         # materialize a profile's Source overlay into the run dir + run-dir GC (core)
     ├── harness/           # the Harness trait + impls (core)
-    │   ├── mod.rs         #   Harness trait, Launch, IoSupport, resolve()/all()
+    │   ├── mod.rs         #   Harness trait, Launch, IoSupport; TemplateStore trait + FsTemplateStore; seed_login(&Source)
     │   ├── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
     │   ├── codex.rs       #   Codex provisioner (P2, Harness impl)
     │   ├── copilot.rs     #   GitHub Copilot CLI provisioner (Class A, COPILOT_HOME bridge)
@@ -130,7 +126,7 @@ agent-manager/
     ├── mcp/               # in-process MCP hosting (feature: inproc-mcp)
     │   ├── mod.rs         #   McpService trait for embedders (core, P2)
     │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
-    ├── session.rs         # session history + metadata persistence (core, P3)
+    ├── session.rs         # SessionStore/SessionRecorder traits + FsSessionStore; history + transcripts (core, P3)
     ├── isolate.rs         # isol8 sandbox integration (core, P3)
     ├── cli/               # the `am` command surface (feature: cli)
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
@@ -145,10 +141,9 @@ The library in `src/lib.rs` owns all real logic; `src/main.rs` is a thin shim.
 Modules marked **(core)** build with `--no-default-features` for lib mode; `io/passthrough`
 and `run` are `pty`-gated; `mcp/server` is feature `inproc-mcp`-gated; CLI is
 feature-gated. Core module `io/` is no longer `pty`-gated (structured bridges + neutral model
-are core). For how each old `src/` file was repurposed (config-sync → wrapper), see
-[`_docs/transition-plan.md`](_docs/transition-plan.md).
+are core).
 
-## How a run works (target)
+## How a run works
 
 Instead of syncing config files, `agent-manager` composes and launches a run:
 
@@ -166,7 +161,7 @@ flags + settings + catalog  ─▶ resolve ─▶ RunSpec ─▶ provision ─�
 
 The full model — `RunSpec`, the provisioner (the repurposed old sync renderer),
 the `Harness` trait, and the module layout — is in
-[`_docs/target/architecture.md`](_docs/target/architecture.md).
+[`_docs/architecture.md`](_docs/architecture.md).
 
 ## Supported harnesses
 
@@ -248,7 +243,7 @@ cargo clippy -p agent-manager --all-features -- -D warnings
 
 The binary is still built as `agent-manager`; `am` is the intended installed
 alias. The `inproc-mcp` feature enables in-process MCP hosting for lib mode. See
-[`_docs/target/cli.md`](_docs/target/cli.md) for the full surface.
+[`_docs/cli.md`](_docs/cli.md) for the full surface.
 
 ## Conventions for contributors
 
@@ -288,4 +283,4 @@ Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**; **
 - [x] hooks: per-run hook selection (`--hooks a,b`); provisioner wires into harness-native slots (Claude/codex/opencode)
 - [x] MCP-as-skill schema + stepping stone: `expose = "tools" | "skill"`, `summary`, `--mcp-as-skill` CLI flag, generated SKILL.md pointers (deferred-load mechanism deferred)
 
-See [`_docs/target/roadmap.md`](_docs/target/roadmap.md).
+See [`_docs/roadmap.md`](_docs/roadmap.md).

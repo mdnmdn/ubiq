@@ -4,14 +4,15 @@
 //! This module owns directory creation and location. It does NOT launch the
 //! harness (that's `run`, a later stage) and does NOT clean up the directory
 //! afterwards (the runner owns that lifecycle) — see
-//! `_docs/target/architecture.md` §"The provisioner and the custom config
+//! `_docs/architecture.md` §"The provisioner and the custom config
 //! folder bridge".
 
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use crate::harness::{Harness, Launch};
+use crate::harness::{Harness, Launch, TemplateStore};
+use crate::source::Source;
 use crate::spec::{ConfigStrategy, RunSpec};
 use crate::Result;
 
@@ -58,7 +59,16 @@ impl Clone for Provisioned {
 /// alive in the returned `Provisioned` and shut down when it is dropped.
 /// When the feature is off, `spec` is passed through unchanged and each
 /// harness's provisioner `bail!`s on `McpRef::InProcess`, as before.
-pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
+///
+/// `templates` is the [`TemplateStore`] the harness's preference templates are
+/// read from (the CLI passes an [`crate::harness::FsTemplateStore`]; an embedder
+/// may pass its own) — the injection point that lets templates live somewhere
+/// other than `~/.config/agent-manager/templates`.
+pub fn provision(
+    harness: &dyn Harness,
+    spec: &RunSpec,
+    templates: &dyn TemplateStore,
+) -> Result<Provisioned> {
     let (dir, ephemeral) = match &spec.config {
         ConfigStrategy::Fixed(path) => (path.clone(), false),
         ConfigStrategy::Ephemeral => (new_run_dir()?, true),
@@ -74,7 +84,7 @@ pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
         seed_zero_config_login(harness, spec, &dir)?;
-        crate::harness::apply_templates(&dir, &harness.id(), &harness.templates())?;
+        crate::harness::apply_templates(&dir, &harness.id(), &harness.templates(), templates)?;
         harness.post_seed(&effective_spec, &dir)?;
         Ok(Provisioned {
             dir,
@@ -89,7 +99,7 @@ pub fn provision(harness: &dyn Harness, spec: &RunSpec) -> Result<Provisioned> {
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
         seed_zero_config_login(harness, spec, &dir)?;
-        crate::harness::apply_templates(&dir, &harness.id(), &harness.templates())?;
+        crate::harness::apply_templates(&dir, &harness.id(), &harness.templates(), templates)?;
         harness.post_seed(spec, &dir)?;
         Ok(Provisioned {
             dir,
@@ -165,7 +175,7 @@ fn seed_zero_config_login(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> 
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return Ok(());
     };
-    crate::harness::seed_login(dir, &home, &anchor.login_seed)
+    crate::harness::seed_login(dir, &Source::Dir(home), &anchor.login_seed)
 }
 
 /// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.
@@ -213,7 +223,9 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(temp.path().to_path_buf());
 
         let claude = Claude::new();
-        let provisioned = provision(&claude, &spec).unwrap();
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&claude, &spec, &templates).unwrap();
 
         assert_eq!(provisioned.dir, temp.path());
         assert!(!provisioned.ephemeral);
@@ -224,7 +236,9 @@ mod tests {
     fn ephemeral_strategy_creates_a_fresh_dir_under_state() {
         let spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
         let claude = Claude::new();
-        let provisioned = provision(&claude, &spec).unwrap();
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&claude, &spec, &templates).unwrap();
 
         assert!(provisioned.ephemeral);
         assert!(provisioned.dir.exists());
@@ -233,6 +247,38 @@ mod tests {
         // Cleanup: this test writes to the real state dir since it exercises
         // the ephemeral path; remove what we created.
         let _ = std::fs::remove_dir_all(&provisioned.dir);
+    }
+
+    /// Injection proof: a skill whose content comes from `Source::Files`
+    /// (bytes, as a database-backed catalog would yield — no filesystem skill
+    /// folder anywhere) still materializes into the run dir. This is the
+    /// end-to-end evidence the storage abstraction works without the FS.
+    #[test]
+    fn provision_materializes_a_files_backed_skill_without_the_filesystem() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.skills.push(crate::spec::SkillRef {
+            id: "db-skill".to_string(),
+            source: crate::source::Source::Files(vec![(
+                PathBuf::from("SKILL.md"),
+                b"---\nname: db-skill\n---\nfrom the database".to_vec(),
+            )]),
+        });
+
+        let claude = Claude::new();
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        provision(&claude, &spec, &templates).unwrap();
+
+        let skill_md = config_dir.path().join("skills/db-skill/SKILL.md");
+        assert!(
+            skill_md.exists(),
+            "a Source::Files skill must materialize into the run dir"
+        );
+        assert!(std::fs::read_to_string(&skill_md)
+            .unwrap()
+            .contains("from the database"));
     }
 
     /// Proves the `McpRef::InProcess` -> `McpRef::Inline` http injection
@@ -269,7 +315,9 @@ mod tests {
         }));
 
         let claude = Claude::new();
-        let provisioned = provision(&claude, &spec).unwrap();
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&claude, &spec, &templates).unwrap();
         assert_eq!(provisioned.inproc_servers.len(), 1);
 
         let mcp_json_path = provisioned.dir.join("mcp.json");

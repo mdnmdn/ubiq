@@ -88,7 +88,10 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
 
     spec.io = parse_io_mode(run_args.io.as_deref())?;
 
-    let mut provisioned = provision::provision(harness, &spec)?;
+    // The CLI backs preference templates with the filesystem template store
+    // (`AM_TEMPLATES` / the default location); an embedder passes its own.
+    let templates = crate::harness::FsTemplateStore::from_default();
+    let mut provisioned = provision::provision(harness, &spec, &templates)?;
 
     if !matches!(spec.isolation, crate::spec::Isolation::None) {
         let template = crate::isolate::IsolateTemplate {

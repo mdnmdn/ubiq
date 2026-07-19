@@ -168,13 +168,13 @@ pub fn resolve(
     };
     let profile_defaults = profile.as_ref().map(|p| &p.defaults);
 
-    // Config-overlay base dirs across the `extends` chain (root -> leaf), for
-    // provision to materialize on top of the harness-generated config.
-    let config_bases: Vec<PathBuf> = match &profile_name {
+    // Config-overlay bases across the `extends` chain (root -> leaf), for
+    // provision to materialize on top of the harness-generated config. Each is
+    // a `Source` from the profile store (present only when the overlay exists).
+    let config_bases: Vec<crate::source::Source> = match &profile_name {
         Some(name) => crate::profile::resolve_chain(profiles, name)?
             .iter()
-            .filter_map(|p| profiles.overlay_base(&p.id, &flags.harness))
-            .filter(|dir| dir.is_dir())
+            .filter_map(|p| profiles.base_source(&p.id, &flags.harness))
             .collect(),
         None => Vec::new(),
     };
@@ -249,7 +249,7 @@ pub fn resolve(
         {
             Some(entry) => skills.push(SkillRef {
                 id: entry.id,
-                path: entry.path,
+                source: entry.source,
             }),
             None => {
                 let available: Vec<String> = registry
@@ -370,6 +370,15 @@ pub fn resolve(
     spec.mcps = mcps;
     spec.mcp_as_skill = mcp_as_skill;
     spec.hooks = hooks;
+    // Resolve the account's captured-login content (references stay in
+    // `account`; the login bytes/dir come from the store so the spec is
+    // self-contained and a DB-backed store seeds the same way the FS one does).
+    spec.account_login = match &account {
+        Some(acct) => accounts
+            .login_source(&acct.id)
+            .with_context(|| format!("resolving login for account '{}'", acct.id))?,
+        None => None,
+    };
     spec.account = account;
     spec.policy = policy;
     spec.model = flags
@@ -504,7 +513,7 @@ mod tests {
     fn skill(id: &str) -> SkillEntry {
         SkillEntry {
             id: id.to_string(),
-            path: PathBuf::from(format!("/catalog/skills/{id}")),
+            source: crate::source::Source::Dir(PathBuf::from(format!("/catalog/skills/{id}"))),
             meta: SkillMeta::default(),
         }
     }

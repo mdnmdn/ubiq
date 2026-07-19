@@ -24,7 +24,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
 use crate::Result;
 
-use super::{copy_dir_recursive, ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
 /// The markers that wrap `am`-managed `[mcp_servers.*]` tables in
 /// `config.toml`, so any hand-authored tables in the same file (were any to
@@ -73,7 +73,7 @@ impl Harness for Codex {
     /// ephemeral dir while the real `HOME` stays intact. Only `auth.json` is
     /// seeded (not the account's `config.toml`), because `am` writes its own
     /// `config.toml` for MCP/skills/permissions on every run. See
-    /// `_docs/target/profiles.md` §5.
+    /// `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CODEX_HOME".to_string(), Relocate::All)],
@@ -156,22 +156,11 @@ impl Harness for Codex {
         // contract for a per-run provisioner.
         let skills_dir = config_home.join(".agents").join("skills");
         for skill in &spec.skills {
-            if !skill.path.exists() {
-                bail!(
-                    "skill '{}' points at a path that does not exist: {}",
-                    skill.id,
-                    skill.path.display()
-                );
-            }
             let dest = skills_dir.join(&skill.id);
-            copy_dir_recursive(&skill.path, &dest).with_context(|| {
-                format!(
-                    "copying skill '{}' from {} to {}",
-                    skill.id,
-                    skill.path.display(),
-                    dest.display()
-                )
-            })?;
+            skill
+                .source
+                .materialize(&dest, crate::source::LinkMode::Copy, true)
+                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
         }
         // 2b. MCP-as-skill: latent SKILL.md pointers into the same skills
         // dir (stepping stone; see harness::write_mcp_as_skill_pointers's
@@ -268,7 +257,7 @@ impl Harness for Codex {
             // `[model_providers.<name>]` table plus `model_provider = "<name>"`
             // in config.toml. Don't fake it with an env var codex won't read.
 
-            if let Some(home) = &account.home {
+            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
                 // Reuse a prior `am account login` by *seeding* the ephemeral
                 // config dir (`$CODEX_HOME` = `dir`) with that account's
                 // captured `auth.json` — deliberately WITHOUT overriding the
@@ -276,7 +265,7 @@ impl Harness for Codex {
                 // already went into `dir` above; seeding only the credential
                 // file keeps `am`'s own config.toml authoritative. The seed
                 // list is declared once in `config_anchor()`.
-                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
+                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -559,7 +548,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "my-skill".to_string(),
-            path: skill_path,
+            source: crate::source::Source::Dir(skill_path),
         });
         spec.mcps.push(McpRef::Catalog(McpServer {
             id: "postgres".to_string(),
@@ -681,7 +670,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
         });
 
         let codex = Codex::new();

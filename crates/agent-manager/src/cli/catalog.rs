@@ -135,7 +135,10 @@ fn cmd_show(id: &str) -> Result<()> {
     // Try to find as skill first
     if let Some(skill) = registry.skill(id)? {
         println!("Skill: {}", skill.id);
-        println!("  Path: {}", skill.path.display());
+        match &skill.source {
+            crate::source::Source::Dir(p) => println!("  Path: {}", p.display()),
+            crate::source::Source::Files(files) => println!("  Files: {}", files.len()),
+        }
         if let Some(name) = &skill.meta.name {
             println!("  Name: {}", name);
         }

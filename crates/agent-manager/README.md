@@ -15,9 +15,7 @@ for embedding in bigger tools (e.g. the [Ubiq](../../) multiplexer).
 > **Status: Phase 3 complete.** Wraps Claude Code, Codex, and opencode end-to-end
 > through a PTY with skill/MCP injection, account selection, initial instructions/prompt,
 > structured I/O, session history + resume, isolation (isol8), hooks, and output adapters (ACP/AG-UI).
-> See [Status](#status). The design docs live in
-> [`_docs/target/`](_docs/target/); the config-sync tool this replaced is archived in
-> [`_docs/old/`](_docs/old/).
+> See [Status](#status). The design docs live in [`_docs/`](_docs/).
 
 ## The problem
 
@@ -85,7 +83,7 @@ with `--catalog` / `AM_CATALOG`):
 
 A project may add or override entries via `<project>/.agent-manager/catalog`
 (project wins on id collision). Full details in
-[`_docs/target/registry.md`](_docs/target/registry.md).
+[`_docs/registry.md`](_docs/registry.md).
 
 ## Accounts
 
@@ -153,7 +151,7 @@ deny = ["Bash(rm *)", "WebFetch"]
 
 Merge is **replace by default**: the highest layer that mentions a key (CLI flag
 > per-harness > defaults) wins outright — it does not union. See
-[`_docs/target/cli.md`](_docs/target/cli.md).
+[`_docs/cli.md`](_docs/cli.md).
 
 ## Install
 
@@ -244,7 +242,7 @@ Alpha. **Phase 1 complete** for Claude Code; **Phase 2 complete**; **Phase 3 com
 - [x] hooks (`--hooks a,b`, wired into harness-native slots)
 - [x] MCP-as-skill schema stepping stone (`expose`, `summary`, `--mcp-as-skill`, generated SKILL.md)
 
-Roadmap in [`_docs/target/roadmap.md`](_docs/target/roadmap.md).
+Roadmap in [`_docs/roadmap.md`](_docs/roadmap.md).
 
 ## License
 

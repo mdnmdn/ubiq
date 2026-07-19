@@ -10,13 +10,12 @@
 //! config the run never mutates), falling back to a copy. Because only
 //! individual *files* are linked (never directories), the runner's
 //! `remove_dir_all` on exit unlinks the symlink entry and never reaches into the
-//! profile's `base/`. See `_docs/target/profiles.md` §9.
+//! profile's `base/`. See `_docs/profiles.md` §9.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use anyhow::Context;
-
+use crate::source::{LinkMode, Source};
 use crate::Result;
 
 /// Materialize profile config-overlay `bases` (ordered **root → leaf**) into the
@@ -26,56 +25,17 @@ use crate::Result;
 /// when the destination does not already exist**. Processing runs **leaf → root**
 /// so a leaf layer wins over a root layer, and any `am`-managed file the harness
 /// provisioner already wrote is never clobbered — the overlay is strictly
-/// additive. No-op when `bases` is empty (the common, no-profile case).
-pub fn materialize(dir: &Path, bases: &[PathBuf]) -> Result<()> {
+/// additive. Files are symlinked-else-copied ([`LinkMode::LinkElseCopy`]) so
+/// cleanup's `remove_dir_all` unlinks entries without reaching into a filesystem
+/// base. No-op when `bases` is empty (the common, no-profile case). Each base is
+/// a [`Source`], so a database-backed profile store overlays bytes exactly like
+/// the filesystem one overlays a directory.
+pub fn materialize(dir: &Path, bases: &[Source]) -> Result<()> {
     // Leaf wins: process the highest-precedence (last) layer first, and never
     // overwrite an already-present path.
     for base in bases.iter().rev() {
-        if !base.is_dir() {
-            continue;
-        }
-        for entry in walkdir::WalkDir::new(base).min_depth(1) {
-            let entry = entry?;
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let rel = entry.path().strip_prefix(base)?;
-            let dest = dir.join(rel);
-            if dest.exists() {
-                continue;
-            }
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creating {}", parent.display()))?;
-            }
-            link_or_copy(entry.path(), &dest).with_context(|| {
-                format!(
-                    "materializing overlay {} -> {}",
-                    entry.path().display(),
-                    dest.display()
-                )
-            })?;
-        }
+        base.materialize(dir, LinkMode::LinkElseCopy, false)?;
     }
-    Ok(())
-}
-
-/// Symlink `src` → `dst`; fall back to a copy on Windows or if the symlink can't
-/// be created (e.g. no privilege). Links a single file, never a directory.
-fn link_or_copy(src: &Path, dst: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        if std::os::unix::fs::symlink(src, dst).is_ok() {
-            return Ok(());
-        }
-    }
-    #[cfg(windows)]
-    {
-        if std::os::windows::fs::symlink_file(src, dst).is_ok() {
-            return Ok(());
-        }
-    }
-    std::fs::copy(src, dst)?;
     Ok(())
 }
 
@@ -145,7 +105,7 @@ mod tests {
         // am already wrote settings.json — must not be clobbered.
         std::fs::write(dir.path().join("settings.json"), "AM-MANAGED").unwrap();
 
-        materialize(dir.path(), &[base.path().to_path_buf()]).unwrap();
+        materialize(dir.path(), &[Source::Dir(base.path().to_path_buf())]).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(dir.path().join("MEMORY.md")).unwrap(),
@@ -173,7 +133,10 @@ mod tests {
         // bases ordered root -> leaf.
         materialize(
             dir.path(),
-            &[root.path().to_path_buf(), leaf.path().to_path_buf()],
+            &[
+                Source::Dir(root.path().to_path_buf()),
+                Source::Dir(leaf.path().to_path_buf()),
+            ],
         )
         .unwrap();
 

@@ -51,9 +51,9 @@ harness's bridge speaks":
 
 | Harness         | Mechanism                                                                 |
 |------------------|---------------------------------------------------------------------------|
-| **Claude Code**  | stream-json (NDJSON): launch headless (`-p --input-format stream-json --output-format stream-json`); write the prompt as an NDJSON line on stdin; answer `control_request` tool-approvals with `control_response`. Contract fully spelled out in [`../harness/claude-code.md`](../harness/claude-code.md). |
-| **codex**        | JSON-RPC over `codex app-server`: launch the `app-server` subcommand and exchange JSON-RPC requests/notifications over its stdio. See [`../harness/codex.md`](../harness/codex.md). |
-| **opencode**     | NDJSON one-shot: launch `opencode run --format json`, which streams one NDJSON event per line and exits. See [`../harness/opencode.md`](../harness/opencode.md). |
+| **Claude Code**  | stream-json (NDJSON): launch headless (`-p --input-format stream-json --output-format stream-json`); write the prompt as an NDJSON line on stdin; answer `control_request` tool-approvals with `control_response`. Contract fully spelled out in [`./harness/claude-code.md`](./harness/claude-code.md). |
+| **codex**        | JSON-RPC over `codex app-server`: launch the `app-server` subcommand and exchange JSON-RPC requests/notifications over its stdio. See [`./harness/codex.md`](./harness/codex.md). |
+| **opencode**     | NDJSON one-shot: launch `opencode run --format json`, which streams one NDJSON event per line and exits. See [`./harness/opencode.md`](./harness/opencode.md). |
 
 Input mode is picked to match the harness — you cannot drive one harness's
 bridge with another's wire format. `Harness::io_support()` reports whether a
