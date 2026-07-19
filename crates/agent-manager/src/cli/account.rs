@@ -3,10 +3,11 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 use crate::account::{self, Account, AccountStore, EmptyAccountStore, FsAccountStore};
+use crate::credentials::{blobs_from_seed, CredentialBlob, CredentialId, SecretStore};
 
 /// `am account` subcommand dispatcher.
 #[derive(Debug, Parser)]
@@ -53,6 +54,78 @@ enum AccountCommand {
         #[arg(long)]
         harness: String,
     },
+    /// Show a stored credential's metadata (and, with `--show-secrets`, raw
+    /// bytes) from the [`crate::credentials::SecretStore`].
+    Dump {
+        /// Credential name (e.g. `default`).
+        name: String,
+        /// Harness id or alias (e.g. `claude`, `codex`).
+        #[arg(long)]
+        harness: String,
+        /// Emit the blob listing as a JSON array instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+        /// Print raw secret bytes instead of redacted metadata. Requires a
+        /// TTY (or `AM_ALLOW_SECRET_DUMP=1`) so secrets can't land silently
+        /// in a captured log/pipe.
+        #[arg(long)]
+        show_secrets: bool,
+        /// Only show the blob whose `rel_path` matches this path (default:
+        /// show every blob).
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Delete a stored credential from the [`crate::credentials::SecretStore`].
+    /// The account-index entry (if any), from `am account login`/`import`, is
+    /// left untouched — only the secret material is removed.
+    Delete {
+        /// Credential name (e.g. `default`).
+        name: String,
+        /// Harness id or alias.
+        #[arg(long)]
+        harness: String,
+        /// Required to delete the credential currently set as
+        /// `[defaults].account`, so a stray `am account delete default`
+        /// can't silently break bare `am claude`.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Report whether stored credential(s) are still valid (unexpired), by
+    /// inspecting any embedded expiry field — see [`credential_validity`].
+    /// A report, not a gate: exit status stays 0 even for expired creds.
+    Check {
+        /// Credential name (e.g. `default`). Omit with `--all`.
+        name: Option<String>,
+        /// Harness id or alias. Required unless `--all`; ignored with `--all`.
+        #[arg(long)]
+        harness: Option<String>,
+        /// Check every stored credential across all harnesses.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Refresh a stored credential's token(s) in place via
+    /// [`crate::harness::Harness::renew_credentials`].
+    Renew {
+        /// Credential name (e.g. `default`). Omit with `--all`.
+        name: Option<String>,
+        /// Harness id or alias. Required unless `--all`.
+        #[arg(long)]
+        harness: Option<String>,
+        /// Renew every stored credential across all harnesses.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Rename a stored credential within the same harness. Also updates
+    /// `[defaults].account` when it pointed at the old name.
+    Rename {
+        /// Existing credential name.
+        old: String,
+        /// New credential name.
+        new: String,
+        /// Harness id or alias.
+        #[arg(long)]
+        harness: String,
+    },
 }
 
 /// Run an account subcommand, given argv AFTER the `account` word.
@@ -73,7 +146,464 @@ pub(super) fn run(args: &[String]) -> Result<()> {
         AccountCommand::Use { id } => cmd_use(&id),
         AccountCommand::Import { write } => cmd_import(write),
         AccountCommand::Login { id, harness } => cmd_login(&id, &harness),
+        AccountCommand::Dump {
+            name,
+            harness,
+            json,
+            show_secrets,
+            path,
+        } => cmd_dump(&name, &harness, json, show_secrets, path.as_deref()),
+        AccountCommand::Delete { name, harness, yes } => cmd_delete(&name, &harness, yes),
+        AccountCommand::Check {
+            name,
+            harness,
+            all,
+        } => cmd_check(name.as_deref(), harness.as_deref(), all),
+        AccountCommand::Renew {
+            name,
+            harness,
+            all,
+        } => cmd_renew(name.as_deref(), harness.as_deref(), all),
+        AccountCommand::Rename { old, new, harness } => cmd_rename(&old, &new, &harness),
     }
+}
+
+/// Build the [`crate::credentials::SecretStore`] the CLI should use, from the
+/// effective settings for the current directory (see
+/// [`crate::credentials::build_secret_store`] for engine resolution).
+fn build_secret_store() -> Result<Box<dyn SecretStore>> {
+    let cwd = std::env::current_dir()?;
+    let settings = crate::settings::resolve(&cwd)?
+        .map(|(s, _)| s)
+        .unwrap_or_default();
+    crate::credentials::build_secret_store(&settings)
+}
+
+/// Resolve `key` (harness id, alias, or launch command) to a
+/// [`crate::harness::Harness`], erroring with the known-id list on no match.
+fn resolve_harness(key: &str) -> Result<Box<dyn crate::harness::Harness>> {
+    crate::harness::resolve(key).ok_or_else(|| {
+        anyhow!(
+            "unknown harness '{key}'; known: {}",
+            crate::harness::known_ids().join(", ")
+        )
+    })
+}
+
+/// `[defaults].account` from the effective settings for the current
+/// directory, if set. Used by `delete`/`rename` to guard/mirror the default.
+fn configured_default_account() -> Result<Option<String>> {
+    let cwd = std::env::current_dir()?;
+    Ok(crate::settings::resolve(&cwd)?.and_then(|(s, _)| s.defaults.account))
+}
+
+/// `am account dump <name> --harness <id> [--json] [--show-secrets] [--path <p>]`
+fn cmd_dump(
+    name: &str,
+    harness: &str,
+    json: bool,
+    show_secrets: bool,
+    path_filter: Option<&Path>,
+) -> Result<()> {
+    let h = resolve_harness(harness)?;
+    let id = CredentialId {
+        harness: h.id(),
+        name: name.to_string(),
+    };
+    let store = build_secret_store()?;
+    let all_blobs = store
+        .get(&id)?
+        .ok_or_else(|| anyhow!("no stored credential ({}, {})", id.harness, id.name))?;
+
+    let blobs: Vec<CredentialBlob> = all_blobs
+        .into_iter()
+        .filter(|b| path_filter.is_none_or(|p| b.rel_path == p))
+        .collect();
+    if blobs.is_empty() {
+        if let Some(p) = path_filter {
+            bail!(
+                "no blob at path {} for ({}, {})",
+                p.display(),
+                id.harness,
+                id.name
+            );
+        }
+        println!("(no blobs)");
+        return Ok(());
+    }
+
+    if show_secrets {
+        let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+        let env_allow = std::env::var("AM_ALLOW_SECRET_DUMP").as_deref() == Ok("1");
+        if !secret_dump_allowed(show_secrets, is_tty, env_allow) {
+            bail!(
+                "refusing to print secrets outside a TTY; re-run interactively or set \
+                 AM_ALLOW_SECRET_DUMP=1"
+            );
+        }
+    }
+
+    if json {
+        let entries: Vec<serde_json::Value> = blobs
+            .iter()
+            .map(|b| {
+                serde_json::json!({
+                    "rel_path": b.rel_path.to_string_lossy(),
+                    "bytes_utf8": dump_display_text(b, show_secrets),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+        return Ok(());
+    }
+
+    for blob in &blobs {
+        println!("{}", blob.rel_path.display());
+        println!("{}", dump_display_text(blob, show_secrets));
+    }
+    Ok(())
+}
+
+/// Render one blob's displayable text for `am account dump`: raw UTF-8
+/// (lossy) when `show_secrets`; otherwise a `<present, N bytes>` placeholder,
+/// followed by a redacted pretty-JSON rendering when the bytes parse as JSON.
+fn dump_display_text(blob: &CredentialBlob, show_secrets: bool) -> String {
+    if show_secrets {
+        return String::from_utf8_lossy(&blob.bytes).into_owned();
+    }
+    let mut out = format!("<present, {} bytes>", blob.bytes.len());
+    if let Ok(mut v) = serde_json::from_slice::<serde_json::Value>(&blob.bytes) {
+        redact_json(&mut v);
+        if let Ok(pretty) = serde_json::to_string_pretty(&v) {
+            out.push('\n');
+            out.push_str(&pretty);
+        }
+    }
+    out
+}
+
+/// Recursively replace object string values whose key case-insensitively
+/// contains `token`, `secret`, `key`, `password`, or `auth` with
+/// `"<redacted:LEN>"` (`LEN` = the original string's byte length). Non-string
+/// values under a matching key, and every value under a non-matching key, are
+/// walked/left as-is. Pure — the redaction core of `am account dump`, unit
+/// tested without any store or I/O.
+fn redact_json(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(map) => {
+            let secret_like = ["token", "secret", "key", "password", "auth"];
+            for (k, val) in map.iter_mut() {
+                let key_matches = secret_like
+                    .iter()
+                    .any(|pat| k.to_lowercase().contains(pat));
+                if key_matches && let serde_json::Value::String(s) = val {
+                    *val = serde_json::Value::String(format!("<redacted:{}>", s.len()));
+                } else {
+                    redact_json(val);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items.iter_mut() {
+                redact_json(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Gate for `am account dump --show-secrets`: only allowed on a real TTY (so
+/// secrets can't land silently in a captured log/pipe) or when the caller
+/// explicitly opts in via `AM_ALLOW_SECRET_DUMP=1`. Pure — factored out of
+/// [`cmd_dump`] so the gating logic is unit-testable without a real terminal.
+fn secret_dump_allowed(show_secrets: bool, is_tty: bool, env_allow: bool) -> bool {
+    !show_secrets || is_tty || env_allow
+}
+
+/// `am account delete <name> --harness <id> [--yes]`
+fn cmd_delete(name: &str, harness: &str, yes: bool) -> Result<()> {
+    let h = resolve_harness(harness)?;
+    let default_account = configured_default_account()?;
+    if default_account.as_deref() == Some(name) && !yes {
+        bail!("refusing to delete the default account '{name}' without --yes");
+    }
+
+    let id = CredentialId {
+        harness: h.id(),
+        name: name.to_string(),
+    };
+    let store = build_secret_store()?;
+    store.delete(&id)?;
+    println!(
+        "deleted stored credential ({}, {}) — the account index entry, if any, is untouched",
+        id.harness, id.name
+    );
+    Ok(())
+}
+
+/// The validity of a stored credential, as computed by [`credential_validity`]
+/// from any embedded expiry field. Harness-agnostic (it just looks for a
+/// numeric `*expire*` key anywhere in the parsed JSON).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Validity {
+    /// An expiry was found and is still in the future (or no expiry field was
+    /// found but blobs are present — see [`credential_validity`], which uses
+    /// [`Validity::Unknown`] for that case, so `expires_at_ms` here is always
+    /// `Some`). Kept as `Option` to leave room for future "valid, no expiry".
+    Valid {
+        /// Epoch-millis expiry, if one was found.
+        expires_at_ms: Option<i64>,
+    },
+    /// An expiry was found and is at/before `now_ms`.
+    Expired {
+        /// Epoch-millis expiry that has passed.
+        expires_at_ms: i64,
+    },
+    /// Blobs are present but carry no recognizable expiry field.
+    Unknown,
+    /// No blobs are stored for this credential.
+    Empty,
+}
+
+/// Compute a stored credential's [`Validity`] at `now_ms` (epoch millis).
+///
+/// Harness-agnostic but Claude-aware: for each blob, parse the bytes as JSON
+/// and recursively search for a numeric field whose key case-insensitively
+/// contains `"expire"` (covers Claude's `claudeAiOauth.expiresAt`, which is
+/// epoch **millis**). Each value is normalized — numbers below `10^12` are
+/// treated as **seconds** and scaled to millis — and the **maximum** expiry
+/// across all blobs wins. Pure (takes `now_ms`) so it's unit-testable without
+/// a clock. Returns [`Validity::Empty`] for no blobs, [`Validity::Unknown`]
+/// for blobs with no expiry field, else `Valid`/`Expired`.
+fn credential_validity(blobs: &[CredentialBlob], now_ms: i64) -> Validity {
+    if blobs.is_empty() {
+        return Validity::Empty;
+    }
+    let mut max_expiry: Option<i64> = None;
+    for blob in blobs {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&blob.bytes)
+            && let Some(ms) = max_expiry_ms(&v)
+        {
+            max_expiry = Some(max_expiry.map_or(ms, |cur| cur.max(ms)));
+        }
+    }
+    match max_expiry {
+        Some(ms) if ms > now_ms => Validity::Valid {
+            expires_at_ms: Some(ms),
+        },
+        Some(ms) => Validity::Expired { expires_at_ms: ms },
+        None => Validity::Unknown,
+    }
+}
+
+/// Recursively find the maximum numeric `*expire*` value in `v`, normalized to
+/// epoch millis (values below `10^12` are treated as seconds and ×1000).
+fn max_expiry_ms(v: &serde_json::Value) -> Option<i64> {
+    fn normalize(n: i64) -> i64 {
+        if n < 1_000_000_000_000 {
+            n.saturating_mul(1000)
+        } else {
+            n
+        }
+    }
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut best: Option<i64> = None;
+            for (k, val) in map {
+                if k.to_lowercase().contains("expire")
+                    && let Some(n) = val.as_i64().or_else(|| val.as_f64().map(|f| f as i64))
+                {
+                    let ms = normalize(n);
+                    best = Some(best.map_or(ms, |cur| cur.max(ms)));
+                }
+                if let Some(ms) = max_expiry_ms(val) {
+                    best = Some(best.map_or(ms, |cur| cur.max(ms)));
+                }
+            }
+            best
+        }
+        serde_json::Value::Array(items) => {
+            let mut best: Option<i64> = None;
+            for item in items {
+                if let Some(ms) = max_expiry_ms(item) {
+                    best = Some(best.map_or(ms, |cur| cur.max(ms)));
+                }
+            }
+            best
+        }
+        _ => None,
+    }
+}
+
+/// Current wall-clock time in epoch millis, for [`credential_validity`].
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Render a validity as a human-readable status suffix, e.g.
+/// `valid (expires in 3d 4h)`, `expired`, `present (no expiry info)`,
+/// `empty (no blobs stored)`.
+fn describe_validity(v: Validity, now: i64) -> String {
+    match v {
+        Validity::Valid {
+            expires_at_ms: Some(ms),
+        } => format!("valid (expires in {})", human_duration_ms(ms - now)),
+        Validity::Valid {
+            expires_at_ms: None,
+        } => "valid".to_string(),
+        Validity::Expired { expires_at_ms: ms } => {
+            format!("expired ({} ago)", human_duration_ms(now - ms))
+        }
+        Validity::Unknown => "present (no expiry info)".to_string(),
+        Validity::Empty => "empty (no blobs stored)".to_string(),
+    }
+}
+
+/// Format a non-negative millisecond span compactly as `Nd Nh` / `Nh Nm` /
+/// `Nm` / `Ns`. Clamps negatives to `0s`.
+fn human_duration_ms(ms: i64) -> String {
+    let secs = ms.max(0) / 1000;
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3_600;
+    let mins = (secs % 3_600) / 60;
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {mins}m")
+    } else if mins > 0 {
+        format!("{mins}m")
+    } else {
+        format!("{secs}s")
+    }
+}
+
+/// `am account check <name> --harness <id>` / `am account check --all`
+fn cmd_check(name: Option<&str>, harness: Option<&str>, all: bool) -> Result<()> {
+    let store = build_secret_store()?;
+    let now = now_ms();
+
+    if all {
+        if name.is_some() {
+            bail!("give either a <name> --harness <id> or --all, not both");
+        }
+        let mut valid = 0usize;
+        let mut expired = 0usize;
+        let mut unknown = 0usize;
+        for meta in store.list()? {
+            let blobs = store.get(&meta.id)?.unwrap_or_default();
+            let v = credential_validity(&blobs, now);
+            match v {
+                Validity::Valid { .. } => valid += 1,
+                Validity::Expired { .. } => expired += 1,
+                Validity::Unknown | Validity::Empty => unknown += 1,
+            }
+            println!(
+                "({}, {}): {}",
+                meta.id.harness,
+                meta.id.name,
+                describe_validity(v, now)
+            );
+        }
+        println!("{valid} valid, {expired} expired, {unknown} unknown");
+        return Ok(());
+    }
+
+    let name = name.ok_or_else(|| anyhow!("give a <name> --harness <id> or --all"))?;
+    let harness = harness.ok_or_else(|| anyhow!("give a <name> --harness <id> or --all"))?;
+    let h = resolve_harness(harness)?;
+    let id = CredentialId {
+        harness: h.id(),
+        name: name.to_string(),
+    };
+    match store.get(&id)? {
+        None => println!("({}, {}): missing", id.harness, id.name),
+        Some(blobs) => {
+            let v = credential_validity(&blobs, now);
+            println!(
+                "({}, {}): {}",
+                id.harness,
+                id.name,
+                describe_validity(v, now)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `am account renew <name> --harness <id>` / `am account renew --all`
+fn cmd_renew(name: Option<&str>, harness: Option<&str>, all: bool) -> Result<()> {
+    let store = build_secret_store()?;
+
+    if all {
+        if name.is_some() {
+            bail!("give either a <name> --harness <id> or --all, not both");
+        }
+        let mut renewed_ok = 0usize;
+        let mut failed = 0usize;
+        for meta in store.list()? {
+            let id = &meta.id;
+            let Some(h) = crate::harness::resolve(&id.harness) else {
+                println!(
+                    "({}, {}): skipped (unknown harness)",
+                    id.harness, id.name
+                );
+                failed += 1;
+                continue;
+            };
+            let creds = store.get(id)?.unwrap_or_default();
+            match h.renew_credentials(&creds).and_then(|renewed| {
+                let count = renewed.len();
+                store.set(id, &renewed).map(|()| count)
+            }) {
+                Ok(count) => {
+                    renewed_ok += 1;
+                    println!("({}, {}): renewed {count} blob(s)", id.harness, id.name);
+                }
+                Err(e) => {
+                    failed += 1;
+                    println!("({}, {}): failed: {e:#}", id.harness, id.name);
+                }
+            }
+        }
+        println!("{renewed_ok} renewed, {failed} failed");
+        return Ok(());
+    }
+
+    let name = name.ok_or_else(|| anyhow!("give a <name> --harness <id> or --all"))?;
+    let harness = harness.ok_or_else(|| anyhow!("give a <name> --harness <id> or --all"))?;
+    let h = resolve_harness(harness)?;
+    let id = CredentialId {
+        harness: h.id(),
+        name: name.to_string(),
+    };
+    let creds = store.get(&id)?.unwrap_or_default();
+    let renewed = h
+        .renew_credentials(&creds)
+        .with_context(|| format!("renewing credentials for ({}, {})", id.harness, id.name))?;
+    let count = renewed.len();
+    store.set(&id, &renewed)?;
+    println!("renewed {count} blob(s) for ({}, {})", id.harness, id.name);
+    Ok(())
+}
+
+/// `am account rename <old> <new> --harness <id>`
+fn cmd_rename(old: &str, new: &str, harness: &str) -> Result<()> {
+    let h = resolve_harness(harness)?;
+    let id = CredentialId {
+        harness: h.id(),
+        name: old.to_string(),
+    };
+    let store = build_secret_store()?;
+    store.rename(&id, new)?;
+    println!("renamed credential ({}, {old}) -> {new}", id.harness);
+
+    if configured_default_account()?.as_deref() == Some(old) {
+        set_defaults_account(new, true)?;
+    }
+    Ok(())
 }
 
 /// Build the account store from the default accounts root. Falls back to an
@@ -400,6 +930,27 @@ fn try_claude_keychain_import(accounts_root: &Path, write: bool) -> Result<Keych
             if write {
                 let acct = account::import_default_claude_from_keychain(accounts_root)?;
                 let home = acct.home.unwrap_or(home);
+
+                // Phase D: dual-write the same captured login into the
+                // SecretStore alongside the file-home write above. Best
+                // effort only for the store write itself — the file home
+                // remains the primary/authoritative copy during migration,
+                // so a SecretStore build/write failure here must not fail
+                // the whole import.
+                let claude = crate::harness::resolve("claude").expect("claude harness exists");
+                let seed = claude.config_anchor().login_seed;
+                let home_source = crate::source::Source::Dir(home.clone());
+                let blobs = blobs_from_seed(&home_source, &seed)?;
+                if !blobs.is_empty()
+                    && let Ok(store) = build_secret_store()
+                {
+                    let id = CredentialId {
+                        harness: claude.id(),
+                        name: account::DEFAULT_ACCOUNT_ID.to_string(),
+                    };
+                    let _ = store.set(&id, &blobs);
+                }
+
                 Ok(KeychainImport::Written(home))
             } else {
                 Ok(KeychainImport::WouldWrite(home))
@@ -706,5 +1257,122 @@ mod tests {
 
         let captured = effective_harnesses(home.path());
         assert_eq!(captured, vec!["copilot".to_string()]);
+    }
+
+    #[test]
+    fn redact_json_redacts_secret_like_keys_but_not_others() {
+        let mut v = serde_json::json!({
+            "claudeAiOauth": {
+                "accessToken": "abcdef1234",
+                "refreshToken": "zzzz",
+                "subscriptionType": "pro"
+            }
+        });
+        redact_json(&mut v);
+        let inner = &v["claudeAiOauth"];
+        assert_eq!(inner["accessToken"], serde_json::json!("<redacted:10>"));
+        assert_eq!(inner["refreshToken"], serde_json::json!("<redacted:4>"));
+        // Non-secret field survives untouched.
+        assert_eq!(inner["subscriptionType"], serde_json::json!("pro"));
+    }
+
+    #[test]
+    fn redact_json_walks_arrays_and_nested_objects() {
+        let mut v = serde_json::json!({
+            "sessions": [
+                {"apiKey": "sk-live-1"},
+                {"apiKey": "sk-live-22"}
+            ]
+        });
+        redact_json(&mut v);
+        assert_eq!(v["sessions"][0]["apiKey"], serde_json::json!("<redacted:9>"));
+        assert_eq!(v["sessions"][1]["apiKey"], serde_json::json!("<redacted:10>"));
+    }
+
+    fn blob(bytes: &[u8]) -> CredentialBlob {
+        CredentialBlob {
+            name: "x".to_string(),
+            rel_path: PathBuf::from(".claude/.credentials.json"),
+            bytes: bytes.to_vec(),
+        }
+    }
+
+    #[test]
+    fn credential_validity_claude_future_expiry_is_valid() {
+        // Claude shape: expiresAt in epoch MILLIS, far in the future.
+        let future = 5_000_000_000_000i64; // year ~2128
+        let bytes = format!("{{\"claudeAiOauth\":{{\"expiresAt\":{future}}}}}");
+        let v = credential_validity(&[blob(bytes.as_bytes())], 1_000_000_000_000);
+        assert_eq!(
+            v,
+            Validity::Valid {
+                expires_at_ms: Some(future)
+            }
+        );
+    }
+
+    #[test]
+    fn credential_validity_past_expiry_is_expired() {
+        let past = 1_000_000_000_000i64;
+        let bytes = format!("{{\"claudeAiOauth\":{{\"expiresAt\":{past}}}}}");
+        let v = credential_validity(&[blob(bytes.as_bytes())], 2_000_000_000_000);
+        assert_eq!(v, Validity::Expired { expires_at_ms: past });
+    }
+
+    #[test]
+    fn credential_validity_no_expiry_field_is_unknown() {
+        let v = credential_validity(&[blob(b"{\"apiKey\":\"sk-1\"}")], 1_000);
+        assert_eq!(v, Validity::Unknown);
+    }
+
+    #[test]
+    fn credential_validity_empty_blobs_is_empty() {
+        assert_eq!(credential_validity(&[], 1_000), Validity::Empty);
+    }
+
+    #[test]
+    fn credential_validity_normalizes_seconds_to_millis() {
+        // A bare epoch-SECONDS expiry (< 10^12) must be scaled by 1000 so it
+        // compares correctly against a millis `now`. 2_000_000_000s = year
+        // 2033, well ahead of a `now` of 1_500_000_000_000ms (~2017).
+        let secs = 2_000_000_000i64;
+        let bytes = format!("{{\"expires_at\":{secs}}}");
+        let v = credential_validity(&[blob(bytes.as_bytes())], 1_500_000_000_000);
+        assert_eq!(
+            v,
+            Validity::Valid {
+                expires_at_ms: Some(secs * 1000)
+            }
+        );
+    }
+
+    #[test]
+    fn credential_validity_takes_max_expiry_across_blobs() {
+        let near = 1_600_000_000_000i64;
+        let far = 4_000_000_000_000i64;
+        let b1 = format!("{{\"expiresAt\":{near}}}");
+        let b2 = format!("{{\"expiresAt\":{far}}}");
+        let v = credential_validity(
+            &[blob(b1.as_bytes()), blob(b2.as_bytes())],
+            1_000_000_000_000,
+        );
+        assert_eq!(
+            v,
+            Validity::Valid {
+                expires_at_ms: Some(far)
+            }
+        );
+    }
+
+    #[test]
+    fn secret_dump_allowed_requires_tty_or_env_opt_in() {
+        // Not requesting secrets at all: always allowed regardless of tty/env.
+        assert!(secret_dump_allowed(false, false, false));
+        // Requesting secrets with neither a tty nor the env opt-in: denied.
+        assert!(!secret_dump_allowed(true, false, false));
+        // A real tty is sufficient.
+        assert!(secret_dump_allowed(true, true, false));
+        // The env opt-in is sufficient even without a tty (e.g. CI/pipe).
+        assert!(secret_dump_allowed(true, false, true));
     }
 }

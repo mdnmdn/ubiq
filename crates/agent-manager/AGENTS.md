@@ -101,6 +101,11 @@ agent-manager/
     │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/)
     │   └── import.rs      #   read-only ingest of ~/.claude, ~/.agent, project dirs
     ├── account.rs         # AccountStore trait (login_source/login_home/capture_login) + FsAccountStore (core, P2)
+    ├── credentials/       # harness-scoped credential storage (core)
+    │   ├── mod.rs         #   SecretStore trait + CredentialId/Blob/Meta, blobs<->Source helpers, build_secret_store, SecretBackedAccountStore
+    │   ├── memory.rs      #   MemorySecretStore (tests + embedders)
+    │   ├── file.rs        #   FileSecretStore (<root>/<name>/<harness>/<rel_path>, 0600)
+    │   └── keychain.rs    #   PrivateKeychainStore (single JSON vault, 0600)
     ├── profile.rs         # ProfileStore trait (base_source/put_base) + FsProfileStore, extends inheritance (core)
     ├── overlay.rs         # materialize a profile's Source overlay into the run dir + run-dir GC (core)
     ├── harness/           # the Harness trait + impls (core)

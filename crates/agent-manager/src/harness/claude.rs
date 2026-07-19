@@ -326,6 +326,43 @@ impl Harness for Claude {
         Ok(Box::new(crate::io::JsonlBridge::new(child)?))
     }
 
+    /// Renew by re-reading the live Claude Code session from the OS Keychain.
+    ///
+    /// Claude Code has no headless token-refresh subcommand — the current
+    /// OAuth session lives in the macOS Keychain (service
+    /// [`crate::account::CLAUDE_KEYCHAIN_SERVICE`]), which `am` reads but never
+    /// writes. "Renew" therefore re-reads that blob and returns it as the
+    /// credential set (plus the `.claude.json` identity companion from the real
+    /// `HOME`, when present), so a `SecretStore` gets whatever the user's live
+    /// login currently holds. Errors off macOS / with no readable entry, same
+    /// as `am account import`. The `creds` argument (the currently-stored set)
+    /// is unused — the Keychain is the source of truth.
+    fn renew_credentials(
+        &self,
+        _creds: &[crate::credentials::CredentialBlob],
+    ) -> Result<Vec<crate::credentials::CredentialBlob>> {
+        use crate::credentials::CredentialBlob;
+        let creds = crate::account::read_claude_keychain_credentials()?;
+        let mut blobs = vec![CredentialBlob {
+            name: ".credentials.json".to_string(),
+            rel_path: std::path::PathBuf::from(".claude/.credentials.json"),
+            bytes: creds,
+        }];
+        if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+            let identity = home.join(".claude.json");
+            if identity.is_file()
+                && let Ok(bytes) = std::fs::read(&identity)
+            {
+                blobs.push(CredentialBlob {
+                    name: ".claude.json".to_string(),
+                    rel_path: std::path::PathBuf::from(".claude.json"),
+                    bytes,
+                });
+            }
+        }
+        Ok(blobs)
+    }
+
     /// User-editable preference defaults, merged into the run by
     /// [`super::apply_templates`] rather than hardcoded here — see
     /// `~/.config/agent-manager/templates/claude-code/`. `settings.json`
@@ -571,11 +608,11 @@ fn extract_slash_result_text(stdout: &str) -> Option<String> {
                     .and_then(|c| c.as_array())
                 {
                     for block in content {
-                        if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
-                                assistant_text = Some(t.to_string());
-                                break;
-                            }
+                        if block.get("type").and_then(|t| t.as_str()) == Some("text")
+                            && let Some(t) = block.get("text").and_then(|t| t.as_str())
+                        {
+                            assistant_text = Some(t.to_string());
+                            break;
                         }
                     }
                 }
