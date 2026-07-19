@@ -66,6 +66,10 @@ pub struct Settings {
     /// isol8 sandbox settings (`[isolate]`).
     #[serde(default)]
     pub isolate: IsolateSettings,
+    /// Credential store settings (`[credentials]`) — see
+    /// [`crate::credentials::build_secret_store`].
+    #[serde(default)]
+    pub credentials: CredentialsSettings,
 }
 
 /// One layer of defaults (either `[defaults]` or a `[harness.<id>]` table).
@@ -106,6 +110,24 @@ pub struct IsolateSettings {
     /// `None` means "use the built-in default template".
     #[serde(default)]
     pub command: Option<String>,
+}
+
+/// The `[credentials]` settings table: which [`crate::credentials::SecretStore`]
+/// engine to build and where it's rooted. See
+/// [`crate::credentials::build_secret_store`] for the full resolution order
+/// (env vars take precedence over these fields).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CredentialsSettings {
+    /// Which engine to use: `"keychain"` or `"files"`. `None` = auto
+    /// (currently `"files"`).
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// Directory holding the keychain vault file, for the `"keychain"` engine.
+    #[serde(default)]
+    pub keychain_dir: Option<String>,
+    /// Root directory for the `"files"` engine.
+    #[serde(default)]
+    pub files_root: Option<String>,
 }
 
 /// First existing `config.{toml,yaml,yml}` in `dir`, if any.

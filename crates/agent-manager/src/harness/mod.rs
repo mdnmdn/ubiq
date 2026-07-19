@@ -231,6 +231,88 @@ pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Resul
     Ok(())
 }
 
+/// The default [`Harness::renew_credentials`] path: seed `creds` into a temp
+/// config dir, launch the harness with its [`Harness::credential_renew_command`]
+/// (which is expected to refresh and rewrite the stored token), then read the
+/// seed files back out as the renewed blobs.
+///
+/// Errors (without launching) when the harness declares no
+/// `credential_renew_command`. The temp dir is removed on the way out. Uses
+/// the harness's [`ConfigAnchor::levers`] to relocate config into the temp dir
+/// (never touching the real `HOME`), exactly as provisioning does; a Class-C
+/// harness (no levers) relocates `HOME` to the temp dir instead.
+pub fn default_renew_via_launch<H: Harness + ?Sized>(
+    harness: &H,
+    creds: &[crate::credentials::CredentialBlob],
+) -> Result<Vec<crate::credentials::CredentialBlob>> {
+    let Some(renew_args) = harness.credential_renew_command() else {
+        anyhow::bail!(
+            "credential renewal for harness '{}' is not implemented",
+            harness.id()
+        );
+    };
+    let anchor = harness.config_anchor();
+
+    // A private temp dir (tempfile is dev-only, so build the path by hand).
+    let dir = std::env::temp_dir().join(format!(
+        "am-renew-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creating renew temp dir {}", dir.display()))?;
+
+    let result = (|| -> Result<Vec<crate::credentials::CredentialBlob>> {
+        let login = crate::credentials::source_from_blobs(creds);
+        seed_login(&dir, &login, &anchor.login_seed)?;
+
+        let mut cmd = std::process::Command::new(harness.command());
+        cmd.args(&renew_args);
+        if anchor.levers.is_empty() {
+            // Class C: no config lever — relocate HOME (toolchain caveat).
+            cmd.env("HOME", &dir);
+        } else {
+            for (var, _relocate) in &anchor.levers {
+                cmd.env(var, &dir);
+            }
+        }
+        let status = cmd
+            .status()
+            .with_context(|| format!("running `{} {}`", harness.command(), renew_args.join(" ")))?;
+        if !status.success() {
+            anyhow::bail!(
+                "harness '{}' renew command exited with {status}",
+                harness.id()
+            );
+        }
+
+        // Read the (possibly refreshed) seed files back out, keyed by the
+        // source-relative path so the blobs round-trip back into the store.
+        let mut blobs = Vec::new();
+        for seed in &anchor.login_seed {
+            let path = dir.join(&seed.dst);
+            if let Ok(bytes) = std::fs::read(&path) {
+                blobs.push(crate::credentials::CredentialBlob {
+                    name: seed
+                        .dst
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    rel_path: seed.src.clone(),
+                    bytes,
+                });
+            }
+        }
+        Ok(blobs)
+    })();
+
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
 /// A JSON file, relative to a harness's relocated config root, whose content
 /// is merged into the run's config from a per-harness, user-editable
 /// **template store** rather than being computed as a Rust literal. See
@@ -434,6 +516,29 @@ pub trait Harness {
     /// login or not — should preempt for `spec.cwd`.
     fn post_seed(&self, _spec: &RunSpec, _dir: &Path) -> Result<()> {
         Ok(())
+    }
+    /// Argv fragment for the default credential-renew path
+    /// ([`default_renew_via_launch`]): a short, non-billing subcommand that
+    /// forces the harness to refresh and rewrite its stored token (e.g. an
+    /// `auth status`/`whoami`-style probe). `None` (the default) means this
+    /// harness has no headless refresh, so [`Self::renew_credentials`]'s
+    /// default errors rather than launching anything.
+    fn credential_renew_command(&self) -> Option<Vec<String>> {
+        None
+    }
+    /// Renew a captured login and return the updated blobs (for
+    /// [`crate::credentials::SecretStore::set`]).
+    ///
+    /// Default: [`default_renew_via_launch`] — seed `creds` into a temp config
+    /// dir, run the harness with [`Self::credential_renew_command`], and read
+    /// the (possibly refreshed) seed files back out. Harnesses whose token
+    /// refresh isn't a headless command (e.g. Claude Code, whose live session
+    /// is in the OS Keychain) override this with their own path.
+    fn renew_credentials(
+        &self,
+        creds: &[crate::credentials::CredentialBlob],
+    ) -> Result<Vec<crate::credentials::CredentialBlob>> {
+        default_renew_via_launch(self, creds)
     }
     /// Build a structured-I/O bridge for a provisioned run.
     ///

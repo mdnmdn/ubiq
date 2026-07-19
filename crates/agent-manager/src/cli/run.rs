@@ -74,7 +74,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         profile: run_args.profile.clone(),
     };
 
-    let accounts = build_account_store();
+    let accounts = build_account_store(harness, &settings);
     let profiles = build_profile_store();
 
     let mut spec = match find_project_catalog(&cwd) {
@@ -265,14 +265,27 @@ fn run_structured(
     Ok(())
 }
 
-/// Build the account store from the default accounts root (`--accounts` has
-/// no CLI flag yet; this honors `AM_ACCOUNTS` / the default location only).
-/// Falls back to an empty store when no accounts root exists, so accountless
-/// runs are unaffected.
-fn build_account_store() -> Box<dyn AccountStore> {
-    match resolve_accounts_root(None) {
+/// Build the account store for a run of `harness`.
+///
+/// The account *index* comes from the default accounts root (`AM_ACCOUNTS` /
+/// the default location; empty store if none). Login *bodies* are then layered
+/// on from the configured [`SecretStore`] (`[credentials].engine`), scoped to
+/// this run's harness — so `--account default` resolves `(harness, default)`
+/// from the secret store, falling back to a legacy on-disk home for names not
+/// yet stored there. If the secret store can't be built (misconfigured root),
+/// the plain index store is used unchanged, so runs never break on it.
+fn build_account_store(harness: &dyn Harness, settings: &Settings) -> Box<dyn AccountStore> {
+    let index: Box<dyn AccountStore> = match resolve_accounts_root(None) {
         Some(root) if root.is_dir() => Box::new(FsAccountStore::new(root)),
         _ => Box::new(EmptyAccountStore),
+    };
+    match crate::credentials::build_secret_store(settings) {
+        Ok(secrets) => Box::new(crate::credentials::SecretBackedAccountStore::new(
+            index,
+            secrets,
+            harness.id(),
+        )),
+        Err(_) => index,
     }
 }
 

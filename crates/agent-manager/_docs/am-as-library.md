@@ -182,6 +182,36 @@ FS impl: `account::FsAccountStore` (`accounts.toml` + per-file `<id>.toml`,
 rooted at `AM_ACCOUNTS`); `account::EmptyAccountStore` is the zero-accounts
 default.
 
+**`credentials::SecretStore`** — harness-scoped credential *bodies*:
+
+```rust
+fn list(&self) -> Result<Vec<CredentialMeta>>;
+fn get(&self, id: &CredentialId) -> Result<Option<Vec<CredentialBlob>>>;
+fn set(&self, id: &CredentialId, blobs: &[CredentialBlob]) -> Result<()>;
+fn delete(&self, id: &CredentialId) -> Result<()>;
+fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()>;
+// CredentialId { harness, name }; CredentialBlob { name, rel_path, bytes }
+```
+
+Where `AccountStore` keeps credential *references* + the account index,
+`SecretStore` holds the actual login **bytes**, keyed by `(harness, name)` —
+so `(claude-code, default)` and `(codex, default)` are independent entries
+that may share a human name. Blobs convert to/from a `Source::Files` with
+`credentials::source_from_blobs` / `blobs_from_seed` (against a harness's
+`ConfigAnchor::login_seed`). Ships with `MemorySecretStore` (tests /
+embedders), `FileSecretStore` (`<root>/<name>/<harness>/<rel_path>`, mode
+0600), and `PrivateKeychainStore` (a single local JSON vault — not yet
+OS-keychain-encrypted). The CLI builds one from `[credentials].engine`
+(`files`|`keychain`; env `AM_CREDENTIALS_ENGINE`) via
+`credentials::build_secret_store(&settings)`. An embedder passes its own
+`Box<dyn SecretStore>` (DB/vault-backed) and wraps its index store with
+`credentials::SecretBackedAccountStore::new(index, secrets, harness_id)`,
+whose `login_source` serves bodies from the secret store (falling back to the
+legacy on-disk `home` for names not yet migrated). Credential renewal is a
+`Harness` concern: `Harness::renew_credentials(&[CredentialBlob])` (default:
+seed a temp dir, run `credential_renew_command()`, re-read; Claude overrides
+to re-read the macOS Keychain). This trait is **core** (`--no-default-features`).
+
 **`profile::ProfileStore`** — persistent bases + inheritance:
 
 ```rust

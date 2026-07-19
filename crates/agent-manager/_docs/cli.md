@@ -11,7 +11,7 @@ and otherwise treats the first positional as a **harness name** to wrap:
 ```
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
-am account   <ls|use|import|login> …            # manage accounts
+am account   <ls|use|import|login|dump|check|renew|rename|delete> …  # manage accounts + credentials
 am session   <ls|show|resume> …                 # manage session history  (ls/show/resume landed)
 am help | am --version
 ```
@@ -148,6 +148,7 @@ and some also by a CLI flag.
 |-------|---------|--------------|----------|
 | Settings file | `~/.config/agent-manager/config.toml` | `AM_CONFIG_FILE` (full path to a config file) · `AM_CONFIG_FOLDER` (a dir holding `config.{toml,yaml,yml}`) | `--config <path>` |
 | Accounts | `~/.config/agent-manager/accounts/` | `AM_ACCOUNTS` | — |
+| Credentials engine | `files` (secret store; `keychain` opt-in) | `AM_CREDENTIALS_ENGINE` · `AM_KEYCHAIN` (vault dir) | — |
 | Catalog | `~/.config/agent-manager/catalog/` | `AM_CATALOG` | `--catalog <path>` |
 | Sessions | `~/.config/agent-manager/sessions/` | `AM_SESSIONS` | — |
 | Ephemeral run dirs | `~/.config/agent-manager/runs/` | `AM_RUNS` | `--keep-config` (retains, doesn't relocate) |
@@ -200,6 +201,46 @@ An account holds credential **references**, never secret material: environment v
 (`api_key_env`, `auth_token_env`), a `base_url`, a credential helper command, and/or a
 private `home` directory. When injected with `--account <id>`, the account's references are
 resolved into the harness's native auth slots. Full account schema in [`overview.md`](./overview.md).
+
+### Harness-scoped credential storage
+
+Captured login **bytes** live in a pluggable credential store, keyed by
+`(harness, name)` — so `(claude-code, default)` and `(codex, default)` are
+independent entries that can share a name. The engine is chosen in the settings
+file (env override `AM_CREDENTIALS_ENGINE`):
+
+```toml
+[credentials]
+engine = "files"      # "files" (default) | "keychain"
+# files_root   = "…"  # else AM_ACCOUNTS / the accounts root
+# keychain_dir = "…"  # else AM_KEYCHAIN / <config-dir>/keychain
+```
+
+- **`files`** (default): plain files at `<root>/<name>/<harness>/<rel_path>`, mode `0600`.
+- **`keychain`**: a single local JSON vault (`<keychain-dir>/store.json`, `0600`).
+  Note: v1 is **not** OS-keychain-encrypted yet — it's a single-file alternative
+  to the directory layout, opt-in until a real encryption layer lands.
+
+These subcommands manage the store (all take `--harness <h>`; the harness scopes
+the `(harness, name)` key):
+
+```bash
+am account dump <name> --harness <h>            # show a credential (redacted; --show-secrets for raw, TTY-gated)
+am account check <name> --harness <h>           # is it still valid? (parses token expiry)
+am account check --all                          # validity report across every stored credential
+am account renew <name> --harness <h>           # refresh a credential's token(s) via the harness
+am account renew --all                          # renew every stored credential (continues past failures)
+am account rename <old> <new> --harness <h>     # rename within a harness (updates [defaults].account)
+am account delete <name> --harness <h> [--yes]  # remove a credential (--yes required if it's the default)
+```
+
+`dump` redacts token-like fields by default and refuses `--show-secrets` outside
+a TTY unless `AM_ALLOW_SECRET_DUMP=1`. `renew` is a `Harness` concern: the
+default path seeds a temp dir, runs the harness's renew command, and re-reads the
+tokens; Claude Code re-reads the live macOS Keychain session. On macOS,
+`am account import --write` populates `(claude-code, default)` in the configured
+engine (dual-writing alongside the legacy `accounts/default/` home during
+migration).
 
 ### Capturing a login with `am account login`
 

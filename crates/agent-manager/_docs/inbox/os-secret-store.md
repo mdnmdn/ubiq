@@ -1,6 +1,13 @@
 # Proposal: harness-scoped credentials + pluggable storage
 
-> **Status: inbox proposal** (not accepted / not implemented).  
+> **Status: IMPLEMENTED** (2026-07-19). Phases A–G landed in `src/credentials/`,
+> `src/harness/mod.rs` (`renew_credentials`), and `src/cli/account.rs`
+> (`dump`/`delete`/`renew`/`rename`/`check` + `import` dual-write). Deliberate
+> v1 simplifications: auto engine defaults to `files` (the `keychain` vault is a
+> plaintext local JSON store — opt-in until DEK encryption lands); `captured`
+> metadata is not persisted; legacy `accounts/<name>/` homes are handled by a
+> resolve-time fallback in `SecretBackedAccountStore` rather than a migration
+> splitter. See §17 for the shipped-doc updates made.  
 > **Date:** 2026-07-19  
 > **Audience:** implementers / coding agents — design **and** handoff brief.  
 > **Single source of truth:** this file only. Do **not** pre-document the

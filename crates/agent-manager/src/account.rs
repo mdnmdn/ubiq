@@ -445,13 +445,12 @@ pub fn import_default_claude_from_keychain(accounts_root: &Path) -> Result<Accou
     let mut captured = BTreeMap::new();
     captured.insert("source".to_string(), "macos-keychain".to_string());
     captured.insert("service".to_string(), CLAUDE_KEYCHAIN_SERVICE.to_string());
-    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&creds) {
-        if let Some(sub) = v
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&creds)
+        && let Some(sub) = v
             .pointer("/claudeAiOauth/subscriptionType")
             .and_then(|s| s.as_str())
-        {
-            captured.insert("subscriptionType".to_string(), sub.to_string());
-        }
+    {
+        captured.insert("subscriptionType".to_string(), sub.to_string());
     }
     let acct = Account {
         id: DEFAULT_ACCOUNT_ID.to_string(),

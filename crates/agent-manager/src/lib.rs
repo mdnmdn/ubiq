@@ -21,6 +21,9 @@
 //! - [`provision`] — turn a [`RunSpec`] into an ephemeral config dir + launch
 //!   argv/env for a chosen harness.
 //! - [`config`]    — the unified, harness-agnostic config model.
+//! - [`credentials`] — pluggable storage for harness login secrets (the
+//!   [`credentials::SecretStore`] trait plus memory/files/keychain impls).
+//!   Core (no feature gate).
 //! - [`io`]        — I/O bridging between `am` and the running harness: the
 //!   harness-neutral model + structured bridges are core; raw-tty
 //!   passthrough is gated behind the `pty` feature.
@@ -49,6 +52,7 @@ pub mod account;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
+pub mod credentials;
 pub mod harness;
 pub mod io;
 pub mod isolate;
