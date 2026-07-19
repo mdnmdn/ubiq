@@ -83,7 +83,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
 use crate::Result;
 
-use super::{copy_dir_recursive, ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
 /// The GitHub Copilot CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -171,21 +171,11 @@ impl Harness for Copilot {
         // `.copilot/` prefix COPILOT_HOME already relocates away).
         let skills_dir = dir.join("skills");
         for skill in &spec.skills {
-            anyhow::ensure!(
-                skill.path.exists(),
-                "skill '{}' points at a path that does not exist: {}",
-                skill.id,
-                skill.path.display()
-            );
             let dest = skills_dir.join(&skill.id);
-            copy_dir_recursive(&skill.path, &dest).with_context(|| {
-                format!(
-                    "copying skill '{}' from {} to {}",
-                    skill.id,
-                    skill.path.display(),
-                    dest.display()
-                )
-            })?;
+            skill
+                .source
+                .materialize(&dest, crate::source::LinkMode::Copy, true)
+                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
         }
         // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
         // harness::write_mcp_as_skill_pointers's doc). No-op when
@@ -311,8 +301,8 @@ impl Harness for Copilot {
             // `config.json` into the relocated `$COPILOT_HOME`. No-op when
             // the account home holds no captured login yet. The seed list is
             // declared once in `config_anchor()`.
-            if let Some(home) = &account.home {
-                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
+            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -471,7 +461,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "my-skill".to_string(),
-            path: skill_path,
+            source: crate::source::Source::Dir(skill_path),
         });
         spec.mcps.push(McpRef::Catalog(McpServer {
             id: "postgres".to_string(),
@@ -550,7 +540,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
         });
 
         let copilot = Copilot::new();

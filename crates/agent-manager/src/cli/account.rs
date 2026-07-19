@@ -358,8 +358,12 @@ fn partition_new(
 fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
     let root = account::resolve_accounts_root(None)
         .ok_or_else(|| anyhow!("no accounts root; set AM_ACCOUNTS"))?;
-    let home = root.join(id);
-    std::fs::create_dir_all(&home)?;
+    // Route the capture through the store trait: `login_home` gives a real dir
+    // to log into (the persistent per-account home for the filesystem store),
+    // and `capture_login` below persists the result — so a database-backed
+    // store captures the same way without any CLI change.
+    let store = FsAccountStore::new(&root);
+    let home = store.login_home(id)?;
 
     let harness = crate::harness::resolve(harness_key).ok_or_else(|| {
         anyhow!(
@@ -424,13 +428,7 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
         _ => {}
     }
 
-    let store = FsAccountStore::new(&root);
-    let mut acct = store.account(id)?.unwrap_or(Account {
-        id: id.to_string(),
-        ..Default::default()
-    });
-    acct.home = Some(home.clone());
-    let path = store.save(&acct)?;
+    store.capture_login(id, &home, &plan.credential_files)?;
 
     println!("captured credential file(s):");
     for rel in &plan.credential_files {
@@ -439,7 +437,7 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
             println!("  {}", full.display());
         }
     }
-    println!("account '{id}' written to {}", path.display());
+    println!("account '{id}' captured ({})", home.display());
     let captured = effective_harnesses(&home);
     if captured.len() > 1 {
         println!(

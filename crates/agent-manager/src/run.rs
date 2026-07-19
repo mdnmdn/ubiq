@@ -4,8 +4,8 @@
 //! the provisioned [`Launch`] into it, forward the local tty
 //! ([`crate::io::passthrough`]), resize the PTY on `SIGWINCH`, wait for the
 //! child, and propagate its exit code. Also owns cleanup of the ephemeral
-//! config dir the provisioner created (see `_docs/target/io-modes.md`
-//! §passthrough and `_docs/target/cli.md` §"Exit codes & passthrough
+//! config dir the provisioner created (see `_docs/io-modes.md`
+//! §passthrough and `_docs/cli.md` §"Exit codes & passthrough
 //! fidelity").
 //!
 //! Spawning is split out into [`spawn_in_pty`] so it can be exercised in

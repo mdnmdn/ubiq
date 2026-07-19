@@ -1,4 +1,4 @@
-# Architecture (target design)
+# Architecture
 
 ## The runtime pipeline
 
@@ -42,8 +42,7 @@ The **`resolve → RunSpec → provision`** spine is the heart of the design. No
 that `provision` is exactly the old sync engine's *renderer*, re-pointed: it
 still turns a set of MCP servers into the JSON shape Claude Code wants, but it
 writes into a throwaway directory and hands the path to `run`, instead of
-writing into `~/.claude` and stopping. See the transition plan for how the old
-code is repurposed.
+writing into `~/.claude` and stopping.
 
 ## The core model: `RunSpec`
 
@@ -114,7 +113,7 @@ section.
 
 Every supported harness already accepts **some way to be pointed at a config it
 did not choose** — that seam is documented per-harness in
-[`../harness/`](../harness/). The provisioner's job is to write into that seam:
+[`./harness/`](./harness/). The provisioner's job is to write into that seam:
 
 | Harness      | Injection seam the provisioner writes to                                  |
 |--------------|---------------------------------------------------------------------------|
@@ -141,10 +140,10 @@ only into the ephemeral dir. `~/.claude`, `.codex`, `opencode.json` are read
 *only* by `am catalog import`, never written by a run. This is the sharpest
 break from the old sync tool and the thing to protect in review.
 
-## Module layout (target)
+## Module layout
 
-The library keeps the "all real logic in the lib, thin binary" rule. Proposed
-shape (introduced incrementally — see the transition plan for what lands when):
+The library keeps the "all real logic in the lib, thin binary" rule. The
+shape (introduced incrementally — currently complete) is:
 
 ```
 src/
@@ -218,7 +217,7 @@ pub struct Launch {
 ```
 
 The per-harness runtime facts that fill this in are already written down in
-[`../harness/<id>.md`](../harness/) (see e.g. the "Orchestration / headless
+[`./harness/<id>.md`](./harness/) (see e.g. the "Orchestration / headless
 invocation", "MCP at launch", and "Skills at launch" sections of
 `claude-code.md`). Implementing a harness = transcribing that doc into a
 `provision()` + `io_support()`.

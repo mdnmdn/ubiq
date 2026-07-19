@@ -1,6 +1,6 @@
 # Roadmap
 
-The target design lands in phases. Each phase is independently useful and is
+The implementation is rolled out in phases. Each phase is independently useful and is
 implemented across multiple sessions. **Phase 1, Phase 2, and Phase 3 are complete.**
 Next: OAuth MCP, web mode, and ACP server (see "Beyond").
 

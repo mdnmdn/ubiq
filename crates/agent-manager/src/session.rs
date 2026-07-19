@@ -129,11 +129,78 @@ fn now_millis() -> u64 {
 const META_FILE: &str = "meta.json";
 const TRANSCRIPT_FILE: &str = "transcript.jsonl";
 
+/// A live recorder sink for a session's transcript. Trait so an embedder can
+/// record a run to a database; the CLI uses [`FsSessionRecorder`]. `finish`
+/// takes `Box<Self>` so it can be called on a boxed trait object.
+pub trait SessionRecorder {
+    /// The session id being recorded.
+    fn id(&self) -> &str;
+    /// Append `event` to the transcript.
+    fn record_event(&mut self, event: &AgentEvent) -> Result<()>;
+    /// Finalize the session with its exit code.
+    fn finish(self: Box<Self>, exit_code: Option<i32>) -> Result<()>;
+}
+
+/// A store of recorded sessions — the read side (`list`/`load`/
+/// `read_transcript`) plus `start` for a new recording. Trait so an embedder
+/// can persist session history in a database; the CLI uses [`FsSessionStore`].
+/// See `_docs/am-as-library.md`.
+pub trait SessionStore {
+    /// Begin recording a new session, returning its live [`SessionRecorder`].
+    fn start(&self, meta: SessionMeta) -> Result<Box<dyn SessionRecorder>>;
+    /// All recorded sessions, newest first.
+    fn list(&self) -> Result<Vec<SessionMeta>>;
+    /// One session's metadata by id.
+    fn load(&self, id: &str) -> Result<SessionMeta>;
+    /// One session's transcript events, in order.
+    fn read_transcript(&self, id: &str) -> Result<Vec<AgentEvent>>;
+}
+
+/// Filesystem-backed [`SessionStore`] rooted at a sessions directory.
+#[derive(Debug, Clone)]
+pub struct FsSessionStore {
+    root: PathBuf,
+}
+
+impl FsSessionStore {
+    /// Create a session store rooted at `root`.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        FsSessionStore { root: root.into() }
+    }
+}
+
+impl SessionStore for FsSessionStore {
+    fn start(&self, meta: SessionMeta) -> Result<Box<dyn SessionRecorder>> {
+        Ok(Box::new(start(&self.root, meta)?))
+    }
+    fn list(&self) -> Result<Vec<SessionMeta>> {
+        list(&self.root)
+    }
+    fn load(&self, id: &str) -> Result<SessionMeta> {
+        load(&self.root, id)
+    }
+    fn read_transcript(&self, id: &str) -> Result<Vec<AgentEvent>> {
+        read_transcript(&self.root, id)
+    }
+}
+
+impl SessionRecorder for FsSessionRecorder {
+    fn id(&self) -> &str {
+        FsSessionRecorder::id(self)
+    }
+    fn record_event(&mut self, event: &AgentEvent) -> Result<()> {
+        FsSessionRecorder::record_event(self, event)
+    }
+    fn finish(self: Box<Self>, exit_code: Option<i32>) -> Result<()> {
+        FsSessionRecorder::finish(*self, exit_code)
+    }
+}
+
 /// Writes a session's `meta.json` + appends its `transcript.jsonl` as the run
-/// progresses. Created by [`start`]; call [`SessionRecorder::finish`] when
+/// progresses. Created by [`start`]; call [`FsSessionRecorder::finish`] when
 /// the run completes so `finished_at`/`exit_code`/`harness_session_id` get
 /// folded into `meta.json`.
-pub struct SessionRecorder {
+pub struct FsSessionRecorder {
     dir: PathBuf,
     meta: SessionMeta,
     transcript: std::fs::File,
@@ -142,7 +209,7 @@ pub struct SessionRecorder {
 
 /// Start recording a new session under `root`: creates `<root>/<id>/`,
 /// writes the initial `meta.json`, and opens `transcript.jsonl` for append.
-pub fn start(root: &Path, meta: SessionMeta) -> Result<SessionRecorder> {
+pub fn start(root: &Path, meta: SessionMeta) -> Result<FsSessionRecorder> {
     let dir = root.join(&meta.id);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("creating session dir {}", dir.display()))?;
@@ -155,7 +222,7 @@ pub fn start(root: &Path, meta: SessionMeta) -> Result<SessionRecorder> {
         .open(dir.join(TRANSCRIPT_FILE))
         .with_context(|| format!("opening transcript for session {}", meta.id))?;
 
-    Ok(SessionRecorder {
+    Ok(FsSessionRecorder {
         dir,
         meta,
         transcript,
@@ -163,7 +230,7 @@ pub fn start(root: &Path, meta: SessionMeta) -> Result<SessionRecorder> {
     })
 }
 
-impl SessionRecorder {
+impl FsSessionRecorder {
     /// The session id being recorded.
     pub fn id(&self) -> &str {
         &self.meta.id

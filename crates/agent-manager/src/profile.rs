@@ -6,7 +6,7 @@
 //! instructions), an optional harness pin, and a default isolation policy. A run
 //! resolves a profile, materializes an ephemeral overlay (seed the account's
 //! captured login, layer composition on top), and throws the overlay away —
-//! leaving the persistent base untouched. See `_docs/target/profiles.md` for the
+//! leaving the persistent base untouched. See `_docs/profiles.md` for the
 //! full model.
 //!
 //! Profiles form an **inheritance chain** via the [`extends`](Profile::extends)
@@ -24,12 +24,13 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::source::{LinkMode, Source};
 use crate::Result;
 
 /// Maximum depth of an `extends` inheritance chain before giving up (guards
@@ -210,13 +211,24 @@ pub trait ProfileStore {
     fn profile(&self, id: &str) -> Result<Option<Profile>> {
         Ok(self.profiles()?.into_iter().find(|p| p.id == id))
     }
-    /// The config-overlay base dir for `id` + `harness`
-    /// (`<root>/<id>/base/<harness>`) if this store is filesystem-backed;
-    /// `None` for stores with no on-disk base. Feeds
-    /// [`crate::spec::RunSpec::config_bases`] so provision can materialize the
-    /// overlay across a profile's `extends` chain.
-    fn overlay_base(&self, _id: &str, _harness: &str) -> Option<PathBuf> {
+    /// The config-overlay base content for `id` + `harness`, if present.
+    ///
+    /// A [`Source::Dir`] of `<root>/<id>/base/<harness>` for [`FsProfileStore`],
+    /// or a [`Source::Files`] for a database-backed store; `None` when there is
+    /// no overlay. Feeds [`crate::spec::RunSpec::config_bases`] so provision can
+    /// materialize the overlay across a profile's `extends` chain. Default:
+    /// `None`.
+    fn base_source(&self, _id: &str, _harness: &str) -> Option<Source> {
         None
+    }
+
+    /// Persist a config-overlay base for `id` + `harness` from the files under
+    /// `from` (the **copy-back write seam**; see `_docs/open-points.md` §9 for
+    /// its intended use persisting refreshed credentials). [`FsProfileStore`]
+    /// copies them into `<root>/<id>/base/<harness>`; a database-backed store
+    /// reads and stores their bytes. Default: a read-only error.
+    fn put_base(&self, _id: &str, _harness: &str, _from: &Path) -> Result<()> {
+        bail!("this profile store does not support writing config-overlay bases")
     }
 }
 
@@ -327,8 +339,14 @@ impl ProfileStore for FsProfileStore {
         Ok(entries)
     }
 
-    fn overlay_base(&self, id: &str, harness: &str) -> Option<PathBuf> {
-        Some(self.base_dir(id, harness))
+    fn base_source(&self, id: &str, harness: &str) -> Option<Source> {
+        let dir = self.base_dir(id, harness);
+        dir.is_dir().then_some(Source::Dir(dir))
+    }
+
+    fn put_base(&self, id: &str, harness: &str, from: &Path) -> Result<()> {
+        let dest = self.base_dir(id, harness);
+        Source::Dir(from.to_path_buf()).materialize(&dest, LinkMode::Copy, true)
     }
 }
 

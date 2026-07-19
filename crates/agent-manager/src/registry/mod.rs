@@ -10,15 +10,18 @@
 
 use std::path::PathBuf;
 use crate::config::McpServer;
+use crate::source::Source;
 use crate::Result;
 
-/// A resolved skill in the catalog: its id, folder, and parsed metadata.
+/// A resolved skill in the catalog: its id, content, and parsed metadata.
 #[derive(Debug, Clone)]
 pub struct SkillEntry {
     /// Stable skill identifier (directory name).
     pub id: String,
-    /// Path to the skill folder (contains `SKILL.md`).
-    pub path: PathBuf,
+    /// The skill folder's content (a [`Source::Dir`] for the filesystem
+    /// catalog, [`Source::Files`] for a database-backed one). Materialized into
+    /// the run's `skills/<id>/` dir by the provisioner.
+    pub source: Source,
     /// Parsed metadata from `SKILL.md` frontmatter.
     pub meta: SkillMeta,
 }
@@ -38,7 +41,7 @@ pub struct SkillMeta {
 ///
 /// `Tools` (the default) is today's behavior: the MCP is injected as a
 /// normal, always-on tool set. `Skill` marks intent to *also* generate a
-/// latent `SKILL.md` pointer for the MCP (see `_docs/target/mcp-as-skill.md`)
+/// latent `SKILL.md` pointer for the MCP (see `_docs/mcp-as-skill.md`)
 /// — as of this pass that is a stepping stone only: the MCP still stays
 /// injected as normal (the SKILL.md is a documented pointer, not a context
 /// savings mechanism yet).

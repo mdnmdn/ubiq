@@ -74,7 +74,7 @@ impl Harness for Claude {
     /// Class A: `CLAUDE_CONFIG_DIR` relocates the entire config — credentials
     /// and `.claude.json` included (verified against Claude Code 2.1.206) — so
     /// a captured login is the two files below, seeded into the ephemeral dir
-    /// while the real `HOME` stays intact. See `_docs/target/profiles.md` §5.
+    /// while the real `HOME` stays intact. See `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CLAUDE_CONFIG_DIR".to_string(), Relocate::All)],
@@ -107,22 +107,11 @@ impl Harness for Claude {
         // 1. Skills: copy each skill folder into <dir>/skills/<id>/.
         let skills_dir = dir.join("skills");
         for skill in &spec.skills {
-            if !skill.path.exists() {
-                bail!(
-                    "skill '{}' points at a path that does not exist: {}",
-                    skill.id,
-                    skill.path.display()
-                );
-            }
             let dest = skills_dir.join(&skill.id);
-            super::copy_dir_recursive(&skill.path, &dest).with_context(|| {
-                format!(
-                    "copying skill '{}' from {} to {}",
-                    skill.id,
-                    skill.path.display(),
-                    dest.display()
-                )
-            })?;
+            skill
+                .source
+                .materialize(&dest, crate::source::LinkMode::Copy, true)
+                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
         }
         // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
         // harness::write_mcp_as_skill_pointers's doc). No-op when
@@ -267,7 +256,7 @@ impl Harness for Claude {
                 })?;
                 env.push(("ANTHROPIC_AUTH_TOKEN".to_string(), value));
             }
-            if let Some(home) = &account.home {
+            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
                 // Reuse a prior `am account login` by *seeding* the ephemeral
                 // config dir with that account's credentials + identity —
                 // deliberately WITHOUT overriding the child's `HOME`.
@@ -283,7 +272,7 @@ impl Harness for Claude {
                 // account home. Seeding into `CLAUDE_CONFIG_DIR` fixes the auth
                 // half while leaving the real HOME (and toolchain) intact.
                 // The seed list is declared once in `config_anchor()`.
-                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
+                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -521,7 +510,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "my-skill".to_string(),
-            path: skill_path,
+            source: crate::source::Source::Dir(skill_path),
         });
         spec.mcps.push(McpRef::Catalog(McpServer {
             id: "postgres".to_string(),
@@ -596,7 +585,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
         });
 
         let claude = Claude::new();

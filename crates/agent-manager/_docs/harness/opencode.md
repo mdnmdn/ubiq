@@ -667,7 +667,7 @@ secret stays in the runner's secret store.
   opencode 1.17.18** (macOS): with `XDG_DATA_HOME` set, `opencode auth list`
   reads `$XDG_DATA_HOME/opencode/auth.json` and it *overrides* the HOME-relative
   `~/.local/share/opencode/auth.json` default (control: with the lever unset it
-  falls back to that default). This resolves `_docs/target/profiles.md` open
+  falls back to that default). This resolves `_docs/profiles.md` open
   decision **B-1 as Class A-clean**: `am` sets both `OPENCODE_CONFIG_DIR` and
   `XDG_DATA_HOME` to the ephemeral dir and *seeds* the captured `auth.json` in —
   no child-`HOME` relocation (the user's real toolchain stays intact).

@@ -22,7 +22,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec, IoModes};
 use crate::Result;
 
-use super::{copy_dir_recursive, ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
 /// The opencode harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -66,7 +66,7 @@ impl Harness for Opencode {
     /// path and it overrides the HOME-relative `~/.local/share/opencode/auth.json`
     /// default). So a captured login is a single file seeded into the ephemeral
     /// dir while the real `HOME` (and the user's toolchain) stays intact — no
-    /// HOME relocation needed. Resolves `_docs/target/profiles.md` open
+    /// HOME relocation needed. Resolves `_docs/profiles.md` open
     /// decision B-1 as Class A-clean.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
@@ -121,22 +121,11 @@ impl Harness for Opencode {
         // 2. Skills: copy each skill folder into <dir>/skills/<id>/.
         let skills_dir = dir.join("skills");
         for skill in &spec.skills {
-            if !skill.path.exists() {
-                bail!(
-                    "skill '{}' points at a path that does not exist: {}",
-                    skill.id,
-                    skill.path.display()
-                );
-            }
             let dest = skills_dir.join(&skill.id);
-            copy_dir_recursive(&skill.path, &dest).with_context(|| {
-                format!(
-                    "copying skill '{}' from {} to {}",
-                    skill.id,
-                    skill.path.display(),
-                    dest.display()
-                )
-            })?;
+            skill
+                .source
+                .materialize(&dest, crate::source::LinkMode::Copy, true)
+                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
         }
         // 2b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
         // harness::write_mcp_as_skill_pointers's doc). No-op when
@@ -247,7 +236,7 @@ impl Harness for Opencode {
             }
             // TODO(P2+): base_url → provider.options.baseURL config; opencode
             // uses provider-specific config, not a single env var.
-            if let Some(home) = &account.home {
+            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
                 // Reuse a prior `am account login` by *seeding* the captured
                 // auth store into the relocated data dir
                 // (`$XDG_DATA_HOME/opencode/auth.json`, i.e. `dir/opencode/auth.json`)
@@ -256,7 +245,7 @@ impl Harness for Opencode {
                 // tier, the seeded auth.json resolves without stripping the user's
                 // real toolchain (nvm/mise/pyenv, shell rc, PATH shims). The seed
                 // list is declared once in `config_anchor()`.
-                super::seed_login(dir, home, &self.config_anchor().login_seed)?;
+                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
 
@@ -438,7 +427,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "my-skill".to_string(),
-            path: skill_path,
+            source: crate::source::Source::Dir(skill_path),
         });
         spec.mcps.push(McpRef::Catalog(McpServer {
             id: "postgres".to_string(),
@@ -550,7 +539,7 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            path: PathBuf::from("/definitely/does/not/exist/anywhere"),
+            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
         });
 
         let opencode = Opencode::new();

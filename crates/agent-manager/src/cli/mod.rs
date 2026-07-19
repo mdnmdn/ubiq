@@ -2,7 +2,7 @@
 //!
 //! `am <harness> [flags] [-- passthrough…]` wraps and runs a harness;
 //! `am catalog|account|session|help` are reserved subcommands for managing
-//! the tool itself (see `_docs/target/cli.md`). This module implements the
+//! the tool itself (see `_docs/cli.md`). This module implements the
 //! full `resolve → provision → run` spine, including `--print-config` for
 //! inspecting a provisioned run without launching it; `session ls|show` list
 //! and inspect recorded session history, and `session resume` is stubbed
@@ -165,7 +165,7 @@ struct RunArgs {
     resume: Option<String>,
     /// Additionally expose these already-injected catalog mcp ids as a
     /// latent skill pointer for this run (merged with any catalog entries
-    /// marked `expose = "skill"`; see `_docs/target/mcp-as-skill.md`).
+    /// marked `expose = "skill"`; see `_docs/mcp-as-skill.md`).
     #[arg(long = "mcp-as-skill", value_delimiter = ',')]
     mcp_as_skill: Option<Vec<String>>,
 }

@@ -12,10 +12,11 @@
 //! implementation ([`FsAccountStore`]) for the CLI.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context};
 
+use crate::source::Source;
 use crate::Result;
 
 /// A named credential *reference* for a harness run.
@@ -58,7 +59,7 @@ pub struct Account {
     /// config dir (e.g. `CLAUDE_CONFIG_DIR`) — it does **not** override the
     /// child's `HOME`, which would strip the user's toolchain (nvm/mise/pyenv,
     /// shell rc, PATH shims). Harnesses with no config-dir lever (grok) are the
-    /// exception and must relocate `HOME`; see `_docs/target/profiles.md`.
+    /// exception and must relocate `HOME`; see `_docs/profiles.md`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<PathBuf>,
     /// Non-secret metadata captured at login (auth type, plan tier, redacted
@@ -68,13 +69,58 @@ pub struct Account {
     pub captured: BTreeMap<String, String>,
 }
 
-/// A source of [`Account`]s, resolved by id.
+/// A source of [`Account`]s, resolved by id — plus the credential
+/// capture/seed seam.
+///
+/// Reads ([`accounts`](Self::accounts)/[`account`](Self::account)) and the
+/// login capture/seed methods all go through this trait, so an embedder can
+/// back accounts with a database while the CLI uses [`FsAccountStore`]. The
+/// login methods default to a filesystem-friendly behavior or a read-only
+/// error, so an in-memory or reference-only store implements only what it
+/// needs. See `_docs/am-as-library.md`.
 pub trait AccountStore {
     /// All accounts, sorted by id.
     fn accounts(&self) -> Result<Vec<Account>>;
     /// One account by exact id.
     fn account(&self, id: &str) -> Result<Option<Account>> {
         Ok(self.accounts()?.into_iter().find(|a| a.id == id))
+    }
+
+    /// The account's captured-login content, materialized into a harness's
+    /// relocated config dir at launch (see [`crate::harness::seed_login`]).
+    ///
+    /// Default: derive a [`Source::Dir`] from the account's `home` reference —
+    /// correct for any store whose [`Account`] carries an on-disk home
+    /// (including [`FsAccountStore`]). A database-backed store that keeps
+    /// credential *bytes* rather than a home dir overrides this to return a
+    /// [`Source::Files`]. `None` means no captured login (env/key/helper
+    /// accounts, or an unknown id).
+    fn login_source(&self, id: &str) -> Result<Option<Source>> {
+        Ok(self.account(id)?.and_then(|a| a.home).map(Source::Dir))
+    }
+
+    /// A real directory to run an interactive `am account login` in.
+    ///
+    /// The harness login is a real subprocess that must write to a real dir
+    /// (the same physical constraint as the run dir). [`FsAccountStore`]
+    /// returns the persistent per-account home; a database-backed store returns
+    /// a temp dir it will read back in [`capture_login`](Self::capture_login).
+    /// Default: a read-only error.
+    fn login_home(&self, _id: &str) -> Result<PathBuf> {
+        bail!("this account store does not support login capture")
+    }
+
+    /// Persist a login captured under [`login_home`](Self::login_home): record
+    /// the account and store the credential `files` (paths relative to `from`).
+    ///
+    /// [`FsAccountStore`] points the account's `home` at `from` and saves the
+    /// reference (the harness already wrote the files there); a database-backed
+    /// store reads each file's bytes from `from` and stores them. This is the
+    /// credential **write seam** — also where copy-back-on-exit for refreshed
+    /// OAuth tokens would hook in (see `_docs/open-points.md` §9). Default: a
+    /// read-only error.
+    fn capture_login(&self, _id: &str, _from: &Path, _files: &[PathBuf]) -> Result<()> {
+        bail!("this account store does not support login capture")
     }
 }
 
@@ -204,6 +250,25 @@ impl AccountStore for FsAccountStore {
 
         entries.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(entries)
+    }
+
+    fn login_home(&self, id: &str) -> Result<PathBuf> {
+        let home = self.root.join(id);
+        std::fs::create_dir_all(&home)
+            .with_context(|| format!("creating {}", home.display()))?;
+        Ok(home)
+    }
+
+    fn capture_login(&self, id: &str, from: &Path, _files: &[PathBuf]) -> Result<()> {
+        // The harness already wrote its credential files under `from` (the
+        // per-account home); persist the reference by pointing `home` at it.
+        let mut acct = self.account(id)?.unwrap_or(Account {
+            id: id.to_string(),
+            ..Default::default()
+        });
+        acct.home = Some(from.to_path_buf());
+        self.save(&acct)?;
+        Ok(())
     }
 }
 

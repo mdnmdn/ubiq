@@ -1,4 +1,4 @@
-# Overview — what `agent-manager` is (target design)
+# Overview — what `agent-manager` is
 
 ## The pivot in one paragraph
 
@@ -99,7 +99,7 @@ split.)
   the wrapped agent.
 - **Not** (primarily) a config-sync tool anymore. Rendering into the user's real
   `~/.claude` may survive as an optional convenience, but it is no longer the
-  purpose. See [`../old/`](../old/).
+  purpose.
 
 ## Why this is worth doing
 

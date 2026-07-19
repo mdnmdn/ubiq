@@ -10,6 +10,9 @@
 //! - [`account`]   — accounts: credential *references* (never secrets) that
 //!   resolve to an [`Account`](account::Account), injected at launch time.
 //! - [`spec`]      — [`RunSpec`], the fully-resolved, harness-agnostic plan.
+//! - [`source`]    — [`Source`](source::Source), the content seam (a dir or
+//!   in-memory bytes) every persistent store hands the provisioner, so stores
+//!   can be filesystem- or database-backed. See `_docs/am-as-library.md`.
 //! - [`resolve`]   — merge CLI flags + settings + catalog into a [`RunSpec`].
 //! - [`settings`]  — load / discover the settings file (layered defaults).
 //! - [`registry`]  — the catalog (trait + filesystem-backed implementation).
@@ -59,9 +62,11 @@ pub mod resolve;
 pub mod run;
 pub mod session;
 pub mod settings;
+pub mod source;
 pub mod spec;
 #[cfg(feature = "tui")]
 pub mod tui;
 
 pub use anyhow::Result;
+pub use source::{LinkMode, Source};
 pub use spec::RunSpec;

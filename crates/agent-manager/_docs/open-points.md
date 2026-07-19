@@ -11,7 +11,7 @@ relevant test-run's "Resolution" addendum, not here.
 ## 1. MCP-as-skill — deep dive required ⚠️
 
 **This is the item most in need of a deep investigation before it can be
-trusted.** Design + status doc: [`target/mcp-as-skill.md`](./target/mcp-as-skill.md).
+trusted.** Design + status doc: [`mcp-as-skill.md`](./mcp-as-skill.md).
 
 **What exists today (the honest state).** Only the *schema + SKILL.md-pointer
 stepping stone* is built:
@@ -153,6 +153,16 @@ catalog, sessions, runs), each with its own env override
   9 reference harnesses likewise. Transcribing a doc into an impl is the on-ramp.
 
 
---
+---
 
 ## 8. harness alias: `claude-code` should be activable also with `claude`
+
+---
+
+## 9. OAuth token refresh in the copy-on-use approach ⚠️
+
+**What exists today.** At launch a captured login is **copied** from the persistent account/profile base into the ephemeral run dir (`harness::seed_login` in `src/harness/mod.rs`; the non-credential profile config overlay is symlinked-else-copied by `overlay::materialize`, but credential files are always copied because the harness rewrites them in place). The run dir is deleted on exit (`run::cleanup` in `src/run.rs`), unless retained for a recorded session.
+
+**Why it's open.** Harnesses refresh OAuth tokens **in place** during a run. Because credentials are copied *in* but never copied *back*, a token the harness refreshes lives only in the throwaway run dir and is **discarded at cleanup** — the next run re-seeds the older token from the base and forces another refresh (and, once the refresh token itself rotates or expires, may force a re-login).
+
+**What to check / do next.** Persist refreshes back through the store write seam: after a run, `AccountStore::capture_login` / `ProfileStore::put_base` can copy the changed credential files from the run dir back into the base (copy-back-on-exit), or the base credential file can be symlinked with care (harnesses that replace the file via rename break a symlink). Because the persistence path is now a store-trait method, a database-backed store persists the refreshed token the same way the filesystem one does. Cross-reference `_docs/profiles.md` §9 and §12 (decision B-2, "copy for now").

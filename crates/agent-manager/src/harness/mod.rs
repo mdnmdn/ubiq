@@ -3,7 +3,7 @@
 //! Where the old design had a `Harness` *struct* of static facts, the target
 //! design needs a `Harness` *trait* with behavior: each harness differs in how
 //! it is provisioned, launched, and (later) spoken to. See
-//! `_docs/target/architecture.md` §"The `Harness` trait" and
+//! `_docs/architecture.md` §"The `Harness` trait" and
 //! `_docs/harness/<id>.md` for the curated per-harness notes each impl
 //! transcribes.
 
@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
+use crate::source::Source;
 use crate::spec::{HarnessId, McpAsSkill, RunSpec};
 use crate::Result;
 
@@ -25,35 +26,13 @@ pub use copilot::Copilot;
 pub use grok::Grok;
 pub use opencode::Opencode;
 
-/// Recursively copy `src` into `dst`, creating directories as needed.
-///
-/// Shared by harness provisioners that copy skill folders into an ephemeral
-/// config dir (e.g. [`claude::Claude`], [`codex::Codex`]).
-pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in walkdir::WalkDir::new(src).min_depth(1) {
-        let entry = entry?;
-        let rel = entry.path().strip_prefix(src)?;
-        let target = dst.join(rel);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&target)?;
-        } else {
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::copy(entry.path(), &target)?;
-        }
-    }
-    Ok(())
-}
-
 /// Render the `SKILL.md` body for one [`McpAsSkill`] pointer.
 ///
 /// Shared by every provisioner so the generated content is byte-identical
 /// across harnesses (each provisioner just picks its own skills dir to write
 /// it into via [`write_mcp_as_skill_pointers`]).
 ///
-/// **Honest about scope** (see `_docs/target/mcp-as-skill.md`): this is the
+/// **Honest about scope** (see `_docs/mcp-as-skill.md`): this is the
 /// schema + pointer stepping stone only. The MCP named by `entry.id` stays
 /// injected as a normal, always-on tool set — generating this file does
 /// **not** yet save any context. The body says so explicitly rather than
@@ -171,7 +150,7 @@ pub struct IoSupport {
 
 /// How a harness's native env lever relocates its config/credentials into a
 /// dir `am` controls (so the real `HOME` — and the user's toolchain — is left
-/// intact). See `_docs/target/profiles.md` §5 for the A/B/C taxonomy.
+/// intact). See `_docs/profiles.md` §5 for the A/B/C taxonomy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Relocate {
     /// Relocates the entire config tree, credentials included (e.g. Claude's
@@ -210,7 +189,7 @@ impl SeedFile {
 /// and which files constitute a captured login. This is what makes credential
 /// seeding generic across harnesses (rather than bespoke per provisioner) and
 /// what lazy default-profile capture and the isolation model read. See
-/// `_docs/target/profiles.md` §5.1.
+/// `_docs/profiles.md` §5.1.
 #[derive(Debug, Clone)]
 pub struct ConfigAnchor {
     /// Env vars (with their relocation semantics) that point the harness's
@@ -226,26 +205,28 @@ pub struct ConfigAnchor {
     pub requires_home_relocation: bool,
 }
 
-/// Seed captured-login files from an account's persistent `home` into a
+/// Seed captured-login files from an account's login [`Source`] into a
 /// harness's relocated config `dir`, per a [`ConfigAnchor::login_seed`].
 ///
-/// Copies (never symlinks — a run is ephemeral and the harness rewrites some of
-/// these in place), creating parent dirs, and **skips any source that doesn't
-/// exist** so a reference-only or partially-captured account still launches.
-/// Deliberately leaves `HOME` untouched (see `_docs/target/profiles.md` §3).
-pub(crate) fn seed_login(dir: &Path, home: &Path, seed: &[SeedFile]) -> Result<()> {
+/// Writes (never symlinks — a run is ephemeral and the harness rewrites some of
+/// these in place), creating parent dirs, and **skips any source file that
+/// doesn't exist** so a reference-only or partially-captured account still
+/// launches. Works over a [`Source`] rather than a raw path, so a
+/// database-backed account store seeds its credential *bytes* exactly as the
+/// filesystem store seeds files from the account `home`. Deliberately leaves
+/// `HOME` untouched (see `_docs/profiles.md` §3).
+pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Result<()> {
     for file in seed {
-        let src = home.join(&file.src);
-        if !src.exists() {
+        let Some(bytes) = login.read(&file.src)? else {
             continue;
-        }
+        };
         let dst = dir.join(&file.dst);
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
-        std::fs::copy(&src, &dst)
-            .with_context(|| format!("seeding login from {}", src.display()))?;
+        std::fs::write(&dst, &bytes)
+            .with_context(|| format!("seeding login to {}", dst.display()))?;
     }
     Ok(())
 }
@@ -277,38 +258,87 @@ pub fn resolve_templates_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
         .or_else(default_templates_root)
 }
 
-/// Merge each of `harness_id`'s [`TemplateFile`]s into `dir` on every run.
+/// A store of per-harness preference **templates** — the editable JSON
+/// defaults ([`TemplateFile`]) merged into a run's config. Abstracted as a
+/// trait (like [`crate::registry::Registry`] / [`crate::account::AccountStore`])
+/// so an embedder can back templates with a database while the CLI uses
+/// [`FsTemplateStore`].
+pub trait TemplateStore {
+    /// The stored template value for `(harness_id, name)`, seeding it from
+    /// `default` the first time it's requested so there's always a real,
+    /// editable entry rather than a value hidden in Rust. Returns the value to
+    /// gap-fill into the run's config (see [`apply_templates`]).
+    fn template(
+        &self,
+        harness_id: &str,
+        name: &str,
+        default: fn() -> serde_json::Value,
+    ) -> Result<serde_json::Value>;
+}
+
+/// Filesystem-backed [`TemplateStore`]: `<root>/<harness_id>/<name>`, created
+/// with `default()` content on first read so a user always has a file to edit.
+#[derive(Debug, Clone)]
+pub struct FsTemplateStore {
+    root: PathBuf,
+}
+
+impl FsTemplateStore {
+    /// Create a template store rooted at `root`.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        FsTemplateStore { root: root.into() }
+    }
+
+    /// Build from the resolved default templates root (`AM_TEMPLATES` / the
+    /// default location); falls back to an unset sentinel path when no root is
+    /// resolvable, mirroring how the CLI handles an unset catalog root.
+    pub fn from_default() -> Self {
+        FsTemplateStore::new(
+            resolve_templates_root(None)
+                .unwrap_or_else(|| PathBuf::from(".agent-manager-templates-unset")),
+        )
+    }
+}
+
+impl TemplateStore for FsTemplateStore {
+    fn template(
+        &self,
+        harness_id: &str,
+        name: &str,
+        default: fn() -> serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let harness_root = self.root.join(harness_id);
+        let tpl_path = harness_root.join(name);
+        if !tpl_path.exists() {
+            std::fs::create_dir_all(&harness_root)
+                .with_context(|| format!("creating {}", harness_root.display()))?;
+            std::fs::write(&tpl_path, serde_json::to_string_pretty(&default())?)
+                .with_context(|| format!("writing {}", tpl_path.display()))?;
+        }
+        let raw = std::fs::read_to_string(&tpl_path)
+            .with_context(|| format!("reading {}", tpl_path.display()))?;
+        Ok(serde_json::from_str(&raw)?)
+    }
+}
+
+/// Merge each of `harness_id`'s [`TemplateFile`]s into `dir` on every run,
+/// reading each template's value from `store`.
 ///
-/// `templates/<harness_id>/<name>` is the per-harness template store; created
-/// (with `default()` content) the first time it's read, so a user always has
-/// a real file to edit rather than a hardcoded default hidden in Rust. The
-/// merge is shallow and gap-filling: any key the run itself already
+/// The merge is shallow and gap-filling: any key the run itself already
 /// generated (credentials, onboarding flags, policy, hooks, …) wins; the
 /// template only supplies keys nothing else set. A malformed template or
 /// destination file is left untouched rather than failing the run — templates
 /// are a convenience layer, not load-bearing.
-pub(crate) fn apply_templates(dir: &Path, harness_id: &str, templates: &[TemplateFile]) -> Result<()> {
-    if templates.is_empty() {
-        return Ok(());
-    }
-    let Some(root) = resolve_templates_root(None) else {
-        return Ok(());
-    };
-    let harness_root = root.join(harness_id);
-
+pub(crate) fn apply_templates(
+    dir: &Path,
+    harness_id: &str,
+    templates: &[TemplateFile],
+    store: &dyn TemplateStore,
+) -> Result<()> {
     for tpl in templates {
-        let tpl_path = harness_root.join(tpl.name);
-        if !tpl_path.exists() {
-            std::fs::create_dir_all(&harness_root)
-                .with_context(|| format!("creating {}", harness_root.display()))?;
-            std::fs::write(&tpl_path, serde_json::to_string_pretty(&(tpl.default)())?)
-                .with_context(|| format!("writing {}", tpl_path.display()))?;
-        }
-
-        let Ok(tpl_raw) = std::fs::read_to_string(&tpl_path) else {
-            continue;
-        };
-        let Ok(serde_json::Value::Object(tpl_map)) = serde_json::from_str(&tpl_raw) else {
+        let Ok(serde_json::Value::Object(tpl_map)) =
+            store.template(harness_id, tpl.name, tpl.default)
+        else {
             continue;
         };
 
@@ -349,7 +379,7 @@ pub trait Harness {
     /// How this harness relocates its config/credentials and which files make up
     /// a captured login. Backs generic credential seeding ([`seed_login`]), lazy
     /// default-profile capture, and the isolation model — see
-    /// `_docs/target/profiles.md` §5.
+    /// `_docs/profiles.md` §5.
     ///
     /// The default is a conservative empty anchor (no levers, no seed, no HOME
     /// relocation); **every real harness overrides it**. It exists only so the

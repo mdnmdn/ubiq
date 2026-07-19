@@ -2,7 +2,7 @@
 //! stdin/stdout and a PTY master's reader/writer, on background threads.
 //!
 //! This is the entirety of Phase-1 passthrough I/O (see
-//! `_docs/target/io-modes.md` §passthrough): `am` never parses the byte
+//! `_docs/io-modes.md` §passthrough): `am` never parses the byte
 //! stream, it just relays it — including Ctrl-C and other control bytes,
 //! which reach the child as raw bytes through the tty rather than via a
 //! SIGINT handler here.
