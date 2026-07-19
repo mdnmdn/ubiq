@@ -10,7 +10,9 @@
 //! real config.
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context};
 use serde_json::{json, Value};
@@ -19,7 +21,7 @@ use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
 use crate::Result;
 
-use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, IoSupport, Launch, ModelInfo, Relocate, SeedFile};
 
 /// Environment variables stripped from the child so a nested `am`/Claude Code
 /// invocation doesn't inherit the parent session's identity.
@@ -86,21 +88,19 @@ impl Harness for Claude {
         }
     }
 
-    /// Claude Code exposes no machine-readable model-list command (only the
-    /// interactive `/model` TUI picker and the alias hints in `claude --help`),
-    /// so this is a **curated static list** of the aliases `--model` accepts —
-    /// verified against `claude --help`. A full id (e.g. `claude-opus-4-8`,
-    /// `claude-sonnet-5`) also works. The default when `--model` is omitted is
-    /// the `model` key in `~/.claude/settings.json`, so no entry is marked
-    /// default here. See `_docs/harness/claude-code.md`
-    /// §"Model discovery & selection".
+    /// Live model list via headless stream-json + the `/model` slash command.
+    ///
+    /// Claude Code has no dedicated list/JSON CLI. The preferred path (see
+    /// `_docs/harness/claude-code.md` §"Model discovery & selection") is to
+    /// launch `claude -p` with stream-json I/O, write a single NDJSON user
+    /// line whose text is `"/model"`, and parse the synthetic free-text
+    /// `Available: …` clause. That path is zero-token (`message.model:
+    /// "<synthetic>"`) and preferred over plain `claude -p "/model"` for
+    /// subscription/orchestration reasons. Requires `claude` on `PATH` and a
+    /// working auth for process launch (the slash command itself does not
+    /// bill tokens).
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
-        Ok(vec![
-            super::ModelInfo::new("opus").with_description("most capable"),
-            super::ModelInfo::new("sonnet").with_description("balanced"),
-            super::ModelInfo::new("haiku").with_description("fastest"),
-            super::ModelInfo::new("fable").with_description("Fable family"),
-        ])
+        discover_models_via_jsonl()
     }
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
@@ -469,6 +469,171 @@ fn build_mcp_json(mcps: &[McpRef]) -> Result<Value> {
         }
     }
     Ok(json!({ "mcpServers": servers }))
+}
+
+/// Shell out to Claude Code stream-json with prompt `/model` and parse the
+/// synthetic available-alias list. See `_docs/harness/claude-code.md`
+/// §"Model discovery & selection".
+fn discover_models_via_jsonl() -> Result<Vec<ModelInfo>> {
+    let mut cmd = Command::new("claude");
+    cmd.args([
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--input-format",
+        "stream-json",
+        // stream-json output requires --verbose when using -p.
+        "--verbose",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "1",
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+    // Strip nested-session identity so discovery doesn't inherit a parent
+    // Claude Code session (same hygiene as provisioned launches).
+    for key in ENV_HYGIENE {
+        cmd.env_remove(key);
+    }
+    let mut child = cmd.spawn().with_context(|| {
+        "spawning `claude` for model discovery via stream-json (is the claude binary on PATH?)"
+    })?;
+
+    let prompt = json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "/model"}],
+        },
+    });
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("claude stdin not piped"))?;
+        writeln!(stdin, "{prompt}").context("writing /model prompt to claude stdin")?;
+        // Drop closes stdin so Claude sees EOF after the single user line.
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("waiting for claude stream-json /model discovery")?;
+    if !output.status.success() {
+        bail!(
+            "`claude` stream-json /model discovery failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let text = extract_slash_result_text(&stdout).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no /model result text in claude stream-json stdout (got {} bytes); stderr: {}",
+            output.stdout.len(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+    })?;
+
+    let models = parse_model_slash_output(&text);
+    if models.is_empty() {
+        bail!(
+            "could not parse any model ids from claude /model output: {text:?}"
+        );
+    }
+    Ok(models)
+}
+
+/// Pull free-text from a stream-json NDJSON stdout for a synthetic slash
+/// command: prefer `result.result`, fall back to the first assistant text
+/// block.
+fn extract_slash_result_text(stdout: &str) -> Option<String> {
+    let mut assistant_text: Option<String> = None;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("result") => {
+                if let Some(r) = v.get("result").and_then(|r| r.as_str()) {
+                    return Some(r.to_string());
+                }
+            }
+            Some("assistant") if assistant_text.is_none() => {
+                if let Some(content) = v
+                    .pointer("/message/content")
+                    .and_then(|c| c.as_array())
+                {
+                    for block in content {
+                        if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                assistant_text = Some(t.to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    assistant_text
+}
+
+/// Parse the free-text body of a headless `/model` response into
+/// [`ModelInfo`] entries.
+///
+/// Expected shape (verified Claude Code ≥ 2.1.207):
+///
+/// ```text
+/// Current model: Opus 4.8 (effort: high)
+/// Usage: /model <name>. Available: sonnet, opus, haiku, …, default, or a full model ID.
+/// ```
+///
+/// The `default` alias (if present) is marked [`ModelInfo::default`]. The
+/// `Current model: …` line, when present, is attached as the description on
+/// that default entry (or left unused if `default` is absent).
+fn parse_model_slash_output(text: &str) -> Vec<ModelInfo> {
+    let current_line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("Current model:"))
+        .map(str::to_string);
+
+    let Some(available_part) = text.split("Available:").nth(1) else {
+        return Vec::new();
+    };
+    // Take only the first line of the Available clause (defensive against
+    // future multi-paragraph responses).
+    let available_part = available_part.lines().next().unwrap_or(available_part);
+    let cleaned = available_part
+        .trim()
+        .trim_end_matches('.')
+        .replace(", or a full model ID", "")
+        .replace("or a full model ID", "");
+
+    let mut models = Vec::new();
+    for part in cleaned.split(',') {
+        let id = part.trim();
+        if id.is_empty() {
+            continue;
+        }
+        let mut info = ModelInfo::new(id);
+        if id == "default" {
+            info = info.as_default();
+            if let Some(ref cur) = current_line {
+                info = info.with_description(cur.clone());
+            }
+        }
+        models.push(info);
+    }
+    models
 }
 
 #[cfg(test)]
@@ -1098,9 +1263,84 @@ mod tests {
     }
 
     #[test]
-    fn discover_models_lists_curated_aliases() {
-        let models = Claude::new().discover_models().unwrap();
+    fn parse_model_slash_output_extracts_aliases_and_default() {
+        let text = "\
+Current model: Opus 4.8 (effort: high)
+Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], opus[1m], fable[1m], opusplan, default, or a full model ID.";
+        let models = parse_model_slash_output(text);
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
-        assert!(ids.contains(&"opus") && ids.contains(&"sonnet") && ids.contains(&"haiku"));
+        assert_eq!(
+            ids,
+            vec![
+                "sonnet",
+                "opus",
+                "haiku",
+                "fable",
+                "best",
+                "sonnet[1m]",
+                "opus[1m]",
+                "fable[1m]",
+                "opusplan",
+                "default",
+            ]
+        );
+        let default = models.iter().find(|m| m.id == "default").unwrap();
+        assert!(default.default);
+        assert_eq!(
+            default.description.as_deref(),
+            Some("Current model: Opus 4.8 (effort: high)")
+        );
+        assert!(models.iter().filter(|m| m.id != "default").all(|m| !m.default));
+    }
+
+    #[test]
+    fn parse_model_slash_output_empty_without_available() {
+        assert!(parse_model_slash_output("no models here").is_empty());
+    }
+
+    #[test]
+    fn extract_slash_result_text_prefers_result_event() {
+        let stdout = r#"
+{"type":"system","subtype":"init","model":"claude-opus-4-8"}
+{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"assistant only"}]}}
+{"type":"result","subtype":"success","result":"Current model: X\nUsage: /model <name>. Available: sonnet, default, or a full model ID.","is_error":false}
+"#;
+        let text = extract_slash_result_text(stdout).unwrap();
+        assert!(text.contains("Available: sonnet"));
+        assert!(!text.contains("assistant only"));
+    }
+
+    #[test]
+    fn extract_slash_result_text_falls_back_to_assistant() {
+        let stdout = r#"
+{"type":"assistant","message":{"content":[{"type":"text","text":"Usage: /model <name>. Available: opus, sonnet."}]}}
+"#;
+        let text = extract_slash_result_text(stdout).unwrap();
+        assert!(text.contains("Available: opus"));
+    }
+
+    /// Live check against a real `claude` on PATH. Skipped when the binary
+    /// is missing so unit CI without Claude Code still passes.
+    #[test]
+    fn discover_models_live_jsonl_when_claude_available() {
+        let has_claude = Command::new("claude")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !has_claude {
+            eprintln!("skipping: `claude` not on PATH");
+            return;
+        }
+        let models = Claude::new()
+            .discover_models()
+            .expect("live stream-json /model discovery");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(
+            ids.contains(&"opus") && ids.contains(&"sonnet") && ids.contains(&"haiku"),
+            "expected core aliases in live list: {ids:?}"
+        );
     }
 }
