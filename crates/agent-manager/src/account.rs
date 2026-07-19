@@ -1,11 +1,19 @@
-//! Accounts: credential *references* for a harness run, never secret material.
+//! Accounts: credential *references* for a harness run, never secret material
+//! in the account index.
 //!
-//! **The sharpest invariant in this module: `am`'s account store on disk holds
-//! only env-var NAMES, a base URL, a helper-command string, and/or a path to a
-//! private home dir — never a secret value.** A secret value may be read
-//! transiently from the environment at launch (see `harness::claude::provision`)
-//! and placed into the child process's env in memory; it is never written to
-//! disk by `am`.
+//! **The sharpest invariant in this module: `am`'s account *index* on disk
+//! (`accounts.toml` / per-id toml) holds only env-var NAMES, a base URL, a
+//! helper-command string, and/or a path to a private home dir — never a
+//! secret value.** Secret values may:
+//! - be read transiently from the environment at launch and placed into the
+//!   child process's env in memory;
+//! - live under an account **home** as harness-native credential files
+//!   (written by `am account login`, or by `am account import --write`
+//!   materializing a macOS Keychain Claude OAuth blob into
+//!   `accounts/default/`).
+//!
+//! The index still never stores tokens; the home is the same seam
+//! `seed_login` already uses at provision time.
 //!
 //! This mirrors the shape of [`crate::registry`]: a trait ([`AccountStore`]) so
 //! embedders can back it with whatever they like, and a filesystem-backed
@@ -288,6 +296,183 @@ pub fn resolve_accounts_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
         .or_else(default_accounts_root)
 }
 
+/// Account id for the ambient / imported default credentials.
+///
+/// Keychain import (`am account import --write` on macOS) always materializes
+/// under this id (`accounts/default/` + `default.toml`) and sets
+/// `[defaults].account = "default"` so bare `am claude` reuses it. Do not
+/// invent a parallel id (e.g. `claude-credentials-home`) for the ambient
+/// Claude session — that path is `default` only.
+pub const DEFAULT_ACCOUNT_ID: &str = "default";
+
+/// macOS Keychain *service* name Claude Code uses for the OAuth blob
+/// (verified against Claude Code docs / field reports).
+pub const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+/// Normalize and validate a Claude credentials JSON blob (as stored in
+/// Keychain or `~/.claude/.credentials.json`).
+///
+/// Accepts either the full file shape `{"claudeAiOauth":{…}}` or a bare
+/// oauth object `{accessToken, refreshToken, …}` (wrapped on output).
+/// Rejects empty / missing tokens so we never materialize a useless stub.
+pub fn normalize_claude_credentials_json(raw: &[u8]) -> Result<Vec<u8>> {
+    let trimmed = trim_trailing_whitespace(raw);
+    if trimmed.is_empty() {
+        bail!("Claude credentials blob is empty");
+    }
+    let value: serde_json::Value = serde_json::from_slice(trimmed)
+        .context("parsing Claude credentials JSON")?;
+    let oauth = match value.get("claudeAiOauth") {
+        Some(inner) => inner.clone(),
+        None if value.get("accessToken").is_some() || value.get("refreshToken").is_some() => value,
+        None => bail!(
+            "Claude credentials JSON missing `claudeAiOauth` (and not a bare oauth object)"
+        ),
+    };
+    let access = oauth
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let refresh = oauth
+        .get("refreshToken")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if access.is_empty() && refresh.is_empty() {
+        bail!(
+            "Claude credentials have empty accessToken and refreshToken \
+             (Keychain entry present but unusable — re-login with `claude auth login`)"
+        );
+    }
+    let doc = serde_json::json!({ "claudeAiOauth": oauth });
+    Ok(serde_json::to_vec_pretty(&doc)?)
+}
+
+/// Read Claude Code's OAuth credentials from the macOS Keychain.
+///
+/// Runs `security find-generic-password -a $USER -s 'Claude Code-credentials' -w`.
+/// Returns normalized pretty-printed JSON suitable for
+/// `.claude/.credentials.json`. Errors on non-macOS, missing entry, empty
+/// tokens, or Keychain ACL denial.
+///
+/// The first successful read may show a system allow-prompt for `security` /
+/// the calling binary; headless sessions can fail with interaction-not-allowed.
+pub fn read_claude_keychain_credentials() -> Result<Vec<u8>> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        bail!("Claude Keychain import is only supported on macOS");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .context(
+                "USER/LOGNAME not set (needed as Keychain account attribute for Claude credentials)",
+            )?;
+        let output = std::process::Command::new("security")
+            .args([
+                "find-generic-password",
+                "-a",
+                &user,
+                "-s",
+                CLAUDE_KEYCHAIN_SERVICE,
+                "-w",
+            ])
+            .output()
+            .context(
+                "running `security find-generic-password` (is the security CLI available?)",
+            )?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!(
+                "Keychain entry {:?} (account {:?}) not readable ({}): {}",
+                CLAUDE_KEYCHAIN_SERVICE,
+                user,
+                output.status,
+                stderr.trim()
+            );
+        }
+        normalize_claude_credentials_json(&output.stdout)
+    }
+}
+
+/// Write a Claude login layout under `home` for later [`crate::harness::seed_login`]:
+/// - `<home>/.claude/.credentials.json` (from `creds`, mode `0600` on Unix)
+/// - `<home>/.claude.json` copied from the real user home when present (identity)
+///
+/// `creds` must already be a validated full-file JSON blob
+/// ([`normalize_claude_credentials_json`]).
+pub fn materialize_claude_login_home(home: &Path, creds: &[u8]) -> Result<()> {
+    let cred_path = home.join(".claude").join(".credentials.json");
+    if let Some(parent) = cred_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::write(&cred_path, creds)
+        .with_context(|| format!("writing {}", cred_path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&cred_path, perms)
+            .with_context(|| format!("chmod 600 {}", cred_path.display()))?;
+    }
+
+    // Identity / onboarding metadata — same optional companion file as
+    // Claude::login capture. Prefer real $HOME over directories crate so a
+    // relocated test HOME still works.
+    let real_home = std::env::var_os("HOME").map(PathBuf::from);
+    if let Some(real_home) = real_home {
+        let src = real_home.join(".claude.json");
+        if src.is_file() {
+            let dst = home.join(".claude.json");
+            std::fs::copy(&src, &dst).with_context(|| {
+                format!("copying {} → {}", src.display(), dst.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Materialize the Keychain Claude session into `accounts/default/` and
+/// record the [`DEFAULT_ACCOUNT_ID`] account pointing at that home.
+///
+/// Returns the account. Does **not** set `[defaults].account` — the CLI
+/// import path does that when appropriate.
+pub fn import_default_claude_from_keychain(accounts_root: &Path) -> Result<Account> {
+    let creds = read_claude_keychain_credentials()?;
+    let home = accounts_root.join(DEFAULT_ACCOUNT_ID);
+    materialize_claude_login_home(&home, &creds)?;
+    let mut captured = BTreeMap::new();
+    captured.insert("source".to_string(), "macos-keychain".to_string());
+    captured.insert("service".to_string(), CLAUDE_KEYCHAIN_SERVICE.to_string());
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&creds) {
+        if let Some(sub) = v
+            .pointer("/claudeAiOauth/subscriptionType")
+            .and_then(|s| s.as_str())
+        {
+            captured.insert("subscriptionType".to_string(), sub.to_string());
+        }
+    }
+    let acct = Account {
+        id: DEFAULT_ACCOUNT_ID.to_string(),
+        home: Some(home),
+        captured,
+        ..Default::default()
+    };
+    std::fs::create_dir_all(accounts_root)
+        .with_context(|| format!("creating {}", accounts_root.display()))?;
+    FsAccountStore::new(accounts_root).save(&acct)?;
+    Ok(acct)
+}
+
+fn trim_trailing_whitespace(raw: &[u8]) -> &[u8] {
+    let mut end = raw.len();
+    while end > 0 && matches!(raw[end - 1], b' ' | b'\n' | b'\r' | b'\t') {
+        end -= 1;
+    }
+    &raw[..end]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +606,71 @@ api_key_env = "WORK_KEY"
         assert_eq!(loaded.home, Some(PathBuf::from("/private/cap-home")));
 
         temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_claude_credentials_accepts_full_file_shape() {
+        let raw = br#"{
+            "claudeAiOauth": {
+                "accessToken": "at-secret",
+                "refreshToken": "rt-secret",
+                "expiresAt": 123,
+                "subscriptionType": "pro"
+            }
+        }"#;
+        let out = normalize_claude_credentials_json(raw).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            v.pointer("/claudeAiOauth/accessToken").and_then(|x| x.as_str()),
+            Some("at-secret")
+        );
+    }
+
+    #[test]
+    fn normalize_claude_credentials_wraps_bare_oauth_object() {
+        let raw = br#"{"accessToken":"a","refreshToken":"r"}"#;
+        let out = normalize_claude_credentials_json(raw).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert!(v.get("claudeAiOauth").is_some());
+        assert_eq!(
+            v.pointer("/claudeAiOauth/accessToken").and_then(|x| x.as_str()),
+            Some("a")
+        );
+    }
+
+    #[test]
+    fn normalize_claude_credentials_rejects_empty_tokens() {
+        let raw = br#"{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0}}"#;
+        let err = normalize_claude_credentials_json(raw).unwrap_err().to_string();
+        assert!(err.contains("empty"), "{err}");
+    }
+
+    #[test]
+    fn normalize_claude_credentials_trims_trailing_newline() {
+        let mut raw = br#"{"claudeAiOauth":{"accessToken":"x","refreshToken":"y"}}"#.to_vec();
+        raw.push(b'\n');
+        assert!(normalize_claude_credentials_json(&raw).is_ok());
+    }
+
+    #[test]
+    fn materialize_claude_login_home_writes_credentials_layout() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let home = temp.path().join("default");
+        let creds = normalize_claude_credentials_json(
+            br#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"ref"}}"#,
+        )?;
+        materialize_claude_login_home(&home, &creds)?;
+        let path = home.join(".claude/.credentials.json");
+        assert!(path.is_file());
+        let body = fs::read_to_string(&path)?;
+        assert!(body.contains("tok"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path)?.permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "credentials file should be 0600, got {mode:o}");
+        }
         Ok(())
     }
 }

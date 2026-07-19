@@ -416,7 +416,19 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
   Keychain access) reliably forces the file. Verify post-login that
   `$HOME/.claude/.credentials.json` exists.
 - **Default backend / observed:** macOS Keychain service `Claude Code-credentials`
-  per doc; **observed file-based on this machine** (no Keychain entry) — trust disk.
+  (account attribute = `$USER`). The on-disk `~/.claude/.credentials.json` is
+  often an empty stub while Keychain holds the real tokens — which is why
+  zero-config file seed into `CLAUDE_CONFIG_DIR` can leave `am claude`
+  unauthenticated even when bare `claude auth status` is fine.
+- **`am account import --write` (macOS):** extracts the Keychain blob via
+  `security find-generic-password -a $USER -s 'Claude Code-credentials' -w`,
+  normalizes it to `{"claudeAiOauth":{…}}`, writes
+  `accounts/default/.claude/.credentials.json` (+ copies `~/.claude.json`
+  identity when present), records account id `default` with that home, and
+  sets `[defaults].account = "default"` so bare `am claude` seeds a real
+  session into the ephemeral dir (account id is always `default`). Re-run
+  to refresh tokens after re-login. First Keychain read may prompt for
+  allow; headless/ACL-denied sessions fail the extract step.
 - **Login command (fresh-auth-into-temp):** `HOME=/tmp/x claude auth login`
   (browser OAuth). No device-code flow is documented; for CI prefer an
   `ANTHROPIC_API_KEY` reference account over an OAuth snapshot.
@@ -649,10 +661,11 @@ With `--permission-mode bypassPermissions`, Claude Code still emits a `control_r
   recommended markers, promo banners (auth/plan-aware). Headless
   `/model` does **not** return those richer picker fields.
 
-  **`am claude --list-models` today:** curated static aliases
-  (`opus` / `sonnet` / `haiku` / `fable`) — a **subset** of live
-  `/model` output. Use the stream-json `/model` recipe when a live
-  list is required.
+  **`am claude --list-models`:** runs this same stream-json + `/model`
+  recipe (see `Claude::discover_models` in `src/harness/claude.rs`),
+  prints each alias (marks `default` when present, attaches the
+  `Current model: …` line as its description). Requires `claude` on
+  `PATH` and a working auth for process launch.
 
 - **Select at launch (passthrough):** `--model <id>` on the normal
   interactive `claude` launch (and on headless `-p` runs). Verified to

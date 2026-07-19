@@ -1,7 +1,7 @@
 //! `am account` subcommands: `ls`, `use`, `import`.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
@@ -27,9 +27,16 @@ enum AccountCommand {
         /// Account id (must exist in the account store).
         id: String,
     },
-    /// Read-only discovery of existing credential locations (never their contents).
+    /// Discover credential locations and (on macOS) Claude Keychain OAuth.
+    ///
+    /// Dry-run reports env names, credential *paths*, and whether a Keychain
+    /// Claude session can be imported as account id `default`. With `--write`,
+    /// appends reference-only accounts to `accounts.toml` and materializes
+    /// the Keychain blob into `accounts/default/` (file layout Claude seeds
+    /// from), then sets `[defaults].account = "default"` so bare `am claude`
+    /// reuses those credentials.
     Import {
-        /// Append the suggested reference-only account(s) to accounts.toml.
+        /// Write suggestions / materialize Keychain `default` account.
         #[arg(long)]
         write: bool,
     },
@@ -199,11 +206,46 @@ fn global_config_path() -> Result<PathBuf> {
     crate::settings::global_config_write_path()
 }
 
-/// `am account import [--write]`: read-only discovery of credential
-/// *locations* — env var NAMES and credential file PATHS only, never
-/// contents or values. Prints suggested reference-only [`Account`]s; with
-/// `--write`, appends them to `accounts.toml`.
+/// `am account import [--write]`: discover credential *locations* (env names
+/// / file paths — never values) and, on macOS, optionally import the live
+/// Claude Keychain OAuth session as account [`account::DEFAULT_ACCOUNT_ID`].
 fn cmd_import(write: bool) -> Result<()> {
+    let root = account::resolve_accounts_root(None)
+        .ok_or_else(|| anyhow!("could not determine the accounts root for this OS"))?;
+
+    // --- macOS Keychain → accounts/default (primary path for bare `am claude`) ---
+    let mut keychain_imported = false;
+    match try_claude_keychain_import(&root, write) {
+        Ok(KeychainImport::Written(home)) => {
+            keychain_imported = true;
+            println!(
+                "imported Claude Keychain → account '{}' (home {})",
+                account::DEFAULT_ACCOUNT_ID,
+                home.display()
+            );
+            // Always wire bare `am claude` to this account id (`default`).
+            set_defaults_account(account::DEFAULT_ACCOUNT_ID, /*force*/ true)?;
+        }
+        Ok(KeychainImport::WouldWrite(home)) => {
+            println!(
+                "found macOS Keychain: {} — would materialize account id '{}' \
+                 (home {}) and set [defaults].account = '{}' (pass --write)",
+                account::CLAUDE_KEYCHAIN_SERVICE,
+                account::DEFAULT_ACCOUNT_ID,
+                home.display(),
+                account::DEFAULT_ACCOUNT_ID,
+            );
+        }
+        Ok(KeychainImport::Unavailable(reason)) => {
+            println!("Claude Keychain import skipped: {reason}");
+        }
+        Err(e) => {
+            // Don't fail the whole import if Keychain is missing; continue
+            // with path/env discovery. Print the error so the user can act.
+            println!("Claude Keychain import failed: {e:#}");
+        }
+    }
+
     let mut suggestions: Vec<Account> = Vec::new();
 
     for env_name in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] {
@@ -219,8 +261,11 @@ fn cmd_import(write: bool) -> Result<()> {
 
     if let Some(base_dirs) = directories::BaseDirs::new() {
         let home = base_dirs.home_dir();
+        // Path existence only — never read credential file contents here.
+        // (Claude's usable macOS tokens live in Keychain; the on-disk
+        // `.credentials.json` is often an empty stub — handled above.)
         let candidates: [(&str, PathBuf); 5] = [
-            ("claude-credentials", home.join(".claude/credentials.json")),
+            ("claude-credentials", home.join(".claude/.credentials.json")),
             ("claude-json", home.join(".claude.json")),
             ("codex-auth", home.join(".codex/auth.json")),
             ("opencode-auth", home.join(".local/share/opencode/auth.json")),
@@ -228,10 +273,17 @@ fn cmd_import(write: bool) -> Result<()> {
         ];
 
         for (label, path) in candidates {
-            // NEVER read the contents of a credential file — only check
-            // whether it exists, and report its path.
             if path.exists() {
                 println!("found credential file ({label}): {}", path.display());
+                // Skip suggesting a claude file-home when Keychain import
+                // already owns `default` — pointing home at ~/.claude would
+                // re-introduce the empty-stub problem under CLAUDE_CONFIG_DIR.
+                if label.starts_with("claude") && keychain_imported {
+                    println!(
+                        "  (not suggesting a separate account — Keychain `default` covers Claude)"
+                    );
+                    continue;
+                }
                 let home_dir = path.parent().unwrap_or(&path).to_path_buf();
                 suggestions.push(Account {
                     id: format!("{label}-home"),
@@ -242,17 +294,21 @@ fn cmd_import(write: bool) -> Result<()> {
         }
     }
 
-    if suggestions.is_empty() {
-        println!("no known credential locations found");
+    if suggestions.is_empty() && !keychain_imported {
+        // Keychain dry-run already printed; only claim "nothing found" when
+        // we truly have no leads.
+        if !cfg!(target_os = "macos") {
+            println!("no known credential locations found");
+        }
+        if !write {
+            println!();
+            println!("(dry run — nothing written; pass --write to apply)");
+        }
         return Ok(());
     }
 
-    // Idempotency: never suggest or append an id that already exists in the
-    // store — whether from a prior `import --write` or an `account login`
-    // per-file entry. Re-running `import [--write]` is therefore a no-op once
-    // everything is already present.
-    let root = account::resolve_accounts_root(None)
-        .ok_or_else(|| anyhow!("could not determine the accounts root for this OS"))?;
+    // Idempotency for reference-only suggestions: never append an id that
+    // already exists. Keychain `default` is handled separately (refreshable).
     let existing_ids: BTreeSet<String> = if root.is_dir() {
         FsAccountStore::new(&root)
             .accounts()?
@@ -270,7 +326,14 @@ fn cmd_import(write: bool) -> Result<()> {
 
     if to_add.is_empty() {
         println!();
-        println!("all suggested accounts already present — nothing to add (idempotent).");
+        if keychain_imported {
+            println!("no additional reference-only accounts to add.");
+        } else {
+            println!("all suggested accounts already present — nothing to add (idempotent).");
+        }
+        if !write && !keychain_imported {
+            println!("(dry run — nothing written; pass --write to append to accounts.toml)");
+        }
         return Ok(());
     }
 
@@ -309,6 +372,106 @@ fn cmd_import(write: bool) -> Result<()> {
         println!("(dry run — nothing written; pass --write to append to accounts.toml)");
     }
 
+    Ok(())
+}
+
+/// Outcome of the optional Claude Keychain import step.
+enum KeychainImport {
+    /// `--write`: files + account record materialized.
+    Written(PathBuf),
+    /// Dry-run: Keychain is readable and would be written to this home.
+    WouldWrite(PathBuf),
+    /// Not applicable (non-macOS) or no entry — not an error.
+    Unavailable(String),
+}
+
+/// Probe / materialize the ambient Claude Keychain session as account `default`.
+fn try_claude_keychain_import(accounts_root: &Path, write: bool) -> Result<KeychainImport> {
+    if !cfg!(target_os = "macos") {
+        return Ok(KeychainImport::Unavailable(
+            "only supported on macOS".into(),
+        ));
+    }
+    // Probe first so dry-run and --write share the same validity checks
+    // (empty token stub → Unavailable with a clear reason).
+    match account::read_claude_keychain_credentials() {
+        Ok(_creds) => {
+            let home = accounts_root.join(account::DEFAULT_ACCOUNT_ID);
+            if write {
+                let acct = account::import_default_claude_from_keychain(accounts_root)?;
+                let home = acct.home.unwrap_or(home);
+                Ok(KeychainImport::Written(home))
+            } else {
+                Ok(KeychainImport::WouldWrite(home))
+            }
+        }
+        Err(e) => Ok(KeychainImport::Unavailable(format!("{e:#}"))),
+    }
+}
+
+/// Set `[defaults].account = id` in the global settings file.
+///
+/// When `force` is false, only fills the key if unset (prints a note if
+/// another id is already configured). When `force` is true (Keychain
+/// import of the ambient session as account [`account::DEFAULT_ACCOUNT_ID`]),
+/// always writes `id` so bare `am claude` uses the imported credentials.
+fn set_defaults_account(id: &str, force: bool) -> Result<()> {
+    let config_path = global_config_path()?;
+    let mut table: toml::Table = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| anyhow!("reading {}: {e}", config_path.display()))?;
+        toml::from_str(&content)
+            .map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
+    } else {
+        toml::Table::new()
+    };
+
+    let defaults = table
+        .entry("defaults")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    let defaults_table = defaults.as_table_mut().ok_or_else(|| {
+        anyhow!("'defaults' in {} is not a table", config_path.display())
+    })?;
+
+    let existing = defaults_table
+        .get("account")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+
+    match (existing.as_deref(), force) {
+        (Some(e), false) if e == id => {
+            println!("[defaults].account already '{id}'");
+            return Ok(());
+        }
+        (Some(e), false) => {
+            println!(
+                "note: [defaults].account is '{e}' (not overwritten); \
+                 run `am account use {id}` to make bare `am claude` use account '{id}'"
+            );
+            return Ok(());
+        }
+        (Some(e), true) if e == id => {
+            println!("[defaults].account already '{id}'");
+            return Ok(());
+        }
+        (Some(e), true) => {
+            println!(
+                "updating [defaults].account '{e}' → '{id}' (Keychain import is the ambient default)"
+            );
+        }
+        (None, _) => {}
+    }
+
+    defaults_table.insert("account".to_string(), toml::Value::String(id.to_string()));
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&config_path, toml::to_string_pretty(&table)?)
+        .map_err(|e| anyhow!("writing {}: {e}", config_path.display()))?;
+    println!(
+        "set [defaults].account = '{id}' ({})",
+        config_path.display()
+    );
     Ok(())
 }
 
