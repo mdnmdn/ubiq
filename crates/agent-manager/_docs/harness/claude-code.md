@@ -410,11 +410,17 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
   `$CLAUDE_CONFIG_DIR/.credentials.json` and `<home>/.claude.json` →
   `$CLAUDE_CONFIG_DIR/.claude.json` into the ephemeral run dir, leaving `HOME`
   (and the real `~/.claude*`) untouched. See `_docs/profiles.md`.
-- **Force file storage (skip keychain):** no documented config knob (unlike
-  Codex). Claude Code falls back to the plaintext `.credentials.json` when the OS
-  keychain is unreachable — running `login` inside the isol8/iter8 sandbox (no
-  Keychain access) reliably forces the file. Verify post-login that
-  `$HOME/.claude/.credentials.json` exists.
+- **Force file storage (skip keychain):** Claude Code ≥ 2.1.218 no longer falls
+  back to the plaintext `.credentials.json` when the OS keychain is merely
+  unreachable (missing or relocated `HOME`). Instead, a missing default keychain
+  is a hard error ("A keychain cannot be found"), and login fails without
+  writing a credential file. The working approach: **deny keychain access at the
+  sandbox layer** using `am account login <id> --harness claude-code --isolate`.
+  isol8's deny-by-default sandbox (Seatbelt on macOS) makes the keychain
+  *inaccessible* (not missing), which triggers Claude's file-fallback path and
+  writes `.credentials.json` cleanly. Use bare `--isolate` for the default
+  isol8 `base` profile, or `--isolate=<name>` to select a named policy. Verify
+  post-capture that `$HOME/.claude/.credentials.json` exists in the account home.
 - **Default backend / observed:** macOS Keychain service `Claude Code-credentials`
   (account attribute = `$USER`). The on-disk `~/.claude/.credentials.json` is
   often an empty stub while Keychain holds the real tokens — which is why

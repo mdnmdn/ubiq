@@ -3,11 +3,26 @@
 > **Status: IMPLEMENTED** (2026-07-19). Phases A–G landed in `src/credentials/`,
 > `src/harness/mod.rs` (`renew_credentials`), and `src/cli/account.rs`
 > (`dump`/`delete`/`renew`/`rename`/`check` + `import` dual-write). Deliberate
-> v1 simplifications: auto engine defaults to `files` (the `keychain` vault is a
-> plaintext local JSON store — opt-in until DEK encryption lands); `captured`
+> v1 simplifications: auto engine defaults to `files`; `captured`
 > metadata is not persisted; legacy `accounts/<name>/` homes are handled by a
 > resolve-time fallback in `SecretBackedAccountStore` rather than a migration
 > splitter. See §17 for the shipped-doc updates made.  
+>
+> **Update (real OS secret store, 2026-07-19).** The `os` engine
+> (`src/credentials/os.rs`, `OsSecretStore`) now provides genuine OS-encrypted
+> storage, alongside the plaintext `files`/`keychain` engines — the §5.1 `os`
+> tier, promoted to a first-class engine value. **macOS is implemented**: a
+> custom keychain file `<keychain-dir>/am.keychain-db` via the `security` CLI,
+> its unlock password bootstrapped into the login keychain (service
+> `agent-manager-vault`), so the encrypted file lives under the config dir
+> (§9's "relocates with config") with no plaintext password on disk. **Linux**
+> (`secret-tool`) and **Windows** (per-user DPAPI file) providers are compiled
+> `cfg` drafts, untested. Selected via `[credentials].engine = "os"` /
+> `AM_CREDENTIALS_ENGINE=os`; `am account import --write` already routes through
+> the configured engine, so it writes `(claude-code, default)` straight into the
+> OS store. This supersedes the §5.1 note that `os` is "not the preferred bulk
+> store"; DEK-wrapping the plaintext `keychain` vault (Phase E) remains future
+> work.  
 > **Date:** 2026-07-19  
 > **Audience:** implementers / coding agents — design **and** handoff brief.  
 > **Single source of truth:** this file only. Do **not** pre-document the

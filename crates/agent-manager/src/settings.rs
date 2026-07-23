@@ -118,11 +118,14 @@ pub struct IsolateSettings {
 /// (env vars take precedence over these fields).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CredentialsSettings {
-    /// Which engine to use: `"keychain"` or `"files"`. `None` = auto
-    /// (currently `"files"`).
+    /// Which engine to use: `"files"` (plaintext files), `"keychain"`
+    /// (plaintext local JSON vault), or `"os"` (real OS-encrypted secure store
+    /// — macOS Keychain, with Linux/Windows drafts). `None` = auto (currently
+    /// `"files"`). Overridable via `AM_CREDENTIALS_ENGINE`.
     #[serde(default)]
     pub engine: Option<String>,
-    /// Directory holding the keychain vault file, for the `"keychain"` engine.
+    /// Directory holding the vault file, for the `"keychain"` and `"os"`
+    /// engines (on macOS `"os"` puts `am.keychain-db` here).
     #[serde(default)]
     pub keychain_dir: Option<String>,
     /// Root directory for the `"files"` engine.

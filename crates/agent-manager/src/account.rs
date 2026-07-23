@@ -442,26 +442,50 @@ pub fn import_default_claude_from_keychain(accounts_root: &Path) -> Result<Accou
     let creds = read_claude_keychain_credentials()?;
     let home = accounts_root.join(DEFAULT_ACCOUNT_ID);
     materialize_claude_login_home(&home, &creds)?;
-    let mut captured = BTreeMap::new();
-    captured.insert("source".to_string(), "macos-keychain".to_string());
-    captured.insert("service".to_string(), CLAUDE_KEYCHAIN_SERVICE.to_string());
-    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&creds)
-        && let Some(sub) = v
-            .pointer("/claudeAiOauth/subscriptionType")
-            .and_then(|s| s.as_str())
-    {
-        captured.insert("subscriptionType".to_string(), sub.to_string());
-    }
     let acct = Account {
         id: DEFAULT_ACCOUNT_ID.to_string(),
         home: Some(home),
-        captured,
+        captured: claude_keychain_captured(&creds),
         ..Default::default()
     };
     std::fs::create_dir_all(accounts_root)
         .with_context(|| format!("creating {}", accounts_root.display()))?;
     FsAccountStore::new(accounts_root).save(&acct)?;
     Ok(acct)
+}
+
+/// Record the `default` Claude account index entry from Keychain `creds`
+/// **without** materializing any plaintext credential files — for secure
+/// credential engines (`os`/`keychain`) that hold the secret bytes themselves.
+/// Mirrors [`import_default_claude_from_keychain`] minus the file-home
+/// materialization, so `home` is `None` (the [`crate::credentials::SecretStore`]
+/// serves the login at run time).
+pub fn record_default_claude_from_keychain(accounts_root: &Path, creds: &[u8]) -> Result<Account> {
+    let acct = Account {
+        id: DEFAULT_ACCOUNT_ID.to_string(),
+        home: None,
+        captured: claude_keychain_captured(creds),
+        ..Default::default()
+    };
+    std::fs::create_dir_all(accounts_root)
+        .with_context(|| format!("creating {}", accounts_root.display()))?;
+    FsAccountStore::new(accounts_root).save(&acct)?;
+    Ok(acct)
+}
+
+/// Non-secret `captured` metadata for a Keychain-imported Claude login.
+fn claude_keychain_captured(creds: &[u8]) -> BTreeMap<String, String> {
+    let mut captured = BTreeMap::new();
+    captured.insert("source".to_string(), "macos-keychain".to_string());
+    captured.insert("service".to_string(), CLAUDE_KEYCHAIN_SERVICE.to_string());
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(creds)
+        && let Some(sub) = v
+            .pointer("/claudeAiOauth/subscriptionType")
+            .and_then(|s| s.as_str())
+    {
+        captured.insert("subscriptionType".to_string(), sub.to_string());
+    }
+    captured
 }
 
 fn trim_trailing_whitespace(raw: &[u8]) -> &[u8] {

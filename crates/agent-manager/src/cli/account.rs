@@ -53,6 +53,21 @@ enum AccountCommand {
         /// Harness to log into (e.g. `claude`, `codex`).
         #[arg(long)]
         harness: String,
+        /// Run the interactive login capture inside an isol8 sandbox instead
+        /// of the plain PTY runner. Bare `--isolate` composes the layers the
+        /// harness needs to run normally *minus* the OS-keychain layer (on
+        /// macOS: `macos/system-runtime` + browser/launch-services, i.e. the
+        /// `agents/claude-code` set without `integrations/keychain`);
+        /// `--isolate=<profile>` overrides that with a single named profile.
+        /// Needed for Claude Code 2.1.218+: with a relocated `HOME` alone the
+        /// OS keychain is *unreachable* (no `~/Library/Keychains`), which
+        /// that version reports as an error and does NOT fall back to a
+        /// plaintext credential file — whereas denying keychain access at
+        /// the sandbox layer does still take the clean file-fallback path.
+        /// Requires the `isolate-lib` feature (on by default in the `cli`/
+        /// `frontend` build).
+        #[arg(long, num_args = 0..=1)]
+        isolate: Option<Option<String>>,
     },
     /// Show a stored credential's metadata (and, with `--show-secrets`, raw
     /// bytes) from the [`crate::credentials::SecretStore`].
@@ -145,7 +160,11 @@ pub(super) fn run(args: &[String]) -> Result<()> {
         AccountCommand::List => cmd_list(),
         AccountCommand::Use { id } => cmd_use(&id),
         AccountCommand::Import { write } => cmd_import(write),
-        AccountCommand::Login { id, harness } => cmd_login(&id, &harness),
+        AccountCommand::Login {
+            id,
+            harness,
+            isolate,
+        } => cmd_login(&id, &harness, isolate),
         AccountCommand::Dump {
             name,
             harness,
@@ -668,23 +687,47 @@ fn effective_harnesses(home: &std::path::Path) -> Vec<String> {
 
 /// `am account ls`
 fn cmd_list() -> Result<()> {
+    // Harness-scoped credentials in the secret store (the primary view — one
+    // row per `(harness, name)`, so each harness's `default` shows up). Best
+    // effort: if no store is configured, just skip this section.
+    let creds = crate::credentials::build_secret_store(&effective_settings())
+        .and_then(|s| s.list())
+        .unwrap_or_default();
+
+    // Reference-only accounts (env keys, base URLs, legacy file homes).
     let store = build_store();
     let accounts = store.accounts()?;
 
-    if accounts.is_empty() {
+    if creds.is_empty() && accounts.is_empty() {
         println!("no accounts configured");
         return Ok(());
     }
 
-    for acct in accounts {
-        let mut line = format!("{}  {}", acct.id, describe_refs(&acct));
-        if let Some(home) = &acct.home {
-            let captured = effective_harnesses(home);
-            if !captured.is_empty() {
-                line.push_str(&format!("  [captured: {}]", captured.join(", ")));
-            }
+    if !creds.is_empty() {
+        println!("stored credentials:");
+        for m in &creds {
+            println!(
+                "  {:<14} {:<10} [engine: {}]",
+                m.id.harness, m.id.name, m.engine
+            );
         }
-        println!("{line}");
+    }
+
+    if !accounts.is_empty() {
+        if !creds.is_empty() {
+            println!();
+        }
+        println!("accounts (references):");
+        for acct in accounts {
+            let mut line = format!("  {}  {}", acct.id, describe_refs(&acct));
+            if let Some(home) = &acct.home {
+                let captured = effective_harnesses(home);
+                if !captured.is_empty() {
+                    line.push_str(&format!("  [captured: {}]", captured.join(", ")));
+                }
+            }
+            println!("{line}");
+        }
     }
 
     Ok(())
@@ -742,27 +785,30 @@ fn global_config_path() -> Result<PathBuf> {
 fn cmd_import(write: bool) -> Result<()> {
     let root = account::resolve_accounts_root(None)
         .ok_or_else(|| anyhow!("could not determine the accounts root for this OS"))?;
+    let settings = effective_settings();
 
     // --- macOS Keychain → accounts/default (primary path for bare `am claude`) ---
     let mut keychain_imported = false;
-    match try_claude_keychain_import(&root, write) {
-        Ok(KeychainImport::Written(home)) => {
+    // Track whether we stored any credential (Keychain or harness file-login),
+    // so the "nothing found" branch below doesn't fire after a real import.
+    let mut captured_any = false;
+    match try_claude_keychain_import(&root, write, &settings) {
+        Ok(KeychainImport::Written(location)) => {
             keychain_imported = true;
+            captured_any = true;
             println!(
-                "imported Claude Keychain → account '{}' (home {})",
+                "imported Claude Keychain → account '{}' ({location})",
                 account::DEFAULT_ACCOUNT_ID,
-                home.display()
             );
             // Always wire bare `am claude` to this account id (`default`).
             set_defaults_account(account::DEFAULT_ACCOUNT_ID, /*force*/ true)?;
         }
-        Ok(KeychainImport::WouldWrite(home)) => {
+        Ok(KeychainImport::WouldWrite(location)) => {
             println!(
                 "found macOS Keychain: {} — would materialize account id '{}' \
-                 (home {}) and set [defaults].account = '{}' (pass --write)",
+                 ({location}) and set [defaults].account = '{}' (pass --write)",
                 account::CLAUDE_KEYCHAIN_SERVICE,
                 account::DEFAULT_ACCOUNT_ID,
-                home.display(),
                 account::DEFAULT_ACCOUNT_ID,
             );
         }
@@ -803,28 +849,57 @@ fn cmd_import(write: bool) -> Result<()> {
         ];
 
         for (label, path) in candidates {
-            if path.exists() {
-                println!("found credential file ({label}): {}", path.display());
-                // Skip suggesting a claude file-home when Keychain import
-                // already owns `default` — pointing home at ~/.claude would
-                // re-introduce the empty-stub problem under CLAUDE_CONFIG_DIR.
-                if label.starts_with("claude") && keychain_imported {
-                    println!(
-                        "  (not suggesting a separate account — Keychain `default` covers Claude)"
-                    );
-                    continue;
-                }
-                let home_dir = path.parent().unwrap_or(&path).to_path_buf();
-                suggestions.push(Account {
-                    id: format!("{label}-home"),
-                    home: Some(home_dir),
-                    ..Default::default()
-                });
+            if !path.exists() {
+                continue;
             }
+            println!("found credential file ({label}): {}", path.display());
+            // Skip suggesting a claude file-home when Keychain import
+            // already owns `default` — pointing home at ~/.claude would
+            // re-introduce the empty-stub problem under CLAUDE_CONFIG_DIR.
+            if label.starts_with("claude") && keychain_imported {
+                println!(
+                    "  (not suggesting a separate account — Keychain `default` covers Claude)"
+                );
+                continue;
+            }
+            // Harness file-logins → capture into the credentials store as
+            // `(harness, "default")`, harness-scoped (so codex/opencode/copilot
+            // each get a `default`, matching the Keychain-imported claude one),
+            // honoring the configured engine. Replaces the old flat
+            // `{label}-home` reference suggestion for these.
+            if let Some(harness_id) = harness_for_label(label) {
+                if write {
+                    match capture_harness_default_from_file(&settings, harness_id, &path) {
+                        Ok(()) => {
+                            captured_any = true;
+                            println!(
+                                "  → imported ({harness_id}, {}) into the credentials store",
+                                account::DEFAULT_ACCOUNT_ID
+                            );
+                        }
+                        Err(e) => println!(
+                            "  ! could not import ({harness_id}, {}): {e:#}",
+                            account::DEFAULT_ACCOUNT_ID
+                        ),
+                    }
+                } else {
+                    println!(
+                        "  would import ({harness_id}, {}) into the credentials store (pass --write)",
+                        account::DEFAULT_ACCOUNT_ID
+                    );
+                }
+                continue;
+            }
+            let home_dir = path.parent().unwrap_or(&path).to_path_buf();
+            suggestions.push(Account {
+                id: format!("{label}-home"),
+                home: Some(home_dir),
+                ..Default::default()
+            });
         }
     }
 
-    if suggestions.is_empty() && !keychain_imported {
+    if suggestions.is_empty() && !keychain_imported && !captured_any {
         // Keychain dry-run already printed; only claim "nothing found" when
         // we truly have no leads.
         if !cfg!(target_os = "macos") {
@@ -907,16 +982,28 @@ fn cmd_import(write: bool) -> Result<()> {
 
 /// Outcome of the optional Claude Keychain import step.
 enum KeychainImport {
-    /// `--write`: files + account record materialized.
-    Written(PathBuf),
-    /// Dry-run: Keychain is readable and would be written to this home.
-    WouldWrite(PathBuf),
+    /// `--write`: credential stored + account record written. Carries a
+    /// human-readable description of where the secret bytes landed.
+    Written(String),
+    /// Dry-run: Keychain is readable and would be written to `location`.
+    WouldWrite(String),
     /// Not applicable (non-macOS) or no entry — not an error.
     Unavailable(String),
 }
 
-/// Probe / materialize the ambient Claude Keychain session as account `default`.
-fn try_claude_keychain_import(accounts_root: &Path, write: bool) -> Result<KeychainImport> {
+/// Probe / materialize the ambient Claude Keychain session as account
+/// `default`, honoring the configured credentials engine.
+///
+/// Under a **secure** engine (`os`/`keychain`) the secret bytes go into the
+/// [`crate::credentials::SecretStore`] and **no plaintext credential files are
+/// written** — only a references-only index entry (`home = None`). Under
+/// `files` the plaintext file home stays the store (legacy layout), with a
+/// best-effort dual-write into the file secret store for the run path.
+fn try_claude_keychain_import(
+    accounts_root: &Path,
+    write: bool,
+    settings: &crate::settings::Settings,
+) -> Result<KeychainImport> {
     if !cfg!(target_os = "macos") {
         return Ok(KeychainImport::Unavailable(
             "only supported on macOS".into(),
@@ -924,40 +1011,128 @@ fn try_claude_keychain_import(accounts_root: &Path, write: bool) -> Result<Keych
     }
     // Probe first so dry-run and --write share the same validity checks
     // (empty token stub → Unavailable with a clear reason).
-    match account::read_claude_keychain_credentials() {
-        Ok(_creds) => {
-            let home = accounts_root.join(account::DEFAULT_ACCOUNT_ID);
-            if write {
-                let acct = account::import_default_claude_from_keychain(accounts_root)?;
-                let home = acct.home.unwrap_or(home);
+    let creds = match account::read_claude_keychain_credentials() {
+        Ok(creds) => creds,
+        Err(e) => return Ok(KeychainImport::Unavailable(format!("{e:#}"))),
+    };
 
-                // Phase D: dual-write the same captured login into the
-                // SecretStore alongside the file-home write above. Best
-                // effort only for the store write itself — the file home
-                // remains the primary/authoritative copy during migration,
-                // so a SecretStore build/write failure here must not fail
-                // the whole import.
-                let claude = crate::harness::resolve("claude").expect("claude harness exists");
-                let seed = claude.config_anchor().login_seed;
-                let home_source = crate::source::Source::Dir(home.clone());
-                let blobs = blobs_from_seed(&home_source, &seed)?;
-                if !blobs.is_empty()
-                    && let Ok(store) = build_secret_store()
-                {
-                    let id = CredentialId {
-                        harness: claude.id(),
-                        name: account::DEFAULT_ACCOUNT_ID.to_string(),
-                    };
-                    let _ = store.set(&id, &blobs);
-                }
+    let engine = crate::credentials::resolve_engine(settings);
+    let claude = crate::harness::resolve("claude").expect("claude harness exists");
+    let id = CredentialId {
+        harness: claude.id(),
+        name: account::DEFAULT_ACCOUNT_ID.to_string(),
+    };
 
-                Ok(KeychainImport::Written(home))
-            } else {
-                Ok(KeychainImport::WouldWrite(home))
-            }
+    if engine != "files" {
+        // Secure engine: the secret store holds the bytes; never leave
+        // plaintext `.credentials.json` / `.claude.json` on disk.
+        let location = format!("credentials store (engine '{engine}')");
+        if !write {
+            return Ok(KeychainImport::WouldWrite(location));
         }
-        Err(e) => Ok(KeychainImport::Unavailable(format!("{e:#}"))),
+        let seed = claude.config_anchor().login_seed;
+        let blobs = blobs_from_seed(&claude_keychain_login_source(&creds)?, &seed)?;
+        let store = crate::credentials::build_secret_store(settings)?;
+        store.set(&id, &blobs)?; // primary write — surface failures
+        account::record_default_claude_from_keychain(accounts_root, &creds)?;
+        return Ok(KeychainImport::Written(location));
     }
+
+    // Files engine: plaintext file home is the store (legacy behavior).
+    let home = accounts_root.join(account::DEFAULT_ACCOUNT_ID);
+    if !write {
+        return Ok(KeychainImport::WouldWrite(format!("home {}", home.display())));
+    }
+    let acct = account::import_default_claude_from_keychain(accounts_root)?;
+    let home = acct.home.unwrap_or(home);
+    // Best-effort dual-write into the file secret store for the run path; the
+    // file home above stays authoritative, so a store failure isn't fatal.
+    let home_source = crate::source::Source::Dir(home.clone());
+    let blobs = blobs_from_seed(&home_source, &claude.config_anchor().login_seed)?;
+    if !blobs.is_empty()
+        && let Ok(store) = build_secret_store()
+    {
+        let _ = store.set(&id, &blobs);
+    }
+    Ok(KeychainImport::Written(format!("home {}", home.display())))
+}
+
+/// A [`crate::source::Source`] holding a Claude Keychain login's bytes, keyed
+/// by the paths [`crate::harness::Claude`]'s `login_seed` reads (so
+/// [`blobs_from_seed`] picks them up) — without touching disk. `.claude.json`
+/// (identity, non-secret) is included from the real `$HOME` when present.
+fn claude_keychain_login_source(creds: &[u8]) -> Result<crate::source::Source> {
+    let mut files = vec![(
+        PathBuf::from(".claude/.credentials.json"),
+        creds.to_vec(),
+    )];
+    if let Some(home) = std::env::var_os("HOME") {
+        let json = PathBuf::from(home).join(".claude.json");
+        if json.is_file() {
+            files.push((PathBuf::from(".claude.json"), std::fs::read(&json)?));
+        }
+    }
+    Ok(crate::source::Source::Files(files))
+}
+
+/// Effective settings for the current directory (empty default if none).
+fn effective_settings() -> crate::settings::Settings {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| crate::settings::resolve(&cwd).ok().flatten())
+        .map(|(s, _)| s)
+        .unwrap_or_default()
+}
+
+/// Map a discovery `label` (from `cmd_import`'s candidate list) to the harness
+/// whose on-disk login it is, for harnesses `am account import` captures into
+/// the credentials store as `(harness, "default")`. `None` for labels that
+/// stay reference-only suggestions.
+fn harness_for_label(label: &str) -> Option<&'static str> {
+    match label {
+        "codex-auth" => Some("codex"),
+        "opencode-auth" => Some("opencode"),
+        "copilot-config" => Some("copilot"),
+        _ => None,
+    }
+}
+
+/// Capture a harness's existing on-disk login file into the credentials store
+/// as `(harness, "default")`, honoring the configured engine. The blob's
+/// `rel_path` is the harness's `login_seed` source (what
+/// [`crate::harness::seed_login`] reads back at run time), so the file's real
+/// on-disk location can differ from that seed path (e.g. `~/.codex/auth.json`
+/// on disk → seed `auth.json`).
+fn capture_harness_default_from_file(
+    settings: &crate::settings::Settings,
+    harness_id: &str,
+    real_file: &Path,
+) -> Result<()> {
+    let harness = crate::harness::resolve(harness_id)
+        .ok_or_else(|| anyhow!("unknown harness '{harness_id}'"))?;
+    let seed = harness.config_anchor().login_seed;
+    // These harnesses each have a single login file; take the first seed slot.
+    let rel = seed
+        .first()
+        .map(|s| s.src.clone())
+        .ok_or_else(|| anyhow!("{harness_id} declares no login_seed to capture"))?;
+    let bytes = std::fs::read(real_file)
+        .with_context(|| format!("reading {}", real_file.display()))?;
+    let name = rel
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| rel.to_string_lossy().into_owned());
+    let blob = CredentialBlob {
+        name,
+        rel_path: rel,
+        bytes,
+    };
+    let store = crate::credentials::build_secret_store(settings)?;
+    let id = CredentialId {
+        harness: harness.id(),
+        name: account::DEFAULT_ACCOUNT_ID.to_string(),
+    };
+    store.set(&id, &[blob])
 }
 
 /// Set `[defaults].account = id` in the global settings file.
@@ -1069,7 +1244,18 @@ fn partition_new(
 /// credential file's contents — it only points the harness's own credential
 /// store at the capture home and checks that the harness wrote *something*
 /// there.
-fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
+///
+/// `isolate`: `None` runs the plain (non-isolated) capture, unchanged from
+/// before — HOME is relocated to `home` and the harness is launched through
+/// the ordinary PTY runner ([`crate::run::run`]), relying on the harness
+/// failing to *reach* the OS keychain from a bare relocated `HOME` and
+/// falling back to a plaintext credential file. `Some(None)` (bare
+/// `--isolate`) / `Some(Some(profile))` (`--isolate=<profile>`) instead run
+/// the capture inside an isol8 deny-by-default sandbox (profile `"base"` for
+/// the bare case), which denies keychain access at the sandbox layer rather
+/// than merely relocating HOME — see [`run_login_isolated`] for why that
+/// distinction matters for Claude Code 2.1.218+.
+fn cmd_login(id: &str, harness_key: &str, isolate: Option<Option<String>>) -> Result<()> {
     let root = account::resolve_accounts_root(None)
         .ok_or_else(|| anyhow!("no accounts root; set AM_ACCOUNTS"))?;
     // Route the capture through the store trait: `login_home` gives a real dir
@@ -1092,33 +1278,50 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
     // a harness that exits 0 without actually writing fresh credentials (e.g.
     // Claude Code aborting the persist step after a keychain-unreachable
     // error, but still completing the rest of the OAuth flow) can't leave a
-    // stale pre-existing file behind and be reported as a success.
+    // stale pre-existing file behind and be reported as a success. This
+    // verification is shared by both the isolated and non-isolated launch
+    // paths below — only the launch mechanism differs.
     let primary = home.join(&plan.credential_files[0]);
     let mtime_before = std::fs::metadata(&primary).and_then(|m| m.modified()).ok();
 
-    let provisioned = crate::provision::Provisioned {
-        dir: home.clone(),
-        launch: plan.launch,
-        ephemeral: false, // persistent home — never auto-deleted
-        #[cfg(feature = "inproc-mcp")]
-        inproc_servers: Vec::new(),
+    let code = if let Some(profile) = isolate {
+        // Sandboxed path: keychain access is denied cleanly at the sandbox
+        // layer (no relocated-HOME keychain-lookup error to explain), so skip
+        // the non-isolated path's "expect a keychain error" note below.
+        run_login_isolated(&home, &plan, profile)?
+    } else {
+        let provisioned = crate::provision::Provisioned {
+            dir: home.clone(),
+            launch: plan.launch.clone(),
+            ephemeral: false, // persistent home — never auto-deleted
+            #[cfg(feature = "inproc-mcp")]
+            inproc_servers: Vec::new(),
+        };
+        // Login capture relocates HOME to `home` (a bare dir with no
+        // ~/Library/Keychains) precisely so the harness can't reach the OS
+        // keychain and falls back to writing a portable credential file instead
+        // — see the `login()` docs on each harness. On macOS that fallback is
+        // preceded by a keychain-lookup error printed straight to the terminal;
+        // it's expected and harmless, so flag it before it appears rather than
+        // let it read as a failure.
+        //
+        // NOTE: as of Claude Code 2.1.218 this fallback is broken — with a
+        // relocated HOME, macOS `securityd` is reachable but finds no
+        // default/login keychain, Claude Code reports "A keychain cannot be
+        // found to store '<user>'" and does NOT fall back to a file (OAuth
+        // still completes, nothing is persisted). Pass `--isolate` to use the
+        // sandboxed path instead, which does trigger the clean file fallback.
+        #[cfg(target_os = "macos")]
+        println!(
+            "note: macOS may print \"A keychain cannot be found to store '{}'\" below — that's \
+             expected, am relocates HOME during capture so credentials land in a portable file \
+             instead of your system keychain (if nothing gets captured despite exit 0, retry \
+             with --isolate)",
+            std::env::var("USER").unwrap_or_else(|_| "you".to_string())
+        );
+        let cwd = std::env::current_dir()?;
+        crate::run::run(&provisioned, &cwd, true)? // keep_config: persistent
     };
-    // Login capture relocates HOME to `home` (a bare dir with no
-    // ~/Library/Keychains) precisely so the harness can't reach the OS
-    // keychain and falls back to writing a portable credential file instead
-    // — see the `login()` docs on each harness. On macOS that fallback is
-    // preceded by a keychain-lookup error printed straight to the terminal;
-    // it's expected and harmless, so flag it before it appears rather than
-    // let it read as a failure.
-    #[cfg(target_os = "macos")]
-    println!(
-        "note: macOS may print \"A keychain cannot be found to store '{}'\" below — that's \
-         expected, am relocates HOME during capture so credentials land in a portable file \
-         instead of your system keychain",
-        std::env::var("USER").unwrap_or_else(|_| "you".to_string())
-    );
-    let cwd = std::env::current_dir()?;
-    let code = crate::run::run(&provisioned, &cwd, true)?; // keep_config: persistent
     if code != 0 {
         bail!("harness login exited with code {code}; no account recorded");
     }
@@ -1164,6 +1367,112 @@ fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
     println!("reuse with: am {harness_key} --account {id}");
 
     Ok(())
+}
+
+/// Run `plan.launch` (program `claude`, args `["auth", "login"]`) inside an
+/// isol8 deny-by-default sandbox, blocking until it exits, and return its
+/// exit code. Used by [`cmd_login`] when `--isolate` is passed.
+///
+/// This is the fix for a Claude Code 2.1.218+ regression: the non-isolated
+/// capture path relocates `HOME` to a bare directory (no
+/// `~/Library/Keychains`) so the harness's OS-keychain write fails and it
+/// falls back to writing a plaintext credential file — but 2.1.218 changed
+/// that failure mode. With a relocated HOME, macOS `securityd` is still
+/// reachable, just finds no default/login keychain there; Claude Code
+/// reports "A keychain cannot be found to store '<user>'" and does NOT fall
+/// back to a file (OAuth still completes with exit 0, but nothing is
+/// persisted). Empirically, when keychain access is instead *denied at the
+/// sandbox layer* (rather than the keychain being merely *missing*), Claude
+/// Code DOES take its clean file-fallback path. Hence: sandbox the process
+/// instead of relocating HOME.
+///
+/// Profile selection: `Some(name)` (`--isolate=<profile>`) uses that single
+/// named isol8 profile verbatim (an explicit override). `None` (bare
+/// `--isolate`) composes the layers the harness needs to run *normally* with
+/// only the OS keychain denied — the point isn't to lock the process down but
+/// to make Claude Code's keychain write fail cleanly (access-denied, not the
+/// "no default keychain" hard error a relocated HOME produces) so it takes its
+/// plaintext-file fallback. On macOS that composition is `macos/system-runtime`
+/// (process-exec/fork, tty, open network) + `integrations/launch-services` and
+/// `integrations/browser-native-messaging` (open the OAuth browser) — exactly
+/// the `agents/claude-code` layer set WITHOUT `integrations/keychain`, which
+/// that agent profile `requires` and so can't simply be subtracted from.
+///
+/// Grants: `home` is replaced (`.home`) and granted read-write (`.grant_rw`)
+/// so `claude` writes `<home>/.claude/.credentials.json`; isol8's
+/// `confine_executable` auto-grants read+exec on the resolved `claude` binary,
+/// but the `~/.local/bin/claude` launcher symlinks into the real home's
+/// `~/.local/share/claude/versions/<v>` (a self-contained native binary), which
+/// HOME replacement doesn't relocate — so that real runtime tree is granted
+/// read-only by absolute path below.
+///
+/// CAVEAT (not yet exercised against a live `sandbox-exec`): the grant/layer
+/// set is a considered starting point, not an interactively-validated one. If
+/// the OAuth browser fails to open or `claude` can't start, diagnose the
+/// missing grant with `isol8 @diag claude` and either widen the composition
+/// here or pass an explicit `--isolate=<profile>`.
+#[cfg(feature = "isolate-lib")]
+fn run_login_isolated(
+    home: &Path,
+    plan: &crate::harness::LoginPlan,
+    profile: Option<String>,
+) -> Result<i32> {
+    let home_str = home.to_string_lossy().into_owned();
+
+    let mut sandbox = isol8::Sandbox::new().home(home_str.clone()).grant_rw(home_str);
+
+    match profile {
+        // Explicit override: a single named isol8 profile.
+        Some(name) => {
+            sandbox = sandbox.profile(name);
+        }
+        // Default: the harness's normal layer set minus the keychain layer.
+        None => {
+            #[cfg(target_os = "macos")]
+            {
+                sandbox = sandbox
+                    .profile("macos/system-runtime")
+                    .profile("integrations/launch-services")
+                    .profile("integrations/browser-native-messaging");
+                // Deliberately NOT `integrations/keychain` — its absence is
+                // what forces the plaintext-file fallback this path captures.
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // The keychain-denial scenario is macOS-specific; elsewhere a
+                // bare `--isolate` just runs under the minimal base layer.
+                sandbox = sandbox.profile("base");
+            }
+        }
+    }
+
+    if let Some(base_dirs) = directories::BaseDirs::new() {
+        let versions_dir = base_dirs.home_dir().join(".local/share/claude");
+        if versions_dir.is_dir() {
+            sandbox = sandbox.grant_ro(versions_dir.to_string_lossy().into_owned());
+        }
+    }
+
+    let mut argv = vec![plan.launch.program.clone()];
+    argv.extend(plan.launch.args.iter().cloned());
+
+    sandbox
+        .run(argv)
+        .map_err(|e| anyhow!("isol8 sandbox run failed: {e}"))
+}
+
+/// Stub for builds without the `isolate-lib` feature: `--isolate` errors
+/// clearly instead of the flag silently being accepted and ignored.
+#[cfg(not(feature = "isolate-lib"))]
+fn run_login_isolated(
+    _home: &Path,
+    _plan: &crate::harness::LoginPlan,
+    _profile: Option<String>,
+) -> Result<i32> {
+    bail!(
+        "--isolate requires the 'isolate-lib' feature (already part of the default 'cli'/\
+         'frontend' build); rebuild without disabling it to use --isolate"
+    )
 }
 
 /// Render an [`Account`] as an inline `[[account]]` TOML snippet.
@@ -1374,5 +1683,55 @@ mod tests {
         assert!(secret_dump_allowed(true, true, false));
         // The env opt-in is sufficient even without a tty (e.g. CI/pipe).
         assert!(secret_dump_allowed(true, false, true));
+    }
+
+    /// `--isolate` on `login` follows the same `Option<Option<String>>` idiom
+    /// as the top-level run flag (`src/cli/mod.rs`'s `RunArgs::isolate`):
+    /// absent => `None`, bare `--isolate` => `Some(None)`, `--isolate=<p>` =>
+    /// `Some(Some(p))`. Parsed directly through `AccountArgs` so a
+    /// regression in the flag plumbing (e.g. an accidental `--isolate
+    /// <profile>` two-token form) is caught without needing a real login.
+    #[test]
+    fn login_isolate_flag_parses_absent_bare_and_named() {
+        let absent = AccountArgs::try_parse_from([
+            "am-account",
+            "login",
+            "mdn",
+            "--harness",
+            "claude",
+        ])
+        .unwrap();
+        let AccountCommand::Login { isolate, .. } = absent.command else {
+            panic!("expected Login");
+        };
+        assert_eq!(isolate, None);
+
+        let bare = AccountArgs::try_parse_from([
+            "am-account",
+            "login",
+            "mdn",
+            "--harness",
+            "claude",
+            "--isolate",
+        ])
+        .unwrap();
+        let AccountCommand::Login { isolate, .. } = bare.command else {
+            panic!("expected Login");
+        };
+        assert_eq!(isolate, Some(None));
+
+        let named = AccountArgs::try_parse_from([
+            "am-account",
+            "login",
+            "mdn",
+            "--harness",
+            "claude",
+            "--isolate=custom",
+        ])
+        .unwrap();
+        let AccountCommand::Login { isolate, .. } = named.command else {
+            panic!("expected Login");
+        };
+        assert_eq!(isolate, Some(Some("custom".to_string())));
     }
 }

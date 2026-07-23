@@ -20,6 +20,9 @@
 //!   name this is **not** OS Keychain-backed encryption yet (see the module
 //!   doc on [`PrivateKeychainStore`]); it exists as a single-file alternative
 //!   to the directory-per-credential layout.
+//! - [`OsSecretStore`] — the real, OS-encrypted secure store (`engine = "os"`):
+//!   macOS Keychain via a custom keychain file under the config dir, with
+//!   Linux (`secret-tool`) and Windows (DPAPI) drafts.
 //!
 //! This is core (no `clap`/terminal/tokio, `--no-default-features` builds
 //! it): an embedder can substitute its own [`SecretStore`] (e.g. backed by a
@@ -35,10 +38,12 @@ use crate::Result;
 mod file;
 mod keychain;
 mod memory;
+mod os;
 
 pub use file::FileSecretStore;
 pub use keychain::PrivateKeychainStore;
 pub use memory::MemorySecretStore;
+pub use os::OsSecretStore;
 
 /// Identifies one stored credential: which harness it's for, and a
 /// user-chosen name (e.g. `"default"`, `"work"`) distinguishing multiple
@@ -152,8 +157,11 @@ pub fn source_from_blobs(blobs: &[CredentialBlob]) -> Source {
 
 /// Resolve which [`SecretStore`] engine to build from (highest precedence
 /// first): the `AM_CREDENTIALS_ENGINE` env var (if non-empty), else
-/// `settings.credentials.engine`, else the auto default.
-fn resolve_engine(settings: &crate::settings::Settings) -> String {
+/// `settings.credentials.engine`, else the auto default (`"files"`).
+///
+/// Callers that need to branch on *where* secrets land (e.g. `am account
+/// import` avoiding plaintext files under a secure engine) can read this.
+pub fn resolve_engine(settings: &crate::settings::Settings) -> String {
     std::env::var("AM_CREDENTIALS_ENGINE")
         .ok()
         .filter(|s| !s.is_empty())
@@ -164,6 +172,25 @@ fn resolve_engine(settings: &crate::settings::Settings) -> String {
         .unwrap_or_else(|| "files".to_string())
 }
 
+/// Resolve the directory the `"keychain"`/`"os"` engines root at:
+/// `settings.credentials.keychain_dir`, else `AM_KEYCHAIN`, else
+/// `<config dir>/keychain`.
+fn keychain_dir(settings: &crate::settings::Settings) -> Result<PathBuf> {
+    settings
+        .credentials
+        .keychain_dir
+        .clone()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("AM_KEYCHAIN").ok().map(PathBuf::from))
+        .or_else(|| crate::settings::default_config_dir().map(|d| d.join("keychain")))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "could not resolve a keychain directory for the credentials store \
+                 (set [credentials].keychain_dir, AM_KEYCHAIN, or AM_CREDENTIALS_ENGINE)"
+            )
+        })
+}
+
 /// Build the [`SecretStore`] the CLI (or an embedder) should use, from
 /// [`crate::settings::Settings`] and environment overrides.
 ///
@@ -172,9 +199,10 @@ fn resolve_engine(settings: &crate::settings::Settings) -> String {
 ///
 /// - `"files"` roots at `settings.credentials.files_root`, else
 ///   [`crate::account::resolve_accounts_root`], else an error.
-/// - `"keychain"` roots at `settings.credentials.keychain_dir`, else the
-///   `AM_KEYCHAIN` env var, else `<config dir>/keychain`
-///   ([`crate::settings::default_config_dir`]), else an error.
+/// - `"keychain"` roots at `keychain_dir` (a plaintext local JSON vault —
+///   not OS-encrypted; see [`PrivateKeychainStore`]).
+/// - `"os"` (the real, OS-encrypted secure store — macOS Keychain, with
+///   Linux/Windows drafts) roots at `keychain_dir` too.
 /// - any other string is an error naming the unknown engine.
 pub fn build_secret_store(settings: &crate::settings::Settings) -> Result<Box<dyn SecretStore>> {
     let engine = resolve_engine(settings);
@@ -194,24 +222,10 @@ pub fn build_secret_store(settings: &crate::settings::Settings) -> Result<Box<dy
                 })?;
             Ok(Box::new(FileSecretStore::new(root)))
         }
-        "keychain" => {
-            let dir = settings
-                .credentials
-                .keychain_dir
-                .clone()
-                .map(PathBuf::from)
-                .or_else(|| std::env::var("AM_KEYCHAIN").ok().map(PathBuf::from))
-                .or_else(|| crate::settings::default_config_dir().map(|d| d.join("keychain")))
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "could not resolve a keychain directory for the credentials store \
-                         (set [credentials].keychain_dir, AM_KEYCHAIN, or AM_CREDENTIALS_ENGINE)"
-                    )
-                })?;
-            Ok(Box::new(PrivateKeychainStore::new(dir)))
-        }
+        "keychain" => Ok(Box::new(PrivateKeychainStore::new(keychain_dir(settings)?))),
+        "os" => Ok(Box::new(OsSecretStore::new(keychain_dir(settings)?))),
         other => anyhow::bail!(
-            "unknown credentials engine '{other}' (expected \"files\" or \"keychain\")"
+            "unknown credentials engine '{other}' (expected \"files\", \"keychain\", or \"os\")"
         ),
     }
 }
