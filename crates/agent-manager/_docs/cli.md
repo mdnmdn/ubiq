@@ -148,7 +148,7 @@ and some also by a CLI flag.
 |-------|---------|--------------|----------|
 | Settings file | `~/.config/agent-manager/config.toml` | `AM_CONFIG_FILE` (full path to a config file) · `AM_CONFIG_FOLDER` (a dir holding `config.{toml,yaml,yml}`) | `--config <path>` |
 | Accounts | `~/.config/agent-manager/accounts/` | `AM_ACCOUNTS` | — |
-| Credentials engine | `files` (secret store; `keychain` opt-in) | `AM_CREDENTIALS_ENGINE` · `AM_KEYCHAIN` (vault dir) | — |
+| Credentials engine | `files` (default; `keychain` plaintext vault or `os` real OS-encrypted, opt-in) | `AM_CREDENTIALS_ENGINE` · `AM_KEYCHAIN` (vault/keychain dir) | — |
 | Catalog | `~/.config/agent-manager/catalog/` | `AM_CATALOG` | `--catalog <path>` |
 | Sessions | `~/.config/agent-manager/sessions/` | `AM_SESSIONS` | — |
 | Ephemeral run dirs | `~/.config/agent-manager/runs/` | `AM_RUNS` | `--keep-config` (retains, doesn't relocate) |
@@ -211,15 +211,24 @@ file (env override `AM_CREDENTIALS_ENGINE`):
 
 ```toml
 [credentials]
-engine = "files"      # "files" (default) | "keychain"
+engine = "files"      # "files" (default) | "keychain" | "os"
 # files_root   = "…"  # else AM_ACCOUNTS / the accounts root
-# keychain_dir = "…"  # else AM_KEYCHAIN / <config-dir>/keychain
+# keychain_dir = "…"  # else AM_KEYCHAIN / <config-dir>/keychain (also the "os" dir)
 ```
 
 - **`files`** (default): plain files at `<root>/<name>/<harness>/<rel_path>`, mode `0600`.
 - **`keychain`**: a single local JSON vault (`<keychain-dir>/store.json`, `0600`).
-  Note: v1 is **not** OS-keychain-encrypted yet — it's a single-file alternative
+  Note: **not** OS-keychain-encrypted — it's a plaintext single-file alternative
   to the directory layout, opt-in until a real encryption layer lands.
+- **`os`**: the real, OS-encrypted secure store.
+  - **macOS** (implemented): a custom keychain file `<keychain-dir>/am.keychain-db`
+    driven by the `security` CLI. Its unlock password is generated once and kept
+    in the user's **login keychain** (service `agent-manager-vault`), so the
+    encrypted keychain still lives under the config dir (isol8-relocatable) with
+    no plaintext password on disk.
+  - **Linux** (`secret-tool` / Secret Service) and **Windows** (per-user DPAPI
+    file) are compiled drafts, to be refined on those platforms. On Linux the
+    secret service is a daemon, so there is no config-dir file there.
 
 These subcommands manage the store (all take `--harness <h>`; the harness scopes
 the `(harness, name)` key):
@@ -255,6 +264,13 @@ the credential file appeared and records the account's `home` reference in the a
 This is the "capture a login into an ephemeral/isolated environment" flow. Per-harness
 credential-file locations and configuration levers are documented in each `_docs/harness/<h>.md`
 under "Credential capture & reuse".
+
+**Keychain-aware harnesses (Claude Code ≥ 2.1.218):** Claude Code no longer falls back to
+plaintext credential files when the OS keychain is unreachable; it errors instead. To force
+file-based credential capture on macOS, add the `--isolate` flag: `am account login <id>
+--harness claude-code --isolate` denies keychain access at the sandbox layer, making Claude
+write `.credentials.json` as a fallback. Bare `--isolate` uses the `base` isol8 profile;
+`--isolate=<name>` selects a named policy.
 
 ## Session commands
 

@@ -100,6 +100,14 @@ All of it is reconstructable, but only *deliberately*. So the governing rule:
 end-to-end: a headless run against a fresh seeded config dir returns `AUTH_OK`
 with no onboarding, real `HOME` intact.
 
+**Claude Code ≥ 2.1.218 credential capture:** Claude Code no longer falls back
+to plaintext `.credentials.json` when a keychain is missing or unreachable; it
+errors instead. For `am account login` on macOS to force file-based capture, pair
+with `--isolate` to deny keychain access at the sandbox layer — the sandbox blocks
+the keychain API (not merely missing), triggering the clean file-fallback path.
+This is integrated into the generalized credential seeding (§5) via `Harness::post_seed`
+and optional per-harness isolation logic.
+
 ## 5. The cleanest solution, generalized across harnesses
 
 Harnesses differ in whether their config lever and their credential store are

@@ -200,10 +200,13 @@ that may share a human name. Blobs convert to/from a `Source::Files` with
 `credentials::source_from_blobs` / `blobs_from_seed` (against a harness's
 `ConfigAnchor::login_seed`). Ships with `MemorySecretStore` (tests /
 embedders), `FileSecretStore` (`<root>/<name>/<harness>/<rel_path>`, mode
-0600), and `PrivateKeychainStore` (a single local JSON vault — not yet
-OS-keychain-encrypted). The CLI builds one from `[credentials].engine`
-(`files`|`keychain`; env `AM_CREDENTIALS_ENGINE`) via
-`credentials::build_secret_store(&settings)`. An embedder passes its own
+0600), `PrivateKeychainStore` (a single local JSON vault — plaintext, not yet
+OS-keychain-encrypted), and `OsSecretStore` (the real OS-encrypted secure
+store: on macOS a custom `am.keychain-db` under the config dir driven by the
+`security` CLI, its unlock password bootstrapped into the login keychain;
+Linux `secret-tool` and Windows DPAPI providers are compiled drafts). The CLI
+builds one from `[credentials].engine` (`files`|`keychain`|`os`; env
+`AM_CREDENTIALS_ENGINE`) via `credentials::build_secret_store(&settings)`. An embedder passes its own
 `Box<dyn SecretStore>` (DB/vault-backed) and wraps its index store with
 `credentials::SecretBackedAccountStore::new(index, secrets, harness_id)`,
 whose `login_source` serves bodies from the secret store (falling back to the

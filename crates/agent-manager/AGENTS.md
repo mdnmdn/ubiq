@@ -105,7 +105,8 @@ agent-manager/
     │   ├── mod.rs         #   SecretStore trait + CredentialId/Blob/Meta, blobs<->Source helpers, build_secret_store, SecretBackedAccountStore
     │   ├── memory.rs      #   MemorySecretStore (tests + embedders)
     │   ├── file.rs        #   FileSecretStore (<root>/<name>/<harness>/<rel_path>, 0600)
-    │   └── keychain.rs    #   PrivateKeychainStore (single JSON vault, 0600)
+    │   ├── keychain.rs    #   PrivateKeychainStore (single JSON vault, 0600; plaintext)
+    │   └── os.rs          #   OsSecretStore (engine "os": real macOS Keychain; Linux/Windows drafts)
     ├── profile.rs         # ProfileStore trait (base_source/put_base) + FsProfileStore, extends inheritance (core)
     ├── overlay.rs         # materialize a profile's Source overlay into the run dir + run-dir GC (core)
     ├── harness/           # the Harness trait + impls (core)
