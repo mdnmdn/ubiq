@@ -1,6 +1,6 @@
 //! In-process MCP for lib mode.
 //!
-//! A library embedder (e.g. the Ubiq Tauri app) can register a tool the
+//! A library embedder (e.g. the Ubiq multiplexer) can register a tool the
 //! wrapped agent calls without spawning a subprocess or standing up its own
 //! MCP server. The embedder implements [`McpService`] and wraps it in an
 //! [`crate::spec::InProcessMcpHandle`] on [`crate::spec::McpRef::InProcess`].
