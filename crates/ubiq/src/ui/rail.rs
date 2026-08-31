@@ -22,9 +22,35 @@ pub fn mode_icon(mode: RailMode) -> IconName {
     }
 }
 
+/// The mark: the project's colour and a U, sitting in the titlebar row above the rail so the two
+/// read as one column.
+pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let project = app.project_tint(cx);
+    div()
+        .w(px(theme::RAIL_WIDTH))
+        .h(px(theme::TITLEBAR_HEIGHT))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .bg(theme::pane_bg())
+        .border_r_1()
+        .border_color(theme::border())
+        .child(
+            div()
+                .size(px(28.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(project)
+                .text_color(theme::on_accent())
+                .text_size(px(15.))
+                .child("U"),
+        )
+}
+
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let active = app.workbench.rail_mode;
-    let project = theme::project_colour(app.project_colour(cx));
 
     let mut groups = Vec::new();
     for (label, modes) in RailMode::groups() {
@@ -53,26 +79,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_r_1()
         .border_color(theme::border())
-        .child(
-            // The mark, in the corner the window's identity belongs in.
-            div()
-                .h(px(theme::TITLEBAR_HEIGHT))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .size(px(28.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(project)
-                        .text_color(theme::on_accent())
-                        .text_size(px(15.))
-                        .child("U"),
-                ),
-        )
         .children(groups)
 }
 

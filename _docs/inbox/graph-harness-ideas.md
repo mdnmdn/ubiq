@@ -1,4 +1,4 @@
-Expanded in [`graph-harness-brainstorm.md`](./graph-harness-brainstorm.md).
+Expanded and settled in [`agent-graph-final.md`](./agent-graph-final.md).
 The working area the notes call a "session" is a **workspace** there, so "session" can stay
 the harness conversation. A workspace is for a task, or just to code. The PM starts as an
 analyst that refines the brief.

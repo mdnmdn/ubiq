@@ -3,10 +3,13 @@
 use std::io::{Read, Write};
 use std::time::Duration;
 
+use ubiq_host::config::{ConfigRoot, RootSource};
+use ubiq_host::coordinator;
+use ubiq_host::projects::Projects;
+use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore};
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
 use ubiq_proto::ids::{PaneId, SessionId};
 use ubiq_proto::messages::Message;
-use ubiq_host::coordinator;
 
 /// Long enough for a process to start and say something on a loaded machine.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -15,7 +18,19 @@ const PATIENCE: Duration = Duration::from_secs(10);
 /// close the host's inbox and end the thread under the test.
 fn coordinator() -> (Hub, Client) {
     let (hub, host) = bus::hub();
-    coordinator::start(host);
+    let root = tempfile::TempDir::new().unwrap();
+    let config = ConfigRoot {
+        path: root.path().to_path_buf(),
+        source: RootSource::Flag,
+    };
+    let (projects, pending) = Projects::open(
+        config.path.clone(),
+        Box::new(MemoryProjectStore::new()),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    // The directory has to outlive the thread that is writing into it.
+    std::mem::forget(root);
+    coordinator::start(host, config, projects, pending);
     let client = hub.connect();
     (hub, client)
 }
@@ -24,14 +39,19 @@ fn coordinator() -> (Hub, Client) {
 fn spawn(ui: &Client, program: &str, args: &[&str]) -> PaneId {
     ui.send(Message::SpawnWorkspace {
         session_id: SessionId::generate(),
+        project_id: None,
         agent_type: Some(program.to_string()),
         args: args.iter().map(|a| a.to_string()).collect(),
         folder: None,
     });
 
-    match ui.from_host().recv_timeout(PATIENCE) {
-        Ok(Message::WorkspaceSpawned { workspace }) => workspace.id,
-        other => panic!("expected the workspace, got {other:?}"),
+    // A window is told what the host is as it attaches, so the answer is not always first.
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::WorkspaceSpawned { workspace }) => return workspace.id,
+            Ok(Message::HostInfo { .. }) => continue,
+            other => panic!("expected the workspace, got {other:?}"),
+        }
     }
 }
 
@@ -138,6 +158,14 @@ fn a_pane_belongs_to_the_window_that_spawned_it() {
 
     let pane_id = spawn(&a, "/bin/cat", &[]);
 
+    // What b is told on attaching is its own business, and not about this pane.
+    while let Ok(message) = b.from_host().recv_timeout(Duration::from_millis(200)) {
+        assert!(
+            matches!(message, Message::HostInfo { .. }),
+            "b should hear nothing about a pane it does not own, got {message:?}"
+        );
+    }
+
     // The other window may not drive a pane it does not own, however it learned the id.
     b.send(Message::TerminalInput {
         pane_id,
@@ -145,7 +173,9 @@ fn a_pane_belongs_to_the_window_that_spawned_it() {
     });
     // …and nothing about that pane is addressed to it.
     assert!(
-        b.from_host().recv_timeout(Duration::from_millis(300)).is_err(),
+        b.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
         "output for a pane must reach only the window that owns it"
     );
 
@@ -199,7 +229,8 @@ fn a_window_that_goes_takes_its_harnesses_with_it() {
     drop(hub);
 
     assert_eq!(
-        after, later,
+        after,
+        later,
         "the harness outlived the window that owned it: it wrote {} more times",
         later - after
     );

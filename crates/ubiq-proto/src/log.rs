@@ -29,8 +29,7 @@ pub const CAPACITY: usize = 5_000;
 
 /// What is collected when `RUST_LOG` says nothing: Ubiq's own subsystems and the harness library
 /// down to debug, everything else only when it complains.
-pub const DEFAULT_FILTER: &str =
-    "ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,\
+pub const DEFAULT_FILTER: &str = "ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,\
      gpui_terminal=debug,warn";
 
 // ── What a record says ──────────────────────────────────────────────
@@ -83,7 +82,8 @@ impl Subsystem {
     fn of(target: &str) -> Subsystem {
         if target.starts_with("ubiq_host::pty") {
             Subsystem::Pty
-        } else if target.starts_with("ubiq_host::coordinator") || target.starts_with("ubiq_proto::bus")
+        } else if target.starts_with("ubiq_host::coordinator")
+            || target.starts_with("ubiq_proto::bus")
         {
             Subsystem::Coordinator
         } else if target.starts_with("ubiq_host::mcp_server") {

@@ -1,0 +1,24 @@
+[package]
+name = "ubiq-proto"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Ubiq: the transport contract, the bus, and the log sink"
+publish = false
+
+# Nothing here draws and nothing here touches disk. Both halves depend on this crate, so anything
+# that arrives in this list becomes a dependency of the interface and the host alike.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# ULID behind the contract's id newtypes: sorts by creation time, 26 characters
+ulid = { version = "3", features = ["serde"] }
+flume = "0.12"
+parking_lot = "0.12"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Wall-clock timestamps for the log console, in the reader's own zone
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+# The wire form of an id is asserted against JSON; nothing in the crate itself needs it
+serde_json = "1.0"

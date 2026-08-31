@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     "crates/agent-manager",
     "crates/ubiq",
+    "crates/ubiq-app",
+    "crates/ubiq-host",
+    "crates/ubiq-proto",
     "vendor/gpui-terminal",
 ]
 

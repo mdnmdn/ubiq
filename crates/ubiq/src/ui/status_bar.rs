@@ -7,6 +7,31 @@ use crate::app::AppState;
 use crate::theme;
 use crate::ui::kit::mono;
 
+/// Where this run writes everything down, when that is not `~/.config/ubiq`.
+fn config_root(app: &AppState) -> Option<impl IntoElement> {
+    if app.workbench.config_root_is_default {
+        return None;
+    }
+    let root = app.workbench.config_root.clone()?;
+    let shown = match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() => root.replace(&home, "~"),
+        _ => root,
+    };
+
+    Some(
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                Icon::new(IconName::Inspector)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::warning()),
+            )
+            .child(mono(shown, theme::warning())),
+    )
+}
+
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let wb = &app.workbench;
     let (line, column) = app.cursor_line_column(cx);
@@ -53,6 +78,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         )
         .child(mono(tree, theme::text_muted()))
         .child(div().flex_1().min_w(px(0.)))
+        // A config root you cannot see is a foot-gun, so a run pointed anywhere but the usual
+        // place says so.
+        .children(config_root(app))
         .child(mono(
             format!("Ln {line}, Col {column}"),
             theme::text_muted(),

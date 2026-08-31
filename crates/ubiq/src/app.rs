@@ -10,29 +10,49 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use gpui::{
-    App, Bounds, Context, Entity, FocusHandle, IntoElement, Render, ScrollHandle, Subscription,
-    UniformListScrollHandle, Window, WindowBounds, WindowId, WindowOptions, point, prelude::*, px,
-    size,
-};
-use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
-use gpui_terminal::TerminalView;
-use uuid::Uuid;
-
-use crate::bus::{self, UiEnd};
-use crate::messages::{Message, WorkspaceInfo};
-use crate::orchestrator;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerState, LogState, MenuId, RailMode, WindowRegistry,
-    WorkbenchState, sample,
+    WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
+use gpui::{
+    App, Bounds, Context, Entity, FocusHandle, Global, IntoElement, PathPromptOptions, Render,
+    ScrollHandle, Subscription, UniformListScrollHandle, Window, WindowBounds, WindowId,
+    WindowOptions, point, prelude::*, px, size,
+};
+use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
+use gpui_component::resizable::ResizableState;
+use gpui_terminal::TerminalView;
+use ubiq_proto::bus::{self, Client};
+use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
+use ubiq_proto::messages::{Message, WorkspaceInfo};
+use ubiq_proto::projects::{ProjectSnapshot, Scope};
+
+/// The process-wide switchboard, so every window reaches the same host.
+///
+/// It is a global for the same reason [`WindowRegistry`] is: `open_project_window` is reached from
+/// the project menu as well as from the binary, with no hub in hand. The binary installs it before
+/// the first window, and nothing else may.
+pub struct BusHub(bus::Hub);
+
+impl Global for BusHub {}
+
+impl BusHub {
+    /// Hand the interface its switchboard. Called once, by the binary, before any window exists.
+    pub fn install(hub: bus::Hub, cx: &mut App) {
+        cx.set_global(Self(hub));
+    }
+
+    fn read(cx: &App) -> &bus::Hub {
+        &cx.global::<Self>().0
+    }
+}
 
 /// Single agent harness pane state.
 #[derive(Clone)]
 pub struct PaneState {
-    pub id: Uuid,
+    pub id: PaneId,
     pub harness: String,
     pub rows: u16,
     pub cols: u16,
@@ -60,7 +80,7 @@ pub enum DockTab {
 
 /// Who is waiting for the keyboard. Focus needs a window, which arrives with the next frame.
 enum PendingFocus {
-    Pane(Uuid),
+    Pane(PaneId),
     /// The console. A dock showing logs must not leave the keyboard in a terminal nobody can see.
     Logs,
 }
@@ -85,18 +105,19 @@ pub struct AppState {
     /// Active panes, in the order the dock's tabs show them.
     panes: Vec<PaneState>,
     /// Currently focused pane.
-    focused_pane: Option<Uuid>,
+    focused_pane: Option<PaneId>,
     /// How the dock arranges its panes.
     layout_mode: LayoutMode,
 
     /// The window's session — the grouping every workspace it spawns belongs to.
-    session: Uuid,
-    /// This window's end of the bus. Nothing else reaches the coordinator.
-    bus: UiEnd,
+    session: SessionId,
+    /// This window's connection to the one host. Nothing else reaches it, and dropping this is
+    /// how the host learns the window has gone.
+    bus: Client,
     /// One emulator per pane, keyed the way every message is.
-    terminals: HashMap<Uuid, PaneTerminal>,
+    terminals: HashMap<PaneId, PaneTerminal>,
     /// Geometry an emulator measured for itself, on its way back into `PaneState`.
-    geometry: flume::Sender<(Uuid, u16, u16)>,
+    geometry: flume::Sender<(PaneId, u16, u16)>,
     /// What the dock's tab strip has selected.
     dock_tab: DockTab,
     /// Whoever the keyboard is owed to, once there is a window to give it with.
@@ -109,6 +130,19 @@ pub struct AppState {
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
 
+    /// Whether this window should take a project from the first catalogue that arrives. True only
+    /// for the window the binary opened.
+    adopt_on_list: bool,
+    /// Whether an `AddProject` this window asked for is still outstanding, so the project it
+    /// answers with is opened here rather than merely appearing in every picker.
+    adding: bool,
+    /// Panel sizes read back from the host, waiting for the frame that can apply them.
+    pending_sizes: Option<prefs::ViewPrefs>,
+    /// The two resizable groups' own state, owned here rather than left implicit, because a size
+    /// that cannot be read back cannot be remembered.
+    pub columns: Entity<ResizableState>,
+    pub centre: Entity<ResizableState>,
+
     /// The component library's own state entities.
     pub editor_state: Entity<EditorState>,
     pub chat_input: Entity<TextareaState>,
@@ -117,6 +151,8 @@ pub struct AppState {
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
     pub project_search: Entity<InputState>,
+    /// The field a picker row becomes while a project is being renamed.
+    pub rename_input: Entity<InputState>,
     pub chat_scroll: ScrollHandle,
     pub log_scroll: UniformListScrollHandle,
     /// The console's own focus, so selecting its tab takes the keyboard off the pane behind it.
@@ -127,8 +163,11 @@ pub struct AppState {
 impl AppState {
     /// Build a window pointed at one project, named by `label`. A second window is the same view
     /// registered under its own letter — see [`open_project_window`], which is the only caller.
+    ///
+    /// The project is optional: on a first run the catalogue is empty, and a window with nothing
+    /// open still has "Add a project…" to offer.
     pub fn for_project(
-        project: usize,
+        project: Option<ProjectId>,
         label: char,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -181,6 +220,13 @@ impl AppState {
         let project_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
 
+        let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
+
+        // Owned rather than the implicit keyed state, so a dragged size can be read back and
+        // written down.
+        let columns = cx.new(|_| ResizableState::default());
+        let centre = cx.new(|_| ResizableState::default());
+
         let mut subscriptions = Vec::new();
 
         // Every window draws from the same registry, so a project moved in one window redraws the
@@ -224,14 +270,14 @@ impl AppState {
             },
         ));
 
-        // The window's half of the bus. The coordinator gets the other half and a thread, and the
-        // two never touch again.
-        let (ui_end, coordinator_end) = bus::pair();
-        orchestrator::start(coordinator_end);
+        // This window's connection to the host, which is process-wide and already running. The
+        // window never starts one: two hosts would race the catalogue and disagree about what
+        // exists.
+        let bus = BusHub::read(cx).connect();
 
-        let from_coordinator = ui_end.from_coordinator.clone();
+        let from_host = bus.from_host().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            while let Ok(message) = from_coordinator.recv_async().await {
+            while let Ok(message) = from_host.recv_async().await {
                 if this
                     .update(cx, |this, cx| this.receive(message, cx))
                     .is_err()
@@ -245,7 +291,7 @@ impl AppState {
         // The log sink nudges the window when a record arrives. A nudge carries nothing: the
         // console reads the ring itself, so a burst is coalesced into one redraw and a window
         // with the console shut is not woken at all.
-        let nudges = crate::log::logs().subscribe();
+        let nudges = ubiq_proto::log::logs().subscribe();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             while nudges.recv_async().await.is_ok() {
                 while nudges.try_recv().is_ok() {}
@@ -267,7 +313,7 @@ impl AppState {
 
         // An emulator measures its own geometry from the bounds it is given; this is how the
         // measurement gets back into the pane it belongs to.
-        let (geometry, measurements) = flume::unbounded::<(Uuid, u16, u16)>();
+        let (geometry, measurements) = flume::unbounded::<(PaneId, u16, u16)>();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             while let Ok((pane_id, cols, rows)) = measurements.recv_async().await {
                 if this
@@ -285,8 +331,8 @@ impl AppState {
             panes: Vec::new(),
             focused_pane: None,
             layout_mode: LayoutMode::Single,
-            session: Uuid::new_v4(),
-            bus: ui_end,
+            session: SessionId::generate(),
+            bus,
             terminals: HashMap::new(),
             geometry,
             dock_tab: DockTab::Pane,
@@ -296,16 +342,33 @@ impl AppState {
             editor,
             chat: sample::chat(),
             logs: LogState::default(),
+            adopt_on_list: false,
+            adding: false,
+            pending_sizes: None,
+            columns,
+            centre,
             editor_state,
             chat_input,
             file_filter,
             command_input,
             project_search,
+            rename_input,
             chat_scroll: ScrollHandle::new(),
             log_scroll: UniformListScrollHandle::new(),
             log_focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
+
+        // Nothing about a project is known until the host says so: the interface reads no disk.
+        this.bus.send(Message::ListProjects);
+        this.bus.send(Message::GetPreferences {
+            scope: Scope::Interface,
+        });
+        if let Some(project) = project {
+            this.bus.send(Message::GetPreferences {
+                scope: Scope::Project(project),
+            });
+        }
 
         // A window opens on one pane, running the session's default agent type. The pane itself
         // arrives with `WorkspaceSpawned`, because only the coordinator knows what started.
@@ -346,7 +409,7 @@ impl AppState {
     }
 
     /// The emulator a pane is drawn by, for the one module that draws it.
-    pub fn terminal(&self, pane_id: Uuid) -> Option<&Entity<TerminalView>> {
+    pub fn terminal(&self, pane_id: PaneId) -> Option<&Entity<TerminalView>> {
         self.terminals.get(&pane_id).map(|pane| &pane.view)
     }
 
@@ -358,15 +421,17 @@ impl AppState {
         args: Vec<String>,
         _cx: &mut Context<Self>,
     ) {
+        let project_id = self.project(_cx);
         self.bus.send(Message::SpawnWorkspace {
             session_id: self.session,
+            project_id,
             agent_type,
             args,
             folder: None,
         });
     }
 
-    pub fn close_pane(&mut self, pane_id: Uuid, cx: &mut Context<Self>) {
+    pub fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         self.bus.send(Message::CloseWorkspace { pane_id });
         self.panes.retain(|p| p.id != pane_id);
         self.terminals.remove(&pane_id);
@@ -382,7 +447,7 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn resize_pane(&mut self, pane_id: Uuid, cols: u16, rows: u16, cx: &mut Context<Self>) {
+    pub fn resize_pane(&mut self, pane_id: PaneId, cols: u16, rows: u16, cx: &mut Context<Self>) {
         if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
             if pane.cols == cols && pane.rows == rows {
                 return;
@@ -393,7 +458,7 @@ impl AppState {
         }
     }
 
-    pub fn focus_pane(&mut self, pane_id: Uuid, cx: &mut Context<Self>) {
+    pub fn focus_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         if self.panes.iter().any(|p| p.id == pane_id) {
             self.focused_pane = Some(pane_id);
             self.dock_tab = DockTab::Pane;
@@ -456,6 +521,56 @@ impl AppState {
                 cx.notify();
             }
 
+            // ── the project family ──────────────────────────────────
+            // Every window is sent the same snapshots, so each replaces by id and the projection
+            // is idempotent by construction.
+            Message::ProjectList { projects } => {
+                cx.global_mut::<WindowRegistry>().replace_all(projects);
+                self.adopt_if_owed(cx);
+                cx.notify();
+            }
+
+            Message::ProjectAdded { project } => {
+                let id = project.record.id;
+                cx.global_mut::<WindowRegistry>().apply(project);
+                // Whoever asked for it is the window that opens it.
+                if self.adding {
+                    self.adding = false;
+                    self.take_project(id, cx);
+                }
+                cx.notify();
+            }
+
+            Message::ProjectChanged { project } => {
+                cx.global_mut::<WindowRegistry>().apply(project);
+                cx.notify();
+            }
+
+            Message::ProjectForgotten { project_id } => {
+                let emptied = cx.global_mut::<WindowRegistry>().forget(project_id);
+                close_windows(emptied, cx);
+                cx.notify();
+            }
+
+            Message::ProjectError { project_id, error } => {
+                tracing::error!("project {project_id:?}: {error}");
+                self.workbench.project_error = Some(error);
+                self.adding = false;
+                cx.notify();
+            }
+
+            Message::Preferences { scope, value } => self.apply_preferences(scope, value, cx),
+
+            // What the host is. The status bar says so when the root is not the usual one.
+            Message::HostInfo {
+                config_root,
+                is_default,
+            } => {
+                self.workbench.config_root = Some(config_root);
+                self.workbench.config_root_is_default = is_default;
+                cx.notify();
+            }
+
             // The rest are the window's own words, coming back the wrong way.
             other => tracing::warn!("the window was sent a message only it may send: {other:?}"),
         }
@@ -470,12 +585,12 @@ impl AppState {
         let writer = self.bus.input(pane_id);
         let config = ui::terminal::config(workspace.cols, workspace.rows);
 
-        let to_coordinator = self.bus.sender();
+        let to_host = self.bus.sender();
         let geometry = self.geometry.clone();
         let view = cx.new(|cx| {
             TerminalView::new(writer, reader, config, cx).with_resize_callback(move |cols, rows| {
                 let (cols, rows) = (cols as u16, rows as u16);
-                let _ = to_coordinator.send(Message::TerminalResize {
+                to_host.send(Message::TerminalResize {
                     pane_id,
                     cols,
                     rows,
@@ -530,6 +645,7 @@ impl AppState {
     pub fn set_rail_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
         self.workbench.rail_mode = mode;
         self.workbench.open_menu = None;
+        self.remember_view(cx);
         cx.notify();
     }
 
@@ -537,6 +653,8 @@ impl AppState {
         let next = self.workbench.theme_id.toggled();
         self.workbench.theme_id = next;
         theme::set_mode(next, cx);
+        // The palette belongs to the interface, not to any one project.
+        self.remember_interface();
         // The emulator holds its own copy of the palette, so the switch has to reach it.
         for terminal in self.terminals.values() {
             terminal.view.update(cx, |view, cx| {
@@ -577,7 +695,7 @@ impl AppState {
 
     /// Empty the sink. The ring is the whole process's, so this clears every window's console.
     pub fn clear_logs(&mut self, cx: &mut Context<Self>) {
-        crate::log::logs().clear();
+        ubiq_proto::log::logs().clear();
         cx.notify();
     }
 
@@ -592,27 +710,51 @@ impl AppState {
             .unwrap_or('?')
     }
 
-    /// The project this window is pointed at. A window always has one: the moment it has none it
-    /// closes, so the fallback is only for the frame between the two.
-    pub fn project(&self, cx: &App) -> usize {
+    /// The project this window is pointed at, if it has one. A window holds nothing only while the
+    /// catalogue is empty, or in the frame before the host has answered.
+    pub fn project(&self, cx: &App) -> Option<ProjectId> {
         WindowRegistry::read(cx)
             .slot(self.window_id)
             .and_then(|slot| slot.active_project())
-            .unwrap_or(0)
+    }
+
+    /// Everything known about the project this window is pointed at.
+    pub fn project_snapshot<'a>(&self, cx: &'a App) -> Option<&'a ProjectSnapshot> {
+        let id = self.project(cx)?;
+        WindowRegistry::read(cx).project(id)
     }
 
     pub fn project_name(&self, cx: &App) -> String {
-        let registry = WindowRegistry::read(cx);
-        registry
-            .project(self.project(cx))
-            .map(|p| p.name.clone())
-            .unwrap_or_default()
+        self.project_snapshot(cx)
+            .map(|p| p.record.name.clone())
+            .unwrap_or_else(|| "No project".to_string())
     }
 
-    /// The swatch index the whole window is identified by.
-    pub fn project_colour(&self, cx: &App) -> usize {
+    /// The colour the whole window is identified by.
+    ///
+    /// One place decides what a window with no project looks like, rather than four call sites
+    /// each falling back to swatch zero and claiming to be a project that is not there.
+    pub fn project_tint(&self, cx: &App) -> gpui::Rgba {
+        match self.project_snapshot(cx) {
+            Some(project) => theme::project_colour(project.record.colour),
+            None => theme::border(),
+        }
+    }
+
+    /// The swatch the interface would give a new project: the one fewest projects are using, so
+    /// the palette spreads before it repeats.
+    pub fn next_colour(&self, cx: &App) -> usize {
         let registry = WindowRegistry::read(cx);
-        registry.project(self.project(cx)).map_or(0, |p| p.colour)
+        let count = theme::project_colour_count();
+        let mut used = vec![0usize; count];
+        for project in registry.all() {
+            used[project.record.colour % count] += 1;
+        }
+        used.iter()
+            .enumerate()
+            .min_by_key(|(index, taken)| (**taken, *index))
+            .map(|(index, _)| index)
+            .unwrap_or(0)
     }
 
     /// The picker's three groups: open here, open in another window, only remembered.
@@ -621,30 +763,41 @@ impl AppState {
     }
 
     /// Point this window at a project it already holds.
-    pub fn activate_project(&mut self, project: usize, cx: &mut Context<Self>) {
+    pub fn activate_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
         cx.global_mut::<WindowRegistry>().activate(id, project);
+        self.bus.send(Message::OpenedProject {
+            project_id: project,
+        });
         self.close_menu(cx);
     }
 
     /// Open a project in this window, taking it from whichever window held it. This is both "open
     /// one from history" and the move-here action on a project open elsewhere: a project is open in
     /// one window at a time, so the two are the same operation.
-    pub fn take_project(&mut self, project: usize, cx: &mut Context<Self>) {
+    pub fn take_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
         let emptied = cx.global_mut::<WindowRegistry>().open_in(id, project);
         close_windows(emptied, cx);
+        // The host decides what opening a project means, and stamps it.
+        self.bus.send(Message::OpenedProject {
+            project_id: project,
+        });
+        // Where this project's furniture was left. The answer arrives as `Preferences`.
+        self.bus.send(Message::GetPreferences {
+            scope: Scope::Project(project),
+        });
         self.close_menu(cx);
     }
 
     /// Close a project in this window. One with terminals still running asks first: the menu row
     /// turns into a confirmation rather than taking the click. Closing the last one closes the
     /// window, because a window with nothing open has nothing to show.
-    pub fn close_project(&mut self, project: usize, force: bool, cx: &mut Context<Self>) {
-        let terminals = WindowRegistry::read(cx)
+    pub fn close_project(&mut self, project: ProjectId, force: bool, cx: &mut Context<Self>) {
+        let panes = WindowRegistry::read(cx)
             .project(project)
-            .map_or(0, |p| p.terminals);
-        if terminals > 0 && !force {
+            .map_or(0, |p| p.open_panes);
+        if panes > 0 && !force {
             self.workbench.pending_close = Some(project);
             cx.notify();
             return;
@@ -660,6 +813,268 @@ impl AppState {
     pub fn cancel_close(&mut self, cx: &mut Context<Self>) {
         self.workbench.pending_close = None;
         cx.notify();
+    }
+
+    // ── Asking the host ─────────────────────────────────────────────
+
+    /// Rename or recolour. The host answers, and every window redraws.
+    pub fn update_project(
+        &mut self,
+        project: ProjectId,
+        name: Option<String>,
+        colour: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name,
+            colour,
+        });
+        self.workbench.row_action = None;
+        cx.notify();
+    }
+
+    /// Drop the record and everything Ubiq remembers about it. Nothing inside the project's own
+    /// folder is touched, which is why the word is "Forget".
+    pub fn forget_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        self.bus.send(Message::ForgetProject {
+            project_id: project,
+        });
+        self.workbench.row_action = None;
+        cx.notify();
+    }
+
+    /// Look at a project's folder again — the action a row marked missing offers.
+    pub fn refresh_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        self.bus.send(Message::RefreshProject {
+            project_id: project,
+        });
+        cx.notify();
+    }
+
+    /// Re-point a record at a folder that moved, keeping its id, colour and history.
+    pub fn locate_project(&mut self, project: ProjectId, path: String, cx: &mut Context<Self>) {
+        self.bus.send(Message::LocateProject {
+            project_id: project,
+            path,
+        });
+        cx.notify();
+    }
+
+    /// Take a folder into the catalogue.
+    pub fn add_project(&mut self, path: String, cx: &mut Context<Self>) {
+        let colour = self.next_colour(cx);
+        self.bus.send(Message::AddProject {
+            path,
+            name: None,
+            colour: Some(colour),
+        });
+        cx.notify();
+    }
+
+    /// Ask the operating system for a folder, then add it or re-point the project being located.
+    ///
+    /// The dialog is the platform's own — the one users already know how to type a path into, and
+    /// the one that reaches their bookmarks and network volumes. It browses the *interface's*
+    /// filesystem, which is the host's only while the two share a machine; see `D32`.
+    pub fn choose_folder(&mut self, locating: Option<ProjectId>, cx: &mut Context<Self>) {
+        let chosen = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(match locating {
+                Some(_) => "Locate".into(),
+                None => "Add".into(),
+            }),
+        });
+
+        cx.spawn(async move |this, cx| {
+            // Three outcomes, and only one of them is a path: the channel can close with the
+            // dialog, the platform can refuse to open one, and the user can cancel.
+            let answer = match chosen.await {
+                Ok(answer) => answer,
+                Err(_) => return,
+            };
+
+            this.update(cx, |this, cx| match answer {
+                Ok(Some(paths)) => {
+                    let Some(path) = paths.into_iter().next() else {
+                        return;
+                    };
+                    let path = path.to_string_lossy().into_owned();
+                    match locating {
+                        Some(project) => this.locate_project(project, path, cx),
+                        None => this.add_project(path, cx),
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    this.workbench.project_error =
+                        Some(format!("could not open a chooser: {error}"));
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Expand one picker row into a rename, a recolour or a Forget confirmation.
+    pub fn set_row_action(
+        &mut self,
+        action: Option<(ProjectId, crate::state::RowAction)>,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.row_action = action;
+        cx.notify();
+    }
+
+    /// Commit whatever the rename field holds. An empty name is ignored rather than applied: a
+    /// project with no name is not something the picker can draw.
+    pub fn commit_rename(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let name = self.rename_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            self.set_row_action(None, cx);
+            return;
+        }
+        self.update_project(project, Some(name), None, cx);
+    }
+
+    pub fn dismiss_project_error(&mut self, cx: &mut Context<Self>) {
+        self.workbench.project_error = None;
+        cx.notify();
+    }
+
+    // ── Boot, and what is remembered ────────────────────────────────
+
+    /// Take a project on the first catalogue that arrives.
+    ///
+    /// Only the window the binary opened is owed this. One code path serves both the ordinary boot
+    /// and the empty catalogue, and the cost is a single frame of the picker.
+    fn adopt_if_owed(&mut self, cx: &mut Context<Self>) {
+        if !self.adopt_on_list {
+            return;
+        }
+        self.adopt_on_list = false;
+
+        if self.project(cx).is_some() {
+            return;
+        }
+        // Nothing to adopt is the first run, and the window stays open on the picker.
+        if let Some(id) = WindowRegistry::read(cx).most_recent() {
+            self.take_project(id, cx);
+        }
+    }
+
+    /// Apply what the host had stored for a scope.
+    fn apply_preferences(&mut self, scope: Scope, value: Option<String>, cx: &mut Context<Self>) {
+        let Some(blob) = value else { return };
+
+        match scope {
+            Scope::Interface => {
+                if let Some(prefs) = prefs::decode::<prefs::InterfacePrefs>(&blob)
+                    && prefs.theme != self.workbench.theme_id
+                {
+                    self.workbench.theme_id = prefs.theme;
+                    theme::set_mode(prefs.theme, cx);
+                }
+            }
+            Scope::Project(id) => {
+                // The answer may arrive after the window has moved on to another project.
+                if self.project(cx) != Some(id) {
+                    return;
+                }
+                let Some(view) = prefs::decode::<prefs::ViewPrefs>(&blob) else {
+                    return;
+                };
+                self.workbench.rail_mode = view.rail_mode;
+                self.workbench.show_left = view.show_left;
+                self.workbench.show_bottom = view.show_bottom;
+                self.workbench.show_right = view.show_right;
+                self.pending_sizes = Some(view);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Write down what this window looks like now. Debounced by the host, so this may be called as
+    /// freely as a drag fires.
+    pub fn remember_view(&mut self, cx: &App) {
+        let Some(id) = self.project(cx) else { return };
+        let sizes = self.panel_sizes(cx);
+        let view = prefs::ViewPrefs {
+            schema: prefs::SCHEMA,
+            rail_mode: self.workbench.rail_mode,
+            show_left: self.workbench.show_left,
+            show_bottom: self.workbench.show_bottom,
+            show_right: self.workbench.show_right,
+            explorer_width: sizes.0,
+            chat_width: sizes.1,
+            dock_height: sizes.2,
+        };
+        self.bus.send(Message::SetPreferences {
+            scope: Scope::Project(id),
+            value: prefs::encode(&view),
+        });
+    }
+
+    /// The three panel sizes, as they currently stand: explorer, chat, and the dock's height.
+    ///
+    /// The columns group is explorer, centre, chat; the centre group is editor, dock. A hidden
+    /// panel keeps its size, which is what makes a toggle non-destructive.
+    fn panel_sizes(&self, cx: &App) -> (Option<f32>, Option<f32>, Option<f32>) {
+        let columns = self.columns.read(cx).sizes();
+        let centre = self.centre.read(cx).sizes();
+        (
+            columns.first().map(|size| f32::from(*size)),
+            columns.get(2).map(|size| f32::from(*size)),
+            centre.get(1).map(|size| f32::from(*size)),
+        )
+    }
+
+    /// Put back the panel sizes the host handed us.
+    ///
+    /// On the frame after they arrive, because a resizable group only has its panels once it has
+    /// been laid out — before that there is nothing to resize.
+    fn apply_pending_sizes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(view) = self.pending_sizes.take() else {
+            return;
+        };
+        let laid_out = !self.columns.read(cx).sizes().is_empty();
+        if !laid_out {
+            // Not yet. Keep them for the next frame rather than dropping them on the floor.
+            self.pending_sizes = Some(view);
+            return;
+        }
+
+        // The columns group is explorer, centre, chat; the centre group is editor, dock.
+        if let Some(width) = view.explorer_width {
+            self.columns
+                .update(cx, |state, cx| state.resize_panel(0, px(width), window, cx));
+        }
+        if let Some(width) = view.chat_width {
+            self.columns
+                .update(cx, |state, cx| state.resize_panel(2, px(width), window, cx));
+        }
+        if let Some(height) = view.dock_height
+            && !self.centre.read(cx).sizes().is_empty()
+        {
+            self.centre.update(cx, |state, cx| {
+                state.resize_panel(1, px(height), window, cx)
+            });
+        }
+    }
+
+    /// Write down what belongs to the interface as a whole.
+    pub fn remember_interface(&mut self) {
+        let prefs = prefs::InterfacePrefs {
+            schema: prefs::SCHEMA,
+            theme: self.workbench.theme_id,
+        };
+        self.bus.send(Message::SetPreferences {
+            scope: Scope::Interface,
+            value: prefs::encode(&prefs),
+        });
     }
 
     // ── Explorer ────────────────────────────────────────────────────
@@ -769,6 +1184,7 @@ impl AppState {
 impl Render for AppState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.take_focus(window, cx);
+        self.apply_pending_sizes(window, cx);
         ui::shell::render(self, window, cx)
     }
 }
@@ -795,7 +1211,19 @@ pub fn boot_theme() -> ThemeId {
 ///
 /// The project comes with it: a project is open in one window at a time, so the new window takes it
 /// from whichever window held it, and that window closes if it held nothing else.
-pub fn open_project_window(project: usize, cx: &mut App) {
+pub fn open_project_window(project: Option<ProjectId>, cx: &mut App) {
+    open_window(project, false, cx)
+}
+
+/// The first window, which takes a project from the first catalogue that arrives.
+///
+/// The binary cannot name one: it has not asked the host what exists yet, and the interface may
+/// not look for itself.
+pub fn open_first_window(cx: &mut App) {
+    open_window(None, true, cx)
+}
+
+fn open_window(project: Option<ProjectId>, adopt: bool, cx: &mut App) {
     WindowRegistry::install(cx);
     // The letter is allocated before the window exists, because the title carries it. Nothing can
     // register in between — `open_window` builds the `AppState`, which is what registers.
@@ -816,12 +1244,16 @@ pub fn open_project_window(project: usize, cx: &mut App) {
             ..Default::default()
         },
         |window, cx| {
-            let view = cx.new(|cx| AppState::for_project(project, label, window, cx));
+            let view = cx.new(|cx| {
+                let mut state = AppState::for_project(project, label, window, cx);
+                state.adopt_on_list = adopt;
+                state
+            });
             cx.new(|cx| gpui_component::Root::new(view, window, cx).bg(crate::theme::app_bg()))
         },
     );
 
-    tracing::info!("window {label} opened on project {project}");
+    tracing::info!("window {label} opened on project {project:?}");
 
     if let Ok(handle) = opened {
         handle

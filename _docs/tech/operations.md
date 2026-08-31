@@ -50,6 +50,8 @@ everything else only when it complains. What the console does with the records i
 | Command | Does |
 |---|---|
 | `just am <args>` | Run the `am` CLI — `just am claude --print-config` provisions a run and prints what it would launch, without launching it |
+| `just host` | Build the host and prove no drawing crate reaches its dependency tree |
+| `just ui` | Build the interface and prove it never names the host |
 | `just core` | Build the library the way Ubiq consumes it, with default features off. **This is the check that matters** — it fails the moment a CLI or terminal type leaks into the core |
 
 ### Checks
@@ -60,7 +62,7 @@ everything else only when it complains. What the console does with the records i
 | `just clippy` | Lint, warnings as errors |
 | `just fmt` | Format |
 | `just test` | Test the workspace with stdin closed |
-| `just verify` | `check`, `clippy`, `test`, `docs-lint` — what a change has to pass |
+| `just verify` | `check`, `clippy`, `test`, `host`, `ui`, `docs-lint` — what a change has to pass |
 
 `just test` closes stdin deliberately. The library's passthrough tests spawn real pseudo-terminals,
 and an interactive stdin makes them hang rather than fail, which is the worse of the two outcomes.
@@ -104,12 +106,21 @@ its arguments.
 
 ## Environment
 
-Ubiq reads no configuration of its own. Two variables affect a run:
+Ubiq resolves one config root, and everything it remembers between runs lives under it — the
+project catalogue, per-project view state, and the caches. The order is `--config-root`, then
+`UBIQ_CONFIG_DIR`, then the nearest `ubiq.toml` walking up from the working directory, then
+`~/.config/ubiq`. A `ubiq.toml` is a bootstrap file and says one thing, `config_root`; this
+repository commits one pointing at `_data/config`, which is ignored by git, so running from a
+checkout never touches the catalogue a user works with all day. A malformed one is an error rather
+than a fallback, and the status bar says when the root is not the default.
+
+Three variables affect a run:
 
 | Variable | Effect |
 |---|---|
 | `RUST_LOG` | Log filter, through `tracing-subscriber`. `just verbose` sets it to `debug` |
 | `CARGO_TARGET_DIR` | Redirects build output, useful when disk is tight |
+| `UBIQ_CONFIG_DIR` | The config root, below `--config-root` and above a `ubiq.toml` |
 
 Harness configuration is the embedded library's business, including every environment variable it
 sets for a run. Those live with that crate — see [`agent-manager.md`](./agent-manager.md).

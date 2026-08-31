@@ -1,34 +1,25 @@
-//! The window registry: the project catalogue, and which window holds which project.
+//! The window registry: a projection of the host's catalogue, and which window holds which project.
 //!
 //! This is the one piece of workbench state that is process-wide rather than per window. It has to
 //! be: a project is open in exactly one window at a time, so no window can answer "where is this
 //! project open?" from its own copy. Every window reads the same registry and redraws when it
 //! changes.
 //!
+//! **The catalogue is not here.** It belongs to the host, and what this holds is a projection of
+//! it, keyed by id and replaced wholesale or one snapshot at a time as the host says so. Because
+//! project messages are broadcast, every window applies the same snapshot and the projection is
+//! idempotent by construction.
+//!
 //! Two rules the whole feature rests on. **A project is open in at most one window** — opening it
 //! somewhere takes it from wherever it was. And **a window with no project open has nothing to
-//! show**, so it is closed; the registry drops the slot and returns the window's ID for the caller
-//! to close.
+//! show**, so it is closed — except when the catalogue is empty, where a window with nothing open
+//! still has an "Add a project…" to offer, and closing it would quit the application at boot.
+
+use std::collections::BTreeMap;
 
 use gpui::{App, Global, WindowId};
-
-use super::sample;
-
-/// A project a window can be pointed at.
-///
-/// `colour` indexes the theme's project swatches; it is the project's identity everywhere it
-/// appears. `terminals` is how many terminals it has open, which is what makes closing it a
-/// question rather than a click. Openness is not a field here — it is whether some window's slot
-/// holds this project.
-#[derive(Clone, Debug)]
-pub struct Project {
-    pub name: String,
-    pub path: String,
-    pub colour: usize,
-    pub terminals: usize,
-    /// Relative time, as the history list shows it.
-    pub when: String,
-}
+use ubiq_proto::ids::ProjectId;
+use ubiq_proto::projects::ProjectSnapshot;
 
 /// One live window: the letter it is named by, and the projects open in it.
 #[derive(Clone, Debug)]
@@ -37,17 +28,17 @@ pub struct WindowSlot {
     /// `A`, `B`, `C`… — what the picker prints beside every project this window holds.
     pub label: char,
     /// The projects open in this window, in the order the picker lists them.
-    pub projects: Vec<usize>,
+    pub projects: Vec<ProjectId>,
     /// Which of `projects` the window is currently pointed at.
     pub active: usize,
 }
 
 impl WindowSlot {
-    pub fn active_project(&self) -> Option<usize> {
+    pub fn active_project(&self) -> Option<ProjectId> {
         self.projects.get(self.active).copied()
     }
 
-    pub fn holds(&self, project: usize) -> bool {
+    pub fn holds(&self, project: ProjectId) -> bool {
         self.projects.contains(&project)
     }
 }
@@ -58,28 +49,21 @@ impl WindowSlot {
 /// there, or take it from there — both need it.
 #[derive(Default)]
 pub struct ProjectGroups {
-    pub here: Vec<usize>,
-    pub elsewhere: Vec<(usize, char, WindowId)>,
-    pub history: Vec<usize>,
+    pub here: Vec<ProjectId>,
+    pub elsewhere: Vec<(ProjectId, char, WindowId)>,
+    pub history: Vec<ProjectId>,
 }
 
+#[derive(Default)]
 pub struct WindowRegistry {
-    /// Every project Ubiq knows about, open or only remembered.
-    pub projects: Vec<Project>,
+    /// The host's catalogue, as this process last heard it. A `BTreeMap` because a ULID sorts by
+    /// creation time, so iteration is the order projects were added, at no cost.
+    projects: BTreeMap<ProjectId, ProjectSnapshot>,
     /// One slot per live window, in the order they were opened.
     pub windows: Vec<WindowSlot>,
 }
 
 impl Global for WindowRegistry {}
-
-impl Default for WindowRegistry {
-    fn default() -> Self {
-        Self {
-            projects: sample::projects(),
-            windows: Vec::new(),
-        }
-    }
-}
 
 impl WindowRegistry {
     /// Seed the registry, once, before the first window is opened.
@@ -95,6 +79,15 @@ impl WindowRegistry {
         cx.global::<Self>()
     }
 
+    /// Whether the host has told us about any project at all.
+    pub fn is_empty(&self) -> bool {
+        self.projects.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.projects.len()
+    }
+
     /// The lowest letter no live window is using. Letters are reused once a window closes, so the
     /// set of names stays as short as the set of windows.
     pub fn next_label(&self) -> char {
@@ -108,23 +101,75 @@ impl WindowRegistry {
     }
 
     /// The window a project is open in, if any.
-    pub fn holder(&self, project: usize) -> Option<&WindowSlot> {
+    pub fn holder(&self, project: ProjectId) -> Option<&WindowSlot> {
         self.windows.iter().find(|w| w.holds(project))
     }
 
-    pub fn project(&self, index: usize) -> Option<&Project> {
-        self.projects.get(index)
+    pub fn project(&self, id: ProjectId) -> Option<&ProjectSnapshot> {
+        self.projects.get(&id)
     }
 
-    /// Add a window, pointed at one project taken from whichever window held it. Answers the
-    /// windows that opening it emptied, which the caller closes.
-    pub fn register(&mut self, id: WindowId, label: char, project: usize) -> Vec<WindowId> {
-        let project = project.min(self.projects.len().saturating_sub(1));
-        self.release(project);
+    /// Every project, in creation order.
+    pub fn all(&self) -> impl Iterator<Item = &ProjectSnapshot> {
+        self.projects.values()
+    }
+
+    /// The project a window should open on when it is given no choice: the one used most recently,
+    /// falling back to the most recently created.
+    pub fn most_recent(&self) -> Option<ProjectId> {
+        self.projects
+            .values()
+            .max_by_key(|p| (p.record.last_opened_at, p.record.created_at))
+            .map(|p| p.record.id)
+    }
+
+    // ── the projection ──────────────────────────────────────────────
+
+    /// Replace the whole catalogue, as `ProjectList` says it is.
+    ///
+    /// A window holding a project that no longer exists loses it, but is **not** reaped here: the
+    /// catalogue arriving is not the user closing anything.
+    pub fn replace_all(&mut self, projects: Vec<ProjectSnapshot>) {
+        self.projects = projects.into_iter().map(|p| (p.record.id, p)).collect();
+        let known: Vec<ProjectId> = self.projects.keys().copied().collect();
+        for slot in &mut self.windows {
+            slot.projects.retain(|id| known.contains(id));
+            slot.active = slot.active.min(slot.projects.len().saturating_sub(1));
+        }
+    }
+
+    /// Apply one snapshot, whether it is new or a change to one already held.
+    pub fn apply(&mut self, project: ProjectSnapshot) {
+        self.projects.insert(project.record.id, project);
+    }
+
+    /// The host has forgotten a project. Answers the windows this emptied.
+    pub fn forget(&mut self, id: ProjectId) -> Vec<WindowId> {
+        self.projects.remove(&id);
+        for slot in &mut self.windows {
+            remove(slot, id);
+        }
+        self.reap()
+    }
+
+    // ── which window holds what ─────────────────────────────────────
+
+    /// Add a window, optionally pointed at one project taken from whichever window held it.
+    /// Answers the windows that opening it emptied, which the caller closes.
+    pub fn register(
+        &mut self,
+        id: WindowId,
+        label: char,
+        project: Option<ProjectId>,
+    ) -> Vec<WindowId> {
+        let project = project.filter(|p| self.projects.contains_key(p));
+        if let Some(project) = project {
+            self.release(project);
+        }
         self.windows.push(WindowSlot {
             id,
             label,
-            projects: vec![project],
+            projects: project.into_iter().collect(),
             active: 0,
         });
         self.reap()
@@ -136,8 +181,8 @@ impl WindowRegistry {
     }
 
     /// Open a project in a window, taking it from any other. Answers the windows this emptied.
-    pub fn open_in(&mut self, id: WindowId, project: usize) -> Vec<WindowId> {
-        if project >= self.projects.len() {
+    pub fn open_in(&mut self, id: WindowId, project: ProjectId) -> Vec<WindowId> {
+        if !self.projects.contains_key(&project) {
             return Vec::new();
         }
         self.release(project);
@@ -149,7 +194,7 @@ impl WindowRegistry {
     }
 
     /// Point a window at a project it already holds.
-    pub fn activate(&mut self, id: WindowId, project: usize) {
+    pub fn activate(&mut self, id: WindowId, project: ProjectId) {
         if let Some(slot) = self.windows.iter_mut().find(|w| w.id == id)
             && let Some(at) = slot.projects.iter().position(|p| *p == project)
         {
@@ -158,7 +203,7 @@ impl WindowRegistry {
     }
 
     /// Close a project in a window. Answers the windows this emptied.
-    pub fn close(&mut self, id: WindowId, project: usize) -> Vec<WindowId> {
+    pub fn close(&mut self, id: WindowId, project: ProjectId) -> Vec<WindowId> {
         if let Some(slot) = self.windows.iter_mut().find(|w| w.id == id) {
             remove(slot, project);
         }
@@ -169,13 +214,13 @@ impl WindowRegistry {
     /// finds a project too.
     pub fn groups(&self, id: WindowId, filter: &str) -> ProjectGroups {
         let needle = filter.trim().to_lowercase();
-        let matches = |index: usize| {
-            let Some(project) = self.projects.get(index) else {
+        let matches = |project: ProjectId| {
+            let Some(snapshot) = self.projects.get(&project) else {
                 return false;
             };
             needle.is_empty()
-                || project.name.to_lowercase().contains(&needle)
-                || project.path.to_lowercase().contains(&needle)
+                || snapshot.record.name.to_lowercase().contains(&needle)
+                || snapshot.record.path.to_lowercase().contains(&needle)
         };
 
         let mut groups = ProjectGroups::default();
@@ -198,25 +243,42 @@ impl WindowRegistry {
             .elsewhere
             .sort_by_key(|(project, label, _)| (*label, *project));
 
-        groups.history = (0..self.projects.len())
-            .filter(|p| self.holder(*p).is_none())
-            .filter(|p| matches(*p))
+        // Most recently used first, and a project never opened last. With a real catalogue the
+        // order things were added is not the order anybody wants to see them in.
+        let mut history: Vec<&ProjectSnapshot> = self
+            .projects
+            .values()
+            .filter(|p| self.holder(p.record.id).is_none())
+            .filter(|p| matches(p.record.id))
             .collect();
+        history.sort_by(|a, b| {
+            b.record
+                .last_opened_at
+                .cmp(&a.record.last_opened_at)
+                .then_with(|| b.record.created_at.cmp(&a.record.created_at))
+        });
+        groups.history = history.into_iter().map(|p| p.record.id).collect();
 
         groups
     }
 
     /// Take a project out of whatever window holds it. A project is open in one window at a time,
     /// so every open goes through here first.
-    fn release(&mut self, project: usize) {
+    fn release(&mut self, project: ProjectId) {
         for slot in &mut self.windows {
             remove(slot, project);
         }
     }
 
-    /// Drop every window left with nothing open, and answer which they were. A window with no
-    /// project has nothing to show, so its slot goes now and the caller closes the window itself.
+    /// Drop every window left with nothing open, and answer which they were.
+    ///
+    /// **Except when the catalogue is empty.** A window with no project normally has nothing to
+    /// show, but with nothing to open it still offers "Add a project…", and reaping it would quit
+    /// the application on a first run.
     fn reap(&mut self) -> Vec<WindowId> {
+        if self.projects.is_empty() {
+            return Vec::new();
+        }
         let emptied: Vec<WindowId> = self
             .windows
             .iter()
@@ -229,7 +291,7 @@ impl WindowRegistry {
 }
 
 /// Remove a project from one slot, keeping `active` on a project that still exists.
-fn remove(slot: &mut WindowSlot, project: usize) {
+fn remove(slot: &mut WindowSlot, project: ProjectId) {
     let Some(at) = slot.projects.iter().position(|p| *p == project) else {
         return;
     };

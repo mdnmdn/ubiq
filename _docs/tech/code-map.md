@@ -30,9 +30,32 @@ For the rules about what belongs in each of these files, read
 <!-- generated:begin tree -->
 
 ```
-crates/ubiq/src/
+crates/ubiq-proto/src/
+├── bus.rs
+├── ids.rs
+├── lib.rs
+├── log.rs
+├── messages.rs
+└── projects.rs
+
+crates/ubiq-host/src/
 ├── pty/
 │   └── mod.rs
+├── agent.rs
+├── coordinator.rs
+├── lib.rs
+├── mcp_server.rs
+├── store/
+│   ├── file.rs
+│   ├── memory.rs
+│   └── mod.rs
+├── atomic.rs
+├── config.rs
+├── gc.rs
+├── health.rs
+└── projects.rs
+
+crates/ubiq/src/
 ├── state/
 │   ├── mod.rs
 │   ├── chat.rs
@@ -41,7 +64,9 @@ crates/ubiq/src/
 │   ├── sample.rs
 │   ├── workbench.rs
 │   ├── windows.rs
-│   └── logs.rs
+│   ├── logs.rs
+│   ├── prefs.rs
+│   └── when.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -64,16 +89,12 @@ crates/ubiq/src/
 │   ├── titlebar.rs
 │   ├── project_menu.rs
 │   └── logs.rs
-├── agent.rs
 ├── app.rs
 ├── lib.rs
-├── main.rs
-├── mcp_server.rs
-├── messages.rs
-├── orchestrator.rs
-├── theme.rs
-├── bus.rs
-└── log.rs
+└── theme.rs
+
+crates/ubiq-app/src/
+└── main.rs
 ```
 
 <!-- generated:end tree -->
@@ -93,19 +114,29 @@ the documents in its row.
 | `_tools/excalidraw.py` | [`diagram-format.md`](./diagram-format.md) |
 | `crates/agent-manager/src/lib.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/spec.rs` | [`agent-manager.md`](./agent-manager.md) |
+| `crates/ubiq-app/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq-app/src/main.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) |
+| `crates/ubiq-host/src/coordinator.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/projects.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
+| `crates/ubiq-proto/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq-proto/src/bus.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-proto/src/ids.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-proto/src/lib.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-proto/src/log.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-proto/src/messages.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-proto/src/projects.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
-| `crates/ubiq/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) |
 | `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
-| `crates/ubiq/src/bus.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
-| `crates/ubiq/src/log.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
-| `crates/ubiq/src/main.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
-| `crates/ubiq/src/messages.rs` | [`transport-contract.md`](./transport-contract.md) |
-| `crates/ubiq/src/orchestrator.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`architecture.md`](./architecture.md) |
-| `crates/ubiq/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/state/logs.rs` | [`features/logs.md`](../features/logs.md) |
 | `crates/ubiq/src/state/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/prefs.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/when.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/windows.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/workbench.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
@@ -128,11 +159,18 @@ the documents in its row.
 
 ## Unanchored
 
-No document's `code_anchors` names these. Restricted to `crates/ubiq/src/`.
+No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 
 | File |
 |---|
-| `crates/ubiq/src/mcp_server.rs` |
+| `crates/ubiq-host/src/atomic.rs` |
+| `crates/ubiq-host/src/config.rs` |
+| `crates/ubiq-host/src/gc.rs` |
+| `crates/ubiq-host/src/health.rs` |
+| `crates/ubiq-host/src/mcp_server.rs` |
+| `crates/ubiq-host/src/store/file.rs` |
+| `crates/ubiq-host/src/store/memory.rs` |
+| `crates/ubiq-host/src/store/mod.rs` |
 | `crates/ubiq/src/state/editor.rs` |
 | `crates/ubiq/src/state/explorer.rs` |
 | `crates/ubiq/src/state/sample.rs` |

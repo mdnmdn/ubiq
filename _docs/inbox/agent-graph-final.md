@@ -1,27 +1,21 @@
 ---
 id: inbox-agent-graph-final
-title: Proposal — the agent graph, final
+title: Proposal — the agent graph
 kind: proposal
 status: proposal
-summary: The merged and settled version of the agent-graph work — sessions as working areas, tasks with three shapes, hosted and reported agents, four activity channels, the brief as a gate, the MCP surface, the two screens, and every fork the earlier drafts left open, closed.
+summary: Agents as a graph rather than a row of terminals — workspaces as working areas, tasks with three shapes, hosted and reported agents, four activity channels, the brief as a gate, the MCP surface agents reach each other by, the rename that frees the vocabulary, and the two screens that draw all of it.
 read_when: you are deciding how several agents cooperate on one goal, what an agent knows about the others, or what the Agents and Tasks rail modes are for
 updated: 2026-08-31
 depends_on: [feat-sessions, feat-workbench, feat-chat, tech-transport, tech-agent-manager]
 ---
 
-# Proposal — the agent graph, final
+# Proposal — the agent graph
 
 Ubiq today is a multiplexer: panes side by side, each an independent harness, related only by
 sharing a window. This proposes the layer above — several agents working one goal, knowing about
-each other, reporting what they are doing, drawn as a graph instead of a row.
-
-This document supersedes [`agent-graph-proposal.md`](./agent-graph-proposal.md) and
-[`graph-harness-brainstorm.md`](./graph-harness-brainstorm.md), which both expand
-[`graph-harness-ideas.md`](./graph-harness-ideas.md). It takes the proposal's model — the
-distinctions, the channels, the contract — and folds in what the brainstorm had that the proposal
-dropped: the shape of the brief, work without a task, the PM's guardrails, the scenarios, the
-alternatives that were considered and rejected, and the decisions the mockups made. Every fork the
-two drafts left open is closed here, and §15 lists the closures.
+each other, reporting what they are doing, drawn as a graph instead of a row. It is the settled
+version of [`graph-harness-ideas.md`](./graph-harness-ideas.md), and it replaces the two drafts
+that expanded those notes; every fork they left open is closed here, and §15 lists the closures.
 
 **The line, stated once:** Ubiq hosts orchestration; it does not perform it. The one exception is
 the pipeline sequencer in §5, and only because it needs no model to decide anything. Everything
@@ -35,64 +29,82 @@ The whole design is a nesting, and a nesting whose levels share a name cannot be
 | Level | What it is | Owns |
 |---|---|---|
 | **Project** | A repository Ubiq remembers. A window is opened on one | The catalogue record, the config root |
-| **Session** | A working area: one folder, one branch, one worktree, optionally a goal | A directory, a git ref, its tasks |
-| **Task** | A unit of intent inside a session — a goal, a shape, a state | Its agents, its subtasks, its artifacts |
+| **Workspace** | A working area: one folder, one branch, one worktree, optionally a goal | A directory, a git ref, its tasks |
+| **Task** | A unit of intent inside a workspace — a goal, a shape, a state | Its agents, its subtasks, its artifacts |
 | **Agent** | One running harness with an identity | A conversation, a pane, a working directory |
 | **Role** | A named bundle an agent is spawned from | A prompt fragment, a harness, a tool policy |
 
-The compass for all five: **a session is a place; an agent is a who; a task is a why, when there is
-one; a role is a what-for; and the library's session is a conversation.** The graph is the who's,
-grouped by the place and the why, coloured by what each is doing.
+The compass for all five: **a workspace is a place; an agent is a who; a task is a why, when there
+is one; a role is a what-for; and the library's session is a conversation.** The graph is the
+who's, grouped by the place and the why, coloured by what each is doing.
 
-Three of those exist. **Project** is [`project-handling-proposal.md`](./project-handling-proposal.md).
-**Session** is [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) —
+**Two of those names are a rename, and this proposal takes it.** Today Ubiq says *session* for the
+working area and *workspace* for one running agent. Both words move:
+
+| Today | After |
+|---|---|
+| session — a named grouping with a folder | **workspace** |
+| workspace — one running agent | **agent** |
+
+The reasons, stated once. *Session* is spent twice — Ubiq's grouping and the harness library's
+resumable conversation — which is why `AGENTS.md` carries a rule whose entire content is that a
+document using the word must say which, and why [`../backlog.md`](../backlog.md) Q4 exists; a
+vocabulary that needs a disambiguation rule has already failed. *Workspace* is the word a user
+reaches for unprompted — a folder you work in — and the only thing blocking it is Ubiq spending it
+on the running agent, whose honest name is *agent*: the glossary's own definition, "one running
+instance of one agent inside a session", is a definition of an agent with extra words. After the
+rename, *session* means only the library's resumable conversation, and the `AGENTS.md` rule is
+deleted rather than reworded.
+
+The cost is small and shrinking-proof: the session and workspace message families are documented
+and largely unimplemented — backlog row G19 says only three variants exist in code — so the rename
+is mostly a documentation edit today and will not be next year, and it rides
+the id sweep [`project-handling-proposal.md`](./project-handling-proposal.md) already plans.
+Nothing crosses into `agent-manager`: the library keeps calling its conversation a session, because
+that is the harness's own word and the crate is not ours to rename. The rename of the
+`feat-sessions` document itself is a librarian's move, filed to `_meta/feedback.md`.
+
+So: **Project** is [`project-handling-proposal.md`](./project-handling-proposal.md). **Workspace**
+is today's session — [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md),
 "a named piece of work that owns a folder" — and it grows fields rather than becoming a new
-concept. **Agent** is today's workspace: one harness, one directory, one terminal; this document
-says *agent* for identity and *workspace* for process, and they are one record. **Task** and
+concept. **Agent** is today's workspace: one harness, one directory, one terminal. **Task** and
 **role** are new, and they are the entire addition.
 
-The word *session* itself should not survive — Ubiq spends it twice, and
-[`session-naming-proposal.md`](./session-naming-proposal.md) is that decision on its own:
-`session` → `workspace` and `workspace` → `agent` if the cascade is taken, `session` → `lane` if it
-is not. This document keeps saying "session" for the thing being renamed and **working area** where
-the sentence would otherwise be ambiguous.
-
-The collision this design does resolve: the harness library's *session* is a resumable
-conversation, Ubiq's is a folder full of work, and [`../backlog.md`](../backlog.md) Q4 asks which
-maps onto which. **The library's session belongs to the agent.** One agent is one resumable
+The collision this resolves has one more piece: which of the library's sessions maps onto which of
+Ubiq's records. **The library's session belongs to the agent.** One agent is one resumable
 conversation, so resuming a task is a fan-out over its agents, not a lookup.
 
 ```
-   project ──┬── area "auth-refactor"   (worktree, branch feat/auth)
+   project ──┬── workspace "auth-refactor"  (worktree, branch feat/auth)
              │     ├── task "extract the token store"  [pipeline]
              │     │     ├── agent implementer (codex)  tool: edit
              │     │     └── agent reviewer    (claude) queued
              │     └── (two agents, no task — the user is just coding here)
-             └── area "main"            (the repo itself)
-                   └── agent pm         (claude) awaiting input
+             └── workspace "main"           (the repo itself)
+                   └── agent pm            (claude) awaiting input
 ```
 
-## 2. Where a session grows, and where it does not
+## 2. Where a workspace grows, and where it does not
 
-A session gains three durable fields and one derived one: **`goal`**, one or two sentences on what
-this area is for, injected into every agent's identity brief; **`git_ref`**, the branch it works
-on, absent meaning whatever the folder is already on; **`state`**, `Draft` until its brief is
+A workspace gains three durable fields and one derived one: **`goal`**, one or two sentences on
+what this area is for, injected into every agent's identity brief; **`git_ref`**, the branch it
+works on, absent meaning whatever the folder is already on; **`state`**, `Draft` until its brief is
 accepted and `Open` after (§7); and derived, whether the folder is a linked **worktree** the host
 created or one that was already there.
 
-**A session is a worktree when it needs to be, and Ubiq never converts one silently.** Creating one
-offers three placements: the project's own folder, an existing folder, or a new linked worktree on
-a new branch — the third is what makes parallel areas safe. Removing a session never removes a
-worktree Ubiq did not create. The UI never runs `git`; the worktree is the host's move.
+**A workspace is a worktree when it needs to be, and Ubiq never converts one silently.** Creating
+one offers three placements: the project's own folder, an existing folder, or a new linked worktree
+on a new branch — the third is what makes parallel workspaces safe. Removing a workspace never
+removes a worktree Ubiq did not create. The UI never runs `git`; the worktree is the host's move.
 
-**A session without a task is first-class, not a degenerate state.** Opening an area and coding
-with agents — no brief, no board row — is today's product with a name on the place, and it must
-stay one click. A task does not own its session; it uses it, and closing a task does not destroy
-the place.
+**A workspace without a task is first-class, not a degenerate state.** Opening one and coding with
+agents — no brief, no board row — is today's product with a name on the place, and it must stay one
+click. A task does not own its workspace; it uses it, and closing a task does not destroy the
+place.
 
-**Sessions are the isolation boundary; tasks and crews are not.** Two sessions on two worktrees
-cannot collide. Two tasks in one session share a folder, and so do two agents in one crew. §12 says
-what that costs — it is the hazard this design does not remove.
+**Workspaces are the isolation boundary; tasks and crews are not.** Two workspaces on two worktrees
+cannot collide. Two tasks in one workspace share a folder, and so do two agents in one crew. §12
+says what that costs — it is the hazard this design does not remove.
 
 ## 3. Two kinds of agent, and why it decides the UI
 
@@ -204,23 +216,23 @@ coordinator is not the PM: the PM *starts* tasks and picks shapes; a coordinator
 project can have a PM and several coordinators at once.
 
 **Solo is not a degenerate case to be folded away.** It is what most work is. Distinguish it from
-"just code in this session": a solo task has a brief and a board row; just-code has neither, and
+"just code in this workspace": a solo task has a brief and a board row; just-code has neither, and
 both are legitimate.
 
 ## 6. The PM is a role, not a component
 
 The project orchestrator is tempting to build as a special thing. It should not be.
 
-**A PM is an ordinary hosted agent with a wide tool policy, in a session bound to the project's
+**A PM is an ordinary hosted agent with a wide tool policy, in a workspace bound to the project's
 main worktree.** It has a pane like everything else, so the user can watch it. It holds the
-conversation where the user says "start a task", it creates tasks, sessions and agents through
+conversation where the user says "start a task", it creates tasks, workspaces and agents through
 tools, and it is the default recipient of an escalation. It is a row in the role table, not a new
 subsystem.
 
-**Every agent has a session, including the PM — and the PM's is always main.** The earlier drafts
+**Every agent has a workspace, including the PM — and the PM's is always main.** The earlier drafts
 forked on this: a PM with no working tree (it plans, it cannot edit) against a PM on the main
 checkout (it can see the tree it directs). The fork closes on *main*, for two reasons. Every agent
-has a working directory, and a null session would hole every node, edge and query. And a PM that
+has a working directory, and a null workspace would hole every node, edge and query. And a PM that
 sometimes has a tree and sometimes does not is how the user loses track of whether "the PM" can
 touch files — the occupancy must be one thing, always. What the "none" option was protecting is
 kept by policy instead: the PM's role is read-mostly on main, and `may_write` is the switch.
@@ -243,7 +255,7 @@ the PM is simply the role with everything on:
 | Policy | Meaning |
 |---|---|
 | `may_spawn` | May create hosted agents, up to `max_children` |
-| `may_create_session` | May open a new working area, worktree included |
+| `may_create_workspace` | May open a new workspace, worktree included |
 | `may_message` | May address other agents in the project |
 | `may_write` | Whether its run is composed read-only |
 | `mcps`, `skills`, `model`, `harness` | Bindings handed to the run spec |
@@ -255,8 +267,8 @@ contains one.
 
 ## 7. Shaping the work before any of it runs
 
-A new working area — from the `+` button, or created by the PM — does not open on an empty prompt.
-It opens on an **analyst**: a hosted agent whose only job is turning what the user wants into
+A new workspace — from the `+` button, or created by the PM — does not open on an empty prompt. It
+opens on an **analyst**: a hosted agent whose only job is turning what the user wants into
 something a task can be built from. A form cannot do that job, because the questions that decide
 whether work succeeds have their good answers in the repository, and an analyst that has read it
 asks better ones than a field labelled "Goal". Three hats, one conversation: an assistant that asks
@@ -273,27 +285,27 @@ should not have to invent:
 | **What to do** | The breakdown: subtasks, order, which files, which branch |
 | **How to do it** | The proposed shape — solo, pipeline, crew — with the roles and harnesses it would use |
 
-The brief becomes the area's `goal`, the first task's prompt, and the text §8's identity brief
+The brief becomes the workspace's `goal`, the first task's prompt, and the text §8's identity brief
 injects into every agent that follows. Written once, quoted everywhere.
 
-**The brief is a gate.** An area stays `Draft` until the user accepts it, and accepting is what
+**The brief is a gate.** A workspace stays `Draft` until the user accepts it, and accepting is what
 creates the first task and lets anything spawn. So the analyst's policy is deliberately narrow —
 read anything, spawn nothing, write nothing but the brief — which is what makes it safe to start
-automatically on every new area. **It proposes; it never starts.** An analyst suggesting a crew of
-nine is making a suggestion, and the budget that crew needs is the user's to grant.
+automatically on every new workspace. **It proposes; it never starts.** An analyst suggesting a
+crew of nine is making a suggestion, and the budget that crew needs is the user's to grant.
 
 **A brief can live without a task.** Refine, then just code: the user accepts the brief, opens the
-area, spawns agents by hand, and the brief is in every prompt as context with no board row. The
-brief is a description of work, not a commitment to orchestrate it.
+workspace, spawns agents by hand, and the brief is in every prompt as context with no board row.
+The brief is a description of work, not a commitment to orchestrate it.
 
 **Skipping is one click, and must stay one click.** A user who already knows what they want types
-it into the same box and gets a solo task — or an untasked area. Being interviewed about a one-line
-fix is exactly the friction that makes people stop using a tool.
+it into the same box and gets a solo task — or an untasked workspace. Being interviewed about a
+one-line fix is exactly the friction that makes people stop using a tool.
 
-**When the PM opens the area it hands over a draft brief**, not a blank one — it has the
+**When the PM opens the workspace it hands over a draft brief**, not a blank one — it has the
 conversation the user just had — and the analyst refines that with the user, so nobody is shown a
-working area whose goal only an agent understands. The analyst hat never comes off: a task that
-goes sideways goes back into refinement, in the same conversation, while other tasks run. **The
+workspace whose goal only an agent understands. The analyst hat never comes off: a task that goes
+sideways goes back into refinement, in the same conversation, while other tasks run. **The
 interview is kept**: the brief links to the transcript that produced it, because in a month "why is
 this scoped this way" has an answer and that conversation is it.
 
@@ -305,12 +317,13 @@ runs on: `crates/ubiq-host/src/mcp_server.rs`, hosted through the library's `inp
 and injected into every hosted run as an ordinary remote MCP server.
 
 **Identity is injected, not discovered.** Every hosted run is composed with an identity brief: the
-agent's name and role, its area and that area's brief, its task, its parent, the names and roles of
-its siblings, and how to reach them. It is Ubiq-generated text handed to the run spec through the
-library's instructions path — the one `--instructions` uses — so no new mechanism is needed and
-harness-specific placement stays the library's problem. Identity is not flavour text: if two agents
-are both "Claude" and neither knows its name, `agents.send` has nothing to address. The short name
-on the node is the short name in the prompt is the short name in `agents.list`. One string.
+agent's name and role, its workspace and that workspace's brief, its task, its parent, the names
+and roles of its siblings, and how to reach them. It is Ubiq-generated text handed to the run spec
+through the library's instructions path — the one `--instructions` uses — so no new mechanism is
+needed and harness-specific placement stays the library's problem. Identity is not flavour text: if
+two agents are both "Claude" and neither knows its name, `agents.send` has nothing to address. The
+short name on the node is the short name in the prompt is the short name in `agents.list`. One
+string.
 
 **The id is a ULID; the address is a name.** Agents refer to each other as `reviewer-2`, unique
 within a project and readable in a prompt. Making agents pass 26-character ids to each other would
@@ -320,15 +333,15 @@ The tool surface, minimal on purpose:
 
 | Tool | Who may call it | Does |
 |---|---|---|
-| `agents.list` | Anyone | The agents in my task and my session: name, role, harness, activity |
+| `agents.list` | Anyone | The agents in my task and my workspace: name, role, harness, activity |
 | `agents.send` | `may_message` | Puts a message in another agent's inbox. Never interrupts them |
 | `agents.inbox` | Anyone | Drains my messages |
-| `agents.spawn` | `may_spawn` | Creates a hosted agent from a role, in my session, under me |
+| `agents.spawn` | `may_spawn` | Creates a hosted agent from a role, in my workspace, under me |
 | `status.set` | Anyone | My own account of what I am doing — channel 4 of §4 |
 | `task.subtask` | Anyone | Declares or updates a subtask under my task |
 | `task.done` | Anyone | Reports my part finished, with a summary and the artifacts |
 | `ask_user` | Anyone | Escalates a question to the human, through the PM if there is one |
-| `session.create` | `may_create_session` | A new working area, optionally a new worktree and branch |
+| `workspace.create` | `may_create_workspace` | A new workspace, optionally a new worktree and branch |
 
 `agents.spawn` is worth pausing on, because it is a new direction on the bus: a message that
 originates in a hosted agent, crosses the MCP into the host, and comes back out as a spawned pane
@@ -357,7 +370,7 @@ worth having a record at all. A finished stage's agent is `Ended`; the task's ro
 | Field | Meaning |
 |---|---|
 | `id` | A ULID |
-| `session_id` | The working area it runs in. A task never spans sessions |
+| `workspace_id` | The workspace it runs in. A task never spans workspaces |
 | `title`, `goal` | What it is called, and the prompt every agent in it inherits |
 | `shape` | `Solo`, `Pipeline { stages[] }`, `Crew { coordinator_role }` |
 | `state` | `Draft`, `Running`, `Blocked`, `Review`, `Done`, `Failed`, `Cancelled` |
@@ -366,12 +379,12 @@ worth having a record at all. A finished stage's agent is `Ended`; the task's ro
 | `artifacts` | Branch, files touched, documents written, the summary each finished agent left |
 | `brief` | The accepted brief, with a link to the interview that produced it |
 
-**A task never spans working areas**, because an area is a folder and a task that ran in two
+**A task never spans workspaces**, because a workspace is a folder and a task that ran in two
 folders has no coherent diff. The earlier draft's counter-case — research on main, implement on a
-worktree — dissolves once read and write are separated: every stage *runs* in the task's session,
+worktree — dissolves once read and write are separated: every stage *runs* in the task's workspace,
 and a stage that needs to consult another checkout reads those files, which requires no second
-session. Work that must *write* two areas is two tasks, and the PM working across areas — creating
-and following tasks in several — is exactly how that is expressed.
+workspace. Work that must *write* two workspaces is two tasks, and the PM working across
+workspaces — creating and following tasks in several — is exactly how that is expressed.
 
 **Two registers, one screen, one authority.** Tasks and subtasks Ubiq created are Ubiq's record;
 the todo list a harness keeps in its own head is the harness's, and Ubiq mirrors what an agent
@@ -379,10 +392,10 @@ reports through `task.subtask` without pretending to own it. A mirrored subtask 
 and disappears with its agent — reconciling the two would make Ubiq wrong about both.
 
 **Tasks mode is that register, and the Tasks drawer is the same register docked.** Tasks mode is a
-list per area, grouped by state, each row expanding to its subtasks, agents and artifacts, with the
-graph one click away. While Agents mode is selected, the same records project into a drawer under
-the canvas — shape, title, progress, the agents with their activity — so graph and board are two
-lenses on one run. Two views are fine; two *boards* would be the mistake.
+list per workspace, grouped by state, each row expanding to its subtasks, agents and artifacts,
+with the graph one click away. While Agents mode is selected, the same records project into a
+drawer under the canvas — shape, title, progress, the agents with their activity — so graph and
+board are two lenses on one run. Two views are fine; two *boards* would be the mistake.
 
 Documentation is not a special case — a documentation stage is a stage whose artifact is a
 document, a docs agent is an agent whose role is documentation, and KB mode reads the artifacts
@@ -390,20 +403,23 @@ back. It is a surface fed by the same agents the graph shows, not a fourth shape
 
 ## 10. The message families
 
-Two new families beside the pane and session families, and three additions to what exists. Every
+Two new families beside the pane and workspace families, and three additions to what exists. Every
 variant that names an agent names it by id, and **the host sends a graph, not a drawing** — no
 coordinates, no layout, no colour crosses the bus.
 
-**Additions to existing records.** `WorkspaceInfo` grows `name`, `role`, `parent_id`, `task_id`,
-`origin` (`Hosted` | `Reported`) and `activity`. `SessionInfo` grows `goal`, `git_ref` and `state`.
-Those two changes alone are most of the value, and they are phase 1.
+**The rename lands in the contract first.** Today's `WorkspaceInfo` — the record of one running
+agent — becomes `AgentInfo`, and grows `name`, `role`, `parent_id`, `task_id`, `origin`
+(`Hosted` | `Reported`) and `activity`. Today's `SessionInfo` becomes `WorkspaceInfo`, and grows
+`goal`, `git_ref` and `state`. The session message family (`ListSessions`, `CreateSession`,
+`SpawnWorkspace`, …) renames with its records — cheap while G19 holds. Those changes alone are most
+of the value, and they are phase 1.
 
 ### The task family
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `ListTasks` | UI → host | `session_id?` | `TaskList` |
-| `CreateTask` | UI → host | `session_id`, `title`, `goal`, `shape` | `TaskChanged` |
+| `ListTasks` | UI → host | `workspace_id?` | `TaskList` |
+| `CreateTask` | UI → host | `workspace_id`, `title`, `goal`, `shape` | `TaskChanged` |
 | `StartTask` | UI → host | `task_id` | `TaskChanged`, then agent events |
 | `StopTask` | UI → host | `task_id` | `TaskChanged` |
 | `UpdateTask` | UI → host | `task_id`, `title?`, `goal?`, `state?` | `TaskChanged` |
@@ -415,7 +431,7 @@ Those two changes alone are most of the value, and they are phase 1.
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `RequestGraph` | UI → host | `project_id` | `GraphSnapshot` |
-| `GraphSnapshot` | host → UI | `sessions[]`, `tasks[]`, `agents[]`, `edges[]` | — |
+| `GraphSnapshot` | host → UI | `workspaces[]`, `tasks[]`, `agents[]`, `edges[]` | — |
 | `AgentAppeared` | host → UI | `agent` | — |
 | `AgentActivity` | host → UI | `agent_id`, `activity`, `since`, `observed_at`, `source`, `note?` | — |
 | `AgentGone` | host → UI | `agent_id`, `outcome` | — |
@@ -429,7 +445,7 @@ Four rules on top of the existing framing rules:
 
 **A snapshot is always available, and the deltas are an optimisation.** A graph rebuilt only from a
 stream drifts, and a UI that reconnects — a second window, a reattaching client — needs one message
-that says everything. This is `SessionAttached`'s existing shape, for the same reason.
+that says everything. This is the attach message's existing shape, for the same reason.
 
 **Activity is coalesced by the host.** A crew mid-flight produces hundreds of tool events a second,
 and a graph repainting per event flickers and floods the bus. The host emits at most one
@@ -450,11 +466,11 @@ Two rail modes that currently render an empty page — G11 — and one extension
 picture: three tasks in three shapes under one PM, one canvas.
 
 **Agents mode is the graph** — a map of the people in the room, not a terminal layout, not a
-roster, not a scrolling log. Sessions are containers, tasks are labelled groups inside them, agents
-are nodes. That nesting is legal *because* a task never spans sessions (§9), which is what
+roster, not a scrolling log. Workspaces are containers, tasks are labelled groups inside them,
+agents are nodes. That nesting is legal *because* a task never spans workspaces (§9), which is what
 dissolves the drafts' group-by-place versus group-by-task fork: a pipeline never splits across
-bands, and an untasked area draws as a quiet group — the current product, visible from Agents mode,
-not a solitary node in whitespace.
+bands, and an untasked workspace draws as a quiet group — the current product, visible from Agents
+mode, not a solitary node in whitespace.
 
 **Edges are three kinds, and the default view shows structure**: delegation (dashed, parent to
 child), handoff (a pipeline's numbered arrow between stages), and traffic (transient, animated,
@@ -462,7 +478,7 @@ gone in a second — a toggle, never a permanent thicket, or every crew is a com
 Clicking an edge answers "why is this arrow here": the spawn reason, the handoff artifact, the last
 message.
 
-**A node carries** its name and role, a harness badge, the path chip of its session, the activity
+**A node carries** its name and role, a harness badge, the path chip of its workspace, the activity
 chip in its status colour with elapsed time in state, and an undrained-inbox count when it has one.
 The card's left edge takes the status colour — the shell's existing `ACCENT_EDGE` convention — and
 colour comes from the theme's status group, so a red node means the same thing it means everywhere
@@ -475,7 +491,7 @@ leaves a dimmed node until the task ends. A graph that rearranges while the user
 worse than an ugly one — the user is tracking motion, and every avoidable movement is noise. Above
 a threshold a crew collapses to one node with a member count.
 
-**Selecting a node opens an inspector**: identity, role, area, task, parent, harness, model,
+**Selecting a node opens an inspector**: identity, role, workspace, task, parent, harness, model,
 account, budget consumed, tools run, and the actions — open its chat, open its terminal, message
 it, stop it. Hosted or reported is stated in the chrome, never left to be deduced from a missing
 button.
@@ -511,11 +527,11 @@ Multi-agent work fails in ways single-agent work does not, and most of them are 
 | A spawn would exceed the task's agent budget | Refused, as a tool error the agent can read and reason about, not a crash |
 | Delegation cycles — A spawns B spawns A | A depth cap and a per-task budget. The cap is a refusal, not a deadlock |
 | Two agents in one crew edit the same file | Nothing prevents it. §2's mitigations: separate directories by role, or a worktree per member with a merge stage |
-| The analyst is never answered | The area stays `Draft`. Nothing was spawned and nothing was spent |
+| The analyst is never answered | The workspace stays `Draft`. Nothing was spawned and nothing was spent |
 | The user rewrites the brief by hand | It is text, and it wins. The analyst is a convenience, not an authority |
 | A pipeline stage fails | The task stops at that stage, keeps every prior artifact, and offers a retry from there rather than from the top |
-| A worktree the session owns is gone | The session is `Missing`, like a project. Spawning into it is refused before a pseudo-terminal exists |
-| The graph outgrows the canvas | Crews collapse to a count; sessions collapse to a header. No node is dropped |
+| A worktree the workspace owns is gone | The workspace is `Missing`, like a project. Spawning into it is refused before a pseudo-terminal exists |
+| The graph outgrows the canvas | Crews collapse to a count; workspaces collapse to a header. No node is dropped |
 | A harness supports no hooks | Activity degrades to process liveness plus self-report, and the node says which channel it is on |
 | The user stops a task | Every agent in it is killed. This is the only action that ends more than one pane, and it asks first |
 
@@ -540,26 +556,26 @@ kill in the product.
 Each exercises a piece the sections above claim; a design change that breaks one of these sentences
 has changed the product.
 
-**Just code.** One area (main), one spawned harness, typing. No brief, no board row, no PM. Agents
-mode shows one quiet node. Today's product, with a name on the place.
+**Just code.** One workspace (main), one spawned harness, typing. No brief, no board row, no PM.
+Agents mode shows one quiet node. Today's product, with a name on the place.
 
 **Refine, then code.** The user tells the PM "the host crate is a mess." The PM asks what mess
 means, proposes a brief, the user cuts a subtask and adds a requirement, accepts. No task: they
-spawn two agents into the area by hand and the brief is in both prompts. The Tasks register is
+spawn two agents into the workspace by hand and the brief is in both prompts. The Tasks register is
 empty; the graph is the PM plus two nodes.
 
-**A crew in one area.** After refinement the PM creates a task, shape crew, on main. A coordinator
-spawns a codex implementer and a claude reviewer — identity injected, MCP shared, brief in every
-prompt. The graph is a star. The user reads the reviewer's transcript pane read-only and types into
-the implementer's terminal. `AwaitingInput` lights on the coordinator when it wants the merge
-accepted.
+**A crew in one workspace.** After refinement the PM creates a task, shape crew, on main. A
+coordinator spawns a codex implementer and a claude reviewer — identity injected, MCP shared, brief
+in every prompt. The graph is a star. The user reads the reviewer's transcript pane read-only and
+types into the implementer's terminal. `AwaitingInput` lights on the coordinator when it wants the
+merge accepted.
 
-**A pipeline on a worktree.** A breaking change that must not land on main: the PM creates an area
-from a worktree on `feat/auth` and a pipeline in it — research → implement → document → review.
-Every stage runs in that area; the research stage reads main's checkout without owning it. The
-graph is a path that changes colour as the token moves; the reviewer sits `Queued` until the
-builder's artifact lands. The user opens the two transcript panes at the handoff, because that is
-where pipelines go wrong.
+**A pipeline on a worktree.** A breaking change that must not land on main: the PM creates a
+workspace from a worktree on `feat/auth` and a pipeline in it — research → implement → document →
+review. Every stage runs in that workspace; the research stage reads main's checkout without owning
+it. The graph is a path that changes colour as the token moves; the reviewer sits `Queued` until
+the builder's artifact lands. The user opens the two transcript panes at the handoff, because that
+is where pipelines go wrong.
 
 **A native child beside a foreign one.** A claude coordinator spawns a claude subagent internally
 for a narrow edit, and asks the host — `agents.spawn` — for a codex child for the tests. Three
@@ -567,18 +583,18 @@ nodes: coordinator (hosted), native child (reported, no pane, transcript is a sl
 parent's), codex (hosted, own pane). The chrome says which is which; the user can read the native
 child and cannot focus a terminal it does not have.
 
-## 15. What the drafts left open, closed here
+## 15. What the earlier drafts left open, closed here
 
-The two source documents forked on real questions. The closures, with the reasoning where it is not
+The drafts this replaces forked on real questions. The closures, with the reasoning where it is not
 already in a section above:
 
-- **The place-word** goes to [`session-naming-proposal.md`](./session-naming-proposal.md):
-  `workspace` via the cascade, `lane` without it. Not re-argued here.
+- **The place-word** is *workspace*, taken as the cascade: today's session becomes workspace,
+  today's workspace becomes agent, and *session* means only the library's conversation — §1.
 - **PM occupancy** is *main*, never none, never both — §6.
-- **Group the graph by area or by task** dissolves: areas contain, tasks group inside, because a
-  task never spans an area — §11.
-- **A task never spans areas**; a stage may read other checkouts, and cross-area *writes* are two
-  tasks — §9.
+- **Group the graph by workspace or by task** dissolves: workspaces contain, tasks group inside,
+  because a task never spans a workspace — §11.
+- **A task never spans workspaces**; a stage may read other checkouts, and cross-workspace *writes*
+  are two tasks — §9.
 - **One chat or several** is answered by pane kinds, not by a second window manager — §11. Movable
   panels remain a separate proposal this does not depend on.
 - **Read-only chat** is two things: a construction fact for reported agents, a view flag for hosted
@@ -596,18 +612,19 @@ And the alternatives considered and rejected, kept so they are not re-proposed: 
 form cannot refine a brief); the PM as the only coordinator (three live tasks would give one agent
 three hats); skipping the brief for orchestrated runs (a vague goal inherited by every agent);
 chat-as-the-terminal (D2, and it gives neither read-only nor several-at-once nor a citable
-transcript).
+transcript); keeping the word *session* (tmux says it, but it is spent twice and implies transience
+about a worktree with a week of work in it).
 
 ## 16. Phases
 
 Each is useful on its own. Two tracks run independently until tasks tie them together: the **graph
 track** (1–3), which needs no orchestration to be worth shipping, and the **conversation track**
-(4, 6, 7), which is the brainstorm's analyst-first slice — a chat that produces a brief needs the
-MCP surface and a transcript pane, not the graph.
+(4, 6, 7), the analyst-first slice — a chat that produces a brief needs the MCP surface and a
+transcript pane, not the graph.
 
 | # | Phase | What lands |
 |---|---|---|
-| 1 | **Identity on what already runs** | `name`, `role`, `parent_id`, `task_id`, `origin` on the agent record; `goal` and `git_ref` on the area; the rename, if it is taken |
+| 1 | **The rename, and identity on what already runs** | session → workspace, workspace → agent, across contract, code and docs; `name`, `role`, `parent_id`, `task_id`, `origin` on the agent record; `goal` and `git_ref` on the workspace |
 | 2 | **The graph** | Agents mode, `RequestGraph`/`GraphSnapshot`, node, inspector, delegation edges. Activity is process liveness, and already worth looking at |
 | 3 | **Activity from hooks** | Channel 2 through the harness library; the activity record with its source and `observed_at`; staleness as a rendering |
 | 4 | **The MCP surface** | `crates/ubiq-host/src/mcp_server.rs` on `inproc-mcp`: identity brief, `agents.list`, `status.set`, `agents.send`, `agents.inbox`. Closes G7 |
@@ -616,25 +633,29 @@ MCP surface and a transcript pane, not the graph.
 | 7 | **Tasks** | The record, Tasks mode and the drawer, `Solo` and `Pipeline`, the stage sequencer, the artifact handoff, budgets |
 | 8 | **Crews** | `agents.spawn`, the role table and its policy, depth caps, orphan handling |
 | 9 | **Reported agents** | Parent-reported nodes from hook and event streams; the read-only transcript |
-| 10 | **The PM** | A role, an area on the main worktree, `session.create` and `ask_user` |
-| 11 | **Areas as worktrees** | Creation, branch binding, removal that never removes what it did not create. Waits on version control in the host |
+| 10 | **The PM** | A role, a workspace on the main worktree, `workspace.create` and `ask_user` |
+| 11 | **Workspaces as worktrees** | Creation, branch binding, removal that never removes what it did not create. Waits on version control in the host |
 
-Phases 1–3 are independent of the project-handling proposal. From phase 4 on, this assumes the
-harness library is wired in — G1 and G21 — because injecting an MCP surface needs a composed run.
+Phases 1–3 are independent of the project-handling proposal, though phase 1's rename rides that
+proposal's id sweep if both land together. From phase 4 on, this assumes the harness library is
+wired in — G1 and G21 — because injecting an MCP surface needs a composed run.
 
 ## 17. What this asks to be decided
 
 - Ubiq hosts orchestration and does not perform it, with exactly one exception: the pipeline stage
   sequencer, which needs no model.
-- A session grows a goal, a git ref and a `Draft`/`Open` state, and is the isolation boundary. A
-  task never spans one; an area without a task is first-class.
+- Ubiq's `session` is renamed to **workspace** and its `workspace` to **agent**; `session` means
+  only the library's resumable conversation, the `AGENTS.md` rule that disambiguates the two is
+  deleted, and the `feat-sessions` document rename is filed as a librarian move.
+- A workspace grows a goal, a git ref and a `Draft`/`Open` state, and is the isolation boundary. A
+  task never spans one; a workspace without a task is first-class.
 - An agent is either hosted or reported: a contract fact, not a UI mode. Reported agents cannot be
   addressed and their transcripts are read-only by construction; a hosted agent's transcript may be
   opened read-only as a view.
 - Activity is observed on four named channels, every value carries its channel, and silence is
   never promoted to idle.
 - A terminal and a structured event stream are mutually exclusive per agent, and the role chooses.
-- The harness library's session belongs to the agent, not to Ubiq's session — which settles Q4.
+- The harness library's session belongs to the agent, not to the workspace — which settles Q4.
 - Cross-agent messaging is a mailbox with pull delivery, plus a nudge that only lands on an idle
   transition.
 - The MCP surface in §8 is what Ubiq exposes to hosted agents — which settles G7 — and
@@ -646,14 +667,12 @@ harness library is wired in — G1 and G21 — because injecting an MCP surface 
   introducing a second one — which settles Q6.
 - The host sends a graph and never a drawing; layout, colour and collapse are the UI's alone, and
   layout is stable across ticks — nodes keep their slot, finished nodes persist to the task's end.
-- The graph nests area → task → agent; the Tasks drawer and Tasks mode are two projections of one
-  register.
+- The graph nests workspace → task → agent; the Tasks drawer and Tasks mode are two projections of
+  one register.
 - A task carries a three-number budget, and exceeding it pauses rather than kills.
-- Ubiq's `session` is renamed, per the session-naming proposal. The word stops carrying two
-  senses.
-- A working area opens on an analyst; its four-part brief is a gate — nothing spawns until the
-  brief is accepted — and a brief may also be taken without a task, as context for hand-driven
-  work. Skipping the analyst is one click.
+- A workspace opens on an analyst; its four-part brief is a gate — nothing spawns until the brief
+  is accepted — and a brief may also be taken without a task, as context for hand-driven work.
+  Skipping the analyst is one click.
 - The analyst may read anything and spawn nothing. It proposes a shape; it never starts one.
 - The overview's "not a chat client" non-goal is reworded: Ubiq does not call a model; it does
   render a conversation the host extracted from a run.
@@ -666,10 +685,9 @@ project, per user, or both.
 
 ## Related docs
 
-- [`agent-graph-proposal.md`](./agent-graph-proposal.md), [`graph-harness-brainstorm.md`](./graph-harness-brainstorm.md) — the two drafts this merges and supersedes
-- [`graph-harness-ideas.md`](./graph-harness-ideas.md) — the raw intent behind both
-- [`session-naming-proposal.md`](./session-naming-proposal.md) — the place-word, decided on its own
-- [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — the session and workspace this extends
+- [`graph-harness-ideas.md`](./graph-harness-ideas.md) — the raw intent this settles
+- [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — the layer §1 renames and §2 extends
+- [`../product/glossary.md`](../product/glossary.md) — where both renamed words are defined today
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — the pane rules a transcript pane inherits
 - [`../features/chat.md`](../features/chat.md), [`../features/workbench.md`](../features/workbench.md) — the panel a transcript pane reuses, and the rail modes this fills
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — where the two families land

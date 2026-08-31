@@ -215,7 +215,7 @@ honest as the README that holds it.
 
 The emulator wants something to read and something to write. It is given a `Write` that turns a
 keystroke into an input message and a blocking `Read` fed by the output messages routed to that
-pane, both from `crates/ubiq/src/bus.rs`. The obvious alternative — handing the emulator the
+pane, both from `crates/ubiq-proto/src/bus.rs`. The obvious alternative — handing the emulator the
 pseudo-terminal directly, which is what its own example does — would have been fewer moving parts.
 
 **Why:** it is what makes rule 2 structural rather than aspirational. The UI cannot reach a
@@ -257,7 +257,7 @@ own: emptying it closes it, from whichever window the user was clicking in.
 
 ### D24 — Diagnostics go to one process-wide sink, not over the bus
 
-Every subsystem logs with `tracing`, a layer in `crates/ubiq/src/log.rs` pushes each event into one
+Every subsystem logs with `tracing`, a layer in `crates/ubiq-proto/src/log.rs` pushes each event into one
 ring the whole process shares, and the window's console reads that ring directly. The alternative
 that would have honoured `D3` literally was a log message on the transport, with the coordinator
 forwarding its records to the window that owns it.
@@ -293,6 +293,114 @@ behind it, and the strip's `+`, its close buttons and its dots mean one thing fo
 for the console. It also means the console and a pane cannot be read
 at once, and the focus rule gains a case: the console holds the keyboard while it is shown, so a
 pane that is off screen cannot be typed into.
+
+### D26 — Every id in the contract is a ULID behind a per-kind newtype
+
+`PaneId`, `SessionId`, `WorkspaceId` and `ProjectId` are newtypes over a ULID, replacing `Uuid`
+everywhere in the message set. A ULID sorts by creation time, prints as 26 case-insensitive
+characters with no hyphens, and so gives a readable directory name and a stable ordering for free.
+The newtypes came free with the sweep: every id site was being touched anyway, and later they would
+have cost a second one.
+
+Sorting is a property of the *generator*, not the type, so there is exactly one — a process-wide
+monotonic `ulid::Generator`. A bare `Ulid::new()` is never called.
+
+**Cost:** one new dependency, and an id that carries its creation time, which is a fact worth
+knowing before ids travel to a host the user does not own. `gpui::WindowId` stays the framework's,
+so two id schemes coexist — but they never meet.
+
+### D27 — The boundary between the halves is four crates, not a written rule
+
+`ubiq-proto` holds the contract, `ubiq-host` the processes and the catalogue, `ubiq` the interface,
+and `ubiq-app` the binary. The interface does not depend on the host, so reaching around the bus is
+a compile error rather than a one-line import. `just host` and `just ui` check the two directions
+mechanically, the way `just core` checks the harness library.
+
+The binary is its own crate because a `[[bin]]` inside `crates/ubiq` shares that package's
+`[dependencies]`: naming the host there would put it in the library's graph too, and Cargo has no
+per-target dependency table. An optional dependency does not help either, because an enabled one is
+a real dependency of every target in the package.
+
+**Cost:** four manifests pinning their own versions, and a module move is a crate move. The
+payoff is that the host builds and tests in seconds, without waiting for a rendering stack.
+
+### D28 — One host per process, with a routing hub in the bus
+
+The catalogue is process-wide, so the thing that owns it has to be. One host is started by the
+binary before the first window; each window attaches and gets a client. Pane-family messages route
+to the window that owns the pane, recorded when it was spawned; project-family messages are
+broadcast, which makes every window's picker agree by construction rather than by asking again.
+
+The alternative — a host per window sharing the catalogue behind a lock — is shared mutable state
+reached around the bus, the shape `D3` exists to forbid, and it leaves two writers racing one
+file.
+
+**Cost:** a window closing no longer drops anything, so the host has to reap that window's
+pseudo-terminals deliberately. Miss that and every closed window leaves a live harness; it is
+covered by a test for exactly that reason.
+
+### D29 — The catalogue is one TOML file the host owns; view state is opaque to it
+
+Projects persist as a single `projects.toml` behind a `ProjectStore` trait. Tens of records make a
+whole-file rewrite microseconds, the user can repair it in an editor, and nothing the catalogue does
+needs a query, an index or a partial read. SQLite is a later swap and it lands on the per-project
+cache, which has real volume and is deletable by definition.
+
+View state goes through a second trait and is stored **opaque** — a string the host writes down and
+hands back and never parses, on the same discipline that keeps terminal bytes uninterpreted. The
+interface owns that schema, so the interface versions it, and a blob that fails to parse is
+discarded rather than migrated.
+
+**Cost:** two hosts writing one file is last-writer-wins, which is a backlog row rather than a
+design question. And the host cannot validate view state at all, so a bad blob is only ever
+discovered by the half that wrote it.
+
+### D30 — Ubiq writes nothing inside a project's folder
+
+Everything Ubiq remembers about a project lives under its own config root, keyed by the project's
+ULID. Forgetting a project then cleans up completely, a read-only or missing folder still has its
+view state, no repository acquires a file to gitignore, and no team has to agree on one.
+
+That root is movable — `--config-root`, then `UBIQ_CONFIG_DIR`, then the nearest `ubiq.toml`, then
+`~/.config/ubiq` — so a development run is self-contained by construction rather than by care. A
+malformed bootstrap file is an error, never a fallback: falling back to the user's real catalogue
+is precisely the accident the mechanism exists to prevent.
+
+**Cost:** a config root you cannot see is a foot-gun, which is why the status bar says when it is
+not the default. Redirecting the embedded harness library's own roots is not done yet, so a
+development run is self-contained only as far as Ubiq's own stores, which is filed as a gap.
+
+### D31 — Locating a project is its own message, and the interface chooses the colour
+
+`UpdateProject` is display only: it renames and recolours, touches no filesystem, and cannot fail.
+`LocateProject` changes truth — it canonicalises a path, re-probes health, and is refused when
+another record owns the folder. Collapsing them would make one message "sometimes fallible,
+depending which field you set".
+
+The colour is the interface's to pick, because the palette is. `AddProject` carries an optional
+swatch index and the host defaults it to zero; the host holds no opinion about what a project looks
+like.
+
+**Cost:** one more variant in a wide family, and a colour that nothing picks when a project is
+added through some future non-interactive path.
+
+### D32 — A project's folder is chosen in the platform's dialog
+
+Ubiq drew its own folder browser, fed by a `BrowseHost` message, on the reasoning that a native
+dialog browses the *interface's* filesystem rather than the host's. That reasoning is sound and the
+result was still worse: a list of directory names, with no bookmarks, no network volumes, no path
+field, no keyboard completion, and no resemblance to the chooser every other application on the
+machine opens. Ubiq would be rebuilding the file manager, badly, to protect a separation it does not
+have.
+
+So Add and Locate call `prompt_for_paths`, and `BrowseHost`, `HostListing` and `HostEntry` leave the
+contract entirely. What crosses the bus is the chosen path, inside `AddProject` or `LocateProject` —
+messages that carry one regardless. Browsing *within* a project is a different question with a
+different answer: that is the explorer's, drawn in the interface over a project-scoped listing.
+
+**Cost:** this is the single place the interface assumes the host's filesystem is its own. A
+detached host makes the dialog point at the wrong machine, and the browser this replaces would have
+to come back — as a host-side listing behind the same two messages, not as a third path. Filed.
 
 ## Related docs
 

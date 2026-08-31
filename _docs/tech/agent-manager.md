@@ -67,7 +67,9 @@ Two feature decisions follow from embedding rather than shelling out:
   service on a loopback endpoint and inject it into the run as an ordinary remote MCP server —
   which is how a hosted agent calls back into Ubiq.
 
-`crates/ubiq/Cargo.toml` declares no dependency on the library. Adding that edge, and the agent
+`crates/ubiq/Cargo.toml` declares no dependency on the library, and neither does
+`crates/ubiq-host/Cargo.toml`, which is where the edge belongs: the host owns configuration and
+processes, and the interface may not name either. Adding that edge, and the agent
 registry that reads from the catalog rather than a hard-coded list, is tracked in
 [`../backlog.md`](../backlog.md).
 

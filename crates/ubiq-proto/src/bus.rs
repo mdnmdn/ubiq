@@ -53,7 +53,10 @@ pub enum To {
 #[derive(Debug)]
 pub enum FromClient {
     Connected(ClientId),
-    Said { client: ClientId, message: Message },
+    Said {
+        client: ClientId,
+        message: Message,
+    },
     /// The window has gone. Whatever it owned is the host's to reap.
     Gone(ClientId),
 }
@@ -110,6 +113,15 @@ impl HostEnd {
     /// The host's run loop reads here. Blocks; ends when the hub and every client have gone.
     pub fn recv(&self) -> Result<FromClient, flume::RecvError> {
         self.inbox.recv()
+    }
+
+    /// The same, giving up after `wait`. The host uses this when it has work of its own due — a
+    /// debounced preference that has to be written whether or not anybody says anything else.
+    pub fn recv_timeout(
+        &self,
+        wait: std::time::Duration,
+    ) -> Result<FromClient, flume::RecvTimeoutError> {
+        self.inbox.recv_timeout(wait)
     }
 
     /// A sink that already knows who it is talking to, for a thread that must not have to learn

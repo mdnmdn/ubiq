@@ -5,10 +5,12 @@
 //! in [`super::windows`]. What stays is what belongs to this window alone: what was typed into the
 //! picker's search field, and which project's close is waiting on an answer.
 
+use ubiq_proto::ids::ProjectId;
+
 use crate::theme::ThemeId;
 
 /// The left rail's destinations. Only `Ide` is built; the rest render an empty page.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
     Control,
     Ide,
@@ -56,6 +58,14 @@ impl RailMode {
     }
 }
 
+/// What one picker row has expanded into. Only one row at a time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RowAction {
+    Rename,
+    Recolour,
+    ConfirmForget,
+}
+
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuId {
@@ -70,6 +80,11 @@ pub enum MenuId {
 }
 
 pub struct WorkbenchState {
+    /// Where the host writes everything down, and whether that is the usual place. The status bar
+    /// says so when it is not, because a config root you cannot see is a foot-gun.
+    pub config_root: Option<String>,
+    pub config_root_is_default: bool,
+
     pub rail_mode: RailMode,
     pub show_left: bool,
     pub show_bottom: bool,
@@ -80,7 +95,11 @@ pub struct WorkbenchState {
     /// What was typed into the project menu's search field.
     pub project_filter: String,
     /// A project whose close is waiting on an answer, because it still has terminals open.
-    pub pending_close: Option<usize>,
+    pub pending_close: Option<ProjectId>,
+    /// A row expanded into one editor: renaming it, recolouring it, or confirming a Forget.
+    pub row_action: Option<(ProjectId, RowAction)>,
+    /// The last thing the host refused to do, shown at the top of the picker until dismissed.
+    pub project_error: Option<String>,
 
     pub branches: Vec<String>,
     pub branch: usize,

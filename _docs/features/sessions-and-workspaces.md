@@ -7,7 +7,7 @@ summary: A session is a named piece of work that owns a folder and outlives the 
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/orchestrator.rs, crates/ubiq/src/agent.rs]
+code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -58,6 +58,8 @@ correctly; one that never learns its size does not.
 
 The session family of the transport contract carries all of this: `CreateSession`, `AttachToSession`,
 `DetachFromSession`, `ListSessions`, `SpawnWorkspace`, `ListAgentTypes`, and the responses to each.
+`SpawnWorkspace` also names the project the pane belongs to, so the catalogue can count what is
+running in it.
 Variant names, payload fields and the `SessionInfo`, `WorkspaceInfo` and `AgentTypeInfo` records are
 owned by [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
@@ -66,14 +68,14 @@ coordinator; what crosses the bus is a description.
 
 ## Implementation
 
-`crates/ubiq/src/orchestrator.rs` is the single source of truth. It runs on a thread of its own and
+`crates/ubiq-host/src/coordinator.rs` is the single source of truth. It runs on a thread of its own and
 holds one set of I/O resources per workspace, keyed by the ID the pane and the workspace share: the
 pseudo-terminal master for resizing, the writer for input, and a killer for closing. What crosses
 the bus is a description built at spawn — splitting that description from the resources is what
 lets it serialise. The session table itself, and the attach path over it, are a gap rather than a
 design change; both are listed in [`../backlog.md`](../backlog.md).
 
-`crates/ubiq/src/agent.rs` holds the agent-type registry the spawn path validates against. Its
+`crates/ubiq-host/src/agent.rs` holds the agent-type registry the spawn path validates against. Its
 launch facts come from the embedded harness library rather than a hard-coded table — see
 [`../tech/agent-manager.md`](../tech/agent-manager.md).
 

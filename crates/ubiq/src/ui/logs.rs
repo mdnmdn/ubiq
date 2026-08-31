@@ -1,7 +1,7 @@
 //! The log console: a tab in the terminal dock, beside the panes.
 //!
 //! Everything the application, the coordinator and the harness library say through `tracing`
-//! lands in the process-wide sink in [`crate::log`]; this draws a filtered view of it. It reads and
+//! lands in the process-wide sink in [`ubiq_proto::log`]; this draws a filtered view of it. It reads and
 //! never writes — clearing the ring is the one thing it asks of the sink.
 //!
 //! The dock owns the chrome, so this module hands it two pieces: [`actions`] for its tab strip,
@@ -17,11 +17,11 @@ use gpui::{
 use gpui_component::IconName;
 
 use crate::app::AppState;
-use crate::log::{LogLevel, LogRecord};
 use crate::state::{LogState, MenuId};
 use crate::theme;
 use crate::ui::kit::{Picker, ghost_button, icon_button, mono};
 use crate::ui::{handler, indexed};
+use ubiq_proto::log::{LogLevel, LogRecord};
 
 /// The height of one row. Uniform is what makes the list lazy, so a message is one line and is cut
 /// off rather than wrapped.
@@ -44,7 +44,7 @@ pub fn level_colour(level: LogLevel) -> Rgba {
 pub fn actions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
     let logs = &app.logs;
-    let (kept, dropped) = crate::log::logs().counts();
+    let (kept, dropped) = ubiq_proto::log::logs().counts();
 
     let counted = if dropped == 0 {
         format!("{kept} records")
@@ -100,7 +100,7 @@ pub fn actions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 /// The records themselves, in the space a pane's emulator would fill.
 pub fn body(app: &AppState, _cx: &mut Context<AppState>) -> AnyElement {
-    let records = crate::log::logs().snapshot(app.logs.filter());
+    let records = ubiq_proto::log::logs().snapshot(app.logs.filter());
 
     // Following means the tail stays in view as records arrive. The list defers the request, so it
     // costs nothing when the console is not the tab on screen.
@@ -118,7 +118,7 @@ pub fn body(app: &AppState, _cx: &mut Context<AppState>) -> AnyElement {
         // The console is a surface like a pane, and its edge carries the loudest thing it holds.
         .border_l(px(theme::ACCENT_EDGE))
         .border_color(
-            crate::log::logs()
+            ubiq_proto::log::logs()
                 .loudest()
                 .filter(|level| *level >= LogLevel::Warn)
                 .map_or(theme::text_faint(), level_colour),

@@ -1,10 +1,10 @@
 //! The log console's own state: which subsystem it is showing, the level it cuts off at, and
 //! whether it follows the tail.
 //!
-//! The records are not here. They belong to the process-wide sink in [`crate::log`], and this is
+//! The records are not here. They belong to the process-wide sink in [`ubiq_proto::log`], and this is
 //! only one window's view onto it — which is why nothing in this file is a fixture.
 
-use crate::log::{Filter, LogLevel, Subsystem};
+use ubiq_proto::log::{Filter, LogLevel, Subsystem};
 
 /// What the selector calls every subsystem at once.
 const ALL: &str = "All";
