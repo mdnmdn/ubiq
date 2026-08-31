@@ -1,0 +1,258 @@
+//! One dropdown mechanism, used by every menu in the window.
+//!
+//! The trigger renders in place and the list is painted through `deferred`, so it sits above the
+//! rest of the shell and is dismissed by a click anywhere outside it. Which menu is open is the
+//! caller's state, not the picker's — exactly one may be down at a time.
+
+use std::rc::Rc;
+
+use gpui::{
+    Anchor, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, px,
+};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
+
+use crate::theme;
+use crate::ui::kit::{Action, IndexedAction};
+
+/// Anchor for a menu that must open upward, clear of the window's bottom edge.
+pub const MENU_ANCHOR_UP: Anchor = Anchor::BottomLeft;
+
+/// How the trigger is drawn. The titlebar's pickers read as plain text; the composer's read as
+/// chips, because they sit on a busier surface.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PickerStyle {
+    Plain,
+    Chip,
+}
+
+#[derive(IntoElement)]
+pub struct Picker {
+    id: ElementId,
+    icon: Option<IconName>,
+    label: SharedString,
+    items: Vec<SharedString>,
+    selected: Option<usize>,
+    open: bool,
+    anchor: Anchor,
+    style: PickerStyle,
+    on_toggle: Option<Action>,
+    on_pick: Option<IndexedAction>,
+    on_dismiss: Option<Action>,
+}
+
+impl Picker {
+    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
+        Self {
+            id: id.into(),
+            icon: None,
+            label: label.into(),
+            items: Vec::new(),
+            selected: None,
+            open: false,
+            anchor: Anchor::TopLeft,
+            style: PickerStyle::Plain,
+            on_toggle: None,
+            on_pick: None,
+            on_dismiss: None,
+        }
+    }
+
+    pub fn icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn items<S: AsRef<str>>(mut self, items: impl IntoIterator<Item = S>) -> Self {
+        self.items = items
+            .into_iter()
+            .map(|s| SharedString::from(s.as_ref().to_string()))
+            .collect();
+        self
+    }
+
+    pub fn selected(mut self, index: usize) -> Self {
+        self.selected = Some(index);
+        self
+    }
+
+    pub fn open(mut self, open: bool) -> Self {
+        self.open = open;
+        self
+    }
+
+    /// Where the list hangs from the trigger. `BottomLeft` opens upward, which is what the
+    /// composer needs.
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    pub fn style(mut self, style: PickerStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    pub fn on_toggle(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_toggle = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn on_pick(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_pick = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_dismiss = Some(Rc::new(handler));
+        self
+    }
+}
+
+impl RenderOnce for Picker {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let Picker {
+            id,
+            icon,
+            label,
+            items,
+            selected,
+            open,
+            anchor,
+            style,
+            on_toggle,
+            on_pick,
+            on_dismiss,
+        } = self;
+
+        let panel_id = ElementId::Name(format!("{id:?}-menu").into());
+
+        let mut trigger = div()
+            .id(id)
+            .relative()
+            .h(px(26.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .text_size(px(13.))
+            .text_color(theme::text())
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()));
+
+        if style == PickerStyle::Chip {
+            trigger = trigger
+                .px_2()
+                .bg(theme::surface())
+                .border_l(px(theme::ACCENT_EDGE))
+                .border_color(theme::border())
+                .text_size(px(12.5));
+        } else {
+            trigger = trigger.px_2();
+        }
+
+        if let Some(icon) = icon {
+            trigger = trigger.child(
+                Icon::new(icon)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_muted()),
+            );
+        }
+
+        trigger = trigger.child(label).child(
+            Icon::new(IconName::ChevronDown)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_faint()),
+        );
+
+        if let Some(toggle) = on_toggle.clone() {
+            // Opening rather than toggling: the panel's own outside-click dismissal would
+            // otherwise race this click into reopening a menu the user meant to close.
+            trigger = trigger.on_click(move |_, window, cx| toggle(window, cx));
+        }
+
+        if open {
+            trigger = trigger.child(menu_panel(
+                panel_id, anchor, items, selected, on_pick, on_dismiss,
+            ));
+        }
+
+        trigger
+    }
+}
+
+fn menu_panel(
+    id: ElementId,
+    anchor: Anchor,
+    items: Vec<SharedString>,
+    selected: Option<usize>,
+    on_pick: Option<IndexedAction>,
+    on_dismiss: Option<Action>,
+) -> impl IntoElement {
+    let rows: Vec<_> =
+        items
+            .into_iter()
+            .enumerate()
+            .map(|(ix, item)| {
+                let is_selected = selected == Some(ix);
+                let pick = on_pick.clone();
+                div()
+                    .id(("menu-row", ix))
+                    .h(px(28.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_size(px(12.5))
+                    .text_color(if is_selected {
+                        theme::text()
+                    } else {
+                        theme::text_muted()
+                    })
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme::hover()).text_color(theme::text()))
+                    .child(div().w(px(12.)).flex().flex_none().justify_center().child(
+                        if is_selected {
+                            Icon::new(IconName::Check)
+                                .with_size(Size::XSmall)
+                                .text_color(theme::accent())
+                                .into_any_element()
+                        } else {
+                            div().into_any_element()
+                        },
+                    ))
+                    .child(item)
+                    .on_click(move |_, window, cx| {
+                        if let Some(pick) = pick.clone() {
+                            pick(ix, window, cx);
+                        }
+                    })
+            })
+            .collect();
+
+    deferred(
+        anchored()
+            .anchor(anchor)
+            .snap_to_window_with_margin(px(8.))
+            .child(
+                div()
+                    .id(id)
+                    .min_w(px(180.))
+                    .p_1()
+                    .flex()
+                    .flex_col()
+                    .bg(theme::surface_raised())
+                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_color(theme::accent())
+                    .shadow_lg()
+                    .font_weight(FontWeight::NORMAL)
+                    .children(rows)
+                    .on_mouse_down_out(move |_, window, cx| {
+                        if let Some(dismiss) = on_dismiss.clone() {
+                            dismiss(window, cx);
+                        }
+                    }),
+            ),
+    )
+    .priority(1)
+}

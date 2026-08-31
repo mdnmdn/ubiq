@@ -151,6 +151,54 @@ Captured prototypes and wireframes keep no frontmatter and are skipped by the li
 **Cost:** that material is invisible to the catalogue and the drift queue, so a wireframe can go
 stale silently. `ui-and-design.md` carries the pointer into it, and the reconciliation rule.
 
+### D16 — `ubiq-layout.png` is the target shell, and the earlier prototypes are superseded
+
+The workbench is an IDE-shaped window — activity rail, explorer, tabbed editor, bottom terminal
+dock, right-hand chat — built against `_docs/design/ubiq-layout.png`. The `wireframe-opus` screens
+and the captured HTML prototypes under `_docs/design/output/` describe an earlier shape and no
+longer describe the shell.
+
+**Cost:** two sets of design assets that disagree, and the older set stays in the tree because it
+still records intent for screens the shell has not reached. Nothing automated will flag the
+divergence — `D15` exempts that folder from every check.
+
+### D17 — A thin kit over the component library, and screen areas as functions rather than views
+
+`gpui-component` is used directly wherever it has a widget. `crates/ubiq/src/ui/kit/` holds only
+what it lacks, is generic over no view, and never names `AppState`. Each screen area is a free
+function over the root view rather than a view of its own, so `AppState` is the only `Render` in the
+application.
+
+**Why:** one view means one owner of state and one place that requests redraws, which is the whole
+of the "mutation ends in a redraw request" rule. A window of independent panel views would mean
+reconciling several projections of the same coordinator state.
+
+**Cost:** the root view grows as the shell does, and a panel cannot hold private state without going
+through it. If a panel ever needs its own focus and key handling, that is the point to reverse this.
+
+### D18 — Surfaces are square, and a coloured left edge identifies them
+
+No rounded corners anywhere except state dots. A surface is a fill plus one coloured border on its
+left, and that border's colour is the whole signal: accent for what the user is acting in, a status
+colour for something being reported, the project's colour for the window.
+
+**Why:** a GPUI element has a single `border_color` for all four sides, so a neutral box with one
+coloured edge costs two elements where one edge costs one — and at the sizes this UI uses, the edge
+reads faster than the box.
+
+**Cost:** it is a house style, not a convention anyone arrives knowing, so every new surface
+has to be told about it. `ui::kit::slab` exists so that telling is cheap.
+
+### D19 — A project is a colour, and a window belongs to one project
+
+Each project owns a swatch from the theme's project group and wears it in the picker, the titlebar,
+the mark and the window's left edge. A second window is a second `AppState` pointed at a different
+project; windows share nothing but the process-wide palette.
+
+**Cost:** a group of colours that carry no role, which is the one exception to how tokens are named.
+And per-window state means anything that should be global — an open project set, a session list —
+needs somewhere else to live before it can be shared.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

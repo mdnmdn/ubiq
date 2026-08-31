@@ -1,22 +1,10 @@
-use gpui::{
-    App, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, actions, prelude::*, px,
-    size,
-};
-use gpui_component::{Root, Theme as GpuiComponentTheme, ThemeMode};
+//! Window creation, theme install and key bindings. Everything else lives in the library.
+
+use gpui::{App, KeyBinding, actions};
 use gpui_platform::application;
 
-mod app;
-mod orchestrator;
-mod agent;
-mod messages;
-mod mcp_server;
-mod pty;
-mod state;
-mod theme;
-mod ui;
-
-use app::AppState;
-use theme::Theme;
+use ubiq::app;
+use ubiq::theme;
 
 actions!(ubiq, [Quit]);
 
@@ -25,8 +13,8 @@ fn main() {
         .with_assets(gpui_component_assets::Assets)
         .run(|cx: &mut App| {
             gpui_component::init(cx);
-            GpuiComponentTheme::change(ThemeMode::Dark, None, cx);
-            Theme::set(theme::dark());
+            // Sets both palettes at once: Ubiq's tokens and the component library's theme.
+            theme::set_mode(app::boot_theme(), cx);
 
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.bind_keys([
@@ -34,25 +22,13 @@ fn main() {
                 KeyBinding::new("ctrl-q", Quit, None),
             ]);
 
-            let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Ubiq - Agent Harness Multiplexer".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let view = cx.new(|cx| AppState::new(window, cx));
-                    cx.new(|cx| Root::new(view, window, cx).bg(theme::app_bg()))
-                },
-            )
-            .unwrap();
+            app::open_project_window(0, cx);
 
+            // The application ends with its last window, not with any particular one.
             cx.on_window_closed(|cx, _window_id| {
-                cx.quit();
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
             })
             .detach();
 

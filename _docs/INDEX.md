@@ -76,8 +76,10 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
+| [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-08-31 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in. | 2026-08-31 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-08-31 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer, the editor, and the status bar that reports on all of it. | 2026-08-31 |
 
 ### Tech
 
@@ -92,7 +94,7 @@ states the boundary once.
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-08-31 |
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-08-31 |
 | [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane family, the session family, the framing rules, and the procedure for adding a variant. | 2026-08-31 |
-| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, and the design assets that screens are built against. | 2026-08-31 |
+| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface is drawn in, and the design assets screens are built against. | 2026-08-31 |
 
 ### Meta
 
@@ -120,7 +122,12 @@ a link.
 | Where a file goes, and what a folder must never hold | `tech/project-structure.md` |
 | The source tree, and which document anchors which file | `tech/code-map.md` (generated) |
 | Theme tokens, and the rule that no colour escapes them | `tech/ui-and-design.md` |
-| Screen conventions, pane chrome, design assets | `tech/ui-and-design.md` |
+| Palette switching, and the constants that are not colours | `tech/ui-and-design.md` |
+| The shape a surface is drawn in, and screen conventions | `tech/ui-and-design.md` |
+| The component conventions: kit, screen areas, gpui-component first | `tech/ui-and-design.md` |
+| Pane chrome, design assets | `tech/ui-and-design.md` |
+| The window's areas, their sizes, and what owns each | `features/workbench.md` |
+| Rail modes, panel visibility, projects, what a window owns | `features/workbench.md` |
 | Commands, prerequisites, environment variables | `tech/operations.md` |
 | Structural decisions and their cost (`Dnn`) | `tech/decisions.md` |
 | The harness library's boundary and the rules across it | `tech/agent-manager.md` |
@@ -148,7 +155,10 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Adding, changing or removing a message | `tech/transport-contract.md` |
 | Changing session creation, attachment or agent spawning | `features/sessions-and-workspaces.md`, then `tech/transport-contract.md` |
 | Changing pane layout, focus, resize or chrome | `features/panes-and-terminals.md`, then `tech/ui-and-design.md` |
-| Building or restyling a screen, or adding a colour | `tech/ui-and-design.md` |
+| Building or restyling a screen, adding a colour or a size | `tech/ui-and-design.md` |
+| Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
+| Changing the window layout, or what a window owns | `features/workbench.md`, then `tech/architecture.md` |
+| Changing the chat panel or a message renderer | `features/chat.md` |
 | Launching a harness, or touching accounts, skills or MCP servers | `tech/agent-manager.md`, then that crate's own `_docs/` |
 | Adding a file and not knowing where it goes | `tech/project-structure.md` |
 | Adding a command | `tech/operations.md` |

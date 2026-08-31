@@ -89,18 +89,25 @@ the transport beneath the contract.
 
 | Concern | Where it lives | Notes |
 |---|---|---|
-| Window, panes, chrome, focus | `crates/ubiq/src/app.rs`, `crates/ubiq/src/ui/` | GPUI |
+| Window, panes, chrome, focus | `crates/ubiq/src/app.rs`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
-| Application and pane state | `crates/ubiq/src/state/` | State machines for pane and app lifecycle |
+| Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor and chat state |
 | The message set | `crates/ubiq/src/messages.rs` | The contract, serialisable by construction |
 | Process and PTY lifecycle | `crates/ubiq/src/orchestrator.rs` | Spawn, supervise, reap |
 | PTY streams and backpressure | `crates/ubiq/src/pty/` | `portable-pty` |
 | Harness definitions | `crates/ubiq/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
 
-`crates/ubiq/src/main.rs` does nothing but open the window: install the GPUI component library, set
-the theme, bind the quit action, and construct `AppState`. All real logic sits in the library root,
+`crates/ubiq/src/main.rs` does nothing but start the application: install the GPUI component library,
+set the palette, bind the quit action, and ask for the first window. Opening a window is
+`app::open_project_window`, the single place one is created, so the first window and "open in a new
+window" cannot drift apart. `main.rs` consumes the crate as a library rather than redeclaring its
+modules, so the tree is compiled once. All real logic sits in the library root,
 `crates/ubiq/src/lib.rs`.
+
+**A window is one `AppState`.** Several may be open, each pointed at its own project. They share the
+palette, which is process-wide, and nothing else â€” so any state that ought to be global needs a home
+outside `AppState` before it can be shared.
 
 ## State ownership
 
@@ -108,9 +115,9 @@ The coordinator is the single source of truth. The UI holds a projection of it â
 and never a fact the coordinator does not also hold. When the two disagree, the coordinator is
 right, and the repair is a message, not a reach-around.
 
-Inside the UI, `AppState` owns the pane map, the focused pane, and the layout mode, and mutates them
+Inside the UI, `AppState` owns the panes, the focused pane, and the layout mode, and mutates them
 only through methods that end in a redraw request: `spawn_pane()`, `close_pane()`, `resize_pane()`,
-`focus_pane()`.
+`focus_pane()`. It owns the workbench's own state on the same terms.
 
 ## The dependency direction
 

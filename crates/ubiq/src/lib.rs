@@ -11,15 +11,15 @@
 // - mcp_server: Model Context Protocol server support
 // - theme: Color tokens and theme definitions
 
-pub mod app;
-pub mod orchestrator;
 pub mod agent;
-pub mod pty;
-pub mod ui;
-pub mod state;
-pub mod messages;
+pub mod app;
 pub mod mcp_server;
+pub mod messages;
+pub mod orchestrator;
+pub mod pty;
+pub mod state;
 pub mod theme;
+pub mod ui;
 
 pub use app::AppState;
 pub use theme::Theme;

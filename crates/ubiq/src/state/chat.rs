@@ -1,0 +1,276 @@
+//! The chat panel's state.
+//!
+//! The transport contract has no chat family yet, so everything here is local to the UI and seeded
+//! from `sample.rs`. When a chat message set exists, this is the projection it fills.
+
+/// The harnesses the composer offers. Ubiq never hard-codes how to launch one — this is a label
+/// list for the picker, and the launch belongs to `crates/agent-manager`.
+pub const HARNESSES: &[&str] = &[
+    "Claude Code",
+    "Codex",
+    "Gemini CLI",
+    "opencode",
+    "Copilot CLI",
+];
+pub const MODELS: &[&str] = &["Opus 4.6", "Sonnet 4.6", "Haiku 4.5"];
+pub const MODES: &[&str] = &["Plan", "Edit", "Ask"];
+/// How much reasoning the harness is asked for before it answers.
+pub const THINKING: &[&str] = &["No thinking", "Think", "Think harder", "Ultrathink"];
+
+/// The context window the token pill is a fraction of.
+pub const CONTEXT_TOKENS: f32 = 200_000.0;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ToolKind {
+    Read,
+    Edit,
+    Bash,
+    Grep,
+}
+
+impl ToolKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ToolKind::Read => "READ",
+            ToolKind::Edit => "EDIT",
+            ToolKind::Bash => "BASH",
+            ToolKind::Grep => "GREP",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DiffKind {
+    Add,
+    Remove,
+    Context,
+}
+
+impl DiffKind {
+    pub fn marker(self) -> &'static str {
+        match self {
+            DiffKind::Add => "+",
+            DiffKind::Remove => "\u{2212}",
+            DiffKind::Context => " ",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DiffLine {
+    pub kind: DiffKind,
+    pub text: String,
+}
+
+impl DiffLine {
+    pub fn add(text: &str) -> Self {
+        Self {
+            kind: DiffKind::Add,
+            text: text.to_string(),
+        }
+    }
+
+    pub fn remove(text: &str) -> Self {
+        Self {
+            kind: DiffKind::Remove,
+            text: text.to_string(),
+        }
+    }
+
+    pub fn context(text: &str) -> Self {
+        Self {
+            kind: DiffKind::Context,
+            text: text.to_string(),
+        }
+    }
+}
+
+/// What an assistant turn's tool block shows. `body` carries plain output rows (READ, BASH, GREP);
+/// `diff` carries an edit. A block uses one or the other, never both.
+#[derive(Clone, Debug)]
+pub struct ToolCall {
+    pub kind: ToolKind,
+    pub target: String,
+    pub meta: String,
+    pub expanded: bool,
+    pub body: Vec<String>,
+    pub diff: Vec<DiffLine>,
+}
+
+impl ToolCall {
+    /// Whether the header is worth clicking — a block with nothing behind it does not expand.
+    pub fn has_body(&self) -> bool {
+        !self.body.is_empty() || !self.diff.is_empty()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Block {
+    Markdown(String),
+    Tool(ToolCall),
+}
+
+#[derive(Clone, Debug)]
+pub enum ChatMessage {
+    User(String),
+    Assistant(Vec<Block>),
+}
+
+#[derive(Clone, Debug)]
+pub struct Chat {
+    pub id: usize,
+    pub title: String,
+    /// Relative time, as the list shows it: "2m", "1h", "yst".
+    pub when: String,
+    pub messages: Vec<ChatMessage>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RunState {
+    Idle,
+    Working,
+}
+
+impl RunState {
+    pub fn label(self) -> &'static str {
+        match self {
+            RunState::Idle => "Idle",
+            RunState::Working => "Working",
+        }
+    }
+}
+
+pub struct ChatState {
+    pub chats: Vec<Chat>,
+    pub active: usize,
+    pub run: RunState,
+    pub tokens: f32,
+    pub harness: usize,
+    pub model: usize,
+    pub thinking: usize,
+    pub mode: usize,
+    pub collapsed: bool,
+    pub attachment: bool,
+    /// Mirror of the composer's textarea, so rendering never has to read the entity.
+    pub draft: String,
+    next_id: usize,
+}
+
+impl ChatState {
+    pub fn new(chats: Vec<Chat>, tokens: f32) -> Self {
+        let next_id = chats.iter().map(|c| c.id + 1).max().unwrap_or(1);
+        Self {
+            chats,
+            active: 0,
+            run: RunState::Idle,
+            tokens,
+            harness: 0,
+            model: 0,
+            thinking: 1,
+            mode: 0,
+            collapsed: false,
+            attachment: false,
+            draft: String::new(),
+            next_id,
+        }
+    }
+
+    pub fn active_chat(&self) -> Option<&Chat> {
+        self.chats.get(self.active)
+    }
+
+    pub fn active_chat_mut(&mut self) -> Option<&mut Chat> {
+        self.chats.get_mut(self.active)
+    }
+
+    /// Percentage of the context window in use, for the token pill's ring.
+    pub fn context_pct(&self) -> u8 {
+        ((self.tokens / CONTEXT_TOKENS) * 100.0)
+            .round()
+            .clamp(0.0, 100.0) as u8
+    }
+
+    pub fn harness_label(&self) -> &'static str {
+        HARNESSES[self.harness]
+    }
+
+    pub fn model_label(&self) -> &'static str {
+        MODELS[self.model]
+    }
+
+    pub fn mode_label(&self) -> &'static str {
+        MODES[self.mode]
+    }
+
+    pub fn thinking_label(&self) -> &'static str {
+        THINKING[self.thinking]
+    }
+
+    pub fn new_chat(&mut self) {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.chats.insert(
+            0,
+            Chat {
+                id,
+                title: "New chat".to_string(),
+                when: "now".to_string(),
+                messages: Vec::new(),
+            },
+        );
+        self.active = 0;
+    }
+
+    /// Toggle one tool block, addressed by its position in the active chat.
+    pub fn toggle_tool(&mut self, message: usize, block: usize) {
+        if let Some(chat) = self.chats.get_mut(self.active)
+            && let Some(ChatMessage::Assistant(blocks)) = chat.messages.get_mut(message)
+            && let Some(Block::Tool(tool)) = blocks.get_mut(block)
+        {
+            tool.expanded = !tool.expanded;
+        }
+    }
+
+    /// Append the draft as a user turn plus a canned reply. There is no agent behind this yet, so
+    /// the reply reports the composer's own selection and stops.
+    pub fn send(&mut self) {
+        let text = self.draft.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+
+        let reply = format!(
+            "Queued for **{}** · {} · {} · {} mode. No harness is attached to this pane yet, so the turn ends here.",
+            self.harness_label(),
+            self.model_label(),
+            self.thinking_label(),
+            self.mode_label(),
+        );
+
+        // An empty chat takes its title from the first thing said in it.
+        let title = first_line(&text);
+        if let Some(chat) = self.chats.get_mut(self.active) {
+            if chat.messages.is_empty() {
+                chat.title = title;
+                chat.when = "now".to_string();
+            }
+            chat.messages.push(ChatMessage::User(text));
+            chat.messages
+                .push(ChatMessage::Assistant(vec![Block::Markdown(reply)]));
+        }
+
+        self.draft.clear();
+        self.attachment = false;
+        self.run = RunState::Idle;
+    }
+}
+
+fn first_line(text: &str) -> String {
+    let line = text.lines().next().unwrap_or(text).trim();
+    if line.chars().count() > 48 {
+        let head: String = line.chars().take(47).collect();
+        format!("{head}\u{2026}")
+    } else {
+        line.to_string()
+    }
+}

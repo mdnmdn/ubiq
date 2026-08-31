@@ -34,9 +34,33 @@ crates/ubiq/src/
 ├── pty/
 │   └── mod.rs
 ├── state/
-│   └── mod.rs
+│   ├── mod.rs
+│   ├── chat.rs
+│   ├── editor.rs
+│   ├── explorer.rs
+│   ├── sample.rs
+│   └── workbench.rs
 ├── ui/
-│   └── mod.rs
+│   ├── mod.rs
+│   ├── chat/
+│   │   ├── composer.rs
+│   │   ├── mod.rs
+│   │   ├── sidebar.rs
+│   │   └── transcript.rs
+│   ├── kit/
+│   │   ├── controls.rs
+│   │   ├── menu.rs
+│   │   ├── mod.rs
+│   │   └── panel.rs
+│   ├── editor.rs
+│   ├── empty.rs
+│   ├── explorer.rs
+│   ├── rail.rs
+│   ├── shell.rs
+│   ├── status_bar.rs
+│   ├── terminal.rs
+│   ├── titlebar.rs
+│   └── project_menu.rs
 ├── agent.rs
 ├── app.rs
 ├── lib.rs
@@ -66,14 +90,29 @@ the documents in its row.
 | `crates/agent-manager/src/spec.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) |
-| `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/messages.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq/src/orchestrator.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) |
 | `crates/ubiq/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
+| `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md) |
+| `crates/ubiq/src/state/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/workbench.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/chat/composer.rs` | [`features/chat.md`](../features/chat.md) |
+| `crates/ubiq/src/ui/chat/mod.rs` | [`features/chat.md`](../features/chat.md) |
+| `crates/ubiq/src/ui/chat/sidebar.rs` | [`features/chat.md`](../features/chat.md) |
+| `crates/ubiq/src/ui/chat/transcript.rs` | [`features/chat.md`](../features/chat.md) |
+| `crates/ubiq/src/ui/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/kit/mod.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/project_menu.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/rail.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/shell.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/status_bar.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/titlebar.rs` | [`features/workbench.md`](../features/workbench.md) |
 
 ## Unanchored
 
@@ -82,7 +121,14 @@ No document's `code_anchors` names these. Restricted to `crates/ubiq/src/`.
 | File |
 |---|
 | `crates/ubiq/src/mcp_server.rs` |
-| `crates/ubiq/src/state/mod.rs` |
+| `crates/ubiq/src/state/editor.rs` |
+| `crates/ubiq/src/state/explorer.rs` |
+| `crates/ubiq/src/state/sample.rs` |
+| `crates/ubiq/src/ui/empty.rs` |
+| `crates/ubiq/src/ui/kit/controls.rs` |
+| `crates/ubiq/src/ui/kit/menu.rs` |
+| `crates/ubiq/src/ui/kit/panel.rs` |
+| `crates/ubiq/src/ui/terminal.rs` |
 
 <!-- generated:end anchors -->
 

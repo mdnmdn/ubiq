@@ -21,6 +21,8 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", feature
     "tree-sitter-python",
     "tree-sitter-javascript",
     "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
 ] }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 
