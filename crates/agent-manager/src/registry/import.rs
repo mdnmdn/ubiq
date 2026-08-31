@@ -7,8 +7,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::config::McpServer;
 use crate::Result;
+use crate::config::McpServer;
 
 /// What an import would do to one catalog entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,7 +148,10 @@ pub fn import(opts: &ImportOptions) -> Result<ImportPlan> {
                     } else {
                         // For MCPs, we need to look up the data in our mcps map
                         if let Some((_, server)) = mcps.get(&item.id) {
-                            let dest = opts.catalog_root.join("mcp").join(format!("{}.json", &item.id));
+                            let dest = opts
+                                .catalog_root
+                                .join("mcp")
+                                .join(format!("{}.json", &item.id));
                             std::fs::create_dir_all(dest.parent().unwrap())?;
                             let json = serde_json::to_string_pretty(server)?;
                             std::fs::write(&dest, json)?;
@@ -170,8 +173,8 @@ fn determine_well_known_roots() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
 
     // ~/.claude
-    if let Some(home) = directories::UserDirs::new()
-        .and_then(|d| d.home_dir().to_str().map(PathBuf::from))
+    if let Some(home) =
+        directories::UserDirs::new().and_then(|d| d.home_dir().to_str().map(PathBuf::from))
     {
         let claude_home = home.join(".claude");
         if claude_home.exists() {
@@ -180,8 +183,8 @@ fn determine_well_known_roots() -> Result<Vec<PathBuf>> {
     }
 
     // ~/.agent
-    if let Some(home) = directories::UserDirs::new()
-        .and_then(|d| d.home_dir().to_str().map(PathBuf::from))
+    if let Some(home) =
+        directories::UserDirs::new().and_then(|d| d.home_dir().to_str().map(PathBuf::from))
     {
         let agent_home = home.join(".agent");
         if agent_home.exists() {
@@ -254,7 +257,10 @@ fn collect_from_root(
 }
 
 /// Collect skills from a skills directory.
-fn collect_skills_from_path(skills_path: PathBuf, skills: &mut BTreeMap<String, PathBuf>) -> Result<()> {
+fn collect_skills_from_path(
+    skills_path: PathBuf,
+    skills: &mut BTreeMap<String, PathBuf>,
+) -> Result<()> {
     if !skills_path.exists() {
         return Ok(());
     }
@@ -297,10 +303,7 @@ fn collect_mcps_from_json_config(
     if let Some(mcp_servers) = root.get("mcpServers").and_then(|v| v.as_object()) {
         for (id, server_value) in mcp_servers {
             if let Ok(server) = serde_json::from_value::<McpServer>(server_value.clone()) {
-                mcps.insert(
-                    id.clone(),
-                    (json_path.to_path_buf(), server),
-                );
+                mcps.insert(id.clone(), (json_path.to_path_buf(), server));
             }
         }
     }
@@ -365,7 +368,11 @@ mod tests {
         let catalog_dir = tempfile::TempDir::new()?;
 
         // Create a fake source tree
-        let skills_dir = source_dir.path().join(".claude").join("skills").join("demo");
+        let skills_dir = source_dir
+            .path()
+            .join(".claude")
+            .join("skills")
+            .join("demo");
         fs::create_dir_all(&skills_dir)?;
         fs::write(skills_dir.join("SKILL.md"), "# Demo Skill\n\ndemo\n")?;
 
@@ -397,11 +404,7 @@ mod tests {
         assert_eq!(skill_item.id, "demo");
         assert_eq!(skill_item.action, Action::Add);
 
-        let mcp_item = plan
-            .items
-            .iter()
-            .find(|i| i.kind == ItemKind::Mcp)
-            .unwrap();
+        let mcp_item = plan.items.iter().find(|i| i.kind == ItemKind::Mcp).unwrap();
         assert_eq!(mcp_item.id, "pg");
         assert_eq!(mcp_item.action, Action::Add);
 
@@ -424,7 +427,11 @@ mod tests {
         let catalog_dir = tempfile::TempDir::new()?;
 
         // Create a fake source tree
-        let skills_dir = source_dir.path().join(".claude").join("skills").join("demo");
+        let skills_dir = source_dir
+            .path()
+            .join(".claude")
+            .join("skills")
+            .join("demo");
         fs::create_dir_all(&skills_dir)?;
         fs::write(skills_dir.join("SKILL.md"), "# Demo\n\ntest\n")?;
         fs::write(skills_dir.join("extra.md"), "extra content")?;
@@ -464,11 +471,7 @@ mod tests {
         assert!(skills_dir.join("SKILL.md").exists());
         assert!(claude_json.exists());
         // Source .claude dir should only have the skills subdirectory we created
-        assert_eq!(
-            fs::read_dir(source_dir.path().join(".claude"))?
-                .count(),
-            1
-        );
+        assert_eq!(fs::read_dir(source_dir.path().join(".claude"))?.count(), 1);
 
         source_dir.close()?;
         catalog_dir.close()?;
@@ -481,7 +484,11 @@ mod tests {
         let catalog_dir = tempfile::TempDir::new()?;
 
         // Create source
-        let skills_dir = source_dir.path().join(".claude").join("skills").join("demo");
+        let skills_dir = source_dir
+            .path()
+            .join(".claude")
+            .join("skills")
+            .join("demo");
         fs::create_dir_all(&skills_dir)?;
         fs::write(skills_dir.join("SKILL.md"), "v1")?;
 
@@ -518,7 +525,11 @@ mod tests {
         let catalog_dir = tempfile::TempDir::new()?;
 
         // Create source
-        let skills_dir = source_dir.path().join(".claude").join("skills").join("demo");
+        let skills_dir = source_dir
+            .path()
+            .join(".claude")
+            .join("skills")
+            .join("demo");
         fs::create_dir_all(&skills_dir)?;
         fs::write(skills_dir.join("SKILL.md"), "v1")?;
 

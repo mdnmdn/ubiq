@@ -11,6 +11,7 @@ pub mod editor;
 pub mod empty;
 pub mod explorer;
 pub mod kit;
+pub mod logs;
 pub mod project_menu;
 pub mod rail;
 pub mod shell;

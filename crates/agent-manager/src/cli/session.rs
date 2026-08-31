@@ -7,7 +7,7 @@
 //! [`rebuild_spec`]); the actual provision/run dispatch is shared with
 //! `am <harness>` via `crate::cli::run::run_provisioned`.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
 use crate::session::{self, SessionMeta};
@@ -106,7 +106,9 @@ fn cmd_show(id: &str) -> Result<()> {
     println!("created at:          {}", format_millis(meta.created_at));
     println!(
         "finished at:         {}",
-        meta.finished_at.map(format_millis).unwrap_or_else(|| "-".to_string())
+        meta.finished_at
+            .map(format_millis)
+            .unwrap_or_else(|| "-".to_string())
     );
     println!(
         "exit code:           {}",
@@ -252,7 +254,11 @@ fn format_millis(millis: u64) -> String {
     // (proleptic Gregorian, UTC) without pulling in a date/time dependency.
     let days_since_epoch = secs / 86_400;
     let secs_of_day = secs % 86_400;
-    let (h, m, s) = (secs_of_day / 3600, (secs_of_day % 3600) / 60, secs_of_day % 60);
+    let (h, m, s) = (
+        secs_of_day / 3600,
+        (secs_of_day % 3600) / 60,
+        secs_of_day % 60,
+    );
 
     let (y, mo, d) = civil_from_days(days_since_epoch as i64);
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z")
@@ -315,7 +321,10 @@ mod tests {
 
         let spec = rebuild_spec(&meta).unwrap();
 
-        assert_eq!(spec.config, ConfigStrategy::Fixed(temp.path().to_path_buf()));
+        assert_eq!(
+            spec.config,
+            ConfigStrategy::Fixed(temp.path().to_path_buf())
+        );
         assert_eq!(spec.resume.as_deref(), Some("harness-abc"));
         assert_eq!(spec.io, IoModes::Structured);
         assert_eq!(spec.harness, "claude-code");

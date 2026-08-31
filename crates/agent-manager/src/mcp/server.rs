@@ -9,12 +9,12 @@
 //! and other transport-level MCP features are out of scope — every request
 //! is handled fully before the next is read (one request at a time).
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::McpService;
 use crate::Result;
@@ -161,7 +161,10 @@ fn dispatch(
         }
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let arguments = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             match service.call(name, arguments) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
@@ -238,10 +241,16 @@ mod tests {
         let server = start(Arc::new(EchoService)).unwrap();
         let url = server.url();
 
-        let init = post(&url, json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+        let init = post(
+            &url,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        );
         assert_eq!(init["result"]["serverInfo"]["name"], "agent-manager-inproc");
 
-        let list = post(&url, json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}));
+        let list = post(
+            &url,
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        );
         let tools = list["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["name"], "echo");
@@ -265,16 +274,21 @@ mod tests {
         );
         assert!(call.get("error").is_none());
         assert_eq!(call["result"]["isError"], true);
-        assert!(call["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("unknown tool"));
+        assert!(
+            call["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("unknown tool")
+        );
     }
 
     #[test]
     fn unknown_method_is_a_json_rpc_error() {
         let server = start(Arc::new(EchoService)).unwrap();
-        let resp = post(&server.url(), json!({"jsonrpc": "2.0", "id": 1, "method": "nope/nope"}));
+        let resp = post(
+            &server.url(),
+            json!({"jsonrpc": "2.0", "id": 1, "method": "nope/nope"}),
+        );
         assert_eq!(resp["error"]["code"], -32601);
     }
 
@@ -283,7 +297,9 @@ mod tests {
         let server = start(Arc::new(EchoService)).unwrap();
         let resp = ureq::post(&server.url())
             .timeout(Duration::from_secs(5))
-            .send_string(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string())
+            .send_string(
+                &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string(),
+            )
             .expect("request should succeed");
         assert_eq!(resp.status(), 202);
         assert_eq!(resp.into_string().unwrap(), "");
@@ -303,7 +319,10 @@ mod tests {
     #[test]
     fn drop_stops_the_serving_thread_without_hanging() {
         let server = start(Arc::new(EchoService)).unwrap();
-        let _ = post(&server.url(), json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}));
+        let _ = post(
+            &server.url(),
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        );
         // Dropping joins the serving thread; this test's own bounded
         // duration (well under the harness's timeouts) is the hang guard.
         drop(server);

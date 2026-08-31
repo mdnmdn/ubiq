@@ -21,7 +21,8 @@ the multiplexing, the configuration and the window around it.
 ## Tech stack
 
 - **Application** — Rust + [GPUI](https://www.gpui.rs/), with `gpui-component` for widgets
-- **Terminals** — `portable-pty` for pseudo-terminals, `termwiz` for terminal handling
+- **Terminals** — `portable-pty` for pseudo-terminals, and `gpui-terminal` (vendored, under
+  `vendor/`) for the emulator each pane is drawn by
 - **Harness management** — [`agent-manager`](crates/agent-manager/), the portable library that
   composes and launches a harness run
 
@@ -34,6 +35,7 @@ ubiq/
 ├── crates/
 │   ├── ubiq/             the desktop application
 │   └── agent-manager/    harness-management library, plus its `am` CLI
+├── vendor/               third-party crates carried in-tree, kept close to upstream
 ├── _docs/                documentation — start at _docs/INDEX.md
 └── _tools/               dev-only scripts, run through `just`
 ```

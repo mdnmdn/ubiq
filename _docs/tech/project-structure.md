@@ -7,7 +7,7 @@ summary: Every folder in the workspace, what belongs in it, what must never go i
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml]
+code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, vendor/gpui-terminal/Cargo.toml]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -16,7 +16,8 @@ review_cycle: quarterly
 
 ## The workspace
 
-One Cargo workspace, two crates, and everything else is documentation or tooling.
+One Cargo workspace, two crates of Ubiq's own, one vendored third-party crate, and everything else
+is documentation or tooling.
 
 ```
 ubiq/
@@ -28,6 +29,8 @@ ubiq/
 ├── crates/
 │   ├── ubiq/            the desktop application (GPUI)
 │   └── agent-manager/   the harness-management library and its `am` CLI
+├── vendor/
+│   └── gpui-terminal/   the terminal emulator component, vendored
 ├── _docs/               this library
 ├── _tools/              dev-only scripts, run through `just`
 ├── refs/                read-only checkouts of other projects, for reference
@@ -39,6 +42,26 @@ Two conventions in that tree are worth stating outright. A leading underscore me
 build. And `refs/` is **read-only** — it holds other projects checked out for comparison, and
 nothing in it is ever edited, imported, or treated as a claim about this tree.
 
+## `vendor/`
+
+Third-party crates the workspace compiles from source because depending on them as published is not
+possible. Each is a workspace member and is consumed by path.
+
+`vendor/gpui-terminal/` is the terminal emulator a pane is drawn by: it parses VT with
+`alacritty_terminal` and takes any `Read`/`Write` pair, which is what lets a pane be handed a bus
+endpoint rather than a pseudo-terminal. It is a copy of an upstream project, not Ubiq's own code,
+and the rules that follow from that are the whole point of the folder:
+
+- **Keep it close to upstream.** A change here is either a rebase onto a newer upstream revision, or
+  a minimal patch that upstream's version cannot carry — the crate is vendored because upstream
+  builds against the `gpui` published on crates.io while Ubiq builds against Zed's `main`.
+- **Record every divergence.** `vendor/gpui-terminal/README.md` names the upstream revision, the
+  licence, and each file that differs and why. A rebase reapplies exactly that list, so a patch
+  missing from it is a patch the next rebase drops.
+- **Never Ubiq's own code.** No `AppState`, no theme token, no message type. Anything Ubiq wants
+  from the emulator is passed in as configuration or a callback; anything Ubiq wants to add on top
+  belongs in `crates/ubiq/src/ui/`.
+
 ## The two crates
 
 The division is sharp and worth learning before touching either.
@@ -48,7 +71,7 @@ The division is sharp and worth learning before touching either.
 | Is | The application | A library, plus a CLI over it |
 | Owns | Windows, panes, terminals, layout, focus, process supervision | Composing a harness run: skills, MCP servers, accounts, ephemeral config |
 | Knows about | Terminals and the harnesses it hosts | Harnesses and their configuration surfaces |
-| Depends on | GPUI, `portable-pty`, `termwiz` | No UI, no terminal emulation |
+| Depends on | GPUI, `gpui-terminal`, `portable-pty` | No UI, no terminal emulation |
 | Documented in | `_docs/` — this library | `crates/agent-manager/_docs/` — its own |
 
 The dependency runs one way: the application embeds the library. The library has no idea Ubiq
@@ -71,6 +94,7 @@ Module by module, and what must never appear in each. The generated tree, with e
 | `theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
 | `state/` | Pane and application state machines, the workbench, explorer, editor and chat state, and the fixtures that seed them | Rendering, or any component-library type |
 | `messages.rs` | The transport contract enum and its payload records | Anything that fails to serialise |
+| `bus.rs` | The channel pair the halves talk over, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
 | `orchestrator.rs` | Spawn, supervise and reap harness processes | Rendering, layout, colour |
 | `pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
@@ -87,7 +111,8 @@ The "never holds" column is the enforcement of the architecture's rules in file 
 4. Does it own a process or a file descriptor? → `orchestrator.rs` or `pty/`.
 5. Does it cross the bus? → its type goes in `messages.rs`, its handling on both sides.
 6. Does it know how a *harness* is configured or launched? → `crates/agent-manager`, not here.
-7. Is it a script a person runs? → `_tools/`, with a `just` recipe in front of it.
+7. Is it a patch to somebody else's crate? → `vendor/`, with a line in that crate's `README.md`.
+8. Is it a script a person runs? → `_tools/`, with a `just` recipe in front of it.
 
 Anything that fits none of these is worth a question before it is worth a file.
 

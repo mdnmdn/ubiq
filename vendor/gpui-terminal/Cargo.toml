@@ -1,0 +1,22 @@
+[package]
+name = "gpui-terminal"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Terminal emulator component for gpui (vendored fork)"
+repository = "https://github.com/zortax/gpui-terminal"
+authors = ["Leonard Seibold <git[@]zrtx.de"]
+publish = false
+
+[dependencies]
+# The same source Ubiq builds against, so the two share one gpui.
+gpui = { git = "https://github.com/zed-industries/zed" }
+alacritty_terminal = "0.25.1"
+anyhow = "1"
+parking_lot = "0.12"
+flume = "0.12"
+ropey = "1"
+
+[dependencies.arboard]
+version = "3"
+features = ["wayland-data-control"]

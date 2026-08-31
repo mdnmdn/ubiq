@@ -15,8 +15,8 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use crate::source::{LinkMode, Source};
 use crate::Result;
+use crate::source::{LinkMode, Source};
 
 /// Materialize profile config-overlay `bases` (ordered **root → leaf**) into the
 /// provisioned config `dir`.

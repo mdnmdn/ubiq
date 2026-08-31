@@ -10,10 +10,10 @@
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
+use crate::Result;
 use crate::harness::{Harness, Launch};
 use crate::io::IoBridge;
 use crate::provision::Provisioned;
-use crate::Result;
 
 /// Spawn `launch` with piped stdin/stdout, cwd `cwd`.
 ///

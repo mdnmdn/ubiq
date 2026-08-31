@@ -34,7 +34,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             div()
                 .id("chat-transcript")
                 .size_full()
-                .p_3()
+                .pr_3()
                 .flex()
                 .flex_col()
                 .gap_4()

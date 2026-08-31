@@ -64,7 +64,11 @@ mod tests {
             }]
         }
 
-        fn call(&self, name: &str, arguments: serde_json::Value) -> crate::Result<serde_json::Value> {
+        fn call(
+            &self,
+            name: &str,
+            arguments: serde_json::Value,
+        ) -> crate::Result<serde_json::Value> {
             if name != "echo" {
                 anyhow::bail!("unknown tool: {name}");
             }

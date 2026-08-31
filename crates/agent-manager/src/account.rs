@@ -22,10 +22,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 
-use crate::source::Source;
 use crate::Result;
+use crate::source::Source;
 
 /// A named credential *reference* for a harness run.
 ///
@@ -200,10 +200,7 @@ impl AccountStore for FsAccountStore {
 
             for acct in parsed.account {
                 if acct.id.is_empty() {
-                    bail!(
-                        "account entry in {} is missing 'id'",
-                        toml_path.display()
-                    );
+                    bail!("account entry in {} is missing 'id'", toml_path.display());
                 }
                 if !seen_ids.insert(acct.id.clone()) {
                     bail!(
@@ -262,8 +259,7 @@ impl AccountStore for FsAccountStore {
 
     fn login_home(&self, id: &str) -> Result<PathBuf> {
         let home = self.root.join(id);
-        std::fs::create_dir_all(&home)
-            .with_context(|| format!("creating {}", home.display()))?;
+        std::fs::create_dir_all(&home).with_context(|| format!("creating {}", home.display()))?;
         Ok(home)
     }
 
@@ -320,14 +316,14 @@ pub fn normalize_claude_credentials_json(raw: &[u8]) -> Result<Vec<u8>> {
     if trimmed.is_empty() {
         bail!("Claude credentials blob is empty");
     }
-    let value: serde_json::Value = serde_json::from_slice(trimmed)
-        .context("parsing Claude credentials JSON")?;
+    let value: serde_json::Value =
+        serde_json::from_slice(trimmed).context("parsing Claude credentials JSON")?;
     let oauth = match value.get("claudeAiOauth") {
         Some(inner) => inner.clone(),
         None if value.get("accessToken").is_some() || value.get("refreshToken").is_some() => value,
-        None => bail!(
-            "Claude credentials JSON missing `claudeAiOauth` (and not a bare oauth object)"
-        ),
+        None => {
+            bail!("Claude credentials JSON missing `claudeAiOauth` (and not a bare oauth object)")
+        }
     };
     let access = oauth
         .get("accessToken")
@@ -378,9 +374,7 @@ pub fn read_claude_keychain_credentials() -> Result<Vec<u8>> {
                 "-w",
             ])
             .output()
-            .context(
-                "running `security find-generic-password` (is the security CLI available?)",
-            )?;
+            .context("running `security find-generic-password` (is the security CLI available?)")?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             bail!(
@@ -425,9 +419,8 @@ pub fn materialize_claude_login_home(home: &Path, creds: &[u8]) -> Result<()> {
         let src = real_home.join(".claude.json");
         if src.is_file() {
             let dst = home.join(".claude.json");
-            std::fs::copy(&src, &dst).with_context(|| {
-                format!("copying {} → {}", src.display(), dst.display())
-            })?;
+            std::fs::copy(&src, &dst)
+                .with_context(|| format!("copying {} → {}", src.display(), dst.display()))?;
         }
     }
     Ok(())
@@ -539,7 +532,10 @@ home = "/private/sandbox-home"
             personal.api_key_env.as_deref(),
             Some("PERSONAL_ANTHROPIC_KEY")
         );
-        assert_eq!(personal.base_url.as_deref(), Some("https://api.anthropic.com"));
+        assert_eq!(
+            personal.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
         assert!(personal.auth_token_env.is_none());
         assert!(personal.helper.is_none());
         assert!(personal.home.is_none());
@@ -645,7 +641,8 @@ api_key_env = "WORK_KEY"
         let out = normalize_claude_credentials_json(raw).unwrap();
         let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(
-            v.pointer("/claudeAiOauth/accessToken").and_then(|x| x.as_str()),
+            v.pointer("/claudeAiOauth/accessToken")
+                .and_then(|x| x.as_str()),
             Some("at-secret")
         );
     }
@@ -657,7 +654,8 @@ api_key_env = "WORK_KEY"
         let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert!(v.get("claudeAiOauth").is_some());
         assert_eq!(
-            v.pointer("/claudeAiOauth/accessToken").and_then(|x| x.as_str()),
+            v.pointer("/claudeAiOauth/accessToken")
+                .and_then(|x| x.as_str()),
             Some("a")
         );
     }
@@ -665,7 +663,9 @@ api_key_env = "WORK_KEY"
     #[test]
     fn normalize_claude_credentials_rejects_empty_tokens() {
         let raw = br#"{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0}}"#;
-        let err = normalize_claude_credentials_json(raw).unwrap_err().to_string();
+        let err = normalize_claude_credentials_json(raw)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("empty"), "{err}");
     }
 

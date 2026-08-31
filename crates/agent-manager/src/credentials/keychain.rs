@@ -173,10 +173,9 @@ impl SecretStore for PrivateKeychainStore {
 
     fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()> {
         let mut vault = self.load()?;
-        let blobs = vault
-            .entries
-            .remove(&entry_key(from))
-            .ok_or_else(|| anyhow::anyhow!("no credential '{}/{}' to rename", from.harness, from.name))?;
+        let blobs = vault.entries.remove(&entry_key(from)).ok_or_else(|| {
+            anyhow::anyhow!("no credential '{}/{}' to rename", from.harness, from.name)
+        })?;
         let to = CredentialId {
             harness: from.harness.clone(),
             name: to_name.to_string(),

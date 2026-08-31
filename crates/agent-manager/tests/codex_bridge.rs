@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 use agent_manager::harness::Launch;
-use agent_manager::io::{spawn_piped, AgentEvent, AgentInput, CodexBridge, IoBridge};
+use agent_manager::io::{AgentEvent, AgentInput, CodexBridge, IoBridge, spawn_piped};
 
 /// Absolute path to the fake app-server script next to this test file.
 fn fake_appserver_path() -> PathBuf {

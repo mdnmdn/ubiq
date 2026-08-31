@@ -4,11 +4,11 @@
 //! and "run it". It contains no file I/O, no clap, no async — just pure types and
 //! a constructor for tests and in-memory usage.
 
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use crate::account::Account;
 use crate::config::McpServer;
 use crate::source::Source;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Stable, lowercase harness identifier (e.g. `claude-code`).
 pub type HarnessId = String;

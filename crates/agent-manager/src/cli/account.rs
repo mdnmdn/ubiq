@@ -3,11 +3,11 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 
 use crate::account::{self, Account, AccountStore, EmptyAccountStore, FsAccountStore};
-use crate::credentials::{blobs_from_seed, CredentialBlob, CredentialId, SecretStore};
+use crate::credentials::{CredentialBlob, CredentialId, SecretStore, blobs_from_seed};
 
 /// `am account` subcommand dispatcher.
 #[derive(Debug, Parser)]
@@ -180,16 +180,12 @@ pub(super) fn run(args: &[String]) -> Result<()> {
             path,
         } => cmd_dump(&name, &harness, json, show_secrets, path.as_deref()),
         AccountCommand::Delete { name, harness, yes } => cmd_delete(&name, &harness, yes),
-        AccountCommand::Check {
-            name,
-            harness,
-            all,
-        } => cmd_check(name.as_deref(), harness.as_deref(), all),
-        AccountCommand::Renew {
-            name,
-            harness,
-            all,
-        } => cmd_renew(name.as_deref(), harness.as_deref(), all),
+        AccountCommand::Check { name, harness, all } => {
+            cmd_check(name.as_deref(), harness.as_deref(), all)
+        }
+        AccountCommand::Renew { name, harness, all } => {
+            cmd_renew(name.as_deref(), harness.as_deref(), all)
+        }
         AccountCommand::Rename { old, new, harness } => cmd_rename(&old, &new, &harness),
     }
 }
@@ -319,9 +315,7 @@ fn redact_json(v: &mut serde_json::Value) {
         serde_json::Value::Object(map) => {
             let secret_like = ["token", "secret", "key", "password", "auth"];
             for (k, val) in map.iter_mut() {
-                let key_matches = secret_like
-                    .iter()
-                    .any(|pat| k.to_lowercase().contains(pat));
+                let key_matches = secret_like.iter().any(|pat| k.to_lowercase().contains(pat));
                 if key_matches && let serde_json::Value::String(s) = val {
                     *val = serde_json::Value::String(format!("<redacted:{}>", s.len()));
                 } else {
@@ -572,10 +566,7 @@ fn cmd_renew(name: Option<&str>, harness: Option<&str>, all: bool) -> Result<()>
         for meta in store.list()? {
             let id = &meta.id;
             let Some(h) = crate::harness::resolve(&id.harness) else {
-                println!(
-                    "({}, {}): skipped (unknown harness)",
-                    id.harness, id.name
-                );
+                println!("({}, {}): skipped (unknown harness)", id.harness, id.name);
                 failed += 1;
                 continue;
             };
@@ -757,8 +748,7 @@ fn cmd_use(id: &str) -> Result<()> {
     let mut table: toml::Table = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| anyhow!("reading {}: {e}", config_path.display()))?;
-        toml::from_str(&content)
-            .map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
+        toml::from_str(&content).map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
     } else {
         toml::Table::new()
     };
@@ -766,9 +756,9 @@ fn cmd_use(id: &str) -> Result<()> {
     let defaults = table
         .entry("defaults")
         .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-    let defaults_table = defaults.as_table_mut().ok_or_else(|| {
-        anyhow!("'defaults' in {} is not a table", config_path.display())
-    })?;
+    let defaults_table = defaults
+        .as_table_mut()
+        .ok_or_else(|| anyhow!("'defaults' in {} is not a table", config_path.display()))?;
     defaults_table.insert("account".to_string(), toml::Value::String(id.to_string()));
 
     if let Some(parent) = config_path.parent() {
@@ -851,7 +841,10 @@ fn cmd_import(write: bool) -> Result<()> {
             ("claude-credentials", home.join(".claude/.credentials.json")),
             ("claude-json", home.join(".claude.json")),
             ("codex-auth", home.join(".codex/auth.json")),
-            ("opencode-auth", home.join(".local/share/opencode/auth.json")),
+            (
+                "opencode-auth",
+                home.join(".local/share/opencode/auth.json"),
+            ),
             ("copilot-config", home.join(".copilot/config.json")),
         ];
 
@@ -1048,7 +1041,10 @@ fn try_claude_keychain_import(
     // Files engine: plaintext file home is the store (legacy behavior).
     let home = accounts_root.join(account::DEFAULT_ACCOUNT_ID);
     if !write {
-        return Ok(KeychainImport::WouldWrite(format!("home {}", home.display())));
+        return Ok(KeychainImport::WouldWrite(format!(
+            "home {}",
+            home.display()
+        )));
     }
     let acct = account::import_default_claude_from_keychain(accounts_root)?;
     let home = acct.home.unwrap_or(home);
@@ -1069,10 +1065,7 @@ fn try_claude_keychain_import(
 /// [`blobs_from_seed`] picks them up) — without touching disk. `.claude.json`
 /// (identity, non-secret) is included from the real `$HOME` when present.
 fn claude_keychain_login_source(creds: &[u8]) -> Result<crate::source::Source> {
-    let mut files = vec![(
-        PathBuf::from(".claude/.credentials.json"),
-        creds.to_vec(),
-    )];
+    let mut files = vec![(PathBuf::from(".claude/.credentials.json"), creds.to_vec())];
     if let Some(home) = std::env::var_os("HOME") {
         let json = PathBuf::from(home).join(".claude.json");
         if json.is_file() {
@@ -1123,8 +1116,8 @@ fn capture_harness_default_from_file(
         .first()
         .map(|s| s.src.clone())
         .ok_or_else(|| anyhow!("{harness_id} declares no login_seed to capture"))?;
-    let bytes = std::fs::read(real_file)
-        .with_context(|| format!("reading {}", real_file.display()))?;
+    let bytes =
+        std::fs::read(real_file).with_context(|| format!("reading {}", real_file.display()))?;
     let name = rel
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1153,8 +1146,7 @@ fn set_defaults_account(id: &str, force: bool) -> Result<()> {
     let mut table: toml::Table = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| anyhow!("reading {}: {e}", config_path.display()))?;
-        toml::from_str(&content)
-            .map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
+        toml::from_str(&content).map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
     } else {
         toml::Table::new()
     };
@@ -1162,9 +1154,9 @@ fn set_defaults_account(id: &str, force: bool) -> Result<()> {
     let defaults = table
         .entry("defaults")
         .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-    let defaults_table = defaults.as_table_mut().ok_or_else(|| {
-        anyhow!("'defaults' in {} is not a table", config_path.display())
-    })?;
+    let defaults_table = defaults
+        .as_table_mut()
+        .ok_or_else(|| anyhow!("'defaults' in {} is not a table", config_path.display()))?;
 
     let existing = defaults_table
         .get("account")
@@ -1446,7 +1438,9 @@ fn run_login_isolated(
 ) -> Result<i32> {
     let home_str = home.to_string_lossy().into_owned();
 
-    let mut sandbox = isol8::Sandbox::new().home(home_str.clone()).grant_rw(home_str);
+    let mut sandbox = isol8::Sandbox::new()
+        .home(home_str.clone())
+        .grant_rw(home_str);
 
     match profile {
         // Explicit override: a single named isol8 profile.
@@ -1539,8 +1533,10 @@ mod tests {
     #[test]
     fn partition_new_skips_already_present_ids() {
         let existing: BTreeSet<String> = ["anthropic-api-key".to_string()].into_iter().collect();
-        let (to_add, skipped) =
-            partition_new(&existing, vec![acct("anthropic-api-key"), acct("codex-auth-home")]);
+        let (to_add, skipped) = partition_new(
+            &existing,
+            vec![acct("anthropic-api-key"), acct("codex-auth-home")],
+        );
         assert_eq!(
             to_add.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
             vec!["codex-auth-home"]
@@ -1583,7 +1579,10 @@ mod tests {
         std::fs::write(home.path().join("config.json"), "{}").unwrap();
 
         let captured = effective_harnesses(home.path());
-        assert_eq!(captured, vec!["claude-code".to_string(), "copilot".to_string()]);
+        assert_eq!(
+            captured,
+            vec!["claude-code".to_string(), "copilot".to_string()]
+        );
     }
 
     #[test]
@@ -1621,8 +1620,14 @@ mod tests {
             ]
         });
         redact_json(&mut v);
-        assert_eq!(v["sessions"][0]["apiKey"], serde_json::json!("<redacted:9>"));
-        assert_eq!(v["sessions"][1]["apiKey"], serde_json::json!("<redacted:10>"));
+        assert_eq!(
+            v["sessions"][0]["apiKey"],
+            serde_json::json!("<redacted:9>")
+        );
+        assert_eq!(
+            v["sessions"][1]["apiKey"],
+            serde_json::json!("<redacted:10>")
+        );
     }
 
     fn blob(bytes: &[u8]) -> CredentialBlob {
@@ -1652,7 +1657,12 @@ mod tests {
         let past = 1_000_000_000_000i64;
         let bytes = format!("{{\"claudeAiOauth\":{{\"expiresAt\":{past}}}}}");
         let v = credential_validity(&[blob(bytes.as_bytes())], 2_000_000_000_000);
-        assert_eq!(v, Validity::Expired { expires_at_ms: past });
+        assert_eq!(
+            v,
+            Validity::Expired {
+                expires_at_ms: past
+            }
+        );
     }
 
     #[test]
@@ -1720,14 +1730,9 @@ mod tests {
     /// <profile>` two-token form) is caught without needing a real login.
     #[test]
     fn login_isolate_flag_parses_absent_bare_and_named() {
-        let absent = AccountArgs::try_parse_from([
-            "am-account",
-            "login",
-            "mdn",
-            "--harness",
-            "claude",
-        ])
-        .unwrap();
+        let absent =
+            AccountArgs::try_parse_from(["am-account", "login", "mdn", "--harness", "claude"])
+                .unwrap();
         let AccountCommand::Login { isolate, .. } = absent.command else {
             panic!("expected Login");
         };

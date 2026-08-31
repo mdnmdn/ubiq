@@ -199,6 +199,101 @@ project; windows share nothing but the process-wide palette.
 And per-window state means anything that should be global — an open project set, a session list —
 needs somewhere else to live before it can be shared.
 
+### D20 — The emulator is `gpui-terminal`, vendored into the workspace
+
+`D1` says Ubiq integrates an emulator rather than writing one; this names it. `gpui-terminal` is a
+GPUI component that parses VT with `alacritty_terminal` and accepts any `Read`/`Write` pair, which
+is exactly the shape a pane needs. It sits in `vendor/` as a workspace member rather than being
+pulled from crates.io or git, because upstream builds against the published `gpui` and Ubiq builds
+against Zed's `main`, where two calls have a different shape.
+
+**Cost:** a copy of somebody else's crate in the tree, with the divergence recorded by hand and
+reapplied on every rebase. Upstream fixes do not arrive on their own, and the patch list is only as
+honest as the README that holds it.
+
+### D21 — The UI is handed bus endpoints, not a pseudo-terminal
+
+The emulator wants something to read and something to write. It is given a `Write` that turns a
+keystroke into an input message and a blocking `Read` fed by the output messages routed to that
+pane, both from `crates/ubiq/src/bus.rs`. The obvious alternative — handing the emulator the
+pseudo-terminal directly, which is what its own example does — would have been fewer moving parts.
+
+**Why:** it is what makes rule 2 structural rather than aspirational. The UI cannot reach a
+descriptor it was never given, so a remote or detached harness is a change to what fills the stream
+and to nothing else.
+
+**Cost:** every byte is copied into a message and out again, and the emulator reads on a thread per
+pane. A pane's stream also has to be closed explicitly when its harness exits, because nothing else
+tells a blocking reader the process is gone.
+
+### D22 — Closing a pane kills its harness
+
+Closing the tab signals the child and reaps it. The alternative was to let the harness run on
+unattended, or to keep the pane alive until the agent finished.
+
+**Why:** a pane is the only handle the user has on a harness. An agent with no pane is an agent
+nobody can see, stop, or answer — and one that keeps burning tokens.
+
+**Cost:** a long-running agent cannot be parked by closing its pane, and a stray click ends work. A
+detach that keeps harnesses alive without a window is the shape that reverses this, and it is
+tracked in [`../backlog.md`](../backlog.md).
+
+### D23 — Which window holds which project is process-wide, not per window
+
+The project catalogue and the window-to-project map live in one GPUI global,
+`WindowRegistry`, and every window reads it and redraws when it changes. Each window keeps only its
+`WindowId`. The alternative — the copy each window used to keep — was simpler and needed no shared
+mutable state at all.
+
+**Why:** the picker has to answer "where is this project open?", and no window can answer that from
+a copy of its own. The copies also disagreed: closing a project in one window left it open in the
+other. Making a project open in exactly one window is what turns the picker into a view of the whole
+desktop rather than of one window's guesses.
+
+**Cost:** shared mutable state between windows, with the reader's discipline that comes with it —
+reads go through `WindowRegistry::read`, because the `default_global` that would seed it on demand
+notifies the observers on a plain read and spins the frame. And a window's lifetime is no longer its
+own: emptying it closes it, from whichever window the user was clicking in.
+
+### D24 — Diagnostics go to one process-wide sink, not over the bus
+
+Every subsystem logs with `tracing`, a layer in `crates/ubiq/src/log.rs` pushes each event into one
+ring the whole process shares, and the window's console reads that ring directly. The alternative
+that would have honoured `D3` literally was a log message on the transport, with the coordinator
+forwarding its records to the window that owns it.
+
+**Why:** collection has to cost a subsystem nothing, or it does not happen. A `tracing::info!` with
+no sink to acquire and no handle to thread through a signature is what makes the harness library, the
+emulator and the framework collectable on the same terms as Ubiq's own modules — and none of them
+can be taught to send a message on Ubiq's bus. The sink stays outside `D3` on its own terms: records
+travel one way, a producer never reads, nothing in a record is a pane's state, a path or a handle,
+and neither half learns anything from it. A message-based log would also have made the console blind
+to everything emitted before the first window and after the last one.
+
+**Cost:** one shared mutable structure both halves touch, which is exactly the shape `D4` warns
+about — the discipline that keeps it one-way is written down rather than compiled. It is also the one
+part of the system a detached coordinator does not carry across for free: its records would need the
+transport, which is filed in [`../backlog.md`](../backlog.md). And a ring in memory means diagnostics
+die with the process.
+
+### D25 — The log console is a dock tab, not a panel of its own
+
+The dock's tab strip lists the panes and then the console, and selecting it draws it where a pane's
+terminal would be. The alternative, built first, was a fourth resizable panel under the dock with
+its own titlebar switch and its own three size constants.
+
+**Why:** the console answers a question about what an agent just did, and the dock is where the user
+looks to ask it. A fourth row also took height from the editor and the dock permanently, for a
+surface that is read in bursts. Reusing the dock means one strip, one size, one
+hide button, and no new panel constants — and the tab's dot gives the console the one notification
+surface it needs without stealing the view.
+
+**Cost:** the dock's tab strip is not purely the pane list, so it carries one tab with no pane ID
+behind it, and the strip's `+`, its close buttons and its dots mean one thing for panes and another
+for the console. It also means the console and a pane cannot be read
+at once, and the focus rule gains a case: the console holds the keyboard while it is shown, so a
+pane that is off screen cannot be typed into.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

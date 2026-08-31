@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/main.rs, crates/ubiq/src/app.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq/src/bus.rs, crates/ubiq/src/orchestrator.rs, crates/ubiq/src/log.rs]
 review_cycle: quarterly
 ---
 
@@ -29,6 +29,13 @@ touches no process and no pseudo-terminal, and it knows a pane only by its ID.
 Between them is the **bus** — a single channel carrying a small, closed set of messages. The message
 set is the load-bearing decision and is owned by
 [`transport-contract.md`](./transport-contract.md); this document covers the structure around it.
+
+`crates/ubiq/src/bus.rs` is that channel in code. `pair()` opens two unbounded queues of messages,
+one per direction, and a window keeps one end while the coordinator thread keeps the other. The
+same module holds the two byte-stream endpoints a pane's emulator is handed in place of a
+pseudo-terminal: a `Write` whose writes leave as input messages, and a blocking `Read` fed by the
+output messages the window routes to that pane. Unbounded is deliberate — a window that falls
+behind must never stall the reader that is draining a harness.
 
 ```
   ┌──────────────────────── one process ─────────────────────────┐
@@ -93,10 +100,13 @@ the transport beneath the contract.
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor and chat state |
 | The message set | `crates/ubiq/src/messages.rs` | The contract, serialisable by construction |
-| Process and PTY lifecycle | `crates/ubiq/src/orchestrator.rs` | Spawn, supervise, reap |
+| The bus, and a pane's byte streams | `crates/ubiq/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
+| Process and PTY lifecycle | `crates/ubiq/src/orchestrator.rs` | Spawn, supervise, reap. One coordinator thread, started from `for_project()` |
 | PTY streams and backpressure | `crates/ubiq/src/pty/` | `portable-pty` |
+| Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
+| Diagnostics from every subsystem | `crates/ubiq/src/log.rs` | The one sink both halves write to, and the console reads |
 
 `crates/ubiq/src/main.rs` does nothing but start the application: install the GPUI component library,
 set the palette, bind the quit action, and ask for the first window. Opening a window is
@@ -107,7 +117,22 @@ modules, so the tree is compiled once. All real logic sits in the library root,
 
 **A window is one `AppState`.** Several may be open, each pointed at its own project. They share the
 palette, which is process-wide, and nothing else — so any state that ought to be global needs a home
-outside `AppState` before it can be shared.
+outside `AppState` before it can be shared. A coordinator is per window on the same terms: each one
+opens its own bus and starts its own coordinator thread, which means two windows cannot see each
+other's panes. That is a simplification, and it is filed as such in [`../backlog.md`](../backlog.md).
+
+## Diagnostics
+
+One thing crosses the line without the bus: the log sink in `crates/ubiq/src/log.rs`. Both halves
+write to it, the window's console reads it, and it is process-wide rather than per window.
+
+It is not an exception to rule 1, because nothing about it is communication. Records travel one way,
+a producer never reads, and no record carries a pane's state, a path or a handle — neither half
+learns anything from the sink, and removing it would change nothing either half does. What it buys
+is a subsystem that logs with `tracing::info!` and no plumbing, including the crates that have never
+heard of Ubiq. The trade, and the shape a detached coordinator forces, are `D24` and a row in
+[`../backlog.md`](../backlog.md); what the sink holds and what the console does with it is
+[`../features/logs.md`](../features/logs.md).
 
 ## State ownership
 
@@ -117,24 +142,31 @@ right, and the repair is a message, not a reach-around.
 
 Inside the UI, `AppState` owns the panes, the focused pane, and the layout mode, and mutates them
 only through methods that end in a redraw request: `spawn_pane()`, `close_pane()`, `resize_pane()`,
-`focus_pane()`. It owns the workbench's own state on the same terms.
+`focus_pane()`. It owns the workbench's own state on the same terms. A pane is drawn when the
+coordinator answers with the workspace it started, not when the UI asked for one — asking is
+`spawn_pane()`, and the answer arrives, with everything else the coordinator says, at `receive()`,
+through a task draining the bus.
 
 ## The dependency direction
 
 ```
 main → app → ui → state → messages
-                     ↑
-      orchestrator → pty
+        ↘                 ↑
+          bus ────────────┤
+        ↗                 │
+      orchestrator → pty ─┘
 ```
 
 Arrows point at what a module may name. `messages` sits at the bottom and depends on nothing, which
-is what lets both halves share it without either becoming the other's dependency. Nothing under
-`ui/` may name `orchestrator` or `pty`; nothing under `orchestrator` or `pty` may name `ui`.
+is what lets both halves share it without either becoming the other's dependency; `bus` sits just
+above it, naming the contract and nothing else, which is why both halves may name `bus`. Nothing
+under `ui/` may name `orchestrator` or `pty`; nothing under `orchestrator` or `pty` may name `ui`.
 
-Two dependencies come from outside the crate. `portable-pty` gives the coordinator cross-platform
-pseudo-terminals. GPUI, with the `gpui-component` widget set, gives the UI its rendering. Neither is
-allowed to leak across the bus: a GPUI type in a message, or a `portable-pty` handle in the UI, is
-the same violation as breaking rule 1.
+Three dependencies come from outside the crate. `portable-pty` gives the coordinator cross-platform
+pseudo-terminals. GPUI, with the `gpui-component` widget set, gives the UI its rendering, and
+`gpui-terminal` — vendored in this workspace — gives it the emulator a pane is drawn by. None may
+leak across the bus: a GPUI type in a message, or a `portable-pty` handle in the UI, is the same
+violation as breaking rule 1.
 
 ## The harness library
 

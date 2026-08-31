@@ -35,10 +35,10 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{AgentEvent, AgentInput, ApprovalDecision, IoBridge};
 
@@ -555,10 +555,8 @@ mod tests {
 
     #[test]
     fn map_event_result_error() {
-        let v: Value = serde_json::from_str(
-            r#"{"type":"result","result":"boom","is_error":true}"#,
-        )
-        .unwrap();
+        let v: Value =
+            serde_json::from_str(r#"{"type":"result","result":"boom","is_error":true}"#).unwrap();
         let events = map_event(&v);
         assert_eq!(
             events,

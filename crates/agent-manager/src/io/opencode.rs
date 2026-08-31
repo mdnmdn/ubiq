@@ -29,7 +29,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdout};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -151,11 +151,7 @@ impl Drop for OpencodeBridge {
 /// to zero-or-more [`AgentEvent`]s and push them onto `tx`. On stream end,
 /// emit a terminal `AgentEvent::Result` if one hasn't been sent already
 /// (no explicit error), then drop `tx` (closing the channel).
-fn read_loop(
-    stdout: ChildStdout,
-    tx: mpsc::Sender<AgentEvent>,
-    result_sent: Arc<Mutex<bool>>,
-) {
+fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc<Mutex<bool>>) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -184,7 +180,9 @@ fn read_loop(
     }
 
     // EOF: emit a success Result if not already sent.
-    if let Ok(mut sent) = result_sent.lock() && !*sent {
+    if let Ok(mut sent) = result_sent.lock()
+        && !*sent
+    {
         let _ = tx.send(AgentEvent::Result {
             success: true,
             error: None,
@@ -231,7 +229,10 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            let call_id = part.get("callID").and_then(Value::as_str).map(str::to_string);
+            let call_id = part
+                .get("callID")
+                .and_then(Value::as_str)
+                .map(str::to_string);
 
             let state = match part.get("state") {
                 Some(s) => s,
@@ -265,12 +266,8 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(|p| p.get("tokens"))
                 .and_then(Value::as_object)
             {
-                let input_tokens = tokens
-                    .get("input")
-                    .and_then(Value::as_u64);
-                let output_tokens = tokens
-                    .get("output")
-                    .and_then(Value::as_u64);
+                let input_tokens = tokens.get("input").and_then(Value::as_u64);
+                let output_tokens = tokens.get("output").and_then(Value::as_u64);
 
                 if input_tokens.is_some() || output_tokens.is_some() {
                     vec![AgentEvent::Usage {

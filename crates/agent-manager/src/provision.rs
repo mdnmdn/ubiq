@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
+use crate::Result;
 use crate::harness::{Harness, Launch, TemplateStore};
 use crate::source::Source;
 use crate::spec::{ConfigStrategy, RunSpec};
-use crate::Result;
 
 /// The result of provisioning: where the config was written and how to launch.
 ///
@@ -114,9 +114,7 @@ pub fn provision(
 /// `McpRef::Inline` http servers pointed at the new loopback URLs, plus the
 /// started servers (to be kept alive for the run).
 #[cfg(feature = "inproc-mcp")]
-fn host_inproc_mcps(
-    spec: &RunSpec,
-) -> Result<(RunSpec, Vec<crate::mcp::server::InProcessServer>)> {
+fn host_inproc_mcps(spec: &RunSpec) -> Result<(RunSpec, Vec<crate::mcp::server::InProcessServer>)> {
     use crate::config::{McpServer, McpTransport};
     use crate::spec::McpRef;
 
@@ -276,9 +274,11 @@ mod tests {
             skill_md.exists(),
             "a Source::Files skill must materialize into the run dir"
         );
-        assert!(std::fs::read_to_string(&skill_md)
-            .unwrap()
-            .contains("from the database"));
+        assert!(
+            std::fs::read_to_string(&skill_md)
+                .unwrap()
+                .contains("from the database")
+        );
     }
 
     /// Proves the `McpRef::InProcess` -> `McpRef::Inline` http injection
@@ -301,7 +301,11 @@ mod tests {
                     input_schema: serde_json::json!({"type": "object"}),
                 }]
             }
-            fn call(&self, _name: &str, arguments: serde_json::Value) -> crate::Result<serde_json::Value> {
+            fn call(
+                &self,
+                _name: &str,
+                arguments: serde_json::Value,
+            ) -> crate::Result<serde_json::Value> {
                 Ok(arguments)
             }
         }

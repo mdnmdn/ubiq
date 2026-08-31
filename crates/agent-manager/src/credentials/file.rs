@@ -37,8 +37,7 @@ impl FileSecretStore {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
-        std::fs::write(&target, bytes)
-            .with_context(|| format!("writing {}", target.display()))?;
+        std::fs::write(&target, bytes).with_context(|| format!("writing {}", target.display()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -144,8 +143,7 @@ impl SecretStore for FileSecretStore {
     fn delete(&self, id: &CredentialId) -> Result<()> {
         let dir = self.entry_dir(id);
         if dir.is_dir() {
-            std::fs::remove_dir_all(&dir)
-                .with_context(|| format!("removing {}", dir.display()))?;
+            std::fs::remove_dir_all(&dir).with_context(|| format!("removing {}", dir.display()))?;
         }
         Ok(())
     }
@@ -153,19 +151,14 @@ impl SecretStore for FileSecretStore {
     fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()> {
         let from_dir = self.entry_dir(from);
         if !from_dir.is_dir() {
-            anyhow::bail!(
-                "no credential '{}/{}' to rename",
-                from.harness,
-                from.name
-            );
+            anyhow::bail!("no credential '{}/{}' to rename", from.harness, from.name);
         }
         let to_name_dir = self.root.join(to_name);
         std::fs::create_dir_all(&to_name_dir)
             .with_context(|| format!("creating {}", to_name_dir.display()))?;
         let to_dir = to_name_dir.join(&from.harness);
-        std::fs::rename(&from_dir, &to_dir).with_context(|| {
-            format!("renaming {} -> {}", from_dir.display(), to_dir.display())
-        })?;
+        std::fs::rename(&from_dir, &to_dir)
+            .with_context(|| format!("renaming {} -> {}", from_dir.display(), to_dir.display()))?;
         Ok(())
     }
 }
@@ -226,10 +219,7 @@ mod tests {
             harness: "claude-code".to_string(),
             name: "default".to_string(),
         };
-        store.set(
-            &id,
-            &[blob(".claude/.credentials.json", b"{\"a\":1}")],
-        )?;
+        store.set(&id, &[blob(".claude/.credentials.json", b"{\"a\":1}")])?;
 
         let got = store.get(&id)?.expect("present");
         assert_eq!(got.len(), 1);

@@ -6,7 +6,9 @@
 pub mod chat;
 pub mod editor;
 pub mod explorer;
+pub mod logs;
 pub mod sample;
+pub mod windows;
 pub mod workbench;
 
 pub use chat::{
@@ -15,4 +17,6 @@ pub use chat::{
 };
 pub use editor::{EditorPaneState, FileLanguage, OpenFile};
 pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row};
-pub use workbench::{MenuId, Project, RailMode, WorkbenchState};
+pub use logs::LogState;
+pub use windows::{Project, ProjectGroups, WindowRegistry, WindowSlot};
+pub use workbench::{MenuId, RailMode, WorkbenchState};

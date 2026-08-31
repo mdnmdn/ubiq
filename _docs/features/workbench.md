@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the three panel
 read_when: you are changing the window layout, a rail mode, panel visibility or resizing, the explorer, the editor tabs or the status bar
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -39,11 +39,33 @@ places at once: its dot in the picker, the fill behind its name in the titlebar,
 rail, and the window's left edge. Two windows on two projects are told apart without reading
 anything.
 
+**Every window is named by a letter.** Each takes the lowest letter no live window is using — `A`,
+`B`, `C`… — printed in the picker's trigger beside the project name, and beside every open project
+in the list. A closed window gives its letter back, so the names stay as short as the set of
+windows. The letter is in the operating system's window title too, which is what the window
+switcher shows.
+
+**A project is open in exactly one window.** Openness is not a flag on the project — it is which
+window holds it. Opening a project somewhere therefore takes it from wherever it was, and that is
+the only way a project moves between windows.
+
+**A window with no project open closes.** A window's whole purpose is the projects it holds; with
+none it has nothing to show and nothing to be named after. Closing the last project in a window
+closes the window, and so does taking it into another one. If it was the last window, the
+application quits with it.
+
 **The project picker is a small manager, not a list of values.** It searches on name and path, and
-divides into the projects that are open and the ones only remembered. An open project can be closed
-from its row — and if it still has terminals running, the row turns into a question rather than
-taking the click. Any project can be sent to a window of its own, which opens a second window
-pointed at it; the two share nothing but the palette.
+divides into three groups, top to bottom: **open in this window**, **open in another window** with
+the letter of the window holding each, and **history** — everything open nowhere, with how long ago
+it was. A group with no rows is not drawn. A project's row moves between the groups as the project
+moves between windows, in every window's picker at once.
+
+**Each group's rows carry the actions that group needs.** In this window: click to point the window
+at it, `Close` to close it, `ExternalLink` to send it to a window of its own. In another window:
+click to bring that window to the front — which is how the user moves between windows — or
+`ArrowLeft` to take the project into this one. In history: click to open it here, or `ExternalLink`
+to open it in a new window. Closing a project that still has terminals running turns the row into a
+question rather than taking the click.
 
 **The middle of the titlebar is one field for finding and for doing.** File search and commands go
 to the same place, marked `⌘K`. There is no breadcrumb: the titlebar says which project, the tab
@@ -51,7 +73,8 @@ strip says which file, and repeating it in the middle bought nothing.
 
 **Three panels, each independently shown and sized.** The titlebar's three toggles control the
 explorer, the terminal dock and the chat. Each panel drags to a new size within its own limits, and
-hiding a panel does not disturb the sizes of the others.
+hiding a panel does not disturb the sizes of the others. The dock holds one tab that is not a pane —
+the log console, which is [`logs.md`](./logs.md).
 
 **The explorer states git position by colour and by badge.** Modified, untracked, conflicted, staged
 and ignored each take a colour from the status group and a single-letter badge — the colour so it
@@ -79,17 +102,18 @@ it, and that belongs to [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## The window's areas
 
-Nine areas, and every one of them is a module. The table is the map a change starts from: it says
+Ten areas, and every one of them is a module. The table is the map a change starts from: it says
 which file draws an area, where it sits, what fixes or bounds its size, and what owns its state.
 
 | Area | Module | Sits | Size | State |
 |---|---|---|---|---|
 | Titlebar | `ui/titlebar.rs` | Top, full width beside the mark | `TITLEBAR_HEIGHT`, fixed | `WorkbenchState` |
-| Project picker | `ui/project_menu.rs` | In the titlebar, leftmost | Its own popup width | `WorkbenchState::projects` |
+| Project picker | `ui/project_menu.rs` | In the titlebar, leftmost | Its own popup width | `WindowRegistry`, process-wide |
 | Rail | `ui/rail.rs` | Left, full height | `RAIL_WIDTH`, fixed | `WorkbenchState::rail_mode` |
 | Explorer | `ui/explorer.rs` | Left panel | `EXPLORER_WIDTH`/`_MIN`/`_MAX` | `ExplorerState` |
 | Editor | `ui/editor.rs` | Centre, above the dock | Grows | `EditorPaneState` + `Entity<EditorState>` |
 | Terminal dock | `ui/terminal.rs` | Centre, below the editor | `DOCK_HEIGHT`/`_MIN`/`_MAX` | The panes on `AppState` |
+| Log console | `ui/logs.rs` | The dock's last tab | The dock's | `LogState` over the process-wide sink |
 | Chat | `ui/chat/` | Right panel | `CHAT_WIDTH`/`_MIN`/`_MAX` | `ChatState` |
 | Empty page | `ui/empty.rs` | Replaces the centre outside IDE mode | Grows | `RailMode` |
 | Status bar | `ui/status_bar.rs` | Bottom, full width | `STATUS_BAR_HEIGHT`, fixed | Read from everything above |
@@ -106,14 +130,19 @@ the centre.
 
 ## What a window owns
 
-A window is one `AppState`. Everything the workbench shows belongs to it — the project it points at,
-its panel sizes, its explorer, its editor buffers, its chat.
+A window is one `AppState`. Almost everything the workbench shows belongs to it — its panel sizes,
+its explorer, its editor buffers, its chat. Which project it points at is the exception: that is the
+registry's answer, not the window's.
 
-Two things are process-wide instead: the **palette**, so a second window opens in the mode the first
-is in, and the **component library's registration**, done once at boot. Nothing else is shared, which
-is why two windows on the same project would keep two independent copies of its state. The open
-project set is one of those copies today, and whether it should be is an open question in
-[`../backlog.md`](../backlog.md).
+Three things are process-wide instead: the **palette**, so a second window opens in the mode the
+first is in, the **component library's registration**, done once at boot, and the **window
+registry** — the project catalogue, and which window holds which project. The registry has to be
+shared: no window can answer "where is this project open?" from a copy of its own.
+
+A window's identity is its `WindowId`, which is its key into the registry. Everything else — panel
+sizes, explorer, editor buffers, chat — is the window's alone, which is why two windows on the same
+project would keep two independent copies of its state. The registry makes that unreachable rather
+than merely unlikely: a project is open in one window at a time.
 
 ## Implementation
 
@@ -123,7 +152,20 @@ library's `EditorState`, `TextareaState` and `InputState` entities and the subsc
 them mirrored. Every mutator ends in `cx.notify()`.
 
 `open_project_window` in `crates/ubiq/src/app.rs` is the only place a window is created, so the
-first window and "open in a new window" reach the same code. Each window owns its own `AppState`.
+first window and "open in a new window" reach the same code. It seeds the registry, allocates the
+window's letter — before the window exists, because the title carries it — and each window owns its
+own `AppState`. `focus_window` brings one to the front; `window_closed`, called from `main.rs`, drops
+a closed window's slot so everything it held returns to history.
+
+`WindowRegistry` in `crates/ubiq/src/state/windows.rs` is the process-wide half, held as a GPUI
+global. It owns the project catalogue and one `WindowSlot` per live window — its letter, the projects
+open in it, and which of them it is pointed at. `register`, `open_in`, `activate` and `close` are the
+four mutations, and each answers with the windows it emptied; `AppState::close_windows` closes those,
+deferred, because the caller is usually inside one of them. `groups` computes the picker's three
+lists for one window. Every `AppState` subscribes with `observe_global`, so a move in one window
+redraws the picker in all of them, and reads go through `WindowRegistry::read` rather than
+`default_global`, which would notify the observers on a plain read and spin the frame. The registry
+is pure logic and is tested without a frame in `crates/ubiq/tests/windows.rs`.
 
 `crates/ubiq/src/ui/shell.rs` assembles the frame: titlebar, then the rail beside an `h_resizable`
 group of explorer, centre and chat, then the status bar. The centre is a `v_resizable` group of
@@ -138,7 +180,8 @@ just a value. Shared primitives are in `ui/kit/`; the
 conventions behind that split are in [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, panel visibility
-and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` for the open files.
+and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` for the open files;
+`logs.rs` for the console's filter.
 
 ## Failure
 
@@ -147,8 +190,11 @@ and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` fo
 | The last editor tab is closed | The editor keeps the previous file, or shows an empty buffer if none remain |
 | A filter matches nothing | The tree renders empty; the filter field keeps what was typed |
 | Every panel is hidden | The rail, titlebar and status bar remain; the centre fills the window |
-| The last open project is closed | It stays open. The window is never pointed at nothing |
+| The dock is hidden while the console is its tab | The console goes with the dock, and comes back to the same tab |
+| The last project in a window is closed | The window closes with it. If it was the last window, the application quits |
 | A project with terminals is closed | The row asks first, and closes only on a second, explicit click |
+| A project open in another window is opened here | It leaves that window, which closes if it held nothing else |
+| More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
 
@@ -163,6 +209,6 @@ and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` fo
 
 - Drive the explorer, the editor and the status bar from a real folder rather than fixtures.
 - Build the Control, Agents, KB and Tasks screens.
-- Persist panel sizes, visibility and the open project set across restarts.
+- Persist panel sizes, visibility and the window-to-project map across restarts.
 - Give each window its own project working tree, rather than one set of fixtures.
 - Keyboard navigation for the rail, the tabs and the explorer.

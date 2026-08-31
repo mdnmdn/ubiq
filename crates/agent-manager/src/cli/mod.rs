@@ -8,16 +8,16 @@
 //! and inspect recorded session history, and `session resume` is stubbed
 //! until its own step (F2) lands.
 
-mod run;
-mod catalog;
 mod account;
-mod profile;
 mod agent;
+mod catalog;
+mod profile;
+mod run;
 mod session;
 
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::harness;
 

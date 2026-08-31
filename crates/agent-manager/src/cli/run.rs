@@ -11,15 +11,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use crate::account::{resolve_accounts_root, AccountStore, EmptyAccountStore, FsAccountStore};
+use crate::account::{AccountStore, EmptyAccountStore, FsAccountStore, resolve_accounts_root};
 use crate::harness::Harness;
-use crate::profile::{resolve_profiles_root, EmptyProfileStore, FsProfileStore, ProfileStore};
+use crate::profile::{EmptyProfileStore, FsProfileStore, ProfileStore, resolve_profiles_root};
 use crate::provision;
-use crate::registry::{resolve_catalog_root, FsRegistry, OverlayRegistry};
-use crate::resolve::{resolve, RunFlags};
+use crate::registry::{FsRegistry, OverlayRegistry, resolve_catalog_root};
+use crate::resolve::{RunFlags, resolve};
 use crate::settings::{self, Settings};
 
-use super::{parse_io_mode, parse_output_mode, split_passthrough, OutputMode, RunArgs};
+use super::{OutputMode, RunArgs, parse_io_mode, parse_output_mode, split_passthrough};
 
 /// Run `harness` against the remaining argv (everything after the harness
 /// name on the command line).
@@ -51,7 +51,10 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
     let global = FsRegistry::new(&catalog_root);
 
     let instructions = match &run_args.instructions {
-        Some(p) => Some(std::fs::read_to_string(p).with_context(|| format!("reading instructions file {}", p.display()))?),
+        Some(p) => Some(
+            std::fs::read_to_string(p)
+                .with_context(|| format!("reading instructions file {}", p.display()))?,
+        ),
         None => None,
     };
 
@@ -81,9 +84,21 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         Some(project_root) => {
             let project = FsRegistry::new(project_root);
             let overlay = OverlayRegistry::new(global, Some(project));
-            resolve(&flags, &settings, &overlay, accounts.as_ref(), profiles.as_ref())?
+            resolve(
+                &flags,
+                &settings,
+                &overlay,
+                accounts.as_ref(),
+                profiles.as_ref(),
+            )?
         }
-        None => resolve(&flags, &settings, &global, accounts.as_ref(), profiles.as_ref())?,
+        None => resolve(
+            &flags,
+            &settings,
+            &global,
+            accounts.as_ref(),
+            profiles.as_ref(),
+        )?,
     };
 
     spec.io = parse_io_mode(run_args.io.as_deref())?;
@@ -361,11 +376,7 @@ fn print_models(harness: &dyn Harness, models: &[crate::harness::ModelInfo]) {
 /// `--print-config` output.
 fn print_config(dir: &Path, launch: &crate::harness::Launch, keep_config: bool) {
     println!("config dir: {}", dir.display());
-    println!(
-        "argv: {} {}",
-        launch.program,
-        launch.args.join(" ")
-    );
+    println!("argv: {} {}", launch.program, launch.args.join(" "));
     println!("env:");
     for (k, v) in &launch.env {
         println!("  {k}={v}");

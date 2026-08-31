@@ -36,9 +36,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::Result;
 use crate::harness::SeedFile;
 use crate::source::Source;
-use crate::Result;
 
 mod file;
 mod keychain;
@@ -312,12 +312,7 @@ impl crate::account::AccountStore for SecretBackedAccountStore {
         self.inner.login_home(id)
     }
 
-    fn capture_login(
-        &self,
-        id: &str,
-        from: &std::path::Path,
-        files: &[PathBuf],
-    ) -> Result<()> {
+    fn capture_login(&self, id: &str, from: &std::path::Path, files: &[PathBuf]) -> Result<()> {
         self.inner.capture_login(id, from, files)
     }
 }
@@ -450,7 +445,8 @@ mod tests {
         // Hit: served from the secret store as Source::Files.
         let src = store.login_source("default")?.expect("login source");
         assert_eq!(
-            src.read(&PathBuf::from(".claude/.credentials.json"))?.as_deref(),
+            src.read(&PathBuf::from(".claude/.credentials.json"))?
+                .as_deref(),
             Some(&b"tok"[..])
         );
 

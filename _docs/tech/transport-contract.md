@@ -28,7 +28,7 @@ without a body omit `payload` entirely.
 
 ```json
 { "type": "SpawnWorkspace",
-  "payload": { "session_id": "…", "agent_type": "claude", "folder": null } }
+  "payload": { "session_id": "…", "agent_type": "claude", "args": [], "folder": null } }
 ```
 
 In Rust that is `#[serde(tag = "type", content = "payload")]` over a single enum. Two properties
@@ -63,7 +63,8 @@ The control path. Lower volume, request-and-response.
 | `CreateSession` | UI → coordinator | `name`, `agent_type`, `home_folder?` | `SessionCreated` |
 | `AttachToSession` | UI → coordinator | `session_id` | `SessionAttached` |
 | `DetachFromSession` | UI → coordinator | `session_id` | — |
-| `SpawnWorkspace` | UI → coordinator | `session_id`, `agent_type`, `folder?` | `WorkspaceSpawned` |
+| `SpawnWorkspace` | UI → coordinator | `session_id`, `agent_type?`, `args`, `folder?` | `WorkspaceSpawned` |
+| `CloseWorkspace` | UI → coordinator | `pane_id` | — |
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
 | `SessionList` | coordinator → UI | `sessions[]` | — |
 | `SessionCreated` | coordinator → UI | `session` | — |
@@ -74,7 +75,12 @@ The control path. Lower volume, request-and-response.
 | `Error` | coordinator → UI | `message` | — |
 
 An optional field marked `?` falls back to the session's default: `home_folder` to the session home,
-`folder` to the session's `home_folder`.
+`folder` to the session's `home_folder`, and `agent_type` to the agent type the session starts when
+it is told nothing. `args` is the argument list the harness is launched with, empty for a plain
+start.
+
+`CloseWorkspace` names a pane rather than a workspace ID because the two are the same ID, and the
+pane is what the user closed. It kills and reaps the harness; it is the only variant that ends one.
 
 `Status` and `Error` are unaddressed — they concern the application, not a pane. Anything that
 concerns one pane uses `PaneError`, so the UI can put the message where the user is looking.
@@ -101,8 +107,10 @@ mechanical form of the rule that the UI never assumes the pseudo-terminal is loc
   The UI reassembles nothing; the emulator handles partial sequences.
 - **Order is preserved per pane.** Two messages for the same pane arrive in the order they were
   sent. Across panes, no ordering is promised.
-- **The bus never blocks the coordinator's reader.** A UI that cannot keep up drops frames or
-  coalesces them; it does not stall the harness.
+- **The bus never blocks the coordinator's reader.** In process, that is two unbounded channels, so
+  a send never waits on a receiver. A queue that fills is a UI that has fallen behind, not a
+  harness that has stopped. What a bounded transport would drop instead is open — see
+  [`../backlog.md`](../backlog.md).
 
 ## Adding a variant
 

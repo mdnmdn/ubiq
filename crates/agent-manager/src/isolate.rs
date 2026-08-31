@@ -179,11 +179,7 @@ mod tests {
         let template = IsolateTemplate {
             command: "isol8 --sandbox={profile} run -- {cmd}".to_string(),
         };
-        let wrapped = wrap_launch(
-            &launch,
-            &Isolation::Sandboxed("dev".to_string()),
-            &template,
-        );
+        let wrapped = wrap_launch(&launch, &Isolation::Sandboxed("dev".to_string()), &template);
 
         assert_eq!(wrapped.program, "isol8");
         assert_eq!(
@@ -230,11 +226,7 @@ mod tests {
         let template = IsolateTemplate {
             command: "isol8 run {profile_opt}".to_string(),
         };
-        let wrapped = wrap_launch(
-            &launch,
-            &Isolation::Sandboxed("dev".to_string()),
-            &template,
-        );
+        let wrapped = wrap_launch(&launch, &Isolation::Sandboxed("dev".to_string()), &template);
 
         assert_eq!(wrapped.program, "isol8");
         assert_eq!(

@@ -99,10 +99,9 @@ impl Source {
                     std::fs::read(&p).with_context(|| format!("reading {}", p.display()))?,
                 ))
             }
-            Source::Files(files) => Ok(files
-                .iter()
-                .find(|(r, _)| r == rel)
-                .map(|(_, b)| b.clone())),
+            Source::Files(files) => {
+                Ok(files.iter().find(|(r, _)| r == rel).map(|(_, b)| b.clone()))
+            }
         }
     }
 }
@@ -174,7 +173,9 @@ mod tests {
         );
 
         // clobber=true overwrites.
-        source.materialize(dst.path(), LinkMode::Copy, true).unwrap();
+        source
+            .materialize(dst.path(), LinkMode::Copy, true)
+            .unwrap();
         assert_eq!(
             std::fs::read_to_string(dst.path().join("a/f.txt")).unwrap(),
             "src"
@@ -188,7 +189,9 @@ mod tests {
             (PathBuf::from(".credentials.json"), b"{}".to_vec()),
             (PathBuf::from("nested/x"), b"hi".to_vec()),
         ]);
-        source.materialize(dst.path(), LinkMode::Copy, true).unwrap();
+        source
+            .materialize(dst.path(), LinkMode::Copy, true)
+            .unwrap();
         assert_eq!(
             std::fs::read_to_string(dst.path().join(".credentials.json")).unwrap(),
             "{}"
@@ -204,11 +207,17 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("c.json"), "DIR").unwrap();
         let d = Source::Dir(dir.path().to_path_buf());
-        assert_eq!(d.read(Path::new("c.json")).unwrap().as_deref(), Some(&b"DIR"[..]));
+        assert_eq!(
+            d.read(Path::new("c.json")).unwrap().as_deref(),
+            Some(&b"DIR"[..])
+        );
         assert!(d.read(Path::new("missing")).unwrap().is_none());
 
         let f = Source::Files(vec![(PathBuf::from("c.json"), b"MEM".to_vec())]);
-        assert_eq!(f.read(Path::new("c.json")).unwrap().as_deref(), Some(&b"MEM"[..]));
+        assert_eq!(
+            f.read(Path::new("c.json")).unwrap().as_deref(),
+            Some(&b"MEM"[..])
+        );
         assert!(f.read(Path::new("missing")).unwrap().is_none());
     }
 }

@@ -1,24 +1,42 @@
 //! The project picker.
 //!
-//! Richer than the shared `Picker`, because a project is not just a value: it is open or only
-//! remembered, it can be closed, and it can be sent to a window of its own.
+//! Richer than the shared `Picker`, because a project is not just a value: it is open in some
+//! window or only remembered, it can be closed, it can be sent to a window of its own, and it can
+//! be taken from the window that holds it.
+//!
+//! Three groups, top to bottom — open in this window, open in another window, history — so the
+//! picker is the one place that answers "where is everything I have open?". A row moves between
+//! groups as the project moves between windows; the registry behind that is
+//! `crates/ubiq/src/state/windows.rs`.
 
 use gpui::{
     AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, px,
+    StatefulInteractiveElement, Styled, Window, WindowId, anchored, deferred, div, px,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use crate::app::{AppState, open_project_window};
+use crate::app::{AppState, focus_window, open_project_window};
 use crate::state::MenuId;
 use crate::theme;
 use crate::ui::kit::{mono, section_label};
 
+/// Where a row sits, which is what decides the actions it carries.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Group {
+    /// Open in this window.
+    Here,
+    /// Open in another window, named by its letter.
+    Elsewhere(char, WindowId),
+    /// Not open anywhere.
+    History,
+}
+
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let wb = &app.workbench;
-    let colour = theme::project_colour(wb.project_colour());
-    let open = wb.open_menu == Some(MenuId::Project);
+    let colour = theme::project_colour(app.project_colour(cx));
+    let open = app.workbench.open_menu == Some(MenuId::Project);
+    let label = app.window_label(cx);
+    let name = app.project_name(cx);
 
     let mut trigger = div()
         .id("project-picker")
@@ -33,8 +51,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(colour)
         .text_color(theme::on_accent())
         .text_size(px(13.))
-        .cursor_pointer()
-        .child(wb.project_name().to_string())
+        // The window's letter, so the user knows which window they are typing into.
+        .child(window_mark(label, theme::on_accent(), true))
+        .child(name)
         .child(
             Icon::new(IconName::ChevronDown)
                 .with_size(Size::XSmall)
@@ -50,15 +69,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 }
 
 fn panel(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let mut open_rows: Vec<AnyElement> = Vec::new();
-    for (index, _) in app.workbench.filtered(true) {
-        open_rows.push(row(app, index, true, cx));
-    }
-
-    let mut recent_rows: Vec<AnyElement> = Vec::new();
-    for (index, _) in app.workbench.filtered(false) {
-        recent_rows.push(row(app, index, false, cx));
-    }
+    let groups = app.project_groups(cx);
 
     let mut body = div()
         .w(px(340.))
@@ -66,7 +77,7 @@ fn panel(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .flex_col()
         .bg(theme::surface_raised())
         .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::project_colour(app.workbench.project_colour()))
+        .border_color(theme::project_colour(app.project_colour(cx)))
         .shadow_lg()
         .child(
             div()
@@ -92,17 +103,36 @@ fn panel(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 ),
         );
 
-    if !open_rows.is_empty() {
-        body = body
-            .child(div().px_2().pt_2().pb_1().child(section_label("Open")))
-            .children(open_rows);
-    }
+    let here_label = app.window_label(cx);
+    body = group(
+        body,
+        &format!("This window · {here_label}"),
+        groups
+            .here
+            .iter()
+            .map(|project| row(app, *project, Group::Here, cx))
+            .collect(),
+    );
 
-    if !recent_rows.is_empty() {
-        body = body
-            .child(div().px_2().pt_2().pb_1().child(section_label("Recent")))
-            .children(recent_rows);
-    }
+    body = group(
+        body,
+        "Other windows",
+        groups
+            .elsewhere
+            .iter()
+            .map(|(project, label, id)| row(app, *project, Group::Elsewhere(*label, *id), cx))
+            .collect(),
+    );
+
+    body = group(
+        body,
+        "History",
+        groups
+            .history
+            .iter()
+            .map(|project| row(app, *project, Group::History, cx))
+            .collect(),
+    );
 
     deferred(
         anchored()
@@ -112,17 +142,36 @@ fn panel(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     .priority(1)
 }
 
-fn row(app: &AppState, index: usize, is_open: bool, cx: &mut Context<AppState>) -> AnyElement {
-    let project = &app.workbench.projects[index];
-    let colour = theme::project_colour(project.colour);
-    let is_current = app.workbench.project == index;
+/// A heading and its rows, or nothing at all. An empty group is not drawn: the filter would
+/// otherwise leave three headings over one row.
+fn group(body: gpui::Div, label: &str, rows: Vec<AnyElement>) -> gpui::Div {
+    if rows.is_empty() {
+        return body;
+    }
+    body.child(div().px_2().pt_2().pb_1().child(section_label(label)))
+        .children(rows)
+}
 
-    if app.workbench.pending_close == Some(index) {
-        return confirm_row(project.terminals, index, cx);
+fn row(app: &AppState, project: usize, group: Group, cx: &mut Context<AppState>) -> AnyElement {
+    let registry = crate::state::WindowRegistry::read(cx);
+    let Some(entry) = registry.project(project) else {
+        return div().into_any_element();
+    };
+    let (name, path, when, terminals) = (
+        entry.name.clone(),
+        entry.path.clone(),
+        entry.when.clone(),
+        entry.terminals,
+    );
+    let colour = theme::project_colour(entry.colour);
+    let is_current = group == Group::Here && app.project(cx) == project;
+
+    if app.workbench.pending_close == Some(project) && group == Group::Here {
+        return confirm_row(terminals, project, cx);
     }
 
     let mut line = div()
-        .id(ElementId::Name(format!("project-{index}").into()))
+        .id(ElementId::Name(format!("project-{project}").into()))
         .h(px(38.))
         .px_2()
         .flex()
@@ -146,35 +195,81 @@ fn row(app: &AppState, index: usize, is_open: bool, cx: &mut Context<AppState>) 
                         } else {
                             theme::text_muted()
                         })
-                        .child(project.name.clone()),
+                        .child(name),
                 )
-                .child(mono(project.path.clone(), theme::text_faint()).text_size(px(10.5))),
+                .child(mono(path, theme::text_faint()).text_size(px(10.5))),
         );
 
-    if !is_open {
-        line = line.child(mono(project.when.clone(), theme::text_faint()).text_size(px(10.5)));
-    }
+    // Every open project prints the window holding it; a remembered one prints how long ago.
+    line = match group {
+        Group::Here => line.child(window_mark(app.window_label(cx), colour, false)),
+        Group::Elsewhere(label, _) => line.child(window_mark(label, theme::text_muted(), false)),
+        Group::History => line.child(mono(when, theme::text_faint()).text_size(px(10.5))),
+    };
 
-    line = line.child(action(
-        format!("project-window-{index}"),
-        IconName::ExternalLink,
-        cx.listener(move |_, _, _, cx| open_project_window(index, cx)),
-    ));
-
-    if is_open {
+    // Take it from the window that holds it: the one action a project in another window needs.
+    if matches!(group, Group::Elsewhere(..)) {
         line = line.child(action(
-            format!("project-close-{index}"),
-            IconName::Close,
-            cx.listener(move |this, _, _, cx| this.close_project(index, false, cx)),
+            format!("project-take-{project}"),
+            IconName::ArrowLeft,
+            cx.listener(move |this, _, _, cx| this.take_project(project, cx)),
         ));
     }
 
-    line.on_click(cx.listener(move |this, _, _, cx| this.select_project(index, cx)))
-        .into_any_element()
+    // Send it to a window of its own. It leaves this window, and this window closes if it held
+    // nothing else.
+    if !matches!(group, Group::Elsewhere(..)) {
+        line = line.child(action(
+            format!("project-window-{project}"),
+            IconName::ExternalLink,
+            cx.listener(move |_, _, _, cx| open_project_window(project, cx)),
+        ));
+    }
+
+    if group == Group::Here {
+        line = line.child(action(
+            format!("project-close-{project}"),
+            IconName::Close,
+            cx.listener(move |this, _, _, cx| this.close_project(project, false, cx)),
+        ));
+    }
+
+    // Clicking the row does the obvious thing for where it sits: point this window at it, go to the
+    // window that has it, or open it here.
+    let click = cx.listener(move |this, _, _, cx| match group {
+        Group::Here => this.activate_project(project, cx),
+        Group::Elsewhere(_, id) => {
+            this.close_menu(cx);
+            focus_window(id, cx);
+        }
+        Group::History => this.take_project(project, cx),
+    });
+
+    line.on_click(click).into_any_element()
+}
+
+/// A window's letter, in the small square the picker prints beside every open project.
+fn window_mark(label: char, colour: gpui::Rgba, filled: bool) -> impl IntoElement {
+    let mut mark = div()
+        .size(px(16.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .text_size(px(10.))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(colour)
+        .child(label.to_string());
+
+    if !filled {
+        mark = mark.border_1().border_color(colour);
+    }
+
+    mark
 }
 
 /// Closing a project with terminals running is a question, not a click.
-fn confirm_row(terminals: usize, index: usize, cx: &mut Context<AppState>) -> AnyElement {
+fn confirm_row(terminals: usize, project: usize, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .px_2()
         .py_2()
@@ -206,7 +301,7 @@ fn confirm_row(terminals: usize, index: usize, cx: &mut Context<AppState>) -> An
             "confirm-close",
             "Close",
             theme::danger(),
-            cx.listener(move |this, _, _, cx| this.close_project(index, true, cx)),
+            cx.listener(move |this, _, _, cx| this.close_project(project, true, cx)),
         ))
         .into_any_element()
 }

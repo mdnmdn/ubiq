@@ -3,13 +3,13 @@
 //! Scans a catalog root directory for skills (folders with `SKILL.md` files)
 //! and MCP servers (from `catalog.toml` inline definitions and `mcp/*.json` files).
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use crate::Result;
 use crate::config::McpServer;
 use crate::registry::{McpEntry, McpExpose, Registry, SkillEntry, SkillMeta};
 use crate::source::Source;
-use crate::Result;
 use anyhow::anyhow;
+use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 /// A filesystem-backed registry rooted at a catalog directory.
 #[derive(Debug, Clone)]
@@ -20,9 +20,7 @@ pub struct FsRegistry {
 impl FsRegistry {
     /// Create a registry rooted at the given path.
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        FsRegistry {
-            root: root.into(),
-        }
+        FsRegistry { root: root.into() }
     }
 }
 
@@ -207,8 +205,7 @@ mod tests {
 
     #[test]
     fn test_fs_registry_skills() -> Result<()> {
-        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog");
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
 
         let registry = FsRegistry::new(&fixture_root);
         let skills = registry.skills()?;
@@ -231,8 +228,7 @@ mod tests {
 
     #[test]
     fn test_fs_registry_mcps() -> Result<()> {
-        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog");
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
 
         let registry = FsRegistry::new(&fixture_root);
         let mcps = registry.mcps()?;
@@ -258,8 +254,7 @@ mod tests {
 
     #[test]
     fn test_fs_registry_skill_single() -> Result<()> {
-        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog");
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
 
         let registry = FsRegistry::new(&fixture_root);
         let skill = registry.skill("web-designer")?;
@@ -277,8 +272,7 @@ mod tests {
 
     #[test]
     fn test_fs_registry_mcp_single() -> Result<()> {
-        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog");
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
 
         let registry = FsRegistry::new(&fixture_root);
         let mcp = registry.mcp("postgres")?;
@@ -293,8 +287,7 @@ mod tests {
 
     #[test]
     fn test_fs_registry_missing_skill() -> Result<()> {
-        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog");
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
 
         let registry = FsRegistry::new(&fixture_root);
         let skill = registry.skill("nonexistent")?;
@@ -366,10 +359,7 @@ command = "cmd1"
 
         // Create mcp/duplicate.json with the same id
         fs::create_dir_all(root.join("mcp"))?;
-        fs::write(
-            root.join("mcp/duplicate.json"),
-            r#"{ "command": "cmd2" }"#,
-        )?;
+        fs::write(root.join("mcp/duplicate.json"), r#"{ "command": "cmd2" }"#)?;
 
         let registry = FsRegistry::new(root);
         let result = registry.mcps();
@@ -384,10 +374,9 @@ command = "cmd1"
 
     #[test]
     fn test_overlay_registry() -> Result<()> {
-        let global_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog");
-        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/catalog-project");
+        let global_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
+        let project_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog-project");
 
         let global = FsRegistry::new(&global_root);
         let project = FsRegistry::new(&project_root);
@@ -398,10 +387,7 @@ command = "cmd1"
         assert!(postgres.is_some());
         let postgres = postgres.unwrap();
         assert_eq!(postgres.def.transport, crate::config::McpTransport::Http);
-        assert_eq!(
-            postgres.def.url,
-            Some("https://project/pg/".to_string())
-        );
+        assert_eq!(postgres.def.url, Some("https://project/pg/".to_string()));
 
         // Project-only skill: deploy should exist
         let deploy = overlay.skill("deploy")?;

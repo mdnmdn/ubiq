@@ -77,6 +77,7 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-08-31 |
+| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor. | 2026-08-31 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in. | 2026-08-31 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-08-31 |
 | [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer, the editor, and the status bar that reports on all of it. | 2026-08-31 |
@@ -134,6 +135,7 @@ a link.
 | Harness config locations, launch flags, catalog, accounts | `crates/agent-manager/_docs/` |
 | The diagram authoring format | `tech/diagram-format.md` |
 | Session and workspace lifecycle | `features/sessions-and-workspaces.md` |
+| Log subsystems, levels, the ring's capacity and the console | `features/logs.md` |
 | Focus, resize, layout modes, pane lifecycle | `features/panes-and-terminals.md` |
 | Product scope and non-goals | `product/overview.md` |
 | Vocabulary | `product/glossary.md` |
@@ -159,6 +161,7 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the window layout, or what a window owns | `features/workbench.md`, then `tech/architecture.md` |
 | Changing the chat panel or a message renderer | `features/chat.md` |
+| Adding a log event, a subsystem, or changing the log console | `features/logs.md` |
 | Launching a harness, or touching accounts, skills or MCP servers | `tech/agent-manager.md`, then that crate's own `_docs/` |
 | Adding a file and not knowing where it goes | `tech/project-structure.md` |
 | Adding a command | `tech/operations.md` |

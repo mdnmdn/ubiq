@@ -15,9 +15,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::Deserialize;
 
+use crate::Result;
 use crate::account::AccountStore;
 use crate::config::McpServer;
 use crate::profile::{Profile, ProfileIsolate, ProfileStore};
@@ -26,7 +27,6 @@ use crate::settings::Settings;
 use crate::spec::{
     HarnessId, HookRef, Instructions, Isolation, McpAsSkill, McpRef, RunSpec, SkillRef,
 };
-use crate::Result;
 
 /// Raw run flags gathered from the CLI (the `cli` layer feeds this in).
 ///
@@ -232,10 +232,7 @@ pub fn resolve(
                     .map(|e| e.id)
                     .collect();
                 let near = suggest(id, &available);
-                bail!(
-                    "unknown mcp id '{id}'; near matches: {}",
-                    near.join(", ")
-                );
+                bail!("unknown mcp id '{id}'; near matches: {}", near.join(", "));
             }
         }
     }
@@ -259,10 +256,7 @@ pub fn resolve(
                     .map(|e| e.id)
                     .collect();
                 let near = suggest(id, &available);
-                bail!(
-                    "unknown skill id '{id}'; near matches: {}",
-                    near.join(", ")
-                );
+                bail!("unknown skill id '{id}'; near matches: {}", near.join(", "));
             }
         }
     }
@@ -284,8 +278,7 @@ pub fn resolve(
     // must be in the effective set of injected mcps (catalog or inline) —
     // this flag never injects a new mcp, only marks an already-injected one.
     if let Some(ids) = &flags.mcp_as_skill {
-        let effective_ids: Vec<String> =
-            mcps.iter().map(|r| mcp_ref_id(r).to_string()).collect();
+        let effective_ids: Vec<String> = mcps.iter().map(|r| mcp_ref_id(r).to_string()).collect();
         for id in ids {
             if !effective_ids.iter().any(|e| e == id) {
                 let near = suggest(id, &effective_ids);
@@ -357,10 +350,7 @@ pub fn resolve(
             None => {
                 let available: Vec<String> = settings.hooks.keys().cloned().collect();
                 let near = suggest(id, &available);
-                bail!(
-                    "unknown hook id '{id}'; near matches: {}",
-                    near.join(", ")
-                );
+                bail!("unknown hook id '{id}'; near matches: {}", near.join(", "));
             }
         }
     }
@@ -404,7 +394,11 @@ pub fn resolve(
         instructions,
         prompt: flags.prompt.clone(),
     };
-    spec.initial = if initial.is_empty() { None } else { Some(initial) };
+    spec.initial = if initial.is_empty() {
+        None
+    } else {
+        Some(initial)
+    };
 
     // --- isolation: --isolate[=profile] > the profile's `isolate` default ---
     spec.isolation = match &flags.isolate {
@@ -429,8 +423,8 @@ pub fn resolve(
 mod tests {
     use super::*;
     use crate::account::{Account, EmptyAccountStore};
-    use crate::profile::EmptyProfileStore;
     use crate::config::{McpServer, McpTransport};
+    use crate::profile::EmptyProfileStore;
     use crate::registry::{McpEntry, McpExpose, SkillEntry, SkillMeta};
     use crate::spec::Policy;
     use std::path::PathBuf;
@@ -555,7 +549,8 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
         assert_eq!(ids, vec!["figma"]);
     }
@@ -578,7 +573,8 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
         assert_eq!(ids, vec!["postgres"]);
     }
@@ -591,7 +587,8 @@ mod tests {
         settings.defaults.mcps = Some(vec!["github".to_string()]);
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
         assert_eq!(ids, vec!["github"]);
     }
@@ -614,7 +611,8 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         assert!(spec.mcps.is_empty());
     }
 
@@ -625,7 +623,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect_err("should fail");
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore)
+            .expect_err("should fail");
         let msg = err.to_string();
         assert!(msg.contains("nonexistent"), "message was: {msg}");
     }
@@ -647,7 +646,8 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         let policy = spec.policy.expect("policy should be set");
         assert_eq!(policy.permission_mode.as_deref(), Some("restricted"));
         assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
@@ -660,7 +660,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect_err("should fail");
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore)
+            .expect_err("should fail");
         assert!(err.to_string().contains("presets.safe"));
     }
 
@@ -680,7 +681,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert_eq!(spec.mcps.len(), 2);
         let catalog_ids: Vec<&str> = spec
@@ -712,10 +714,14 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         let initial = spec.initial.expect("should have initial");
-        assert_eq!(initial.instructions.as_deref(), Some("REMEMBER: be helpful"));
+        assert_eq!(
+            initial.instructions.as_deref(),
+            Some("REMEMBER: be helpful")
+        );
         assert_eq!(initial.prompt.as_deref(), Some("do it"));
     }
 
@@ -725,7 +731,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert!(spec.initial.is_none());
     }
@@ -764,7 +771,8 @@ mod tests {
                 ..Default::default()
             }],
         };
-        let err = resolve(&f, &settings, &reg, &accounts, &EmptyProfileStore).expect_err("should fail");
+        let err =
+            resolve(&f, &settings, &reg, &accounts, &EmptyProfileStore).expect_err("should fail");
         let msg = err.to_string();
         assert!(msg.contains("wrk"), "message was: {msg}");
         assert!(msg.contains("work"), "message was: {msg}");
@@ -776,7 +784,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert!(spec.account.is_none());
     }
@@ -787,7 +796,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert!(matches!(spec.isolation, crate::spec::Isolation::None));
     }
@@ -799,7 +809,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         match spec.isolation {
             crate::spec::Isolation::Sandboxed(profile) => assert_eq!(profile, ""),
@@ -814,7 +825,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert_eq!(spec.resume.as_deref(), Some("abc"));
     }
@@ -825,7 +837,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert!(spec.resume.is_none());
     }
@@ -837,7 +850,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         match spec.isolation {
             crate::spec::Isolation::Sandboxed(profile) => assert_eq!(profile, "dev"),
@@ -865,7 +879,8 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         assert_eq!(spec.hooks.len(), 1);
         let hook = &spec.hooks[0];
         assert_eq!(hook.id, "notify");
@@ -898,7 +913,8 @@ mod tests {
         );
 
         let reg = test_registry();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         let ids: Vec<&str> = spec.hooks.iter().map(|h| h.id.as_str()).collect();
         assert_eq!(ids, vec!["b"]);
     }
@@ -914,7 +930,8 @@ mod tests {
             .insert("notify".to_string(), hook_def("Stop", "echo hi", None));
 
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect_err("should fail");
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore)
+            .expect_err("should fail");
         let msg = err.to_string();
         assert!(msg.contains("notfy"), "message was: {msg}");
         assert!(msg.contains("notify"), "message was: {msg}");
@@ -931,7 +948,8 @@ mod tests {
         };
 
         let settings = Settings::default();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         // Additive: the mcp is still injected as normal...
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
@@ -951,7 +969,8 @@ mod tests {
 
         let reg = test_registry(); // "github" defaults to expose = tools
         let settings = Settings::default();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         assert_eq!(spec.mcp_as_skill.len(), 1);
         assert_eq!(spec.mcp_as_skill[0].id, "github");
@@ -965,7 +984,8 @@ mod tests {
 
         let reg = test_registry();
         let settings = Settings::default();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect_err("should fail");
+        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore)
+            .expect_err("should fail");
         assert!(err.to_string().contains("nonexistent"));
     }
 
@@ -981,7 +1001,8 @@ mod tests {
         };
 
         let settings = Settings::default();
-        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
 
         // Named by both the catalog entry and the flag: appears exactly once.
         assert_eq!(spec.mcp_as_skill.len(), 1);
@@ -1030,7 +1051,11 @@ mod tests {
         let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &profiles).expect("resolve");
 
         let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
-        assert_eq!(ids, vec!["figma"], "explicit --mcps must override the profile");
+        assert_eq!(
+            ids,
+            vec!["figma"],
+            "explicit --mcps must override the profile"
+        );
         assert_eq!(spec.model.as_deref(), Some("haiku"));
     }
 
@@ -1196,7 +1221,8 @@ mod tests {
 
         let settings = Settings::default();
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &profiles).expect_err("should fail");
+        let err =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &profiles).expect_err("should fail");
         assert!(err.to_string().contains("nope"), "message was: {err}");
     }
 }
