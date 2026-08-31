@@ -63,12 +63,13 @@ Module by module, and what must never appear in each. The generated tree, with e
 
 | Path | Holds | Never holds |
 |---|---|---|
-| `main.rs` | Window creation, theme install, key bindings. Nothing else | Any logic. It stays short enough to read at a glance |
+| `main.rs` | Application start: theme install, key bindings, the first window. Nothing else | Any logic, including window construction — that is `app::open_project_window` |
 | `lib.rs` | The module list and the crate's public surface | Implementation |
-| `app.rs` | `AppState`: the pane map, the focused pane, the layout mode, and the root render | Process handles, PTY handles |
-| `ui/` | Pane components, chrome, toolbars, status | Anything that names the coordinator |
+| `app.rs` | `AppState`: the panes, the focused pane, the layout mode, the workbench state, and window creation | Process handles, PTY handles |
+| `ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, status bar, empty page, `chat/` | Anything that names the coordinator |
+| `ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
 | `theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
-| `state/` | Pane and application state machines, event handling | Rendering |
+| `state/` | Pane and application state machines, the workbench, explorer, editor and chat state, and the fixtures that seed them | Rendering, or any component-library type |
 | `messages.rs` | The transport contract enum and its payload records | Anything that fails to serialise |
 | `orchestrator.rs` | Spawn, supervise and reap harness processes | Rendering, layout, colour |
 | `pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
@@ -80,12 +81,13 @@ The "never holds" column is the enforcement of the architecture's rules in file 
 
 ## Where a new file goes
 
-1. Is it a colour? → a token in `theme.rs`, referenced everywhere else.
-2. Does it draw? → `ui/`.
-3. Does it own a process or a file descriptor? → `orchestrator.rs` or `pty/`.
-4. Does it cross the bus? → its type goes in `messages.rs`, its handling on both sides.
-5. Does it know how a *harness* is configured or launched? → `crates/agent-manager`, not here.
-6. Is it a script a person runs? → `_tools/`, with a `just` recipe in front of it.
+1. Is it a colour, a font, or a size the layout depends on? → `theme.rs`, referenced everywhere else.
+2. Does it draw, and does it know about the workbench? → a module under `ui/`.
+3. Does it draw, and would a second caller want it? → `ui/kit/`, naming no application type.
+4. Does it own a process or a file descriptor? → `orchestrator.rs` or `pty/`.
+5. Does it cross the bus? → its type goes in `messages.rs`, its handling on both sides.
+6. Does it know how a *harness* is configured or launched? → `crates/agent-manager`, not here.
+7. Is it a script a person runs? → `_tools/`, with a `just` recipe in front of it.
 
 Anything that fits none of these is worth a question before it is worth a file.
 

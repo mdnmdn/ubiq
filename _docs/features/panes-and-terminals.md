@@ -68,14 +68,19 @@ the pane does no buffering of its own beyond what backpressure requires.
 
 ## Implementation
 
-`AppState` in `crates/ubiq/src/app.rs` owns the pane map, the focused pane and the layout mode.
+**A pane is a tab in the workbench's bottom dock.** The dock's tab strip is the pane list: its `+`
+spawns one, clicking a tab focuses it, and the tab's dot says whether the harness is still running.
+
+`AppState` in `crates/ubiq/src/app.rs` owns the panes, the focused pane and the layout mode.
 `spawn_pane()` creates a pane and gives it focus; `close_pane()` removes one and moves focus if it
 held it; `resize_pane()` records new dimensions; `focus_pane()` moves focus to an existing pane.
 Each ends by requesting a redraw — a mutation that skips that is a pane that stops updating.
 
-Rendering is split between the root, which draws the titlebar and the pane area, and the pane
-components under `crates/ubiq/src/ui/`. Colours come from theme tokens; see
-[`../tech/ui-and-design.md`](../tech/ui-and-design.md).
+Rendering is `crates/ubiq/src/ui/terminal.rs`: the tab strip, and a body that names the focused pane
+and its geometry and nothing more. That body is the seam the terminal emulator drops into — it holds
+no path, no process handle and no descriptor, because the UI knows a pane only as an ID plus a byte
+stream. The frame around it belongs to [`workbench.md`](./workbench.md). Colours come from theme
+tokens; see [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
 On the other side of the bus, `crates/ubiq/src/pty/` owns the streams: a reader per pane forwarding
 output, a writer taking input, and the resize call on the pseudo-terminal master. The reader must
@@ -94,6 +99,7 @@ never be blocked by a UI that has fallen behind — a stalled reader stalls the 
 ## Related docs
 
 - [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) — what a pane is a view of
+- [`workbench.md`](./workbench.md) — the shell the dock sits in
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the message set, in full
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the chrome conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — why the UI holds no pseudo-terminal
