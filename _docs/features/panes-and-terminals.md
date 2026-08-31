@@ -26,6 +26,23 @@ wrong is the classic way a terminal multiplexer corrupts a screen.
 **One pane, one workspace, one pseudo-terminal.** The mapping is total in both directions, and the
 pane ID is what ties them together across every message.
 
+**A pane belongs to a project, and starts in its folder.** There is no pane without one: the
+project's folder is the only thing a pane's working directory can be, so a window holding no project
+draws no panes and spawns none. The interface never names the folder — it sends the project's id, and
+the host resolves the path from the record. An optional `rel_path` starts the harness in a
+subdirectory of the project instead of at its root.
+
+**A spawn into a folder that is not there is refused before a pseudo-terminal exists.** A project
+whose folder is missing, is not a directory or cannot be read answers an error against the project,
+not against a pane — so nothing empty is left on screen — and the picker's row is marked from the
+probe that refusal just made.
+
+**A project's panes stay alive while another project is on screen.** A window can hold several
+projects, and switching between them swaps which project's panes the dock shows; the ones behind keep
+running and keep their scrollback, because nothing is killed under the user. A project *leaving* the
+window is different: its panes are closed with it, since a pane's working directory is that
+project's and no other window can adopt an emulator.
+
 **A pane exists because the coordinator says it does.** Asking for one is a request; the tab and its
 emulator are drawn on the answer. A harness that fails to start produces an error against a pane
 that was never drawn, so nothing empty is left on screen for the user to close.
@@ -75,7 +92,9 @@ window with none.
 
 The pane family of the transport contract: `TerminalOutput`, `TerminalInput`, `TerminalResize`,
 `Focus`, `PaneExited` and `PaneError`. A pane's own lifecycle uses two of the session family,
-`SpawnWorkspace` with its `WorkspaceSpawned` answer, and `CloseWorkspace`. Variant names, payload
+`SpawnWorkspace` with its `WorkspaceSpawned` answer, and `CloseWorkspace`. `SpawnWorkspace` carries a
+`project_id` that is not optional and an optional `rel_path`, and it can answer `ProjectError`
+instead — a refusal names the project, because there is no pane yet to name. Variant names, payload
 fields, the byte-sequence rule and the per-pane ordering guarantee are owned by
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
@@ -113,8 +132,10 @@ everything that pane emits back to that window alone, and refuses a message abou
 other. When a window goes, the host reaps the pseudo-terminals it owned — nothing else drops now
 that the host outlives every window.
 
-**`AppState` in `crates/ubiq/src/app.rs` owns the panes, the focused pane and the layout mode**, plus
-one emulator and one output sender per pane ID. Two tasks it starts in `for_project()` do the rest:
+**`AppState` in `crates/ubiq/src/app.rs` owns one `OpenProject` per project the window holds**, and
+each of those owns that project's panes and which of them is focused. The emulators do not move with
+them: `terminals` stays one flat map from pane ID to emulator and output sender, because an emulator
+does not care which list draws it. The layout mode and which dock tab is showing are the window's. Two tasks it starts in `for_project()` do the rest:
 a router draining the bus into `receive()`, and one carrying a measured geometry into
 `resize_pane()`. Every mutator ends by requesting a redraw — one that skips it is a pane that stops
 updating.
@@ -123,7 +144,7 @@ The paths through the two halves, in call order:
 
 | What the user does | ui → state → orchestrator → pty |
 |---|---|
-| Opens a pane | `spawn_pane()` sends `SpawnWorkspace`; the coordinator resolves the agent type, `pty::spawn` opens a pseudo-terminal and starts the child, and the answer `WorkspaceSpawned` reaches `open_pane()`, which builds the tab and the emulator |
+| Opens a pane | `spawn_pane()` sends `SpawnWorkspace`, or does nothing when the window holds no project; the coordinator looks the record up, probes its folder, resolves the working directory, then `pty::spawn` opens a pseudo-terminal and starts the child, and the answer `WorkspaceSpawned` reaches `open_pane()`, which routes on its `project_id` and builds the tab and the emulator |
 | Types | the emulator writes into `PaneInput`, which posts `TerminalInput`; the coordinator finds the pane's `Pty` and writes to the pseudo-terminal |
 | Watches output | `Pty::forward_output` puts a reader thread on the pseudo-terminal, sending `TerminalOutput` in fixed chunks; `receive()` hands the bytes to the pane's output sender, and the emulator reads them |
 | Resizes | the emulator measures its own bounds and its resize callback sends `TerminalResize`; `Pty::resize` sets the size and the kernel signals the harness |
@@ -144,6 +165,11 @@ stalled reader stalls the harness.
 | A resize arrives for an unknown pane | Ignored; a pane that has gone is not an error the user needs |
 | The harness exits | `PaneExited`; the pane persists, showing its last screen, and its output stream ends |
 | The harness cannot be started | `PaneError` against a pane ID the UI never drew; no tab appears |
+| A spawn is asked for with no project open | Nothing is sent; there is no folder to start a harness in |
+| A spawn names a project whose folder has gone | `ProjectError`, and the picker's row is marked. No pseudo-terminal is opened and no tab appears |
+| A spawn names a `rel_path` that escapes the project | Refused with the same `ProjectError`, before anything is opened |
+| A pane is announced for a project the window no longer holds | The window closes it again rather than draw it, so no harness is left running with nothing on screen |
+| A project leaves the window | Its panes are closed and their harnesses killed; the panes of the projects that stayed are untouched |
 | The focused pane closes | Focus moves to another pane, or to none if it was the last |
 
 ## Related docs

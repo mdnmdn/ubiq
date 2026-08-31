@@ -12,10 +12,12 @@
 //! - `messages`: the message set, serialisable by construction
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
+//! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
 
 pub mod bus;
+pub mod files;
 pub mod ids;
 pub mod log;
 pub mod messages;

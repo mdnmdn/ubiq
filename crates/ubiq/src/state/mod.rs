@@ -18,8 +18,8 @@ pub use chat::{
     Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
     THINKING, ToolCall, ToolKind,
 };
-pub use editor::{EditorPaneState, FileLanguage, OpenFile};
-pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row};
+pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
+pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row, Toggle};
 pub use logs::LogState;
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use workbench::{MenuId, RailMode, RowAction, WorkbenchState};

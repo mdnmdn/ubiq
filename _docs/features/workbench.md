@@ -3,11 +3,11 @@ id: feat-workbench
 title: The workbench
 kind: feature
 status: draft
-summary: The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer, the editor, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, panel visibility or resizing, the explorer, the editor tabs or the status bar
-updated: 2026-08-31
-verified: 2026-08-31
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs]
+summary: The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer and editor a project owns, the empty state a window with no project shows, and the status bar that reports on all of it.
+read_when: you are changing the window layout, a rail mode, panel visibility or resizing, the explorer, the editor tabs, saving a file or the status bar
+updated: 2026-09-01
+verified: 2026-09-01
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -49,14 +49,29 @@ switcher shows.
 window holds it. Opening a project somewhere therefore takes it from wherever it was, and that is
 the only way a project moves between windows.
 
-**A window with no project open closes — unless there are no projects at all.** On a first run the
-catalogue is empty, and a window with nothing open still has "Add a project…" to offer, so it stays.
-Once a project exists the ordinary rule is back.
+**A window with no project open stays open, on a screen of its own.** No panes, an explorer that
+says it has nothing to show, no open files, and "Add a project…" in the middle of the window. This
+is where a first run starts, where closing a project leaves the window, and where taking a project
+into another window leaves the one it came from.
 
-**A window with no project open closes.** A window's whole purpose is the projects it holds; with
-none it has nothing to show and nothing to be named after. Closing the last project in a window
-closes the window, and so does taking it into another one. If it was the last window, the
-application quits with it.
+**Ubiq never closes a window.** Only the user does, and the application quits with its last one. A
+window holding nothing is a window waiting for a project, not an error to be tidied away.
+
+**The empty state is three screens at once.** The centre says no project is open and offers to add
+one; the explorer panel keeps its place and its width, with one muted line in it rather than a tree;
+the chat is hidden, because a conversation about nothing is a fiction. The dock stays, holding only
+the log console — the one panel a window with no project has a reason to show — and its `+` is gone,
+because there is no folder to start a harness in.
+
+**The explorer, the open files and the terminals belong to a project, not to the window.** A window
+holds one set of each per project open in it, and switching between them is a lookup: the tree, the
+tabs and the dock all change together, and nothing is re-read or rebuilt. The terminals of the
+projects behind keep running and keep their scrollback.
+
+**A project leaving the window takes its panes with it.** Closing it, moving it to another window, or
+forgetting it kills the harnesses running in it — a pane's working directory is that project's
+folder, and no other window can adopt a running emulator. What the project *remembers* is written
+down first, so reopening it brings its files back.
 
 **The project picker is a small manager, not a list of values.** It searches on name and path, and
 divides into three groups, top to bottom: **open in this window**, **open in another window** with
@@ -98,25 +113,74 @@ explorer, the terminal dock and the chat. Each panel drags to a new size within 
 hiding a panel does not disturb the sizes of the others. The dock holds one tab that is not a pane —
 the log console, which is [`logs.md`](./logs.md).
 
-**The explorer states git position by colour and by badge.** Modified, untracked, conflicted, staged
-and ignored each take a colour from the status group and a single-letter badge — the colour so it
-reads at a glance, the badge so it does not rely on colour alone. Ignored rows are drawn faint.
-Clicking a folder expands it; clicking a file selects it and, when it is open, brings its tab
-forward. Typing in the "Go to file…" field filters on the path and forces matching folders open.
+**The explorer draws the project's folder, one directory at a time.** Opening a project asks the host
+for its top level; expanding a folder asks for that folder's children, and only then. A repository's
+`node_modules` is therefore one row rather than a walk, and a tree the user never opens costs
+nothing. Clicking a folder expands it; clicking a file opens it; typing in the "Go to file…" field
+matches on the path.
 
-**Each editor tab keeps its own buffer.** Switching tabs writes the outgoing buffer back first, so
-an edit survives the move. The tab's dot carries the file's git state, and the active tab is marked
-on its bottom edge.
+**A row the host will not follow is drawn and does nothing.** A symlink leading out of the project or
+nowhere, a socket, a device, a pipe: the row appears, faint, and takes no click. Drawing it is the
+point — a tree with rows missing is a tree that lies about what is in the folder.
 
-**The status bar reports facts, not intentions.** Branch with ahead and behind counts, the working
-tree's totals, the caret's real one-based line and column, the active file's language, encoding and
-line ending, and the harness and mode the composer is set to. It also says where Ubiq is writing,
-whenever that is not the usual `~/.config/ubiq` — a config root you cannot see is a foot-gun.
+**The explorer holds project-relative paths and nothing else.** No absolute path reaches the
+interface, for the same reason no file descriptor does: the folder the tree describes is the host's,
+and the two need not be on one machine.
 
-**The window remembers where its furniture was left.** Panel visibility and sizes and the rail mode
-belong to a project; the palette belongs to the interface. Both are stored by the host, which keeps
-them as an opaque blob it never reads, so the schema stays the interface's own. A blob it cannot
-parse is discarded and the window opens on defaults.
+**The explorer states git position by colour and by badge — for the states something fills in.**
+Modified, untracked, conflicted, staged and ignored each take a colour from the status group and a
+single-letter badge, the colour so it reads at a glance and the badge so it does not rely on colour
+alone. Nothing reads version control, so every row draws unmarked and the status bar carries no
+branch. An unfilled mark is an absence, not a claim that a repository was consulted and answered
+clean.
+
+**A tab exists from the click that asked for the file.** It appears at once, says it is reading, and
+fills when the bytes arrive — so a click has an effect, a second click cannot ask for the same file
+twice, and a read that fails has somewhere to say so. Bytes that arrive for a project the window has
+since switched away from are still put in their tab; bytes for a tab that has been closed are
+dropped.
+
+**Each open file owns its buffer.** Switching tabs and switching projects both leave a buffer exactly
+as it was, with its undo history, its selection and its scroll — nothing is copied in or out. The
+active tab is marked on its bottom edge, and the tab's dot reports the *file*: reading, saving, a
+failed save, or an unsaved edit.
+
+**`⌘S` writes the active file back, and names the version it read.** A save the host refuses because
+the file moved under it is reported on the tab and in the status bar, and the file is left alone —
+Ubiq is not the only thing editing these files, and the agents in the panes are the other one. There
+is no merge: resolving a conflict is the user's.
+
+**A file that cannot be edited honestly is not offered for saving.** A read the host cut short at its
+byte ceiling is readable and unsavable, because writing a prefix back would shorten the file. A file
+whose bytes are not text says so instead of drawing them.
+
+**A dirty tab asks before closing.** The first click on its × turns the tab into a question; only a
+second one discards the edit. Bringing the tab forward again withdraws the question.
+
+**The status bar reports facts, not intentions, and an absent fact is drawn as absent.** With a
+project open: the active file's project-relative path, what its save is doing when that is worth a
+word, the caret's real one-based line and column, the file's language, encoding and line ending, and
+the harness and mode the composer is set to. The caret and the language go with the file, so a window
+with no file open reports neither rather than a position in nothing. With no project open it says so
+and stops. Either way it says where Ubiq is writing whenever that is not the usual `~/.config/ubiq` —
+a config root you cannot see is a foot-gun.
+
+**The window remembers where its furniture was left, and which files were open in it.** Panel
+visibility and sizes, the rail mode, the files open in the centre with which of them was in front,
+the folders the explorer had expanded and the row it had selected all belong to a project; the
+palette belongs to the interface. Both are stored by the host, which keeps them as an opaque blob it
+never reads, so the schema stays the interface's own. A blob it cannot parse is discarded and the
+window opens on defaults.
+
+**A project closed and reopened in one session comes back as it was left**, without asking the host.
+The window keeps what a project left behind when it went, so reopening it restores the tabs and the
+open folders in the frame it happens, and a restart restores them from the blob the host stored.
+Whichever answer arrives first is the one used; the second is ignored, so a stored blob cannot
+reopen tabs the user has since closed.
+
+**The tree is restored a level at a time.** A remembered folder cannot be opened before its parent
+has been listed, so each listing that arrives opens whatever became reachable and asks for what is
+below it. A remembered folder that no longer exists is dropped rather than waited on.
 
 **The theme toggle switches both palettes at once.** Ubiq's tokens and the component library's own
 theme move together, so the editor and the chat's markdown never sit in a different mode from the
@@ -132,9 +196,16 @@ everything the window remembers. A chosen folder reaches the host as a path in `
 `LocateProject`; the choosing itself is the platform's, and crosses nothing. The
 full family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
-The rest of what the workbench shows — the explorer, the editor, the branch and the working-tree
-counts — is still UI state seeded from `crates/ubiq/src/state/sample.rs`. The terminal dock has its
-own family, in [`panes-and-terminals.md`](./panes-and-terminals.md).
+**Files cross the bus too.** The explorer and the editor are projections of the host's answers, not
+state of their own: `ProjectTree`, `ReadProjectFile` and `WriteProjectFile` going out, and
+`ProjectTreeListing`, `ProjectFileContents`, `ProjectFileWritten` and `ProjectFileError` coming back.
+Every one of them names a project and a path inside it, and each answers only the window that asked.
+The blob behind what a project remembers grows the open files, the active one, the expanded folders
+and the selected row, and the host neither parses nor validates any of it.
+
+One fixture is left. `crates/ubiq/src/state/sample.rs` holds the chat and nothing else, because the
+chat has no transport family — [`chat.md`](./chat.md) has that. The terminal dock has its own family,
+in [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## The window's areas
 
@@ -146,12 +217,12 @@ which file draws an area, where it sits, what fixes or bounds its size, and what
 | Titlebar | `ui/titlebar.rs` | Top, full width beside the mark | `TITLEBAR_HEIGHT`, fixed | `WorkbenchState` |
 | Project picker | `ui/project_menu.rs` | In the titlebar, leftmost | Its own popup width | `WindowRegistry`, process-wide, projecting the host's catalogue |
 | Rail | `ui/rail.rs` | Left, full height | `RAIL_WIDTH`, fixed | `WorkbenchState::rail_mode` |
-| Explorer | `ui/explorer.rs` | Left panel | `EXPLORER_WIDTH`/`_MIN`/`_MAX` | `ExplorerState` |
-| Editor | `ui/editor.rs` | Centre, above the dock | Grows | `EditorPaneState` + `Entity<EditorState>` |
-| Terminal dock | `ui/terminal.rs` | Centre, below the editor | `DOCK_HEIGHT`/`_MIN`/`_MAX` | The panes on `AppState` |
+| Explorer | `ui/explorer.rs` | Left panel | `EXPLORER_WIDTH`/`_MIN`/`_MAX` | `ExplorerState`, one per project the window holds |
+| Editor | `ui/editor.rs` | Centre, above the dock | Grows | `EditorPaneState` per project, and one `Entity<EditorState>` per open file |
+| Terminal dock | `ui/terminal.rs` | Centre, below the editor | `DOCK_HEIGHT`/`_MIN`/`_MAX` | The active project's panes, and the window's emulators |
 | Log console | `ui/logs.rs` | The dock's last tab | The dock's | `LogState` over the process-wide sink |
 | Chat | `ui/chat/` | Right panel | `CHAT_WIDTH`/`_MIN`/`_MAX` | `ChatState` |
-| Empty page | `ui/empty.rs` | Replaces the centre outside IDE mode | Grows | `RailMode` |
+| Empty page | `ui/empty.rs` | Replaces the centre outside IDE mode, and above the dock with no project | Grows | `RailMode`, or nothing at all |
 | Status bar | `ui/status_bar.rs` | Bottom, full width | `STATUS_BAR_HEIGHT`, fixed | Read from everything above |
 
 Two rules hold across all of them. **The chrome does not resize and the panels do** — titlebar, rail
@@ -166,9 +237,18 @@ the centre.
 
 ## What a window owns
 
-A window is one `AppState`. Almost everything the workbench shows belongs to it — its panel sizes,
-its explorer, its editor buffers, its chat. Which project it points at is the exception: that is the
-registry's answer, not the window's.
+A window is one `AppState`, and inside it one `OpenProject` per project open in that window. The
+split between them is the feature's spine. **A project owns what is about that project** — its
+explorer tree, its open files and their buffers, its panes, which of them holds the keyboard, and the
+furniture it was last left in. **The window owns what is about the window** — its panel sizes, the
+palette, the chat, the log console, which dock tab is showing, and one flat map from pane id to
+emulator, because an emulator does not care which list draws it.
+
+A project's state lives exactly as long as the window holds the project. That one rule is why
+switching projects is a lookup rather than a rebuild, and why the terminals of a project nobody is
+looking at keep running.
+
+Which project the window points at is neither's: that is the registry's answer.
 
 Four things are process-wide instead: the **palette**, so a second window opens in the mode the
 first is in, the **component library's registration**, done once at boot, the **bus's hub**, so
@@ -180,17 +260,30 @@ The catalogue itself is not the window's and not the registry's. It belongs to t
 arrives as snapshots the registry replaces by id — which is why every window's picker agrees
 without any of them asking twice.
 
-A window's identity is its `WindowId`, which is its key into the registry. Everything else — panel
-sizes, explorer, editor buffers, chat — is the window's alone, which is why two windows on the same
-project would keep two independent copies of its state. The registry makes that unreachable rather
-than merely unlikely: a project is open in one window at a time.
+A window's identity is its `WindowId`, which is its key into the registry. Everything else is that
+window's alone, which is why two windows on the same project would keep two independent copies of its
+tree, its tabs and its panes. The registry makes that unreachable rather than merely unlikely: a
+project is open in one window at a time.
 
 ## Implementation
 
-`AppState` in `crates/ubiq/src/app.rs` is the root view and owns everything: the panes, the focused
-pane, the layout mode, and the workbench, explorer, editor and chat state, plus the component
-library's `EditorState`, `TextareaState` and `InputState` entities and the subscriptions that keep
-them mirrored. Every mutator ends in `cx.notify()`.
+`AppState` in `crates/ubiq/src/app.rs` is the root view. It owns the window's own state — the layout
+mode, the chat, the console, the dock's tab, the emulators, the component library's `TextareaState`
+and `InputState` entities and the subscriptions that keep them mirrored — and a map of `OpenProject`
+keyed by `ProjectId` holding everything that belongs to a project. Every mutator ends in
+`cx.notify()`.
+
+`sync_projects()` is the one place the map is reconciled against the registry, and it is idempotent:
+it drops the projects the window no longer holds through `drop_project()`, builds an `OpenProject` for
+each new one, and calls `enter_project()` when the active project changed. It runs from the
+`observe_global` subscription rather than from each call site, so a project taken by *another* window
+reaches this one down the same path as a local change. `enter_project()` is where a project gets its
+first pane, which is why a window opening on nothing starts no harness.
+
+Accessors read through the active project and tolerate its absence: `open_project()`, `explorer()`,
+`editor()`, `panes()`, `focused_pane()` and `dock_tab()` each answer for a window with no project
+without a caller having to check. `drop_project()` writes the project's blob, parks a copy against a
+reopen in the same session, and kills its panes.
 
 `open_project_window` in `crates/ubiq/src/app.rs` is the only place a window is created, so the
 first window and "open in a new window" reach the same code. It seeds the registry, allocates the
@@ -202,18 +295,17 @@ a closed window's slot so everything it held returns to history.
 global. It holds the projection — `replace_all` for a `ProjectList`, `apply` for one snapshot,
 `forget` for a `ProjectForgotten` — and one `WindowSlot` per live window — its letter, the projects
 open in it, and which of them it is pointed at. `register`, `open_in`, `activate` and `close` are the
-four mutations, and each answers with the windows it emptied; `AppState::close_windows` closes those,
-deferred, because the caller is usually inside one of them. `groups` computes the picker's three
-lists for one window. Every `AppState` subscribes with `observe_global`, so a move in one window
+four mutations. None of them closes anything: `open_in` answers whether the project existed to be
+opened, and the others answer nothing, because a window emptied of projects is a window on the empty
+state. `groups` computes the picker's three lists for one window. Every `AppState` subscribes with `observe_global`, so a move in one window
 redraws the picker in all of them, and reads go through `WindowRegistry::read` rather than
 `default_global`, which would notify the observers on a plain read and spin the frame. The registry
 is pure logic and is tested without a frame in `crates/ubiq/tests/windows.rs`, which seeds it the
 way the host does.
 
-`reap` is where the empty-catalogue rule lives: it returns no windows at all while the projection is
-empty, so a first run keeps the window it opened on nothing. `state/when.rs` renders a row's
-relative time at draw time from `last_opened_at`, and `state/prefs.rs` is the schema inside the
-opaque blob the host stores.
+`state/when.rs` renders a row's relative time at draw time from `last_opened_at`, and
+`state/prefs.rs` is the schema inside the opaque blob the host stores — including the files and
+folders a project reopens with.
 
 `crates/ubiq/src/ui/shell.rs` assembles the frame: the mark and the titlebar in one row, then the
 rail beside an `h_resizable` group of explorer, centre and chat, then the status bar. The mark is
@@ -229,31 +321,67 @@ module rather than a `Picker`, because a project row carries actions and a confi
 just a value. Shared primitives are in `ui/kit/`; the
 conventions behind that split are in [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
-State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, panel visibility
-and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` for the open files;
-`logs.rs` for the console's filter.
+State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, panel visibility,
+the open menu and what was typed into the explorer's filter; `explorer.rs` for the tree; `editor.rs`
+for the open files; `logs.rs` for the console's filter.
+
+`state/explorer.rs` holds every piece of tree logic and no frame, which is what makes it testable in
+`crates/ubiq/tests/explorer.rs`. `merge()` puts one directory's listing into the tree, matching
+entries by name so that a folder re-listed keeps the children and the expanded flags below it, an
+entry that has gone is dropped with its subtree, and a new one arrives shut and unlisted — which also
+makes an unsolicited listing harmless. `toggle()` answers whether flipping a folder open means the
+host has to be asked. `expanded()` is what gets written down and `reopen()` is what reads it back,
+opening the folders a blob named as each of their parents arrives. The order the host sorted a
+listing in is kept rather than sorted again, so two windows on one project cannot disagree.
+
+`state/editor.rs` names the component library, unlike its neighbours, because a file's buffer *is*
+its state: `FileBody` is either `Loading`, the `Text` of a buffer with the bytes the host sent beside
+it, `Binary`, or a `Failed` read. Dirtiness is that comparison against the host's bytes, cached off
+the buffer's own change event rather than recomputed per frame. `FileLanguage::of()` picks a
+highlighter from the path's extension, and anything it does not recognise opens as plain text, which
+is the general case rather than a fallback.
+
+The file path through the two halves: `select_file()` opens a tab and sends `ReadProjectFile`;
+`toggle_folder()` sends `ProjectTree` when a folder has never been listed; `save_active_file()` sends
+`WriteProjectFile` with the version the read came with. Contents cannot become a buffer where they
+arrive, because a buffer needs a window and a message does not come with one, so they queue and
+`attach_arrived_files()` drains them in `render` — the same device the panel sizes and the pending
+focus already use. `install_key_bindings()` binds `⌘S` in the `Workbench` key context, and the binary
+calls it beside its own quit binding.
 
 ## Failure
 
 | What happens | Result |
 |---|---|
-| The last editor tab is closed | The editor keeps the previous file, or shows an empty buffer if none remain |
+| The last editor tab is closed | The centre says no file is open, and the status bar reports no caret and no language |
 | A filter matches nothing | The tree renders empty; the filter field keeps what was typed |
 | Every panel is hidden | The rail, titlebar and status bar remain; the centre fills the window |
 | The dock is hidden while the console is its tab | The console goes with the dock, and comes back to the same tab |
-| The last project in a window is closed | The window closes with it. If it was the last window, the application quits |
+| The last project in a window is closed | The window stays, on the empty state. Its harnesses are killed with the project, and what it remembered is written down |
 | A project with terminals is closed | The row asks first, and closes only on a second, explicit click |
-| A project open in another window is opened here | It leaves that window, which closes if it held nothing else |
+| A project open in another window is opened here | It leaves that window, which stays open on the empty state if it held nothing else. Its panes are killed rather than moved |
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
 | A project's folder is deleted, renamed or unmounted | The next probe marks the row; the record stays and the window keeps its last screen |
 | A marked project is located again | The record keeps its id, colour and history; only its path moves |
 | A folder already in the catalogue is added again | The picker points at the project that is there; no duplicate appears |
-| The catalogue is empty | The window stays open on the picker, which offers to add one |
+| The catalogue is empty | The window stays open on the empty state, which offers to add a project |
 | The catalogue file is corrupt | It is preserved under a timestamped name, the session starts empty, and one error says so |
 | The catalogue cannot be written | Changes hold for the session and one error says they are not durable |
 | A window's view state is corrupt or from another schema | It is discarded and the window opens on defaults |
+| A folder's listing cannot be read | The tab or the row says so; the rest of the tree is untouched. A missing or refused path is the interface's cue to ask the host to probe the project again |
+| A file's bytes never arrive | Its tab says it is reading, and keeps saying so. Nothing else waits on it |
+| A file's read fails | The tab shows the reason in the danger colour instead of a buffer |
+| A file is too large for one read | What arrived is drawn and can be read; saving it is refused, because writing a prefix back would shorten the file |
+| A file is not text | The tab says so rather than drawing bytes as characters |
+| A file changed on disk since it was read | The save is refused, the file is left alone, and the tab and the status bar say so. Ubiq offers no merge |
+| A save fails for any other reason | The same report, cleared by the next edit |
+| A dirty tab is closed | The tab becomes a question and takes a second click. Bringing it forward withdraws it |
+| Contents arrive for a project the window no longer holds | Dropped. For one it holds but is not showing, they are put in their tab, which is there on the next switch |
+| Contents arrive for a tab that has been closed | Dropped, so nothing reopens under the user |
+| A remembered folder no longer exists | It is dropped from the restore rather than waited on; the rest of the tree opens |
+| A remembered file no longer exists | Its tab opens and reports the failed read, so the loss is visible rather than silent |
 
 ## Related docs
 
@@ -264,7 +392,8 @@ and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` fo
 
 ## Next steps
 
-- Drive the explorer, the editor and the status bar from a real folder rather than fixtures.
 - Build the Control, Agents, KB and Tasks screens.
-- Give each window its own project working tree, rather than one set of fixtures.
 - Keyboard navigation for the rail, the tabs and the explorer.
+- Give the explorer's git marks and the status bar a branch something to read.
+- A viewer per kind of file, so Markdown, a diagram and a diff are not drawn as source.
+- Make the titlebar's command field find a file in the project.

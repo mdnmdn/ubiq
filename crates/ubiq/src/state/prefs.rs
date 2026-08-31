@@ -29,7 +29,11 @@ impl Default for InterfacePrefs {
     }
 }
 
-/// What belongs to one project: where its furniture was left.
+/// What belongs to one project: where its furniture was left, and what it was looking at.
+///
+/// Every field added after the first release is `#[serde(default)]`, so a blob written by an
+/// older build opens with the new fields empty rather than being discarded. That is why the
+/// schema has not had to move.
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct ViewPrefs {
     pub schema: u32,
@@ -44,6 +48,19 @@ pub struct ViewPrefs {
     pub chat_width: Option<f32>,
     #[serde(default)]
     pub dock_height: Option<f32>,
+    /// The files open in the centre, in tab order. Project-relative, like every path here.
+    #[serde(default)]
+    pub open_files: Vec<String>,
+    /// Which of `open_files` was in front. A path rather than an index, because a file that fails
+    /// to open must not shift what "active" meant.
+    #[serde(default)]
+    pub active_file: Option<String>,
+    /// The folders the explorer had open, so a tree comes back as it was left rather than shut.
+    #[serde(default)]
+    pub expanded: Vec<String>,
+    /// The row the explorer had selected, open or not.
+    #[serde(default)]
+    pub selected: Option<String>,
 }
 
 impl Default for ViewPrefs {
@@ -57,6 +74,10 @@ impl Default for ViewPrefs {
             explorer_width: None,
             chat_width: None,
             dock_height: None,
+            open_files: Vec::new(),
+            active_file: None,
+            expanded: Vec::new(),
+            selected: None,
         }
     }
 }

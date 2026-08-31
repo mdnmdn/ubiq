@@ -2,6 +2,10 @@
 //!
 //! Only IDE mode fills the middle. The chat panel is the one piece of furniture that survives a
 //! rail-mode switch, so it sits outside the mode branch.
+//!
+//! A window holding no project keeps its frame and empties what a project would have filled. The
+//! dock stays, because the log console is a tab in it and a window with nothing open is exactly
+//! when the console is worth reaching.
 
 use gpui::{Context, IntoElement, ParentElement, Styled, Window, div, px};
 use gpui_component::resizable::{h_resizable, resizable_panel, v_resizable};
@@ -17,15 +21,24 @@ pub fn render(
 ) -> impl IntoElement {
     let wb = &app.workbench;
     let ide = wb.is_ide();
+    let has_project = app.project(cx).is_some();
 
     let centre = if ide {
+        // With no project there is nothing to edit, and the empty page says so where the editor
+        // would have been. The dock below it is unchanged: the console is reachable either way.
+        let above = if has_project {
+            editor::render(app, cx).into_any_element()
+        } else {
+            empty::no_project(cx)
+        };
+
         // The group's state is the window's, not the frame's, so a dragged size can be read back
         // and remembered.
         v_resizable("workbench-v")
             .with_state(&app.centre)
             // A drag is remembered. The host debounces, so this may fire as freely as it likes.
             .on_resize(cx.listener(|this, _, _, cx| this.remember_view(cx)))
-            .child(resizable_panel().child(editor::render(app, cx).into_any_element()))
+            .child(resizable_panel().child(above))
             .child(
                 resizable_panel()
                     .size(px(theme::DOCK_HEIGHT))
@@ -39,6 +52,7 @@ pub fn render(
             wb.rail_mode.label(),
             wb.rail_mode.note(),
             rail::mode_icon(wb.rail_mode),
+            Some(empty::not_built()),
         )
         .into_any_element()
     };
@@ -88,7 +102,10 @@ pub fn render(
                                 resizable_panel()
                                     .size(px(theme::CHAT_WIDTH))
                                     .size_range(px(theme::CHAT_MIN)..px(theme::CHAT_MAX))
-                                    .visible(ide && wb.show_right)
+                                    // The chat is a conversation about a project. With none open
+                                    // it has nothing to be about, so it goes rather than sitting
+                                    // there as the one populated panel on an empty screen.
+                                    .visible(ide && wb.show_right && has_project)
                                     .child(chat::render(app, cx).into_any_element()),
                             ),
                     ),

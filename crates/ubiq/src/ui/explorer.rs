@@ -10,32 +10,54 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::app::AppState;
 use crate::state::{GitStatus, Row};
 use crate::theme;
+use crate::ui::empty::empty_panel;
 use crate::ui::kit::{badge, icon_button, mono, panel, panel_header};
 
 /// The colour a row's name and dot take from its git state. Status is never shown by wording alone.
-pub fn git_colour(status: GitStatus) -> Rgba {
+///
+/// Nothing to say about a file is the muted default, which is also what every row looks like until
+/// something reads a repository.
+pub fn git_colour(status: Option<GitStatus>) -> Rgba {
     match status {
-        GitStatus::Clean => theme::text_muted(),
-        GitStatus::Modified => theme::warning(),
-        GitStatus::Untracked => theme::success(),
-        GitStatus::Conflict => theme::danger(),
-        GitStatus::Staged => theme::info(),
-        GitStatus::Ignored => theme::text_faint(),
+        None => theme::text_muted(),
+        Some(GitStatus::Modified) => theme::warning(),
+        Some(GitStatus::Untracked) => theme::success(),
+        Some(GitStatus::Conflict) => theme::danger(),
+        Some(GitStatus::Staged) => theme::info(),
+        Some(GitStatus::Ignored) => theme::text_faint(),
     }
 }
 
-fn name_colour(status: GitStatus) -> Rgba {
+fn name_colour(status: Option<GitStatus>, readable: bool) -> Rgba {
     match status {
-        GitStatus::Clean => theme::text(),
-        GitStatus::Ignored => theme::text_faint(),
-        other => git_colour(other),
+        None if readable => theme::text(),
+        // Something the host will not open reads as unavailable rather than as unremarkable.
+        None => theme::text_faint(),
+        Some(GitStatus::Ignored) => theme::text_faint(),
+        Some(other) => git_colour(Some(other)),
     }
 }
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let selected = app.explorer.selected.clone();
+pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    // With no project there is no folder to list. The panel stays, so the emptiness is explained
+    // and the width the user dragged survives a project opening.
+    if app.project(cx).is_none() {
+        return panel()
+            .border_r_1()
+            .border_color(theme::border())
+            .child(panel_header("Explorer", div()))
+            .child(empty_panel("No project open"))
+            .into_any_element();
+    }
+
+    // The tree belongs to the project; the filter belongs to the window, because there is one
+    // field above N trees.
+    let Some(explorer) = app.explorer(cx) else {
+        return div().into_any_element();
+    };
+    let selected = explorer.selected.clone();
     let mut rows = Vec::new();
-    for row in app.explorer.rows() {
+    for row in explorer.rows(&app.workbench.file_filter) {
         rows.push(tree_row(row, selected.as_deref(), cx));
     }
 
@@ -59,7 +81,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     IconName::ChevronsUpDown,
                     false,
                     cx.listener(|this, _, _, cx| {
-                        this.explorer.collapse_all();
+                        if let Some(open) = this.open_project_mut(cx) {
+                            open.explorer.collapse_all();
+                        }
                         cx.notify();
                     }),
                 )),
@@ -107,6 +131,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .overflow_y_scroll()
                 .children(rows),
         )
+        .into_any_element()
 }
 
 fn tree_row(row: Row, selected: Option<&str>, cx: &mut Context<AppState>) -> AnyElement {
@@ -150,12 +175,12 @@ fn tree_row(row: Row, selected: Option<&str>, cx: &mut Context<AppState>) -> Any
                 .flex_1()
                 .min_w(px(0.))
                 .text_size(px(13.))
-                .text_color(name_colour(row.git))
+                .text_color(name_colour(row.git, row.readable))
                 .child(SharedString::from(row.name.clone())),
         );
 
-    if let Some(text) = row.git.badge() {
-        line = line.child(badge(text, git_colour(row.git)));
+    if let Some(status) = row.git {
+        line = line.child(badge(status.badge(), git_colour(row.git)));
     }
 
     if is_selected {
@@ -165,11 +190,17 @@ fn tree_row(row: Row, selected: Option<&str>, cx: &mut Context<AppState>) -> Any
             .border_color(theme::accent());
     }
 
-    line.on_click(cx.listener(move |this, _, window, cx| {
+    // A row the host will not follow is drawn and does nothing: there is nothing behind it to
+    // list or to open.
+    if !row.readable {
+        return line.into_any_element();
+    }
+
+    line.on_click(cx.listener(move |this, _, _window, cx| {
         if is_dir {
             this.toggle_folder(path.clone(), cx);
         } else {
-            this.select_file(path.clone(), window, cx);
+            this.select_file(path.clone(), cx);
         }
     }))
     .into_any_element()

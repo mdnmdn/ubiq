@@ -3,7 +3,10 @@
 //!
 //! Which projects exist and which window holds which is not here — that is process-wide, and lives
 //! in [`super::windows`]. What stays is what belongs to this window alone: what was typed into the
-//! picker's search field, and which project's close is waiting on an answer.
+//! picker's and the explorer's search fields, and which project's close is waiting on an answer.
+//!
+//! Nothing about version control is here. The branch, the ahead and behind counts and the
+//! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use ubiq_proto::ids::ProjectId;
 
@@ -70,7 +73,6 @@ pub enum RowAction {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuId {
     Project,
-    Branch,
     Harness,
     Model,
     Thinking,
@@ -101,21 +103,32 @@ pub struct WorkbenchState {
     /// The last thing the host refused to do, shown at the top of the picker until dismissed.
     pub project_error: Option<String>,
 
-    pub branches: Vec<String>,
-    pub branch: usize,
-    /// Working-tree summary, as the status bar reports it.
-    pub ahead: usize,
-    pub behind: usize,
-    pub modified: usize,
-    pub untracked: usize,
-    pub conflicts: usize,
+    /// What was typed into the explorer's "Go to file…" field. It belongs to the window rather than
+    /// to a tree, because one field filters whichever project is on screen.
+    pub file_filter: String,
+}
+
+impl Default for WorkbenchState {
+    fn default() -> Self {
+        Self {
+            config_root: None,
+            config_root_is_default: true,
+            rail_mode: RailMode::Ide,
+            show_left: true,
+            show_bottom: true,
+            show_right: true,
+            theme_id: ThemeId::Dark,
+            open_menu: None,
+            project_filter: String::new(),
+            pending_close: None,
+            row_action: None,
+            project_error: None,
+            file_filter: String::new(),
+        }
+    }
 }
 
 impl WorkbenchState {
-    pub fn branch_name(&self) -> &str {
-        &self.branches[self.branch]
-    }
-
     /// Whether the explorer, the editor, the dock and the chat are on screen at all. They are all
     /// IDE furniture and leave together.
     pub fn is_ide(&self) -> bool {

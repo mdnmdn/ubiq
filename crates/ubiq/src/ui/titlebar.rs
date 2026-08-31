@@ -5,13 +5,11 @@ use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
-use crate::state::MenuId;
 use crate::theme;
-use crate::ui::kit::{Picker, icon_button, mono};
-use crate::ui::{handler, indexed, project_menu};
+use crate::ui::kit::{icon_button, mono};
+use crate::ui::project_menu;
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let view = cx.entity();
     let wb = &app.workbench;
 
     div()
@@ -25,21 +23,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .border_b_1()
         .border_color(theme::border())
         .child(project_menu::render(app, cx))
-        .child(
-            Picker::new("branch-picker", wb.branch_name().to_string())
-                .icon(IconName::Network)
-                .items(&wb.branches)
-                .selected(wb.branch)
-                .open(wb.open_menu == Some(MenuId::Branch))
-                .on_toggle(handler(&view, |this, _, cx| {
-                    this.open_menu(MenuId::Branch, cx)
-                }))
-                .on_pick(indexed(&view, |this, index, _, cx| {
-                    this.workbench.branch = index;
-                    this.close_menu(cx);
-                }))
-                .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx))),
-        )
         .child(div().flex_1().min_w(px(0.)))
         .child(command_field(app))
         .child(div().flex_1().min_w(px(0.)))

@@ -5,8 +5,8 @@ kind: meta
 status: current
 summary: The map of `_docs/` — how it is organized, the catalogue, which document owns which fact, and which to read for a given task.
 read_when: you are starting any task and need to know which two or three documents it needs
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 ---
 
 # Documentation index
@@ -77,25 +77,25 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-08-31 |
-| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor. | 2026-08-31 |
+| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor. | 2026-09-01 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in. | 2026-08-31 |
-| [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-08-31 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer, the editor, and the status bar that reports on all of it. | 2026-08-31 |
+| [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-01 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer and editor a project owns, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-01 |
 
 ### Tech
 
 | Document | What it is | Verified |
 |---|---|---|
-| [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-08-31 |
+| [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-01 |
 | [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-08-31 |
-| [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-08-31 |
-| [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-08-31 |
+| [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-01 |
+| [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-01 |
 | [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-08-31 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-08-31 |
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-08-31 |
-| [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane family, the session family, the framing rules, and the procedure for adding a variant. | 2026-08-31 |
-| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface is drawn in, and the design assets screens are built against. | 2026-08-31 |
+| [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project and file families, the framing rules, and the procedure for adding a variant. | 2026-09-01 |
+| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface is drawn in, and the design assets screens are built against. | 2026-09-01 |
 
 ### Meta
 

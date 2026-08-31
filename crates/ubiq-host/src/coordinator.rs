@@ -10,10 +10,14 @@ use std::thread;
 use std::time::Instant;
 
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
+use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
+use ubiq_proto::projects::ProjectHealth;
 
 use crate::config::ConfigRoot;
+use crate::files::{self, Files};
+use crate::health;
 use crate::projects::{Projects, Reply};
 use crate::pty::{self, Pty};
 
@@ -40,6 +44,9 @@ struct Coordinator {
     root: ConfigRoot,
     /// The catalogue, the view state, and what is running in each project.
     projects: Projects,
+    /// The thread that reads and writes a project's files. Nothing in the file family touches disk
+    /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
+    files: Files,
     /// Anything the catalogue wanted said before a window existed to hear it — a corrupt store,
     /// most usefully. Delivered to the first window that attaches.
     pending: Vec<Reply>,
@@ -61,6 +68,7 @@ impl Coordinator {
             host,
             root,
             projects,
+            files: Files::start(),
             pending,
             pane_projects: HashMap::new(),
             panes: HashMap::new(),
@@ -182,10 +190,10 @@ impl Coordinator {
             Message::SpawnWorkspace {
                 session_id,
                 project_id,
+                rel_path,
                 agent_type,
                 args,
-                folder,
-            } => self.spawn_workspace(client, session_id, project_id, agent_type, args, folder),
+            } => self.spawn_workspace(client, session_id, project_id, rel_path, agent_type, args),
 
             Message::TerminalInput { pane_id, bytes } => {
                 if !self.owns(client, pane_id) {
@@ -288,6 +296,45 @@ impl Coordinator {
                 self.projects.set_preferences(scope, value, Instant::now());
             }
 
+            // ── the file family ─────────────────────────────────────
+            // Three arms, no syscall: the record is a lookup in memory and the work goes to the
+            // worker with the root it resolved against.
+            Message::ProjectTree {
+                project_id,
+                rel_path,
+                depth,
+            } => {
+                let request = files::Request::Tree {
+                    rel_path: rel_path.clone(),
+                    depth,
+                };
+                self.file_job(client, project_id, &rel_path, request);
+            }
+            Message::ReadProjectFile {
+                project_id,
+                rel_path,
+                max_bytes,
+            } => {
+                let request = files::Request::Read {
+                    rel_path: rel_path.clone(),
+                    max_bytes,
+                };
+                self.file_job(client, project_id, &rel_path, request);
+            }
+            Message::WriteProjectFile {
+                project_id,
+                rel_path,
+                bytes,
+                expected,
+            } => {
+                let request = files::Request::Write {
+                    rel_path: rel_path.clone(),
+                    bytes,
+                    expected,
+                };
+                self.file_job(client, project_id, &rel_path, request);
+            }
+
             // Response-direction variants are never received here. Dropping one silently would
             // hide a wiring mistake, so it is named.
             other => {
@@ -296,23 +343,60 @@ impl Coordinator {
         }
     }
 
+    /// Hand one file-family request to the worker.
+    ///
+    /// The only thing this decides is which folder the request is against; a project the catalogue
+    /// does not hold is refused here rather than reaching a thread that could not answer it.
+    fn file_job(
+        &self,
+        client: ClientId,
+        project_id: ProjectId,
+        rel_path: &str,
+        request: files::Request,
+    ) {
+        let Some(record) = self.projects.record(project_id) else {
+            self.host.send(
+                To::Client(client),
+                files::file_error(
+                    project_id,
+                    rel_path,
+                    FileError::Refused("no such project".to_string()),
+                ),
+            );
+            return;
+        };
+
+        self.files.submit(files::Job {
+            project_id,
+            root: PathBuf::from(&record.path),
+            request,
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
     fn spawn_workspace(
         &mut self,
         client: ClientId,
         session_id: SessionId,
-        project_id: Option<ProjectId>,
+        project_id: ProjectId,
+        rel_path: Option<String>,
         agent_type: Option<String>,
         args: Vec<String>,
-        folder: Option<String>,
     ) {
+        // A pane runs in a project's folder, so everything about that folder is settled before a
+        // pseudo-terminal exists. A spawn that fails here leaves nothing on screen to close.
+        let cwd = match self.resolve_cwd(client, project_id, rel_path.as_deref()) {
+            Some(cwd) => cwd,
+            None => return,
+        };
+
         let pane_id = PaneId::generate();
         let agent_type = agent_type.unwrap_or_else(default_agent_type);
-        let path = folder.as_ref().map(PathBuf::from);
 
         let spawned = pty::spawn(
             &agent_type,
             &args,
-            path.as_deref(),
+            Some(cwd.as_path()),
             INITIAL_COLS,
             INITIAL_ROWS,
         );
@@ -350,23 +434,95 @@ impl Coordinator {
 
         // The picker's terminal count, and the confirmation it puts in front of a close, are only
         // real because of this.
-        if let Some(project_id) = project_id {
-            self.pane_projects.insert(pane_id, project_id);
-            let replies = self.projects.pane_opened(project_id);
-            self.answer(client, replies);
-        }
+        self.pane_projects.insert(pane_id, project_id);
+        let replies = self.projects.pane_opened(project_id);
+        self.answer(client, replies);
 
         mailbox.send(Message::WorkspaceSpawned {
             workspace: WorkspaceInfo {
                 id: pane_id,
                 session_id,
                 agent_type,
-                folder,
+                project_id,
+                rel_path,
                 cols: INITIAL_COLS,
                 rows: INITIAL_ROWS,
                 running: true,
             },
         });
+    }
+
+    /// Where a pane starts, or nothing at all and the window told why.
+    ///
+    /// The refusal is a `ProjectError` rather than a `PaneError`, because a `PaneError` names a pane
+    /// the interface has never been told about and so has nowhere to put it. An unhealthy project
+    /// also gets its fresh snapshot broadcast, so every picker marks the row from the probe that
+    /// just happened rather than waiting to be asked.
+    fn resolve_cwd(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        rel_path: Option<&str>,
+    ) -> Option<PathBuf> {
+        let Some(record) = self.projects.record(project_id) else {
+            self.refuse_spawn(client, project_id, "no such project".to_string(), false);
+            return None;
+        };
+        let root = PathBuf::from(&record.path);
+
+        let health = health::probe(&root);
+        if !health.is_ok() {
+            let reason = match &health {
+                ProjectHealth::Missing => "its folder is not there".to_string(),
+                ProjectHealth::NotADirectory => "its path is not a folder".to_string(),
+                ProjectHealth::Unreadable(reason) => reason.clone(),
+                ProjectHealth::Ok => unreachable!("the branch above tested for this"),
+            };
+            self.refuse_spawn(client, project_id, reason, true);
+            return None;
+        }
+
+        match rel_path {
+            None => Some(root),
+            Some(rel_path) => match files::path::resolve(&root, rel_path) {
+                Ok(cwd) if cwd.is_dir() => Some(cwd),
+                Ok(_) => {
+                    self.refuse_spawn(
+                        client,
+                        project_id,
+                        format!("{rel_path} is not a folder"),
+                        false,
+                    );
+                    None
+                }
+                Err(error) => {
+                    self.refuse_spawn(client, project_id, format!("{rel_path}: {error}"), false);
+                    None
+                }
+            },
+        }
+    }
+
+    /// Say why a pane was not started, and re-probe when the folder itself is the reason.
+    fn refuse_spawn(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        error: String,
+        reprobe: bool,
+    ) {
+        tracing::warn!("refusing a workspace in project {project_id}: {error}");
+        self.host.send(
+            To::Client(client),
+            Message::ProjectError {
+                project_id: Some(project_id),
+                error,
+            },
+        );
+        if reprobe {
+            let replies = self.projects.refresh(project_id);
+            self.answer(client, replies);
+        }
     }
 }
 
