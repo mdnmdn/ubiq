@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq/src/bus.rs, crates/ubiq/src/orchestrator.rs, crates/ubiq/src/log.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs]
 review_cycle: quarterly
 ---
 
@@ -15,7 +15,24 @@ review_cycle: quarterly
 
 ## The shape
 
-Ubiq has two halves and one channel between them.
+Ubiq has two halves and one channel between them, and the halves are **crates**, so the boundary is
+a compile error rather than a convention.
+
+| Crate | Holds | Depends on |
+|---|---|---|
+| `crates/ubiq-proto/` | The message set, the ids, the bus, the log sink | Nothing that draws, nothing that touches disk |
+| `crates/ubiq-host/` | The coordinator, pseudo-terminals, the project catalogue and its stores | The protocol crate |
+| `crates/ubiq/` | Windows, panes, chrome, theme, the projection | The protocol crate — **not** the host crate |
+| `crates/ubiq-app/` | The binary | All three |
+
+Only the binary names both halves, and it names the host once: to start it and hand the interface
+the other end of the bus. The interface cannot reach around the bus because the host's types are
+not in its dependency graph, and `just host` and `just ui` check that mechanically — the first that
+no drawing crate reaches the host's tree, the second that the host never reaches the interface's.
+
+A `[[bin]]` inside `crates/ubiq` could not express this: a binary shares its package's
+`[dependencies]`, so naming the host there would put it in the library's graph too. That is why the
+binary is a crate of its own — see `D27`.
 
 The **coordinator** owns everything process-related: it spawns each harness under a pseudo-terminal,
 reads that terminal's output, writes keystrokes into it, propagates geometry changes, tracks each
@@ -30,7 +47,7 @@ Between them is the **bus** — a single channel carrying a small, closed set of
 set is the load-bearing decision and is owned by
 [`transport-contract.md`](./transport-contract.md); this document covers the structure around it.
 
-`crates/ubiq/src/bus.rs` is that channel in code. `pair()` opens two unbounded queues of messages,
+`crates/ubiq-proto/src/bus.rs` is that channel in code. `pair()` opens two unbounded queues of messages,
 one per direction, and a window keeps one end while the coordinator thread keeps the other. The
 same module holds the two byte-stream endpoints a pane's emulator is handed in place of a
 pseudo-terminal: a `Write` whose writes leave as input messages, and a blocking `Read` fed by the
@@ -96,19 +113,21 @@ the transport beneath the contract.
 
 | Concern | Where it lives | Notes |
 |---|---|---|
+| The config root, and every store under it | `crates/ubiq-host/src/config.rs`, `store/` | Movable by flag, environment or a bootstrap `ubiq.toml` |
+| The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | Window, panes, chrome, focus | `crates/ubiq/src/app.rs`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor and chat state |
-| The message set | `crates/ubiq/src/messages.rs` | The contract, serialisable by construction |
-| The bus, and a pane's byte streams | `crates/ubiq/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
-| Process and PTY lifecycle | `crates/ubiq/src/orchestrator.rs` | Spawn, supervise, reap. One coordinator thread, started from `for_project()` |
+| The message set | `crates/ubiq-proto/src/messages.rs` | The contract, serialisable by construction |
+| The bus, and a pane's byte streams | `crates/ubiq-proto/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
+| Process and PTY lifecycle | `crates/ubiq-host/src/coordinator.rs` | Spawn, supervise, reap. One coordinator thread, started from `for_project()` |
 | PTY streams and backpressure | `crates/ubiq/src/pty/` | `portable-pty` |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
-| Harness definitions | `crates/ubiq/src/agent.rs` | Seeded from the embedded library |
-| In-process MCP surface | `crates/ubiq/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
-| Diagnostics from every subsystem | `crates/ubiq/src/log.rs` | The one sink both halves write to, and the console reads |
+| Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
+| In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
+| Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
 
-`crates/ubiq/src/main.rs` does nothing but start the application: install the GPUI component library,
+`crates/ubiq-app/src/main.rs` does nothing but start the application: install the GPUI component library,
 set the palette, bind the quit action, and ask for the first window. Opening a window is
 `app::open_project_window`, the single place one is created, so the first window and "open in a new
 window" cannot drift apart. `main.rs` consumes the crate as a library rather than redeclaring its
@@ -116,14 +135,23 @@ modules, so the tree is compiled once. All real logic sits in the library root,
 `crates/ubiq/src/lib.rs`.
 
 **A window is one `AppState`.** Several may be open, each pointed at its own project. They share the
-palette, which is process-wide, and nothing else — so any state that ought to be global needs a home
-outside `AppState` before it can be shared. A coordinator is per window on the same terms: each one
-opens its own bus and starts its own coordinator thread, which means two windows cannot see each
-other's panes. That is a simplification, and it is filed as such in [`../backlog.md`](../backlog.md).
+palette, the window registry and the bus's hub, all of which are process-wide, and nothing else —
+so any state that ought to be global needs a home outside `AppState` before it can be shared.
+
+**There is one host per process**, started by the binary before the first window and outliving every
+one of them. A window attaches to it and gets a `Client`; the host reads every client through one
+`HostEnd` and addresses each answer to somebody. Pane-family messages route to the window that owns
+the pane, recorded when it was spawned; project-family messages are broadcast, which is what makes
+every window's picker agree by construction. Attaching and leaving are transport facts rather than
+things either half says, so they are `FromClient` variants and not messages.
+
+The catalogue is why it is singular: two hosts would race the store file and disagree about what
+exists. It also means nothing drops when a window closes, so the host reaps that window's
+pseudo-terminals deliberately — without that, every closed window would leave a live harness.
 
 ## Diagnostics
 
-One thing crosses the line without the bus: the log sink in `crates/ubiq/src/log.rs`. Both halves
+One thing crosses the line without the bus: the log sink in `crates/ubiq-proto/src/log.rs`. Both halves
 write to it, the window's console reads it, and it is process-wide rather than per window.
 
 It is not an exception to rule 1, because nothing about it is communication. Records travel one way,

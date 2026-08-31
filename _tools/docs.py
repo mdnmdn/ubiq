@@ -30,10 +30,18 @@ DOCS = REPO / "_docs"
 
 # The Cargo workspace. `crates/agent-manager/` carries its own `_docs/`, so its files are
 # scanned for symbols and named in prose, but never queued as unanchored here.
-SOURCE_ROOTS = ("crates/ubiq/src", "crates/agent-manager/src")
-ANCHORABLE_ROOTS = ("crates/ubiq/src",)
+# Ubiq is four crates: the protocol both halves share, the host, the interface, and the binary
+# that is the only thing naming more than one of them.
+UBIQ_ROOTS = (
+    "crates/ubiq-proto/src",
+    "crates/ubiq-host/src",
+    "crates/ubiq/src",
+    "crates/ubiq-app/src",
+)
+SOURCE_ROOTS = (*UBIQ_ROOTS, "crates/agent-manager/src")
+ANCHORABLE_ROOTS = UBIQ_ROOTS
 # The tree `tech/code-map.md` draws. agent-manager draws its own in `crates/agent-manager/AGENTS.md`.
-TREE_ROOTS = ("crates/ubiq/src",)
+TREE_ROOTS = UBIQ_ROOTS
 SOURCE_SUFFIXES = {".rs"}
 IGNORED_DIRS = {".git", "target", "refs", "node_modules", ".venv", "__pycache__", ".serena"}
 
@@ -898,7 +906,7 @@ def render_anchors(docs: list[Doc]) -> str:
         "",
         "## Unanchored",
         "",
-        "No document's `code_anchors` names these. Restricted to `crates/ubiq/src/`.",
+        "No document's `code_anchors` names these. Restricted to Ubiq's own crates.",
         "",
         "| File |",
         "|---|",

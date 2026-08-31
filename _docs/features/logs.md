@@ -7,7 +7,7 @@ summary: One sink every subsystem writes its diagnostics to, and the dock tab th
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/main.rs]
+code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq-app/src/main.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
 ---
@@ -112,12 +112,16 @@ selectors. Which panes the dock lists, and the focus rule the console takes part
 
 ## Implementation
 
-`crates/ubiq/src/log.rs` is the sink. `install()`, called from `main.rs` before the window and the
-coordinator exist, puts two layers behind one `EnvFilter`: the ring, and a plain writer on standard
+`crates/ubiq-proto/src/log.rs` is the sink. `install()`, called from the binary before the window and the
+host exist, puts two layers behind one `EnvFilter`: the ring, and a plain writer on standard
 error. The ring layer turns an event into a `LogRecord` — sequence number, timestamp, level,
 subsystem, target, and the message with its fields — and pushes it into a `VecDeque` of shared
 records under a mutex. `Subsystem::of` is the module-to-subsystem map, and it tests the specific
-prefixes first, because `ubiq::pty` is also `ubiq`.
+prefixes first, because `ubiq_host::pty` is also `ubiq_host`, and the bare `ubiq` arm is last
+because every one of Ubiq's crates starts with it. A target is the emitting module's path, so it
+carries the crate name: the map is `ubiq_host::pty`, `ubiq_host::coordinator`, `ubiq_proto::bus`
+and `ubiq_host::mcp_server`, and a crate renamed without the map following it files every record
+under External while compiling perfectly.
 
 `logs()` is the ring, held in a `OnceLock`. `snapshot()` filters and hands back shared records, so a
 console's read costs a pointer each and never holds the lock across a frame; `counts()` answers the

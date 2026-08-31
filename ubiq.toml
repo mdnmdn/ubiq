@@ -1,0 +1,10 @@
+# Where Ubiq's config root is, and nothing else.
+#
+# This is a bootstrap file, not a settings file: it exists to say where the settings are, and it
+# never grows a second answer to a question a store already answers. Everything Ubiq remembers —
+# the project catalogue, per-project view state, the derived caches — lives under the directory
+# named here.
+#
+# In this repository that is `_data/config`, which is ignored by git, so running Ubiq from a
+# checkout never touches the catalogue and credentials a user works with all day.
+config_root = "_data/config"

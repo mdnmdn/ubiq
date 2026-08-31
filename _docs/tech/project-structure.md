@@ -7,7 +7,7 @@ summary: Every folder in the workspace, what belongs in it, what must never go i
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, vendor/gpui-terminal/Cargo.toml]
+code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -79,37 +79,43 @@ exists. That is what lets the same composition logic serve the terminal and the 
 the reason `agent-manager` builds with `--no-default-features` — the application needs the core, not
 the CLI or the TUI. The boundary in detail is in [`agent-manager.md`](./agent-manager.md).
 
-## Inside `crates/ubiq/src`
+## Inside Ubiq's four crates
 
 Module by module, and what must never appear in each. The generated tree, with every file, is in
-[`code-map.md`](./code-map.md).
+[`code-map.md`](./code-map.md). Which crate a module sits in is itself the first rule: the
+interface does not depend on the host, so a module in the wrong crate does not compile.
 
 | Path | Holds | Never holds |
 |---|---|---|
-| `main.rs` | Application start: theme install, key bindings, the first window. Nothing else | Any logic, including window construction — that is `app::open_project_window` |
-| `lib.rs` | The module list and the crate's public surface | Implementation |
-| `app.rs` | `AppState`: the panes, the focused pane, the layout mode, the workbench state, and window creation | Process handles, PTY handles |
-| `ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, status bar, empty page, `chat/` | Anything that names the coordinator |
-| `ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
-| `theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
-| `state/` | Pane and application state machines, the workbench, explorer, editor and chat state, and the fixtures that seed them | Rendering, or any component-library type |
-| `messages.rs` | The transport contract enum and its payload records | Anything that fails to serialise |
-| `bus.rs` | The channel pair the halves talk over, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
-| `orchestrator.rs` | Spawn, supervise and reap harness processes | Rendering, layout, colour |
-| `pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
-| `agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
-| `mcp_server.rs` | The MCP surface Ubiq exposes to the agents it hosts | Anything the hosted agent should not reach |
+| `ubiq-proto/src/messages.rs` | The transport contract enum and its payload records | Anything that fails to serialise |
+| `ubiq-proto/src/ids.rs` | The contract's id newtypes, and the one generator behind them | A second id scheme |
+| `ubiq-proto/src/bus.rs` | The hub, a client's end of it, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
+| `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
+| `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
+| `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
+| `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
+| `ubiq-host/src/store/` | The catalogue and the view state, behind two traits | Any opinion about what a view blob means |
+| `ubiq-host/src/projects.rs` | The catalogue as the host runs it | An opinion about colour or layout |
+| `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
+| `ubiq-host/src/mcp_server.rs` | The MCP surface Ubiq exposes to the agents it hosts | Anything the hosted agent should not reach |
+| `ubiq/src/app.rs` | `AppState`: the panes, the focused pane, the layout mode, the workbench state, and window creation | Process handles, PTY handles, disk |
+| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, status bar, empty page, `chat/` | Anything that names the host |
+| `ubiq/src/ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
+| `ubiq/src/theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
+| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, the projection of the host's catalogue, and the fixtures that still seed the rest | Rendering, or any component-library type |
+| `ubiq-app/src/main.rs` | Application start: the config root, the host, the theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
 
 The "never holds" column is the enforcement of the architecture's rules in file terms. A
-`portable-pty` type under `ui/`, or a GPUI type in `messages.rs`, is a violation you can grep for.
+`portable-pty` type under `ui/`, or a GPUI type in `messages.rs`, is a violation you can grep for —
+and the crate split makes most of them a violation you cannot compile.
 
 ## Where a new file goes
 
 1. Is it a colour, a font, or a size the layout depends on? → `theme.rs`, referenced everywhere else.
 2. Does it draw, and does it know about the workbench? → a module under `ui/`.
 3. Does it draw, and would a second caller want it? → `ui/kit/`, naming no application type.
-4. Does it own a process or a file descriptor? → `orchestrator.rs` or `pty/`.
-5. Does it cross the bus? → its type goes in `messages.rs`, its handling on both sides.
+4. Does it own a process, a file descriptor or a path on disk? → `crates/ubiq-host/`.
+5. Does it cross the bus? → its type goes in `crates/ubiq-proto/`, its handling on both sides.
 6. Does it know how a *harness* is configured or launched? → `crates/agent-manager`, not here.
 7. Is it a patch to somebody else's crate? → `vendor/`, with a line in that crate's `README.md`.
 8. Is it a script a person runs? → `_tools/`, with a `just` recipe in front of it.

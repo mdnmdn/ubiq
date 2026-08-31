@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the three panel
 read_when: you are changing the window layout, a rail mode, panel visibility or resizing, the explorer, the editor tabs or the status bar
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -49,6 +49,10 @@ switcher shows.
 window holds it. Opening a project somewhere therefore takes it from wherever it was, and that is
 the only way a project moves between windows.
 
+**A window with no project open closes — unless there are no projects at all.** On a first run the
+catalogue is empty, and a window with nothing open still has "Add a project…" to offer, so it stays.
+Once a project exists the ordinary rule is back.
+
 **A window with no project open closes.** A window's whole purpose is the projects it holds; with
 none it has nothing to show and nothing to be named after. Closing the last project in a window
 closes the window, and so does taking it into another one. If it was the last window, the
@@ -59,6 +63,24 @@ divides into three groups, top to bottom: **open in this window**, **open in ano
 the letter of the window holding each, and **history** — everything open nowhere, with how long ago
 it was. A group with no rows is not drawn. A project's row moves between the groups as the project
 moves between windows, in every window's picker at once.
+
+**A project's folder can go away, and the picker says so rather than repairing it.** A row whose
+folder is missing, is not a directory, or cannot be read prints its path in the warning colour with
+a mark beside it, and offers **Locate** — which re-points the record through the system folder
+chooser and keeps the id, the colour and the history. A record is never removed because its folder
+went: an unplugged drive and a worktree mid-rebase are both temporary, and forgetting is always the
+user's action.
+
+**Every row can be renamed, recoloured and forgotten.** Renaming expands the row into a field;
+recolouring expands it into the palette's swatches; forgetting asks first and says what it will do.
+Forgetting drops the record and everything Ubiq remembers about the project, and touches nothing
+inside the project's own folder — which is why the word is "Forget".
+
+**Choosing a project's folder is the operating system's dialog**, both for Add and for Locate — the
+chooser the user already knows, with their bookmarks, their network volumes and a path field. Ubiq
+draws no folder browser of its own for this. Opening a file or a folder *inside* a project stays in
+the interface, where the explorer is. Adding a folder already in the catalogue points at the project
+that is there rather than making a second.
 
 **Each group's rows carry the actions that group needs.** In this window: click to point the window
 at it, `Close` to close it, `ExternalLink` to send it to a window of its own. In another window:
@@ -88,7 +110,13 @@ on its bottom edge.
 
 **The status bar reports facts, not intentions.** Branch with ahead and behind counts, the working
 tree's totals, the caret's real one-based line and column, the active file's language, encoding and
-line ending, and the harness and mode the composer is set to.
+line ending, and the harness and mode the composer is set to. It also says where Ubiq is writing,
+whenever that is not the usual `~/.config/ubiq` — a config root you cannot see is a foot-gun.
+
+**The window remembers where its furniture was left.** Panel visibility and sizes and the rail mode
+belong to a project; the palette belongs to the interface. Both are stored by the host, which keeps
+them as an opaque blob it never reads, so the schema stays the interface's own. A blob it cannot
+parse is discarded and the window opens on defaults.
 
 **The theme toggle switches both palettes at once.** Ubiq's tokens and the component library's own
 theme move together, so the editor and the chat's markdown never sit in a different mode from the
@@ -96,9 +124,17 @@ chrome around them.
 
 ## Contract
 
-No transport message. Everything the workbench shows is UI state seeded from
-`crates/ubiq/src/state/sample.rs`; the terminal dock is the one part with a message family behind
-it, and that belongs to [`panes-and-terminals.md`](./panes-and-terminals.md).
+**Projects cross the bus.** The catalogue belongs to the host, and the workbench holds a projection
+of it: `ListProjects`, `AddProject`, `ForgetProject`, `UpdateProject`, `LocateProject`,
+`OpenedProject` and `RefreshProject` going out, `ProjectList`, `ProjectAdded`, `ProjectChanged`,
+`ProjectForgotten` and `ProjectError` coming back, and `GetPreferences`/`SetPreferences` behind
+everything the window remembers. A chosen folder reaches the host as a path in `AddProject` or
+`LocateProject`; the choosing itself is the platform's, and crosses nothing. The
+full family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
+
+The rest of what the workbench shows — the explorer, the editor, the branch and the working-tree
+counts — is still UI state seeded from `crates/ubiq/src/state/sample.rs`. The terminal dock has its
+own family, in [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## The window's areas
 
@@ -108,7 +144,7 @@ which file draws an area, where it sits, what fixes or bounds its size, and what
 | Area | Module | Sits | Size | State |
 |---|---|---|---|---|
 | Titlebar | `ui/titlebar.rs` | Top, full width beside the mark | `TITLEBAR_HEIGHT`, fixed | `WorkbenchState` |
-| Project picker | `ui/project_menu.rs` | In the titlebar, leftmost | Its own popup width | `WindowRegistry`, process-wide |
+| Project picker | `ui/project_menu.rs` | In the titlebar, leftmost | Its own popup width | `WindowRegistry`, process-wide, projecting the host's catalogue |
 | Rail | `ui/rail.rs` | Left, full height | `RAIL_WIDTH`, fixed | `WorkbenchState::rail_mode` |
 | Explorer | `ui/explorer.rs` | Left panel | `EXPLORER_WIDTH`/`_MIN`/`_MAX` | `ExplorerState` |
 | Editor | `ui/editor.rs` | Centre, above the dock | Grows | `EditorPaneState` + `Entity<EditorState>` |
@@ -134,10 +170,15 @@ A window is one `AppState`. Almost everything the workbench shows belongs to it 
 its explorer, its editor buffers, its chat. Which project it points at is the exception: that is the
 registry's answer, not the window's.
 
-Three things are process-wide instead: the **palette**, so a second window opens in the mode the
-first is in, the **component library's registration**, done once at boot, and the **window
-registry** — the project catalogue, and which window holds which project. The registry has to be
-shared: no window can answer "where is this project open?" from a copy of its own.
+Four things are process-wide instead: the **palette**, so a second window opens in the mode the
+first is in, the **component library's registration**, done once at boot, the **bus's hub**, so
+every window reaches the one host, and the **window registry** — the projection of the host's
+catalogue, and which window holds which project. The registry has to be shared: no window can
+answer "where is this project open?" from a copy of its own.
+
+The catalogue itself is not the window's and not the registry's. It belongs to the host, and
+arrives as snapshots the registry replaces by id — which is why every window's picker agrees
+without any of them asking twice.
 
 A window's identity is its `WindowId`, which is its key into the registry. Everything else — panel
 sizes, explorer, editor buffers, chat — is the window's alone, which is why two windows on the same
@@ -158,17 +199,26 @@ own `AppState`. `focus_window` brings one to the front; `window_closed`, called 
 a closed window's slot so everything it held returns to history.
 
 `WindowRegistry` in `crates/ubiq/src/state/windows.rs` is the process-wide half, held as a GPUI
-global. It owns the project catalogue and one `WindowSlot` per live window — its letter, the projects
+global. It holds the projection — `replace_all` for a `ProjectList`, `apply` for one snapshot,
+`forget` for a `ProjectForgotten` — and one `WindowSlot` per live window — its letter, the projects
 open in it, and which of them it is pointed at. `register`, `open_in`, `activate` and `close` are the
 four mutations, and each answers with the windows it emptied; `AppState::close_windows` closes those,
 deferred, because the caller is usually inside one of them. `groups` computes the picker's three
 lists for one window. Every `AppState` subscribes with `observe_global`, so a move in one window
 redraws the picker in all of them, and reads go through `WindowRegistry::read` rather than
 `default_global`, which would notify the observers on a plain read and spin the frame. The registry
-is pure logic and is tested without a frame in `crates/ubiq/tests/windows.rs`.
+is pure logic and is tested without a frame in `crates/ubiq/tests/windows.rs`, which seeds it the
+way the host does.
 
-`crates/ubiq/src/ui/shell.rs` assembles the frame: titlebar, then the rail beside an `h_resizable`
-group of explorer, centre and chat, then the status bar. The centre is a `v_resizable` group of
+`reap` is where the empty-catalogue rule lives: it returns no windows at all while the projection is
+empty, so a first run keeps the window it opened on nothing. `state/when.rs` renders a row's
+relative time at draw time from `last_opened_at`, and `state/prefs.rs` is the schema inside the
+opaque blob the host stores.
+
+`crates/ubiq/src/ui/shell.rs` assembles the frame: the mark and the titlebar in one row, then the
+rail beside an `h_resizable` group of explorer, centre and chat, then the status bar. The mark is
+drawn by `rail::mark` in that first row so it sits in the corner above the rail rather than inside
+it. The centre is a `v_resizable` group of
 editor and dock in IDE mode, and the empty page otherwise. Panels are hidden with the resizable
 panel's own `visible` flag rather than by removing them, which is what keeps their sizes stable
 across a toggle.
@@ -197,6 +247,13 @@ and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` fo
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
+| A project's folder is deleted, renamed or unmounted | The next probe marks the row; the record stays and the window keeps its last screen |
+| A marked project is located again | The record keeps its id, colour and history; only its path moves |
+| A folder already in the catalogue is added again | The picker points at the project that is there; no duplicate appears |
+| The catalogue is empty | The window stays open on the picker, which offers to add one |
+| The catalogue file is corrupt | It is preserved under a timestamped name, the session starts empty, and one error says so |
+| The catalogue cannot be written | Changes hold for the session and one error says they are not durable |
+| A window's view state is corrupt or from another schema | It is discarded and the window opens on defaults |
 
 ## Related docs
 
@@ -209,6 +266,5 @@ and the open menu; `explorer.rs` for the tree and its git states; `editor.rs` fo
 
 - Drive the explorer, the editor and the status bar from a real folder rather than fixtures.
 - Build the Control, Agents, KB and Tasks screens.
-- Persist panel sizes, visibility and the window-to-project map across restarts.
 - Give each window its own project working tree, rather than one set of fixtures.
 - Keyboard navigation for the rail, the tabs and the explorer.

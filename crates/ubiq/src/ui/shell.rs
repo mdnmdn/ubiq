@@ -19,7 +19,12 @@ pub fn render(
     let ide = wb.is_ide();
 
     let centre = if ide {
+        // The group's state is the window's, not the frame's, so a dragged size can be read back
+        // and remembered.
         v_resizable("workbench-v")
+            .with_state(&app.centre)
+            // A drag is remembered. The host debounces, so this may fire as freely as it likes.
+            .on_resize(cx.listener(|this, _, _, cx| this.remember_view(cx)))
             .child(resizable_panel().child(editor::render(app, cx).into_any_element()))
             .child(
                 resizable_panel()
@@ -46,16 +51,13 @@ pub fn render(
         .text_color(theme::text())
         // The window wears its project's colour down its whole left edge.
         .border_l(px(theme::ACCENT_EDGE * 2.0))
-        .border_color(theme::project_colour(app.project_colour(cx)))
+        .border_color(app.project_tint(cx))
         .child(
             div()
                 .flex()
                 .flex_none()
                 .items_center()
-                .child(
-                    // The mark sits above the rail, so the two read as one column.
-                    div().w(px(theme::RAIL_WIDTH)).flex_none(),
-                )
+                .child(rail::mark(app, cx))
                 .child(
                     div()
                         .flex_1()
@@ -72,6 +74,8 @@ pub fn render(
                 .child(
                     div().flex_1().min_w(px(0.)).child(
                         h_resizable("workbench-h")
+                            .with_state(&app.columns)
+                            .on_resize(cx.listener(|this, _, _, cx| this.remember_view(cx)))
                             .child(
                                 resizable_panel()
                                     .size(px(theme::EXPLORER_WIDTH))

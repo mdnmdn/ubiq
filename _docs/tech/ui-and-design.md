@@ -33,7 +33,7 @@ that way, and one that forgets is a pane that stops updating.
 **Layout is flexbox.** Elements are composed with the same direction, grow, gap and alignment
 vocabulary as CSS flexbox, in Rust builder form.
 
-`crates/ubiq/src/main.rs` installs the component library and its assets, sets the palette and binds
+`crates/ubiq-app/src/main.rs` installs the component library and its assets, sets the palette and binds
 the quit action, then asks for the first window. Windows themselves are opened by
 `app::open_project_window`, which is the only place one is created, so the first window and "open in
 a new window" go through the same code. Each window owns its own `AppState` and they share nothing
@@ -64,7 +64,11 @@ reach.
 The project group is the one group whose members carry no role. A swatch means *this project* and
 nothing else, and a project keeps the same one everywhere it is drawn: its dot in the picker, the
 fill behind its name in the titlebar, the mark above the rail, and the window's whole left edge.
-`project_colour` wraps, so the number of projects is not bounded by the number of swatches.
+`project_colour` wraps, so the number of projects is not bounded by the number of swatches, and
+`project_colour_count` is what the picker offers when a project is recoloured. All four places go
+through `AppState::project_tint`, so a window holding no project — which happens when the catalogue
+is empty — has one neutral appearance decided in a single place rather than four call sites each
+falling back to swatch zero.
 
 Two palettes are built in, dark and light, both defined in the same file and both complete — a token
 that exists in one exists in the other. The active theme is thread-local and read through the
@@ -91,7 +95,7 @@ restyling the shell should be one file to visit.
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
 | `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
-| `EXPLORER_WIDTH`/`_MIN`/`_MAX`, `CHAT_WIDTH`/`_MIN`/`_MAX`, `DOCK_HEIGHT`/`_MIN`/`_MAX` | The default and permitted size of each resizable panel |
+| `EXPLORER_WIDTH`/`_MIN`/`_MAX`, `CHAT_WIDTH`/`_MIN`/`_MAX`, `DOCK_HEIGHT`/`_MIN`/`_MAX` | The default and permitted size of each resizable panel. A size the user has dragged is remembered per project and seeds the panel over its default |
 
 A panel's three constants travel together: the default is what a fresh window opens at, and the two
 bounds are what the drag handle will not pass. Adding a panel means adding all three.

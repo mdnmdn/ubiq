@@ -105,7 +105,9 @@ impl Pty {
                             bytes: buffer[..n].to_vec(),
                         });
                         if !delivered {
-                            tracing::debug!("pane {pane_id}: nobody is listening; the reader stops");
+                            tracing::debug!(
+                                "pane {pane_id}: nobody is listening; the reader stops"
+                            );
                             break;
                         }
                     }
@@ -140,11 +142,7 @@ impl Pty {
 }
 
 /// Wait for the harness to end and report it, once, on the bus.
-pub fn reap(
-    pane_id: PaneId,
-    mut child: Box<dyn portable_pty::Child + Send + Sync>,
-    out: Mailbox,
-) {
+pub fn reap(pane_id: PaneId, mut child: Box<dyn portable_pty::Child + Send + Sync>, out: Mailbox) {
     thread::spawn(move || {
         let code = child
             .wait()

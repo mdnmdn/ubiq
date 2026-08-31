@@ -7,10 +7,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
+use std::time::Instant;
 
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
-use ubiq_proto::ids::{PaneId, SessionId};
+use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
+
+use crate::config::ConfigRoot;
+use crate::projects::{Projects, Reply};
 use crate::pty::{self, Pty};
 
 /// The geometry a pane starts at, before the emulator has measured its own bounds and said what it
@@ -22,15 +26,26 @@ const INITIAL_ROWS: u16 = 24;
 /// catalogue it will own is process-wide, and two of them would disagree about what exists.
 ///
 /// It ends when the hub and every client have gone.
-pub fn start(host: HostEnd) {
+pub fn start(host: HostEnd, root: ConfigRoot, projects: Projects, pending: Vec<Reply>) {
     thread::Builder::new()
         .name("ubiq-coordinator".to_string())
-        .spawn(move || Coordinator::new(host).run())
+        .spawn(move || Coordinator::new(host, root, projects, pending).run())
         .expect("the coordinator thread");
 }
 
 struct Coordinator {
     host: HostEnd,
+    /// Where everything is written down, and whether that is the usual place. Each window is told
+    /// as it attaches, because the interface cannot look.
+    root: ConfigRoot,
+    /// The catalogue, the view state, and what is running in each project.
+    projects: Projects,
+    /// Anything the catalogue wanted said before a window existed to hear it — a corrupt store,
+    /// most usefully. Delivered to the first window that attaches.
+    pending: Vec<Reply>,
+    /// Which project each pane belongs to, so a pane opening or ending changes a count the picker
+    /// draws.
+    pane_projects: HashMap<PaneId, ProjectId>,
     panes: HashMap<PaneId, Pty>,
     /// Which window owns which pane, recorded when the pane is spawned. This is the whole routing
     /// table: everything a pane emits goes to its owner, and nobody else may drive it.
@@ -41,9 +56,13 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn new(host: HostEnd) -> Self {
+    fn new(host: HostEnd, root: ConfigRoot, projects: Projects, pending: Vec<Reply>) -> Self {
         Self {
             host,
+            root,
+            projects,
+            pending,
+            pane_projects: HashMap::new(),
             panes: HashMap::new(),
             owners: HashMap::new(),
             focused: HashMap::new(),
@@ -51,12 +70,58 @@ impl Coordinator {
     }
 
     fn run(mut self) {
-        while let Ok(event) = self.host.recv() {
+        loop {
+            // A queued preference has to be written even if nobody says anything else, so the wait
+            // is bounded whenever something is pending.
+            let event = match self.projects.next_due(Instant::now()) {
+                Some(wait) => match self.host.recv_timeout(wait) {
+                    Ok(event) => Some(event),
+                    Err(flume::RecvTimeoutError::Timeout) => None,
+                    Err(flume::RecvTimeoutError::Disconnected) => break,
+                },
+                None => match self.host.recv() {
+                    Ok(event) => Some(event),
+                    Err(_) => break,
+                },
+            };
+
             match event {
-                FromClient::Connected(client) => tracing::debug!("{client} attached"),
-                FromClient::Said { client, message } => self.dispatch(client, message),
-                FromClient::Gone(client) => self.client_gone(client),
+                Some(FromClient::Connected(client)) => self.client_here(client),
+                Some(FromClient::Said { client, message }) => self.dispatch(client, message),
+                Some(FromClient::Gone(client)) => self.client_gone(client),
+                None => {}
             }
+            self.projects.flush_due(Instant::now());
+        }
+        // Nothing is left to say it to, but what the user last did still belongs on disk.
+        self.projects.flush();
+    }
+
+    /// A window attached. It is told what the host is, and hears anything the catalogue wanted to
+    /// say before there was anybody to say it to.
+    fn client_here(&mut self, client: ClientId) {
+        tracing::debug!("{client} attached");
+        self.host.send(
+            To::Client(client),
+            Message::HostInfo {
+                config_root: self.root.path.to_string_lossy().into_owned(),
+                is_default: self.root.is_default(),
+            },
+        );
+        for reply in std::mem::take(&mut self.pending) {
+            self.host.send(To::Client(client), reply.into_message());
+        }
+    }
+
+    /// Say what the catalogue answered, to whoever it is for.
+    fn answer(&self, client: ClientId, replies: Vec<Reply>) {
+        for reply in replies {
+            let to = if reply.is_broadcast() {
+                To::Everyone
+            } else {
+                To::Client(client)
+            };
+            self.host.send(to, reply.into_message());
         }
     }
 
@@ -84,6 +149,15 @@ impl Coordinator {
                 tracing::info!("{client} has gone; killing the harness in pane {pane_id}");
                 pane.kill();
             }
+            self.pane_gone(client, pane_id);
+        }
+    }
+
+    /// A pane has ended, however it ended: the project it belonged to has one fewer.
+    fn pane_gone(&mut self, client: ClientId, pane_id: PaneId) {
+        if let Some(project_id) = self.pane_projects.remove(&pane_id) {
+            let replies = self.projects.pane_closed(project_id);
+            self.answer(client, replies);
         }
     }
 
@@ -93,7 +167,9 @@ impl Coordinator {
         match self.owners.get(&pane_id) {
             Some(owner) if *owner == client => true,
             Some(_) => {
-                tracing::warn!("{client} sent a message about pane {pane_id}, which it does not own");
+                tracing::warn!(
+                    "{client} sent a message about pane {pane_id}, which it does not own"
+                );
                 false
             }
             // The pane has already gone; its last messages are in flight behind it.
@@ -105,10 +181,11 @@ impl Coordinator {
         match message {
             Message::SpawnWorkspace {
                 session_id,
+                project_id,
                 agent_type,
                 args,
                 folder,
-            } => self.spawn_workspace(client, session_id, agent_type, args, folder),
+            } => self.spawn_workspace(client, session_id, project_id, agent_type, args, folder),
 
             Message::TerminalInput { pane_id, bytes } => {
                 if !self.owns(client, pane_id) {
@@ -167,6 +244,48 @@ impl Coordinator {
                 if self.focused.get(&client) == Some(&pane_id) {
                     self.focused.remove(&client);
                 }
+                self.pane_gone(client, pane_id);
+            }
+
+            // ── the project family ──────────────────────────────────
+            Message::ListProjects => {
+                let reply = self.projects.list_projects();
+                self.answer(client, vec![reply]);
+            }
+            Message::AddProject { path, name, colour } => {
+                let replies = self.projects.add(&path, name, colour);
+                self.answer(client, replies);
+            }
+            Message::ForgetProject { project_id } => {
+                let replies = self.projects.forget(project_id);
+                self.answer(client, replies);
+            }
+            Message::UpdateProject {
+                project_id,
+                name,
+                colour,
+            } => {
+                let replies = self.projects.update(project_id, name, colour);
+                self.answer(client, replies);
+            }
+            Message::LocateProject { project_id, path } => {
+                let replies = self.projects.locate(project_id, &path);
+                self.answer(client, replies);
+            }
+            Message::OpenedProject { project_id } => {
+                let replies = self.projects.opened(project_id);
+                self.answer(client, replies);
+            }
+            Message::RefreshProject { project_id } => {
+                let replies = self.projects.refresh(project_id);
+                self.answer(client, replies);
+            }
+            Message::GetPreferences { scope } => {
+                let reply = self.projects.get_preferences(scope);
+                self.answer(client, vec![reply]);
+            }
+            Message::SetPreferences { scope, value } => {
+                self.projects.set_preferences(scope, value, Instant::now());
             }
 
             // Response-direction variants are never received here. Dropping one silently would
@@ -181,6 +300,7 @@ impl Coordinator {
         &mut self,
         client: ClientId,
         session_id: SessionId,
+        project_id: Option<ProjectId>,
         agent_type: Option<String>,
         args: Vec<String>,
         folder: Option<String>,
@@ -227,6 +347,14 @@ impl Coordinator {
         }
         pty::reap(pane_id, child, mailbox.clone());
         self.panes.insert(pane_id, pane);
+
+        // The picker's terminal count, and the confirmation it puts in front of a close, are only
+        // real because of this.
+        if let Some(project_id) = project_id {
+            self.pane_projects.insert(pane_id, project_id);
+            let replies = self.projects.pane_opened(project_id);
+            self.answer(client, replies);
+        }
 
         mailbox.send(Message::WorkspaceSpawned {
             workspace: WorkspaceInfo {

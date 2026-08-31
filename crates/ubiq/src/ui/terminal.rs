@@ -41,8 +41,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     // warning is visible while a pane is the tab on screen.
     let pane_count = tabs.len();
     let mut console = Tab::new("Logs");
-    if let Some(level) = crate::log::logs().loudest()
-        && level >= crate::log::LogLevel::Warn
+    if let Some(level) = ubiq_proto::log::logs().loudest()
+        && level >= ubiq_proto::log::LogLevel::Warn
     {
         console = console.dot(logs::level_colour(level));
     }

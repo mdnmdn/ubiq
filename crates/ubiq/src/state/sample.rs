@@ -8,11 +8,12 @@ use crate::theme::ThemeId;
 use super::chat::{Block, Chat, ChatMessage, ChatState, DiffLine, ToolCall, ToolKind};
 use super::editor::{EditorPaneState, FileLanguage, OpenFile};
 use super::explorer::{ExplorerState, FileNode, GitStatus};
-use super::windows::Project;
 use super::workbench::{RailMode, WorkbenchState};
 
 pub fn workbench() -> WorkbenchState {
     WorkbenchState {
+        config_root: None,
+        config_root_is_default: true,
         rail_mode: RailMode::Ide,
         show_left: true,
         show_bottom: true,
@@ -21,6 +22,8 @@ pub fn workbench() -> WorkbenchState {
         open_menu: None,
         project_filter: String::new(),
         pending_close: None,
+        row_action: None,
+        project_error: None,
         branches: vec![
             "main".to_string(),
             "feat/gpui-shell".to_string(),
@@ -33,49 +36,6 @@ pub fn workbench() -> WorkbenchState {
         untracked: 1,
         conflicts: 1,
     }
-}
-
-/// The project catalogue the registry is seeded with. Each keeps its own swatch, which is what
-/// identifies it everywhere in the window. Which of them are open is the registry's business, not
-/// this list's — at boot, only the one the first window opens is.
-pub fn projects() -> Vec<Project> {
-    vec![
-        Project {
-            name: "agent-manager".to_string(),
-            path: "~/dev/agent-manager".to_string(),
-            colour: 0,
-            terminals: 3,
-            when: "now".to_string(),
-        },
-        Project {
-            name: "ubiq".to_string(),
-            path: "~/dev/ubiq".to_string(),
-            colour: 1,
-            terminals: 0,
-            when: "12m".to_string(),
-        },
-        Project {
-            name: "hire-mate".to_string(),
-            path: "~/dev/hire-mate".to_string(),
-            colour: 2,
-            terminals: 0,
-            when: "yst".to_string(),
-        },
-        Project {
-            name: "multica".to_string(),
-            path: "~/dev/multica".to_string(),
-            colour: 3,
-            terminals: 0,
-            when: "3d".to_string(),
-        },
-        Project {
-            name: "gpui-playground".to_string(),
-            path: "~/dev/gpui-playground".to_string(),
-            colour: 4,
-            terminals: 0,
-            when: "2w".to_string(),
-        },
-    ]
 }
 
 pub fn explorer() -> ExplorerState {

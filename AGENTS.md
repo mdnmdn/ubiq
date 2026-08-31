@@ -3,8 +3,10 @@
 **Ubiq** — a harness multiplexer. A desktop application that hosts several interactive AI coding
 agents (Claude Code, Codex, Gemini CLI, opencode, Copilot CLI) side by side, each in a real terminal
 pane, under one window. Think tmux, with the panes specialised for agent harnesses. Rust throughout:
-a GPUI application in `crates/ubiq`, and the harness-management library it embeds in
-`crates/agent-manager`.
+four crates — `crates/ubiq-proto` (the contract, the bus, the log sink), `crates/ubiq-host` (the
+headless host: processes, pseudo-terminals, the project catalogue), `crates/ubiq` (the GPUI
+interface), and `crates/ubiq-app` (the binary, the only thing that names both halves) — plus the
+harness-management library they embed in `crates/agent-manager`.
 
 ## Finding things
 
@@ -26,13 +28,18 @@ document; file it instead.
 
 ## Architecture rules
 
-- **The UI and the coordinator talk only through the message set in `crates/ubiq/src/messages.rs`.**
+- **The UI and the host talk only through the message set in `crates/ubiq-proto/src/messages.rs`.**
   No direct call, no shared handle, no callback that skips it — even though they share a process.
+  This is a crate boundary, not a convention: `crates/ubiq` does not depend on `crates/ubiq-host`,
+  and `just ui` and `just host` check that nothing reintroduced it.
 - **The UI never assumes the pseudo-terminal is local.** No path, no process handle, no file
   descriptor crosses into UI code. A pane is an ID plus a byte stream.
 - **The coordinator renders nothing** and has no opinion about layout or colour.
 - **Every message carries a pane ID**, including in the single-pane case.
 - **Terminal bytes stay opaque.** Ubiq writes no VT parser and no terminal state engine.
+- **One host per process**, started by the binary before the first window. A window attaches to it
+  and gets a client; pane messages route to the window that owns the pane, project messages reach
+  every window.
 - **No literal colour outside `crates/ubiq/src/theme.rs`.** Every colour is a token, with a value in
   both palettes.
 - **Ubiq never names a harness config path and never hard-codes how to launch one.**
@@ -60,5 +67,6 @@ document; file it instead.
 ## Commands
 
 `just` runs everything — `dev`, `build`, `check`, `clippy`, `fmt`, `test`, `verify`, `am`, `core`,
+`host`, `ui`,
 and the `docs-*` recipes. `just verify` is what a change has to pass. Detail in
 `_docs/tech/operations.md`.

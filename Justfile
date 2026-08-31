@@ -8,11 +8,11 @@ default:
 
 # Run Ubiq
 dev:
-    cargo run -p ubiq
+    cargo run -p ubiq-app
 
 # Run Ubiq with debug logging
 verbose:
-    RUST_LOG=debug cargo run -p ubiq
+    RUST_LOG=debug cargo run -p ubiq-app
 
 # Build the whole workspace for release
 build:
@@ -27,6 +27,20 @@ am *ARGS:
 # Build agent-manager's core the way an embedder consumes it
 core:
     cargo build -p agent-manager --no-default-features
+
+# ── the boundary ───────────────────────────────────────────────────
+
+# The host draws nothing: no GPUI crate may reach its dependency tree
+host:
+    cargo build -p ubiq-host --all-targets
+    @! cargo tree -p ubiq-host -e no-dev --prefix none | grep -q '^gpui' \
+        || { echo "the host draws: a gpui crate is in its tree"; exit 1; }
+
+# The interface names the protocol and never the host
+ui:
+    cargo build -p ubiq --all-targets
+    @! cargo tree -p ubiq -e no-dev --prefix none | grep -q '^ubiq-host' \
+        || { echo "the interface names the host"; exit 1; }
 
 # ── checks ─────────────────────────────────────────────────────────
 
@@ -46,8 +60,8 @@ fmt:
 test:
     cargo test --workspace < /dev/null
 
-# check + clippy + test + docs-lint
-verify: check clippy test docs-lint
+# check + clippy + test + the crate boundary + docs-lint
+verify: check clippy test host ui docs-lint
 
 # ── documentation ──────────────────────────────────────────────────
 

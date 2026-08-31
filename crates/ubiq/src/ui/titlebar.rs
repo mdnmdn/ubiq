@@ -55,6 +55,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     wb.show_left,
                     cx.listener(|this, _, _, cx| {
                         this.workbench.show_left = !this.workbench.show_left;
+                        this.remember_view(cx);
                         cx.notify();
                     }),
                 ))
@@ -64,6 +65,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     wb.show_bottom,
                     cx.listener(|this, _, _, cx| {
                         this.workbench.show_bottom = !this.workbench.show_bottom;
+                        this.remember_view(cx);
                         cx.notify();
                     }),
                 ))
@@ -73,6 +75,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     wb.show_right,
                     cx.listener(|this, _, _, cx| {
                         this.workbench.show_right = !this.workbench.show_right;
+                        this.remember_view(cx);
                         cx.notify();
                     }),
                 ))

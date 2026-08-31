@@ -7,7 +7,7 @@ summary: What a pane shows, how exactly one of them holds focus, how a resize re
 read_when: you are changing pane layout, focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/orchestrator.rs, crates/ubiq/src/pty/mod.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -101,11 +101,17 @@ that are ends of the bus, which is what keeps the UI honest about a pane being a
 stream. The frame around it belongs to [`workbench.md`](./workbench.md), the palette it is given to
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
-**`crates/ubiq/src/bus.rs` is the seam.** `pair()` opens the two channels the halves talk over.
+**`crates/ubiq-proto/src/bus.rs` is the seam.** `hub()` opens the switchboard the one host answers
+through, and `Hub::connect()` gives a window its own `Client` on it.
 `pane_output()` makes one pane's byte stream: the sender goes to the window's router, and the
 matching `PaneOutput` is the blocking `Read` the emulator consumes on a thread of its own — dropping
 the sender is how it learns the stream is over. `PaneInput` is the `Write`, and a keystroke written
 into it leaves as `TerminalInput` for that pane ID.
+
+A pane belongs to the window that spawned it: the host records the owner before it answers, routes
+everything that pane emits back to that window alone, and refuses a message about it from any
+other. When a window goes, the host reaps the pseudo-terminals it owned — nothing else drops now
+that the host outlives every window.
 
 **`AppState` in `crates/ubiq/src/app.rs` owns the panes, the focused pane and the layout mode**, plus
 one emulator and one output sender per pane ID. Two tasks it starts in `for_project()` do the rest:
@@ -124,7 +130,7 @@ The paths through the two halves, in call order:
 | Clicks another tab | `focus_pane()` sends `Focus` and queues the keyboard, which `take_focus()` hands over on the next frame, because focusing needs a window |
 | Closes a pane | `close_pane()` sends `CloseWorkspace` and drops the tab and its emulator; the coordinator kills the child, and the thread `pty::reap` left waiting on it collects the exit |
 
-`crates/ubiq/src/orchestrator.rs` holds one `Pty` per pane ID and nothing about layout or colour;
+`crates/ubiq-host/src/coordinator.rs` holds one `Pty` per pane ID and nothing about layout or colour;
 `crates/ubiq/src/pty/` is the only place a descriptor or a process lives. Its reader thread and the
 bus's channels are unbounded, because a UI that has fallen behind must never stall the reader — a
 stalled reader stalls the harness.
