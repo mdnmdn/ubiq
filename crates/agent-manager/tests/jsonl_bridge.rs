@@ -16,7 +16,7 @@
 use std::path::PathBuf;
 
 use agent_manager::harness::Launch;
-use agent_manager::io::{spawn_piped, AgentEvent, AgentInput, IoBridge, JsonlBridge};
+use agent_manager::io::{AgentEvent, AgentInput, IoBridge, JsonlBridge, spawn_piped};
 
 /// Absolute path to the fake stream-json harness script next to this test file.
 fn fake_harness_path() -> PathBuf {

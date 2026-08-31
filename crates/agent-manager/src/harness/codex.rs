@@ -18,11 +18,11 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
+use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
-use crate::Result;
 
 use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
@@ -215,9 +215,7 @@ impl Harness for Codex {
 
         // Append prompt as trailing positional argument, passthrough mode
         // only — structured mode's bridge sends it via `turn/start`.
-        if !structured
-            && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref())
-        {
+        if !structured && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
             args.push(prompt.clone());
         }
 
@@ -257,7 +255,11 @@ impl Harness for Codex {
             // `[model_providers.<name>]` table plus `model_provider = "<name>"`
             // in config.toml. Don't fake it with an env var codex won't read.
 
-            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+            if let Some(login) = spec
+                .account_login
+                .clone()
+                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
+            {
                 // Reuse a prior `am account login` by *seeding* the ephemeral
                 // config dir (`$CODEX_HOME` = `dir`) with that account's
                 // captured `auth.json` — deliberately WITHOUT overriding the
@@ -301,8 +303,7 @@ impl Harness for Codex {
     /// this version) — that's the sandbox-friendly alternative to swap in
     /// if a headless capture flow is needed later.
     fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        std::fs::create_dir_all(home)
-            .with_context(|| format!("creating {}", home.display()))?;
+        std::fs::create_dir_all(home).with_context(|| format!("creating {}", home.display()))?;
         let config_toml_path = home.join("config.toml");
         std::fs::write(&config_toml_path, "cli_auth_credentials_store = \"file\"\n")
             .with_context(|| format!("writing {}", config_toml_path.display()))?;
@@ -474,7 +475,12 @@ fn build_config_toml(spec: &RunSpec) -> Result<String> {
     // first so it stays a top-level key (before any `[table]`). Only written
     // when set, so runs without `--model` keep a byte-identical config.toml.
     if let Some(model) = &spec.model {
-        out.push_str(&toml::to_string(&ModelToml { model: model.clone() }).context("serializing model")?);
+        out.push_str(
+            &toml::to_string(&ModelToml {
+                model: model.clone(),
+            })
+            .context("serializing model")?,
+        );
         out.push('\n');
     }
 
@@ -609,10 +615,12 @@ mod tests {
         assert!(agents_md.contains("REMEMBER: be helpful"));
 
         // launch shape.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
+        );
         assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
 
         // Invariant: nothing written under the stand-in home dir.
@@ -670,7 +678,9 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
+            source: crate::source::Source::Dir(PathBuf::from(
+                "/definitely/does/not/exist/anywhere",
+            )),
         });
 
         let codex = Codex::new();
@@ -707,8 +717,7 @@ mod tests {
         let codex = Codex::new();
         codex.provision(&spec, config_dir.path()).unwrap();
 
-        let content =
-            std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
+        let content = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
         assert!(content.contains("sandbox_mode = \"read-only\""));
         assert!(content.contains("approval_policy = \"never\""));
     }
@@ -728,8 +737,7 @@ mod tests {
         let codex = Codex::new();
         codex.provision(&spec, config_dir.path()).unwrap();
 
-        let content =
-            std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
+        let content = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
         assert!(!content.contains("sandbox_mode ="));
         assert!(!content.contains("approval_policy ="));
     }
@@ -745,7 +753,11 @@ mod tests {
             fn tools(&self) -> Vec<ToolDef> {
                 Vec::new()
             }
-            fn call(&self, _name: &str, _arguments: serde_json::Value) -> crate::Result<serde_json::Value> {
+            fn call(
+                &self,
+                _name: &str,
+                _arguments: serde_json::Value,
+            ) -> crate::Result<serde_json::Value> {
                 anyhow::bail!("not implemented")
             }
         }
@@ -781,10 +793,12 @@ mod tests {
         let codex = Codex::new();
         let launch = codex.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "OPENAI_API_KEY" && v == &expected));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "OPENAI_API_KEY" && v == &expected)
+        );
 
         // No-secret-on-disk invariant.
         for entry in walkdir::WalkDir::new(config_dir.path())
@@ -825,17 +839,14 @@ mod tests {
         let codex = Codex::new();
         codex.provision(&spec, config_dir.path()).unwrap();
 
-        let skill_md_path = config_dir
-            .path()
-            .join(".agents/skills/postgres/SKILL.md");
+        let skill_md_path = config_dir.path().join(".agents/skills/postgres/SKILL.md");
         assert!(skill_md_path.exists());
         let content = std::fs::read_to_string(&skill_md_path).unwrap();
         assert!(content.contains("name: postgres"));
         assert!(content.contains("description: Query a DB."));
 
         // Invariant: the MCP stays injected as normal in config.toml.
-        let config_toml =
-            std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
+        let config_toml = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
         assert!(config_toml.contains("[mcp_servers.postgres]"));
     }
 
@@ -883,10 +894,12 @@ mod tests {
         let launch = codex.provision(&spec, config_dir.path()).unwrap();
 
         // CODEX_HOME is the ephemeral dir, NOT the account home.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
+        );
 
         // Injected config.toml landed in the ephemeral dir, not the account home.
         assert!(config_dir.path().join("config.toml").exists());
@@ -898,9 +911,11 @@ mod tests {
             seeded_auth.exists(),
             "auth.json should be seeded into CODEX_HOME"
         );
-        assert!(std::fs::read_to_string(&seeded_auth)
-            .unwrap()
-            .contains("access_token"));
+        assert!(
+            std::fs::read_to_string(&seeded_auth)
+                .unwrap()
+                .contains("access_token")
+        );
 
         // The child's HOME is left untouched, so the user's real toolchain
         // (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
@@ -933,10 +948,12 @@ mod tests {
         // No auth.json to seed → none appears in the config dir, but the run
         // still launches with CODEX_HOME pointed at the ephemeral dir.
         assert!(!config_dir.path().join("auth.json").exists());
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
+        );
         assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
     }
 
@@ -949,7 +966,9 @@ mod tests {
         base_spec_fixed.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
 
         let codex = Codex::new();
-        let launch_without_resume = codex.provision(&base_spec_fixed, config_dir.path()).unwrap();
+        let launch_without_resume = codex
+            .provision(&base_spec_fixed, config_dir.path())
+            .unwrap();
 
         let config_dir2 = tempfile::TempDir::new().unwrap();
         let mut resumed_spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
@@ -1040,11 +1059,12 @@ mod tests {
 
         assert_eq!(plan.launch.program, "codex");
         assert!(plan.launch.args.contains(&"login".to_string()));
-        assert!(plan
-            .launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "CODEX_HOME" && v == &home.path().display().to_string()));
+        assert!(
+            plan.launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CODEX_HOME" && v == &home.path().display().to_string())
+        );
         assert_eq!(
             plan.credential_files.first(),
             Some(&PathBuf::from("auth.json"))

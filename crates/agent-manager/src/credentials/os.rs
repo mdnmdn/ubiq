@@ -271,7 +271,14 @@ impl OsSecretStore {
         }
         let account = self.keychain_path().to_string_lossy().into_owned();
         let found = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", MAC_VAULT_PW_SERVICE, "-a", &account, "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                MAC_VAULT_PW_SERVICE,
+                "-a",
+                &account,
+                "-w",
+            ])
             .output()
             .context("running `security find-generic-password` for the vault password")?;
         if found.status.success() {
@@ -285,11 +292,21 @@ impl OsSecretStore {
         let pw = Self::random_password()?;
         let stored = std::process::Command::new("security")
             .args([
-                "add-generic-password", "-U", "-s", MAC_VAULT_PW_SERVICE, "-a", &account, "-w", &pw,
+                "add-generic-password",
+                "-U",
+                "-s",
+                MAC_VAULT_PW_SERVICE,
+                "-a",
+                &account,
+                "-w",
+                &pw,
             ])
             .status()
             .context("storing the vault password in the login keychain")?;
-        anyhow::ensure!(stored.success(), "`security add-generic-password` (vault password) failed");
+        anyhow::ensure!(
+            stored.success(),
+            "`security add-generic-password` (vault password) failed"
+        );
         Ok(pw)
     }
 
@@ -335,11 +352,19 @@ impl OsSecretStore {
             return Ok(None);
         };
         let out = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", &entry_service(id), "-w", &path.to_string_lossy()])
+            .args([
+                "find-generic-password",
+                "-s",
+                &entry_service(id),
+                "-w",
+                &path.to_string_lossy(),
+            ])
             .output()
             .context("running `security find-generic-password`")?;
         if out.status.success() {
-            Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+            Ok(Some(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ))
         } else {
             // errSecItemNotFound (44) — treat any lookup failure as "absent".
             Ok(None)
@@ -347,13 +372,22 @@ impl OsSecretStore {
     }
 
     fn backend_set(&self, id: &CredentialId, value: &str) -> Result<()> {
-        let (path, _) = self.mac_keychain(true)?.expect("create=true always yields a keychain");
+        let (path, _) = self
+            .mac_keychain(true)?
+            .expect("create=true always yields a keychain");
         // ponytail: the value is passed on argv, briefly visible to `ps`; the
         // upgrade path is feeding it via stdin/a temp file when `security`
         // grows the option. Bounded: local processes, small window.
         let status = std::process::Command::new("security")
             .args([
-                "add-generic-password", "-U", "-s", &entry_service(id), "-a", "am", "-w", value,
+                "add-generic-password",
+                "-U",
+                "-s",
+                &entry_service(id),
+                "-a",
+                "am",
+                "-w",
+                value,
                 &path.to_string_lossy(),
             ])
             .status()
@@ -368,7 +402,12 @@ impl OsSecretStore {
         };
         // Idempotent: a missing entry (exit 44) is not an error.
         let _ = std::process::Command::new("security")
-            .args(["delete-generic-password", "-s", &entry_service(id), &path.to_string_lossy()])
+            .args([
+                "delete-generic-password",
+                "-s",
+                &entry_service(id),
+                &path.to_string_lossy(),
+            ])
             .status()
             .context("running `security delete-generic-password`")?;
         Ok(())
@@ -383,11 +422,21 @@ impl OsSecretStore {
 impl OsSecretStore {
     fn backend_get(&self, id: &CredentialId) -> Result<Option<String>> {
         let out = std::process::Command::new("secret-tool")
-            .args(["lookup", "service", "agent-manager", "harness", &id.harness, "name", &id.name])
+            .args([
+                "lookup",
+                "service",
+                "agent-manager",
+                "harness",
+                &id.harness,
+                "name",
+                &id.name,
+            ])
             .output()
             .context("running `secret-tool lookup` (is libsecret installed?)")?;
         if out.status.success() && !out.stdout.is_empty() {
-            Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+            Ok(Some(
+                String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            ))
         } else {
             Ok(None)
         }
@@ -398,8 +447,15 @@ impl OsSecretStore {
         // secret-tool store reads the secret from stdin (no argv leak).
         let mut child = std::process::Command::new("secret-tool")
             .args([
-                "store", "--label", &format!("am:{}:{}", id.harness, id.name),
-                "service", "agent-manager", "harness", &id.harness, "name", &id.name,
+                "store",
+                "--label",
+                &format!("am:{}:{}", id.harness, id.name),
+                "service",
+                "agent-manager",
+                "harness",
+                &id.harness,
+                "name",
+                &id.name,
             ])
             .stdin(std::process::Stdio::piped())
             .spawn()
@@ -415,7 +471,15 @@ impl OsSecretStore {
 
     fn backend_delete(&self, id: &CredentialId) -> Result<()> {
         let _ = std::process::Command::new("secret-tool")
-            .args(["clear", "service", "agent-manager", "harness", &id.harness, "name", &id.name])
+            .args([
+                "clear",
+                "service",
+                "agent-manager",
+                "harness",
+                &id.harness,
+                "name",
+                &id.name,
+            ])
             .status()
             .context("running `secret-tool clear`")?;
         Ok(())
@@ -448,7 +512,9 @@ impl OsSecretStore {
             .output()
             .context("running PowerShell to decrypt DPAPI blob")?;
         anyhow::ensure!(out.status.success(), "DPAPI decrypt failed");
-        Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+        Ok(Some(
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        ))
     }
 
     fn backend_set(&self, id: &CredentialId, value: &str) -> Result<()> {
@@ -514,13 +580,22 @@ mod tests {
         let temp = tempfile::TempDir::new()?;
         let store = OsSecretStore::with_test_password(temp.path(), "am-test-pw");
 
-        let claude = CredentialId { harness: "claude-code".into(), name: "default".into() };
-        let codex = CredentialId { harness: "codex".into(), name: "default".into() };
+        let claude = CredentialId {
+            harness: "claude-code".into(),
+            name: "default".into(),
+        };
+        let codex = CredentialId {
+            harness: "codex".into(),
+            name: "default".into(),
+        };
 
         // Absent before anything is stored (also proves get doesn't create).
         assert!(store.get(&claude)?.is_none());
 
-        if store.set(&claude, &[blob(".credentials.json", b"claude-secret")]).is_err() {
+        if store
+            .set(&claude, &[blob(".credentials.json", b"claude-secret")])
+            .is_err()
+        {
             eprintln!("skipping: `security create-keychain` unavailable in this environment");
             return Ok(());
         }
@@ -536,7 +611,10 @@ mod tests {
         // rename within the same harness.
         store.rename(&claude, "personal")?;
         assert!(store.get(&claude)?.is_none());
-        let personal = CredentialId { harness: "claude-code".into(), name: "personal".into() };
+        let personal = CredentialId {
+            harness: "claude-code".into(),
+            name: "personal".into(),
+        };
         assert_eq!(store.get(&personal)?.unwrap()[0].bytes, b"claude-secret");
 
         // delete is idempotent.

@@ -2,12 +2,11 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 
 use crate::profile::{
-    self, EmptyProfileStore, FsProfileStore, Profile, ProfileDefaults, ProfileIsolate,
-    ProfileStore,
+    self, EmptyProfileStore, FsProfileStore, Profile, ProfileDefaults, ProfileIsolate, ProfileStore,
 };
 
 /// `am profile` subcommand dispatcher.
@@ -243,8 +242,7 @@ fn cmd_use(name: &str) -> Result<()> {
     let mut table: toml::Table = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| anyhow!("reading {}: {e}", config_path.display()))?;
-        toml::from_str(&content)
-            .map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
+        toml::from_str(&content).map_err(|e| anyhow!("parsing {}: {e}", config_path.display()))?
     } else {
         toml::Table::new()
     };
@@ -263,7 +261,10 @@ fn cmd_use(name: &str) -> Result<()> {
     std::fs::write(&config_path, toml::to_string_pretty(&table)?)
         .map_err(|e| anyhow!("writing {}: {e}", config_path.display()))?;
 
-    println!("default profile set to '{name}' ({})", config_path.display());
+    println!(
+        "default profile set to '{name}' ({})",
+        config_path.display()
+    );
     Ok(())
 }
 

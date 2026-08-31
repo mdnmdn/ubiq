@@ -42,4 +42,4 @@ pub use copilot::CopilotBridge;
 #[cfg(feature = "pty")]
 mod passthrough;
 #[cfg(feature = "pty")]
-pub use passthrough::{pump, RawModeGuard};
+pub use passthrough::{RawModeGuard, pump};

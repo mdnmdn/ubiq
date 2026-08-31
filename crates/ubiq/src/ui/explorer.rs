@@ -65,7 +65,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 )),
         ))
         .child(
-            div().px_3().pb_2().flex().flex_none().child(
+            div().pr_3().pb_2().flex().flex_none().child(
                 div()
                     .w_full()
                     .h(px(32.))
@@ -103,7 +103,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .flex_col()
                 .flex_1()
                 .min_h(px(0.))
-                .px_2()
+                .pr_2()
                 .overflow_y_scroll()
                 .children(rows),
         )

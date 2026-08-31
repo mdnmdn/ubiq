@@ -15,12 +15,12 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context};
-use serde_json::{json, Value};
+use anyhow::{Context, bail};
+use serde_json::{Value, json};
 
-use crate::config::{McpServer, McpTransport};
-use crate::spec::{McpRef, RunSpec, IoModes};
 use crate::Result;
+use crate::config::{McpServer, McpTransport};
+use crate::spec::{IoModes, McpRef, RunSpec};
 
 use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
@@ -109,8 +109,7 @@ impl Harness for Opencode {
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // Ensure the target directory exists.
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("creating {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
 
         // 1. Build opencode.json (always written, even with zero MCP servers).
         let opencode_json = build_opencode_json(spec, dir)?;
@@ -199,7 +198,10 @@ impl Harness for Opencode {
         // in `Launch.env` (in-memory, passed to the child process) and is never
         // written to disk.
         let mut env = vec![
-            ("OPENCODE_CONFIG".to_string(), config_json_path.display().to_string()),
+            (
+                "OPENCODE_CONFIG".to_string(),
+                config_json_path.display().to_string(),
+            ),
             ("OPENCODE_CONFIG_DIR".to_string(), dir.display().to_string()),
             // Relocate the data/credential tier into the same ephemeral dir:
             // opencode reads its auth store from `$XDG_DATA_HOME/opencode/auth.json`
@@ -236,7 +238,11 @@ impl Harness for Opencode {
             }
             // TODO(P2+): base_url → provider.options.baseURL config; opencode
             // uses provider-specific config, not a single env var.
-            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+            if let Some(login) = spec
+                .account_login
+                .clone()
+                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
+            {
                 // Reuse a prior `am account login` by *seeding* the captured
                 // auth store into the relocated data dir
                 // (`$XDG_DATA_HOME/opencode/auth.json`, i.e. `dir/opencode/auth.json`)
@@ -288,9 +294,7 @@ impl Harness for Opencode {
                 env,
                 env_remove: Vec::new(),
             },
-            credential_files: vec![std::path::PathBuf::from(
-                ".local/share/opencode/auth.json",
-            )],
+            credential_files: vec![std::path::PathBuf::from(".local/share/opencode/auth.json")],
         })
     }
 
@@ -324,7 +328,10 @@ fn mcp_server_json(server: &McpServer) -> Value {
         McpTransport::Http | McpTransport::Sse => {
             let mut obj = serde_json::Map::new();
             obj.insert("type".to_string(), json!("remote"));
-            obj.insert("url".to_string(), json!(server.url.as_deref().unwrap_or("")));
+            obj.insert(
+                "url".to_string(),
+                json!(server.url.as_deref().unwrap_or("")),
+            );
             if !server.headers.is_empty() {
                 obj.insert("headers".to_string(), json!(server.headers));
             }
@@ -359,7 +366,12 @@ fn build_opencode_json(spec: &RunSpec, dir: &Path) -> Result<String> {
     root.insert("mcp".to_string(), Value::Object(mcp_map));
 
     // 2. Instructions: if present, write AGENTS.md and add to the JSON.
-    if spec.initial.as_ref().and_then(|i| i.instructions.as_ref()).is_some() {
+    if spec
+        .initial
+        .as_ref()
+        .and_then(|i| i.instructions.as_ref())
+        .is_some()
+    {
         // The path is already written by provision(); reference it here.
         let agents_md_path = dir.join("AGENTS.md");
         root.insert(
@@ -390,8 +402,7 @@ fn build_opencode_json(spec: &RunSpec, dir: &Path) -> Result<String> {
         );
     }
 
-    serde_json::to_string_pretty(&Value::Object(root))
-        .context("serializing opencode.json")
+    serde_json::to_string_pretty(&Value::Object(root)).context("serializing opencode.json")
 }
 
 #[cfg(test)]
@@ -505,23 +516,21 @@ mod tests {
         assert!(agents_md.contains("REMEMBER: be helpful"));
 
         // Check instructions array in JSON.
-        let instructions = config_json
-            .get("instructions")
-            .unwrap()
-            .as_array()
-            .unwrap();
+        let instructions = config_json.get("instructions").unwrap().as_array().unwrap();
         assert_eq!(instructions.len(), 1);
         assert!(instructions[0].as_str().unwrap().ends_with("AGENTS.md"));
 
         // Launch shape.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "OPENCODE_CONFIG" && v.ends_with("opencode.json")));
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "OPENCODE_CONFIG_DIR" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "OPENCODE_CONFIG" && v.ends_with("opencode.json"))
+        );
+        assert!(
+            launch.env.iter().any(|(k, v)| k == "OPENCODE_CONFIG_DIR"
+                && v == &config_dir.path().display().to_string())
+        );
         assert_eq!(launch.args.last(), Some(&"say hello world".to_string()));
 
         // Invariant: nothing written under the stand-in home dir.
@@ -539,7 +548,9 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
+            source: crate::source::Source::Dir(PathBuf::from(
+                "/definitely/does/not/exist/anywhere",
+            )),
         });
 
         let opencode = Opencode::new();
@@ -611,14 +622,18 @@ mod tests {
         let opencode = Opencode::new();
         let launch = opencode.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == &expected));
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "OPENAI_API_KEY" && v == &expected));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == &expected)
+        );
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "OPENAI_API_KEY" && v == &expected)
+        );
 
         // No-secret-on-disk invariant.
         for entry in walkdir::WalkDir::new(config_dir.path())
@@ -730,7 +745,11 @@ mod tests {
             seeded_auth.exists(),
             "auth.json should be seeded into $XDG_DATA_HOME/opencode/"
         );
-        assert!(std::fs::read_to_string(&seeded_auth).unwrap().contains("anthropic"));
+        assert!(
+            std::fs::read_to_string(&seeded_auth)
+                .unwrap()
+                .contains("anthropic")
+        );
 
         // ...and the child's HOME is left untouched, so the user's real
         // toolchain (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
@@ -857,16 +876,19 @@ mod tests {
 
         let plan = Opencode::new().login(home.path()).unwrap();
 
-        assert!(plan
-            .launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string()));
+        assert!(
+            plan.launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
+        );
         assert!(!plan.credential_files.is_empty());
-        assert!(plan.credential_files[0]
-            .to_str()
-            .unwrap()
-            .ends_with("opencode/auth.json"));
+        assert!(
+            plan.credential_files[0]
+                .to_str()
+                .unwrap()
+                .ends_with("opencode/auth.json")
+        );
     }
 
     #[test]

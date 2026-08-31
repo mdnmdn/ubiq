@@ -15,6 +15,12 @@ pub const MONO_FONT: &str = "Menlo";
 /// border is what identifies them.
 pub const ACCENT_EDGE: f32 = 2.0;
 
+/// The terminal body: type size, the inset its output is drawn inside, and how many lines of
+/// scrollback an emulator keeps.
+pub const TERMINAL_FONT_SIZE: f32 = 13.0;
+pub const TERMINAL_PADDING: f32 = 8.0;
+pub const TERMINAL_SCROLLBACK: usize = 10_000;
+
 /// Fixed chrome heights, in pixels.
 pub const TITLEBAR_HEIGHT: f32 = 44.0;
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;

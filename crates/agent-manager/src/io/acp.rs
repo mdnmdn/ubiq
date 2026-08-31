@@ -11,7 +11,7 @@
 //! reasonable ACP representation map to `None` and are skipped by the
 //! caller.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::io::AgentEvent;
 
@@ -140,7 +140,10 @@ mod tests {
 
     #[test]
     fn unmapped_variants_are_none() {
-        assert_eq!(to_acp(&AgentEvent::SessionStarted { session_id: None }), None);
+        assert_eq!(
+            to_acp(&AgentEvent::SessionStarted { session_id: None }),
+            None
+        );
         assert_eq!(
             to_acp(&AgentEvent::ApprovalRequest {
                 request_id: "r1".to_string(),

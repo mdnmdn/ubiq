@@ -2,10 +2,10 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 
-use crate::registry::{self, import::ImportOptions, FsRegistry, OverlayRegistry, Registry};
+use crate::registry::{self, FsRegistry, OverlayRegistry, Registry, import::ImportOptions};
 
 /// `am catalog` subcommand dispatcher.
 #[derive(Debug, Parser)]

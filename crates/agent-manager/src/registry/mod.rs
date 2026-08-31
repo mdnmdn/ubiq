@@ -8,10 +8,10 @@
 //! and **project** (optional, discovered under `.agent-manager/catalog`). The
 //! project layer wins on id collision; otherwise entries fall through to global.
 
-use std::path::PathBuf;
+use crate::Result;
 use crate::config::McpServer;
 use crate::source::Source;
-use crate::Result;
+use std::path::PathBuf;
 
 /// A resolved skill in the catalog: its id, content, and parsed metadata.
 #[derive(Debug, Clone)]
@@ -204,4 +204,4 @@ mod fs;
 pub use fs::FsRegistry;
 
 pub mod import;
-pub use import::{import, Action, ImportItem, ImportOptions, ImportPlan, ItemKind};
+pub use import::{Action, ImportItem, ImportOptions, ImportPlan, ItemKind, import};

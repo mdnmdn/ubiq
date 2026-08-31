@@ -36,8 +36,14 @@ only as a shell incantation in someone's history is a command that does not exis
 | Command | Does |
 |---|---|
 | `just dev` | Run Ubiq |
-| `just verbose` | Run Ubiq with debug logging |
+| `just verbose` | Run Ubiq with `RUST_LOG=debug`, which collects every subsystem at debug |
 | `just build` | Release build of the whole workspace |
+
+`RUST_LOG` decides what the log collector keeps, and the collector feeds both the log console and a
+writer on standard error — so `just dev` in a terminal reports without the console being open. With
+`RUST_LOG` unset, Ubiq's own modules and the harness library are collected down to debug and
+everything else only when it complains. What the console does with the records is
+[`../features/logs.md`](../features/logs.md).
 
 ### The harness library
 
@@ -58,6 +64,8 @@ only as a shell incantation in someone's history is a command that does not exis
 
 `just test` closes stdin deliberately. The library's passthrough tests spawn real pseudo-terminals,
 and an interactive stdin makes them hang rather than fail, which is the worse of the two outcomes.
+The application's own tests drive the coordinator over the bus and start real processes in
+pseudo-terminals for the same reason; they need no display.
 
 ### Documentation
 

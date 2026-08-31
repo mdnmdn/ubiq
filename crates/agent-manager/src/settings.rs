@@ -213,12 +213,17 @@ pub fn discover(cwd: &Path) -> Result<Option<(Settings, PathBuf)>> {
 /// [`discover`] (project walk, then the `~/.config/agent-manager` global
 /// default). `--config` is handled by the caller above this.
 pub fn resolve(cwd: &Path) -> Result<Option<(Settings, PathBuf)>> {
-    if let Some(file) = std::env::var("AM_CONFIG_FILE").ok().filter(|s| !s.is_empty()) {
+    if let Some(file) = std::env::var("AM_CONFIG_FILE")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         let path = PathBuf::from(file);
         let settings = load(&path)?;
         return Ok(Some((settings, path)));
     }
-    if let Some(folder) = std::env::var("AM_CONFIG_FOLDER").ok().filter(|s| !s.is_empty())
+    if let Some(folder) = std::env::var("AM_CONFIG_FOLDER")
+        .ok()
+        .filter(|s| !s.is_empty())
         && let Some(path) = config_in_dir(Path::new(&folder))
     {
         let settings = load(&path)?;
@@ -231,15 +236,23 @@ pub fn resolve(cwd: &Path) -> Result<Option<(Settings, PathBuf)>> {
 /// same location `resolve`/`discover` treat as the global default.
 /// `AM_CONFIG_FILE` → `$AM_CONFIG_FOLDER/config.toml` → `~/.config/agent-manager/config.toml`.
 pub fn global_config_write_path() -> Result<PathBuf> {
-    if let Some(file) = std::env::var("AM_CONFIG_FILE").ok().filter(|s| !s.is_empty()) {
+    if let Some(file) = std::env::var("AM_CONFIG_FILE")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         return Ok(PathBuf::from(file));
     }
-    if let Some(folder) = std::env::var("AM_CONFIG_FOLDER").ok().filter(|s| !s.is_empty()) {
+    if let Some(folder) = std::env::var("AM_CONFIG_FOLDER")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         return Ok(PathBuf::from(folder).join("config.toml"));
     }
     default_config_dir()
         .map(|d| d.join("config.toml"))
-        .ok_or_else(|| anyhow::anyhow!("could not determine the global config directory for this OS"))
+        .ok_or_else(|| {
+            anyhow::anyhow!("could not determine the global config directory for this OS")
+        })
 }
 
 /// Try each candidate basename in `dir`, in order; load and return the first
@@ -359,10 +372,7 @@ hooks = ["notify"]
         assert_eq!(notify.command, "notify-send hi");
         assert_eq!(notify.matcher.as_deref(), Some("Bash"));
 
-        assert_eq!(
-            settings.defaults.hooks,
-            Some(vec!["notify".to_string()])
-        );
+        assert_eq!(settings.defaults.hooks, Some(vec!["notify".to_string()]));
 
         Ok(())
     }
@@ -432,7 +442,10 @@ presets:
     fn test_config_in_dir_prefers_toml() -> Result<()> {
         let temp = tempfile::TempDir::new()?;
         fs::write(temp.path().join("config.yaml"), "catalog: /from-yaml\n")?;
-        fs::write(temp.path().join("config.toml"), "catalog = \"/from-toml\"\n")?;
+        fs::write(
+            temp.path().join("config.toml"),
+            "catalog = \"/from-toml\"\n",
+        )?;
 
         let found = config_in_dir(temp.path()).expect("should find config.toml");
         assert_eq!(found, temp.path().join("config.toml"));

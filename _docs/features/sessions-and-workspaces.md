@@ -66,19 +66,23 @@ coordinator; what crosses the bus is a description.
 
 ## Implementation
 
-`crates/ubiq/src/orchestrator.rs` is the single source of truth. It holds the sessions, the
-workspaces, and — separately — the I/O resources for each workspace: the pseudo-terminal master for
-resizing, the writer for input, and the child handle for exit and kill. Splitting the description
-from the resources is what lets the description serialise.
+`crates/ubiq/src/orchestrator.rs` is the single source of truth. It runs on a thread of its own and
+holds one set of I/O resources per workspace, keyed by the ID the pane and the workspace share: the
+pseudo-terminal master for resizing, the writer for input, and a killer for closing. What crosses
+the bus is a description built at spawn — splitting that description from the resources is what
+lets it serialise. The session table itself, and the attach path over it, are a gap rather than a
+design change; both are listed in [`../backlog.md`](../backlog.md).
 
 `crates/ubiq/src/agent.rs` holds the agent-type registry the spawn path validates against. Its
 launch facts come from the embedded harness library rather than a hard-coded table — see
 [`../tech/agent-manager.md`](../tech/agent-manager.md).
 
-The spawn path, in order: validate the session and the agent type, resolve the folder, create it if
-absent, open a pseudo-terminal pair, build the command with its arguments and working directory,
-spawn the child, take a reader and a writer from the master, store the resources, start the reader
-loop, and report the new workspace.
+The spawn path, in order: resolve the agent type, falling back to what the session starts by
+default; resolve the folder; open a pseudo-terminal pair at 80×24; build the command with its
+arguments, its working directory and the `TERM` and `COLORTERM` a harness reads before it decides
+what it may draw; spawn the child; take a writer and a reader from the master; start the reader
+thread and the one that waits for the child; and answer with the workspace, which is what makes the
+pane appear.
 
 ## Failure
 

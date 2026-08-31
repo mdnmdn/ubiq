@@ -24,8 +24,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::io::AgentEvent;
 use crate::Result;
+use crate::io::AgentEvent;
 
 /// Recorded metadata for one `am`-launched run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,8 +280,7 @@ pub fn list(root: &Path) -> Result<Vec<SessionMeta>> {
         return Ok(sessions);
     }
 
-    for entry in std::fs::read_dir(root).with_context(|| format!("reading {}", root.display()))?
-    {
+    for entry in std::fs::read_dir(root).with_context(|| format!("reading {}", root.display()))? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
@@ -323,8 +322,7 @@ pub fn read_transcript(root: &Path, id: &str) -> Result<Vec<AgentEvent>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let file = std::fs::File::open(&path)
-        .with_context(|| format!("opening {}", path.display()))?;
+    let file = std::fs::File::open(&path).with_context(|| format!("opening {}", path.display()))?;
     let reader = std::io::BufReader::new(file);
     let mut events = Vec::new();
     for line in reader.lines() {
@@ -418,7 +416,11 @@ mod tests {
     fn list_on_empty_or_missing_root_is_empty() {
         let temp = tempfile::TempDir::new().unwrap();
         assert!(list(temp.path()).unwrap().is_empty());
-        assert!(list(&temp.path().join("does-not-exist")).unwrap().is_empty());
+        assert!(
+            list(&temp.path().join("does-not-exist"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

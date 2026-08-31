@@ -18,8 +18,8 @@ document; file it instead.
 
 ## Directives
 
-- Use subagents, including cheaper models, for search and mechanical work — do not burn the main
-  context on it.
+- Agressively use subagents, including cheaper models, for all the grunt work, delegate in every
+  occasion it makes sense, do not burn the main context on it.
 - Keep it simple.
 - Say what the tree actually does. A `status: draft` document describes a settled design; the gaps
   between it and the code are rows in `_docs/backlog.md`, not hedges in prose.

@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
+use crate::Result;
 use crate::source::Source;
 use crate::spec::{HarnessId, McpAsSkill, RunSpec};
-use crate::Result;
 
 mod claude;
 mod codex;
@@ -503,7 +503,10 @@ pub trait Harness {
     /// Implementations may write force-file-storage config into `home` before
     /// returning. Default: an error — no login-capture support for this harness.
     fn login(&self, _home: &Path) -> Result<LoginPlan> {
-        anyhow::bail!("credential login-capture for harness '{}' is not implemented", self.id())
+        anyhow::bail!(
+            "credential login-capture for harness '{}' is not implemented",
+            self.id()
+        )
     }
     /// Fix up `dir` after all login seeding (account-based and zero-config)
     /// has landed. Default: no-op. Overridden by harnesses whose captured
@@ -620,8 +623,10 @@ mod tests {
         // split so adding a bridge (or a new passthrough-only harness) is a
         // deliberate, visible change.
         for h in all() {
-            let expected_structured =
-                matches!(h.id().as_str(), "claude-code" | "codex" | "opencode" | "copilot");
+            let expected_structured = matches!(
+                h.id().as_str(),
+                "claude-code" | "codex" | "opencode" | "copilot"
+            );
             assert_eq!(
                 h.io_support().structured,
                 expected_structured,

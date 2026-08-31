@@ -77,11 +77,11 @@
 use std::path::Path;
 
 use anyhow::Context;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
-use crate::Result;
 
 use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
 
@@ -301,7 +301,11 @@ impl Harness for Copilot {
             // `config.json` into the relocated `$COPILOT_HOME`. No-op when
             // the account home holds no captured login yet. The seed list is
             // declared once in `config_anchor()`.
-            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+            if let Some(login) = spec
+                .account_login
+                .clone()
+                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
+            {
                 super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
@@ -419,7 +423,10 @@ fn parse_model_ids(help_text: &str) -> Vec<String> {
         if !in_model_block {
             continue;
         }
-        if let Some(id) = trimmed.strip_prefix("- \"").and_then(|s| s.strip_suffix('"')) {
+        if let Some(id) = trimmed
+            .strip_prefix("- \"")
+            .and_then(|s| s.strip_suffix('"'))
+        {
             ids.push(id.to_string());
         } else if !trimmed.is_empty() {
             break;
@@ -496,22 +503,33 @@ mod tests {
         assert_eq!(servers.len(), 2);
         // stdio -> "local" type + command + args + default tools.
         assert_eq!(servers["postgres"]["type"].as_str(), Some("local"));
-        assert_eq!(servers["postgres"]["command"].as_str(), Some("postgres-mcp"));
+        assert_eq!(
+            servers["postgres"]["command"].as_str(),
+            Some("postgres-mcp")
+        );
         assert_eq!(servers["postgres"]["args"].as_array().unwrap().len(), 1);
-        assert_eq!(servers["postgres"]["tools"].as_array().unwrap()[0].as_str(), Some("*"));
+        assert_eq!(
+            servers["postgres"]["tools"].as_array().unwrap()[0].as_str(),
+            Some("*")
+        );
         // http remote: type + url.
         assert_eq!(servers["docs"]["type"].as_str(), Some("http"));
-        assert_eq!(servers["docs"]["url"].as_str(), Some("https://example.com/mcp/"));
+        assert_eq!(
+            servers["docs"]["url"].as_str(),
+            Some("https://example.com/mcp/")
+        );
 
         // Skill copied directly under <dir>/skills.
         let skill_md = config_dir.path().join("skills/my-skill/SKILL.md");
         assert!(skill_md.exists());
 
         // Launch relocates COPILOT_HOME, and does NOT override HOME at all.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "COPILOT_HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "COPILOT_HOME" && v == &config_dir.path().display().to_string())
+        );
         assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
         assert_eq!(launch.program, "copilot");
 
@@ -540,7 +558,9 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
+            source: crate::source::Source::Dir(PathBuf::from(
+                "/definitely/does/not/exist/anywhere",
+            )),
         });
 
         let copilot = Copilot::new();
@@ -633,10 +653,12 @@ mod tests {
         let copilot = Copilot::new();
         let launch = copilot.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "COPILOT_GITHUB_TOKEN" && v == &expected));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "COPILOT_GITHUB_TOKEN" && v == &expected)
+        );
         assert!(!launch.env.iter().any(|(k, _)| k == "GITHUB_TOKEN"));
 
         // No-secret-on-disk invariant.
@@ -672,10 +694,12 @@ mod tests {
         let copilot = Copilot::new();
         let launch = copilot.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "GITHUB_TOKEN" && v == &expected));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "GITHUB_TOKEN" && v == &expected)
+        );
         assert!(!launch.env.iter().any(|(k, _)| k == "COPILOT_GITHUB_TOKEN"));
     }
 
@@ -695,10 +719,12 @@ mod tests {
         let copilot = Copilot::new();
         let launch = copilot.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "COPILOT_GH_HOST" && v == "mycompany.ghe.com"));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "COPILOT_GH_HOST" && v == "mycompany.ghe.com")
+        );
     }
 
     #[test]
@@ -745,17 +771,26 @@ mod tests {
         let launch = copilot.provision(&spec, config_dir.path()).unwrap();
 
         // COPILOT_HOME relocates to the ephemeral dir, NOT the account's home.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "COPILOT_HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "COPILOT_HOME" && v == &config_dir.path().display().to_string())
+        );
         assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
 
         // The captured login is SEEDED into the ephemeral dir directly (no
         // `.copilot/` prefix).
         let seeded = config_dir.path().join("config.json");
-        assert!(seeded.exists(), "config.json should be seeded into the ephemeral dir");
-        assert!(std::fs::read_to_string(&seeded).unwrap().contains("octocat"));
+        assert!(
+            seeded.exists(),
+            "config.json should be seeded into the ephemeral dir"
+        );
+        assert!(
+            std::fs::read_to_string(&seeded)
+                .unwrap()
+                .contains("octocat")
+        );
     }
 
     #[test]
@@ -810,7 +845,10 @@ mod tests {
         assert!(launch.args.contains(&"--resume=sess-123".to_string()));
         // Interactive prompt seeding is `-i <text>`, never a bare positional.
         let i_idx = launch.args.iter().position(|a| a == "-i").unwrap();
-        assert_eq!(launch.args.get(i_idx + 1), Some(&"say hello world".to_string()));
+        assert_eq!(
+            launch.args.get(i_idx + 1),
+            Some(&"say hello world".to_string())
+        );
     }
 
     #[test]
@@ -821,11 +859,12 @@ mod tests {
 
         assert_eq!(plan.launch.program, "copilot");
         assert_eq!(plan.launch.args, vec!["login".to_string()]);
-        assert!(plan
-            .launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "COPILOT_HOME" && v == &home.path().display().to_string()));
+        assert!(
+            plan.launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "COPILOT_HOME" && v == &home.path().display().to_string())
+        );
         assert!(!plan.launch.env.iter().any(|(k, _)| k == "HOME"));
         assert_eq!(
             plan.credential_files[0],
@@ -857,7 +896,10 @@ mod tests {
 
     #[test]
     fn parse_model_ids_missing_block_returns_empty() {
-        assert_eq!(parse_model_ids("no model entry here at all"), Vec::<String>::new());
+        assert_eq!(
+            parse_model_ids("no model entry here at all"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

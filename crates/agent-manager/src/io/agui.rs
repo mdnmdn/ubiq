@@ -11,7 +11,7 @@
 //! lifecycles is future work. Events with no reasonable AG-UI representation
 //! map to `None` and are skipped by the caller.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::io::AgentEvent;
 

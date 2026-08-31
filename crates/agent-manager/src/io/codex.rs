@@ -62,10 +62,10 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{AgentEvent, AgentInput, IoBridge};
 
@@ -135,9 +135,8 @@ impl CodexBridge {
         let reader_stdin = Arc::clone(&stdin);
         let reader_pending = Arc::clone(&pending);
         let reader_tx = tx.clone();
-        let reader = std::thread::spawn(move || {
-            read_loop(stdout, reader_stdin, reader_pending, reader_tx)
-        });
+        let reader =
+            std::thread::spawn(move || read_loop(stdout, reader_stdin, reader_pending, reader_tx));
 
         let mut bridge = Self {
             child,
@@ -170,7 +169,8 @@ impl CodexBridge {
 
         self.notify("initialized", json!({}))?;
 
-        let thread_resp = self.request("thread/start", json!({"cwd": cwd.display().to_string()}))?;
+        let thread_resp =
+            self.request("thread/start", json!({"cwd": cwd.display().to_string()}))?;
         let thread_id = thread_resp
             .get("thread")
             .and_then(|t| t.get("id"))
@@ -543,12 +543,18 @@ fn map_legacy_event(params: &Value) -> Vec<AgentEvent> {
             vec![AgentEvent::AssistantText { text }]
         }
         "exec_command_begin" => vec![AgentEvent::ToolCall {
-            id: msg.get("call_id").and_then(Value::as_str).map(str::to_string),
+            id: msg
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             name: "exec_command".to_string(),
             input: msg.get("command").cloned().unwrap_or(Value::Null),
         }],
         "exec_command_end" => vec![AgentEvent::ToolResult {
-            id: msg.get("call_id").and_then(Value::as_str).map(str::to_string),
+            id: msg
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             content: msg
                 .get("output")
                 .cloned()
@@ -564,7 +570,10 @@ fn map_legacy_event(params: &Value) -> Vec<AgentEvent> {
         }],
         "turn_aborted" => vec![AgentEvent::Result {
             success: false,
-            error: msg.get("reason").and_then(Value::as_str).map(str::to_string),
+            error: msg
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         }],
         _ => Vec::new(),
     }
@@ -576,7 +585,10 @@ fn map_item(params: &Value, started: bool) -> Vec<AgentEvent> {
     let Some(item) = params.get("item") else {
         return Vec::new();
     };
-    let item_type = item.get("itemType").and_then(Value::as_str).unwrap_or_default();
+    let item_type = item
+        .get("itemType")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let id = item.get("id").and_then(Value::as_str).map(str::to_string);
 
     match (item_type, started) {
@@ -678,7 +690,10 @@ fn map_thread_status_changed(params: &Value) -> Vec<AgentEvent> {
 /// `false` (absent defaults to non-retrying, i.e. terminal) — a retrying
 /// error isn't the end of the run, so it's ignored here.
 fn map_error(params: &Value) -> Vec<AgentEvent> {
-    let will_retry = params.get("willRetry").and_then(Value::as_bool).unwrap_or(false);
+    let will_retry = params
+        .get("willRetry")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if will_retry {
         return Vec::new();
     }

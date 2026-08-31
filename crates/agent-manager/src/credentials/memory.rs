@@ -24,7 +24,10 @@ impl MemorySecretStore {
 
 impl SecretStore for MemorySecretStore {
     fn list(&self) -> Result<Vec<CredentialMeta>> {
-        let entries = self.entries.lock().expect("MemorySecretStore mutex poisoned");
+        let entries = self
+            .entries
+            .lock()
+            .expect("MemorySecretStore mutex poisoned");
         let mut metas: Vec<CredentialMeta> = entries
             .keys()
             .map(|id| CredentialMeta {
@@ -43,27 +46,39 @@ impl SecretStore for MemorySecretStore {
     }
 
     fn get(&self, id: &CredentialId) -> Result<Option<Vec<CredentialBlob>>> {
-        let entries = self.entries.lock().expect("MemorySecretStore mutex poisoned");
+        let entries = self
+            .entries
+            .lock()
+            .expect("MemorySecretStore mutex poisoned");
         Ok(entries.get(id).cloned())
     }
 
     fn set(&self, id: &CredentialId, blobs: &[CredentialBlob]) -> Result<()> {
-        let mut entries = self.entries.lock().expect("MemorySecretStore mutex poisoned");
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("MemorySecretStore mutex poisoned");
         entries.insert(id.clone(), blobs.to_vec());
         Ok(())
     }
 
     fn delete(&self, id: &CredentialId) -> Result<()> {
-        let mut entries = self.entries.lock().expect("MemorySecretStore mutex poisoned");
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("MemorySecretStore mutex poisoned");
         entries.remove(id);
         Ok(())
     }
 
     fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()> {
-        let mut entries = self.entries.lock().expect("MemorySecretStore mutex poisoned");
-        let blobs = entries
-            .remove(from)
-            .ok_or_else(|| anyhow::anyhow!("no credential '{}/{}' to rename", from.harness, from.name))?;
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("MemorySecretStore mutex poisoned");
+        let blobs = entries.remove(from).ok_or_else(|| {
+            anyhow::anyhow!("no credential '{}/{}' to rename", from.harness, from.name)
+        })?;
         let to = CredentialId {
             harness: from.harness.clone(),
             name: to_name.to_string(),
@@ -152,7 +167,10 @@ mod tests {
         store.rename(&claude_default, "personal")?;
 
         // codex's "default" is untouched.
-        assert_eq!(store.get(&codex_default)?.unwrap(), vec![blob("x", b"codex")]);
+        assert_eq!(
+            store.get(&codex_default)?.unwrap(),
+            vec![blob("x", b"codex")]
+        );
         // claude's "default" is gone.
         assert!(store.get(&claude_default)?.is_none());
         // claude's "personal" now holds the moved blobs.

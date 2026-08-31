@@ -7,10 +7,10 @@
 //! reuses the normal resolve → provision → run spine via
 //! [`super::run::run_harness`]; see `_docs/profiles.md` §10.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::harness;
-use crate::profile::{resolve_profiles_root, EmptyProfileStore, FsProfileStore, ProfileStore};
+use crate::profile::{EmptyProfileStore, FsProfileStore, ProfileStore, resolve_profiles_root};
 
 /// Build the profile store from the default profiles root (honors
 /// `AM_PROFILES` / the default location), mirroring `cli/run.rs` and

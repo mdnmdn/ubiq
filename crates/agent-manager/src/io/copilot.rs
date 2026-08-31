@@ -29,7 +29,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdout};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -151,11 +151,7 @@ impl Drop for CopilotBridge {
 /// to zero-or-more [`AgentEvent`]s and push them onto `tx`. On stream end,
 /// emit a terminal `AgentEvent::Result` if one hasn't been sent already
 /// (no explicit error), then drop `tx` (closing the channel).
-fn read_loop(
-    stdout: ChildStdout,
-    tx: mpsc::Sender<AgentEvent>,
-    result_sent: Arc<Mutex<bool>>,
-) {
+fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc<Mutex<bool>>) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -184,7 +180,9 @@ fn read_loop(
     }
 
     // EOF: emit a success Result if not already sent.
-    if let Ok(mut sent) = result_sent.lock() && !*sent {
+    if let Ok(mut sent) = result_sent.lock()
+        && !*sent
+    {
         let _ = tx.send(AgentEvent::Result {
             success: true,
             error: None,
@@ -305,7 +303,8 @@ mod tests {
 
     #[test]
     fn map_event_assistant_reasoning_is_thinking() {
-        let v = json!({"type":"assistant.reasoning","data":{"content":"thinking about the problem"}});
+        let v =
+            json!({"type":"assistant.reasoning","data":{"content":"thinking about the problem"}});
         let events = map_event(&v);
         assert_eq!(
             events,

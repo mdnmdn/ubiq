@@ -14,12 +14,12 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use anyhow::{bail, Context};
-use serde_json::{json, Value};
+use anyhow::{Context, bail};
+use serde_json::{Value, json};
 
+use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
-use crate::Result;
 
 use super::{ConfigAnchor, Harness, IoSupport, Launch, ModelInfo, Relocate, SeedFile};
 
@@ -219,9 +219,7 @@ impl Harness for Claude {
 
         // Append prompt as trailing positional argument, passthrough mode
         // only — structured mode's bridge sends it as NDJSON on stdin.
-        if !structured
-            && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref())
-        {
+        if !structured && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
             args.push(prompt.clone());
         }
 
@@ -256,7 +254,11 @@ impl Harness for Claude {
                 })?;
                 env.push(("ANTHROPIC_AUTH_TOKEN".to_string(), value));
             }
-            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+            if let Some(login) = spec
+                .account_login
+                .clone()
+                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
+            {
                 // Reuse a prior `am account login` by *seeding* the ephemeral
                 // config dir with that account's credentials + identity —
                 // deliberately WITHOUT overriding the child's `HOME`.
@@ -534,9 +536,9 @@ fn discover_models_via_jsonl() -> Result<Vec<ModelInfo>> {
     for key in ENV_HYGIENE {
         cmd.env_remove(key);
     }
-    let mut child = cmd.spawn().with_context(|| {
-        "spawning `claude` for model discovery via stream-json (is the claude binary on PATH?)"
-    })?;
+    let mut child = cmd.spawn().with_context(
+        || "spawning `claude` for model discovery via stream-json (is the claude binary on PATH?)",
+    )?;
 
     let prompt = json!({
         "type": "user",
@@ -576,9 +578,7 @@ fn discover_models_via_jsonl() -> Result<Vec<ModelInfo>> {
 
     let models = parse_model_slash_output(&text);
     if models.is_empty() {
-        bail!(
-            "could not parse any model ids from claude /model output: {text:?}"
-        );
+        bail!("could not parse any model ids from claude /model output: {text:?}");
     }
     Ok(models)
 }
@@ -603,10 +603,7 @@ fn extract_slash_result_text(stdout: &str) -> Option<String> {
                 }
             }
             Some("assistant") if assistant_text.is_none() => {
-                if let Some(content) = v
-                    .pointer("/message/content")
-                    .and_then(|c| c.as_array())
-                {
+                if let Some(content) = v.pointer("/message/content").and_then(|c| c.as_array()) {
                     for block in content {
                         if block.get("type").and_then(|t| t.as_str()) == Some("text")
                             && let Some(t) = block.get("text").and_then(|t| t.as_str())
@@ -747,10 +744,7 @@ mod tests {
             servers["postgres"]["command"].as_str(),
             Some("postgres-mcp")
         );
-        assert_eq!(
-            servers["postgres"]["args"].as_array().unwrap().len(),
-            1
-        );
+        assert_eq!(servers["postgres"]["args"].as_array().unwrap().len(), 1);
         assert_eq!(servers["docs"]["type"].as_str(), Some("http"));
         assert_eq!(
             servers["docs"]["url"].as_str(),
@@ -764,16 +758,13 @@ mod tests {
         // launch shape.
         assert!(launch.args.contains(&"--strict-mcp-config".to_string()));
         assert!(launch.args.contains(&"--mcp-config".to_string()));
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &config_dir.path().display().to_string()));
+        assert!(launch.env.iter().any(
+            |(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &config_dir.path().display().to_string()
+        ));
         assert!(launch.env_remove.contains(&"CLAUDECODE".to_string()));
 
         // Invariant: nothing written under the stand-in home dir.
-        let home_entries: Vec<_> = std::fs::read_dir(fake_home.path())
-            .unwrap()
-            .collect();
+        let home_entries: Vec<_> = std::fs::read_dir(fake_home.path()).unwrap().collect();
         assert!(
             home_entries.is_empty(),
             "expected no writes under the fake home dir, found: {home_entries:?}"
@@ -787,7 +778,9 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
+            source: crate::source::Source::Dir(PathBuf::from(
+                "/definitely/does/not/exist/anywhere",
+            )),
         });
 
         let claude = Claude::new();
@@ -910,7 +903,12 @@ mod tests {
         let mcp_json: Value =
             serde_json::from_str(&std::fs::read_to_string(&mcp_json_path).unwrap()).unwrap();
         assert_eq!(
-            mcp_json.get("mcpServers").unwrap().as_object().unwrap().len(),
+            mcp_json
+                .get("mcpServers")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
             0
         );
     }
@@ -990,7 +988,10 @@ mod tests {
         let account_home = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
         std::fs::write(
-            account_home.path().join(".claude").join(".credentials.json"),
+            account_home
+                .path()
+                .join(".claude")
+                .join(".credentials.json"),
             r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
         )
         .unwrap();
@@ -1015,22 +1016,37 @@ mod tests {
         let launch = claude.provision(&spec, config_dir.path()).unwrap();
 
         // base_url + apiKeyHelper still wired as before.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://gw/"));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://gw/")
+        );
         let settings_path = config_dir.path().join("settings.json");
         assert!(settings_path.exists());
         let settings: Value =
             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-        assert_eq!(settings.get("apiKeyHelper").unwrap().as_str(), Some("get-key"));
+        assert_eq!(
+            settings.get("apiKeyHelper").unwrap().as_str(),
+            Some("get-key")
+        );
 
         // The captured login is seeded INTO the ephemeral config dir...
         let seeded_creds = config_dir.path().join(".credentials.json");
         let seeded_json = config_dir.path().join(".claude.json");
-        assert!(seeded_creds.exists(), "credentials should be seeded into CLAUDE_CONFIG_DIR");
-        assert!(seeded_json.exists(), ".claude.json should be seeded into CLAUDE_CONFIG_DIR");
-        assert!(std::fs::read_to_string(&seeded_creds).unwrap().contains("claudeAiOauth"));
+        assert!(
+            seeded_creds.exists(),
+            "credentials should be seeded into CLAUDE_CONFIG_DIR"
+        );
+        assert!(
+            seeded_json.exists(),
+            ".claude.json should be seeded into CLAUDE_CONFIG_DIR"
+        );
+        assert!(
+            std::fs::read_to_string(&seeded_creds)
+                .unwrap()
+                .contains("claudeAiOauth")
+        );
 
         // ...and the child's HOME is left untouched, so the user's real
         // toolchain (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
@@ -1081,10 +1097,12 @@ mod tests {
         let claude = Claude::new();
         let launch = claude.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == &expected));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == &expected)
+        );
 
         // No-secret-on-disk invariant: walk the whole ephemeral dir and
         // confirm the secret value never landed in any file `am` wrote.
@@ -1287,16 +1305,19 @@ mod tests {
 
         let plan = Claude::new().login(home.path()).unwrap();
 
-        assert!(plan
-            .launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string()));
+        assert!(
+            plan.launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
+        );
         assert!(!plan.credential_files.is_empty());
-        assert!(plan.credential_files[0]
-            .to_str()
-            .unwrap()
-            .ends_with(".credentials.json"));
+        assert!(
+            plan.credential_files[0]
+                .to_str()
+                .unwrap()
+                .ends_with(".credentials.json")
+        );
     }
 
     #[test]
@@ -1327,7 +1348,12 @@ Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], o
             default.description.as_deref(),
             Some("Current model: Opus 4.8 (effort: high)")
         );
-        assert!(models.iter().filter(|m| m.id != "default").all(|m| !m.default));
+        assert!(
+            models
+                .iter()
+                .filter(|m| m.id != "default")
+                .all(|m| !m.default)
+        );
     }
 
     #[test]

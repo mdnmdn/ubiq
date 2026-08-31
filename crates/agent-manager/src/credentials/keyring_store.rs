@@ -201,8 +201,9 @@ impl KeyringSecretStore {
         let entry = Self::entry(id)?;
         match entry.get_secret() {
             Ok(bytes) => {
-                let value = String::from_utf8(bytes)
-                    .context("keyring secret was not valid UTF-8 (unexpected for am's own JSON encoding)")?;
+                let value = String::from_utf8(bytes).context(
+                    "keyring secret was not valid UTF-8 (unexpected for am's own JSON encoding)",
+                )?;
                 Ok(Some(value))
             }
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -212,9 +213,12 @@ impl KeyringSecretStore {
 
     fn backend_set(&self, id: &CredentialId, value: &str) -> Result<()> {
         let entry = Self::entry(id)?;
-        entry
-            .set_secret(value.as_bytes())
-            .with_context(|| format!("storing secret for '{}' in the OS keyring", entry_service(id)))
+        entry.set_secret(value.as_bytes()).with_context(|| {
+            format!(
+                "storing secret for '{}' in the OS keyring",
+                entry_service(id)
+            )
+        })
     }
 
     fn backend_delete(&self, id: &CredentialId) -> Result<()> {

@@ -23,7 +23,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .flex()
         .flex_none()
         .flex_col()
-        .m_3()
         .bg(theme::surface())
         .border_l(px(theme::ACCENT_EDGE))
         .border_color(theme::accent())

@@ -2,19 +2,29 @@
 //!
 //! It owns the panes, the focused pane and the layout mode, plus the workbench's own state — which
 //! rail mode is active, which panels are open, what the explorer, the editor and the chat are
-//! showing. No process handle and no pseudo-terminal reaches this far: a pane is an ID and a title.
+//! showing. No process handle and no pseudo-terminal reaches this far: a pane is an ID, a title,
+//! and an emulator reading one end of the bus.
 //!
 //! Every mutator ends in `cx.notify()`. One that forgets is a panel that stops updating.
 
+use std::collections::HashMap;
+use std::time::Duration;
+
 use gpui::{
-    App, Bounds, Context, Entity, IntoElement, Render, ScrollHandle, Subscription, Window,
-    WindowBounds, WindowOptions, point, prelude::*, px, size,
+    App, Bounds, Context, Entity, FocusHandle, IntoElement, Render, ScrollHandle, Subscription,
+    UniformListScrollHandle, Window, WindowBounds, WindowId, WindowOptions, point, prelude::*, px,
+    size,
 };
 use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
+use gpui_terminal::TerminalView;
 use uuid::Uuid;
 
+use crate::bus::{self, UiEnd};
+use crate::messages::{Message, WorkspaceInfo};
+use crate::orchestrator;
 use crate::state::{
-    ChatState, EditorPaneState, ExplorerState, MenuId, RailMode, WorkbenchState, sample,
+    ChatState, EditorPaneState, ExplorerState, LogState, MenuId, RailMode, WindowRegistry,
+    WorkbenchState, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -24,12 +34,35 @@ use crate::ui;
 pub struct PaneState {
     pub id: Uuid,
     pub harness: String,
-    pub args: Vec<String>,
     pub rows: u16,
     pub cols: u16,
     pub title: String,
     /// Whether the harness behind the pane is still running. An exited pane keeps its last screen.
     pub running: bool,
+}
+
+/// What the window keeps for one pane's terminal: the emulator, and the end of the bus its output
+/// arrives on. The sender is dropped when the harness exits, which is how the emulator learns the
+/// stream is over.
+struct PaneTerminal {
+    view: Entity<TerminalView>,
+    output: Option<flume::Sender<Vec<u8>>>,
+}
+
+/// What the dock's body draws. Which pane, when it is a pane, is [`AppState::focused_pane`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DockTab {
+    /// The focused pane's terminal.
+    Pane,
+    /// The log console, which is a tab in the dock rather than a panel of its own.
+    Logs,
+}
+
+/// Who is waiting for the keyboard. Focus needs a window, which arrives with the next frame.
+enum PendingFocus {
+    Pane(Uuid),
+    /// The console. A dock showing logs must not leave the keyboard in a terminal nobody can see.
+    Logs,
 }
 
 /// Layout mode for pane arrangement.
@@ -46,6 +79,9 @@ pub enum LayoutMode {
 }
 
 pub struct AppState {
+    /// Which window this state belongs to. It is the key into the process-wide
+    /// [`WindowRegistry`], and the only thing that tells two windows apart.
+    window_id: WindowId,
     /// Active panes, in the order the dock's tabs show them.
     panes: Vec<PaneState>,
     /// Currently focused pane.
@@ -53,10 +89,25 @@ pub struct AppState {
     /// How the dock arranges its panes.
     layout_mode: LayoutMode,
 
+    /// The window's session — the grouping every workspace it spawns belongs to.
+    session: Uuid,
+    /// This window's end of the bus. Nothing else reaches the coordinator.
+    bus: UiEnd,
+    /// One emulator per pane, keyed the way every message is.
+    terminals: HashMap<Uuid, PaneTerminal>,
+    /// Geometry an emulator measured for itself, on its way back into `PaneState`.
+    geometry: flume::Sender<(Uuid, u16, u16)>,
+    /// What the dock's tab strip has selected.
+    dock_tab: DockTab,
+    /// Whoever the keyboard is owed to, once there is a window to give it with.
+    pending_focus: Option<PendingFocus>,
+
     pub workbench: WorkbenchState,
     pub explorer: ExplorerState,
     pub editor: EditorPaneState,
     pub chat: ChatState,
+    /// What the log console is showing. The records themselves belong to the process-wide sink.
+    pub logs: LogState,
 
     /// The component library's own state entities.
     pub editor_state: Entity<EditorState>,
@@ -67,17 +118,29 @@ pub struct AppState {
     /// The project menu's own search field.
     pub project_search: Entity<InputState>,
     pub chat_scroll: ScrollHandle,
+    pub log_scroll: UniformListScrollHandle,
+    /// The console's own focus, so selecting its tab takes the keyboard off the pane behind it.
+    log_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AppState {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::for_project(0, window, cx)
-    }
+    /// Build a window pointed at one project, named by `label`. A second window is the same view
+    /// registered under its own letter — see [`open_project_window`], which is the only caller.
+    pub fn for_project(
+        project: usize,
+        label: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        // The window takes the project from whatever window held it, so opening one somewhere can
+        // leave another with nothing to show.
+        let window_id = window.window_handle().window_id();
+        let emptied = cx
+            .global_mut::<WindowRegistry>()
+            .register(window_id, label, project);
+        close_windows(emptied, cx);
 
-    /// Build a window pointed at one project. A second window is the same view with a different
-    /// project selected — see [`open_project_window`].
-    pub fn for_project(project: usize, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let editor = sample::editor();
         let source = editor
             .active_file()
@@ -120,6 +183,10 @@ impl AppState {
 
         let mut subscriptions = Vec::new();
 
+        // Every window draws from the same registry, so a project moved in one window redraws the
+        // picker in all of them.
+        subscriptions.push(cx.observe_global::<WindowRegistry>(|_, cx| cx.notify()));
+
         subscriptions.push(cx.subscribe_in(
             &chat_input,
             window,
@@ -157,27 +224,92 @@ impl AppState {
             },
         ));
 
+        // The window's half of the bus. The coordinator gets the other half and a thread, and the
+        // two never touch again.
+        let (ui_end, coordinator_end) = bus::pair();
+        orchestrator::start(coordinator_end);
+
+        let from_coordinator = ui_end.from_coordinator.clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            while let Ok(message) = from_coordinator.recv_async().await {
+                if this
+                    .update(cx, |this, cx| this.receive(message, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        // The log sink nudges the window when a record arrives. A nudge carries nothing: the
+        // console reads the ring itself, so a burst is coalesced into one redraw and a window
+        // with the console shut is not woken at all.
+        let nudges = crate::log::logs().subscribe();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            while nudges.recv_async().await.is_ok() {
+                while nudges.try_recv().is_ok() {}
+                let shown = this.update(cx, |this, cx| {
+                    if this.workbench.show_bottom && this.dock_tab == DockTab::Logs {
+                        cx.notify();
+                    }
+                });
+                if shown.is_err() {
+                    break;
+                }
+                // A record emitted while drawing would otherwise redraw the frame that emitted
+                // it, forever.
+                let settle = cx.background_executor().timer(Duration::from_millis(120));
+                settle.await;
+            }
+        })
+        .detach();
+
+        // An emulator measures its own geometry from the bounds it is given; this is how the
+        // measurement gets back into the pane it belongs to.
+        let (geometry, measurements) = flume::unbounded::<(Uuid, u16, u16)>();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            while let Ok((pane_id, cols, rows)) = measurements.recv_async().await {
+                if this
+                    .update(cx, |this, cx| this.resize_pane(pane_id, cols, rows, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let mut this = Self {
+            window_id,
             panes: Vec::new(),
             focused_pane: None,
             layout_mode: LayoutMode::Single,
-            workbench: sample::workbench(project),
+            session: Uuid::new_v4(),
+            bus: ui_end,
+            terminals: HashMap::new(),
+            geometry,
+            dock_tab: DockTab::Pane,
+            pending_focus: None,
+            workbench: sample::workbench(),
             explorer: sample::explorer(),
             editor,
             chat: sample::chat(),
+            logs: LogState::default(),
             editor_state,
             chat_input,
             file_filter,
             command_input,
             project_search,
             chat_scroll: ScrollHandle::new(),
+            log_scroll: UniformListScrollHandle::new(),
+            log_focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
 
-        for title in sample::pane_titles() {
-            this.push_pane(title);
-        }
-        this.focused_pane = this.panes.first().map(|p| p.id);
+        // A window opens on one pane, running the session's default agent type. The pane itself
+        // arrives with `WorkspaceSpawned`, because only the coordinator knows what started.
+        this.spawn_pane(None, Vec::new(), cx);
         this
     }
 
@@ -202,45 +334,59 @@ impl AppState {
         self.layout_mode
     }
 
-    fn push_pane(&mut self, harness: &str) -> Uuid {
-        let id = Uuid::new_v4();
-        self.panes.push(PaneState {
-            id,
-            harness: harness.to_string(),
-            args: Vec::new(),
-            rows: 24,
-            cols: 80,
-            title: harness.to_string(),
-            running: true,
-        });
-        id
+    /// Which tab the dock draws. The console is a tab like a pane, so the dock is the one place
+    /// that decides between them.
+    pub fn dock_tab(&self) -> DockTab {
+        self.dock_tab
     }
 
+    /// The handle the console's body tracks, so it can hold the keyboard while it is shown.
+    pub fn log_focus(&self) -> &FocusHandle {
+        &self.log_focus
+    }
+
+    /// The emulator a pane is drawn by, for the one module that draws it.
+    pub fn terminal(&self, pane_id: Uuid) -> Option<&Entity<TerminalView>> {
+        self.terminals.get(&pane_id).map(|pane| &pane.view)
+    }
+
+    /// Ask for a workspace. The pane appears when the coordinator answers, so a harness that fails
+    /// to start leaves no empty tab behind.
     pub fn spawn_pane(
         &mut self,
-        harness: String,
+        agent_type: Option<String>,
         args: Vec<String>,
-        cx: &mut Context<Self>,
-    ) -> Uuid {
-        let id = self.push_pane(&harness);
-        if let Some(pane) = self.panes.last_mut() {
-            pane.args = args;
-        }
-        self.focused_pane = Some(id);
-        cx.notify();
-        id
+        _cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::SpawnWorkspace {
+            session_id: self.session,
+            agent_type,
+            args,
+            folder: None,
+        });
     }
 
     pub fn close_pane(&mut self, pane_id: Uuid, cx: &mut Context<Self>) {
+        self.bus.send(Message::CloseWorkspace { pane_id });
         self.panes.retain(|p| p.id != pane_id);
+        self.terminals.remove(&pane_id);
         if self.focused_pane == Some(pane_id) {
-            self.focused_pane = self.panes.first().map(|p| p.id);
+            let next = self.panes.first().map(|p| p.id);
+            self.focused_pane = next;
+            // Closing a pane from the strip while the console is the tab shown must not hand the
+            // keyboard to a terminal that is off screen.
+            if self.dock_tab == DockTab::Pane {
+                self.pending_focus = next.map(PendingFocus::Pane);
+            }
         }
         cx.notify();
     }
 
     pub fn resize_pane(&mut self, pane_id: Uuid, cols: u16, rows: u16, cx: &mut Context<Self>) {
         if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
+            if pane.cols == cols && pane.rows == rows {
+                return;
+            }
             pane.cols = cols;
             pane.rows = rows;
             cx.notify();
@@ -250,7 +396,132 @@ impl AppState {
     pub fn focus_pane(&mut self, pane_id: Uuid, cx: &mut Context<Self>) {
         if self.panes.iter().any(|p| p.id == pane_id) {
             self.focused_pane = Some(pane_id);
+            self.dock_tab = DockTab::Pane;
+            self.pending_focus = Some(PendingFocus::Pane(pane_id));
+            self.bus.send(Message::Focus { pane_id });
             cx.notify();
+        }
+    }
+
+    /// Draw the console in the dock, opening the dock if it is shut. The keyboard comes with it:
+    /// a pane the user cannot see must not keep receiving keystrokes.
+    pub fn show_logs(&mut self, cx: &mut Context<Self>) {
+        self.dock_tab = DockTab::Logs;
+        self.workbench.show_bottom = true;
+        self.pending_focus = Some(PendingFocus::Logs);
+        cx.notify();
+    }
+
+    /// The dock's tab strip, in one place: the panes in order, and the console last.
+    pub fn select_dock_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.panes.get(index).map(|pane| pane.id) {
+            Some(pane_id) => self.focus_pane(pane_id, cx),
+            None => self.show_logs(cx),
+        }
+    }
+
+    /// Everything the coordinator says, in the order it said it.
+    fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
+        match message {
+            Message::WorkspaceSpawned { workspace } => self.open_pane(workspace, cx),
+
+            // Output is handed straight to the pane's emulator. Output for a pane that has gone is
+            // dropped: nothing is left to draw it.
+            Message::TerminalOutput { pane_id, bytes } => {
+                if let Some(terminal) = self.terminals.get(&pane_id)
+                    && let Some(output) = &terminal.output
+                {
+                    let _ = output.send(bytes);
+                }
+            }
+
+            // An exited harness leaves its pane, showing its last screen. Closing the output
+            // stream is what tells the emulator to stop reading.
+            Message::PaneExited { pane_id, code } => {
+                if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
+                    pane.running = false;
+                }
+                if let Some(terminal) = self.terminals.get_mut(&pane_id) {
+                    terminal.output = None;
+                }
+                tracing::info!("pane {pane_id} exited with {code}");
+                cx.notify();
+            }
+
+            Message::PaneError { pane_id, error } => {
+                if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
+                    pane.running = false;
+                }
+                tracing::error!("pane {pane_id}: {error}");
+                cx.notify();
+            }
+
+            // The rest are the window's own words, coming back the wrong way.
+            other => tracing::warn!("the window was sent a message only it may send: {other:?}"),
+        }
+    }
+
+    /// Draw a workspace the coordinator started: a tab, and an emulator on the pane's stream.
+    fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
+        let pane_id = workspace.id;
+        let title = agent_title(&workspace.agent_type);
+
+        let (output, reader) = bus::pane_output();
+        let writer = self.bus.input(pane_id);
+        let config = ui::terminal::config(workspace.cols, workspace.rows);
+
+        let to_coordinator = self.bus.sender();
+        let geometry = self.geometry.clone();
+        let view = cx.new(|cx| {
+            TerminalView::new(writer, reader, config, cx).with_resize_callback(move |cols, rows| {
+                let (cols, rows) = (cols as u16, rows as u16);
+                let _ = to_coordinator.send(Message::TerminalResize {
+                    pane_id,
+                    cols,
+                    rows,
+                });
+                let _ = geometry.send((pane_id, cols, rows));
+            })
+        });
+
+        self.panes.push(PaneState {
+            id: pane_id,
+            harness: workspace.agent_type,
+            rows: workspace.rows,
+            cols: workspace.cols,
+            title,
+            running: workspace.running,
+        });
+        self.terminals.insert(
+            pane_id,
+            PaneTerminal {
+                view,
+                output: Some(output),
+            },
+        );
+
+        self.focused_pane = Some(pane_id);
+        self.dock_tab = DockTab::Pane;
+        self.pending_focus = Some(PendingFocus::Pane(pane_id));
+        self.bus.send(Message::Focus { pane_id });
+        cx.notify();
+    }
+
+    /// Give the keyboard to whoever asked for it. Focus needs a window, so it waits for one.
+    fn take_focus(&mut self, window: &mut Window, cx: &mut App) {
+        match self.pending_focus.take() {
+            Some(PendingFocus::Pane(pane_id)) => {
+                if let Some(terminal) = self.terminals.get(&pane_id) {
+                    terminal
+                        .view
+                        .read(cx)
+                        .focus_handle()
+                        .clone()
+                        .focus(window, cx);
+                }
+            }
+            Some(PendingFocus::Logs) => self.log_focus.clone().focus(window, cx),
+            None => {}
         }
     }
 
@@ -266,6 +537,13 @@ impl AppState {
         let next = self.workbench.theme_id.toggled();
         self.workbench.theme_id = next;
         theme::set_mode(next, cx);
+        // The emulator holds its own copy of the palette, so the switch has to reach it.
+        for terminal in self.terminals.values() {
+            terminal.view.update(cx, |view, cx| {
+                let (cols, rows) = view.dimensions();
+                view.update_config(ui::terminal::config(cols as u16, rows as u16), cx);
+            });
+        }
         cx.notify();
     }
 
@@ -280,27 +558,102 @@ impl AppState {
         cx.notify();
     }
 
-    // ── Projects ────────────────────────────────────────────────────
+    // ── The log console ────────────────────────────────────────
 
-    /// Point this window at another project. A project that was only remembered becomes open.
-    pub fn select_project(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index >= self.workbench.projects.len() {
-            return;
-        }
-        self.workbench.projects[index].open = true;
-        self.workbench.project = index;
+    pub fn pick_log_subsystem(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.logs.pick_subsystem(index);
         self.close_menu(cx);
     }
 
-    /// Close a project. A project with terminals still running asks first: the menu row turns into
-    /// a confirmation rather than taking the click.
-    pub fn close_project(&mut self, index: usize, force: bool, cx: &mut Context<Self>) {
-        let closed = self.workbench.close_project(index, force);
-        if closed && self.workbench.projects.iter().all(|p| !p.open) {
-            // Never leave the window pointed at nothing: the last project stays open.
-            self.workbench.projects[index].open = true;
-            self.workbench.project = index;
+    pub fn pick_log_level(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.logs.pick_level(index);
+        self.close_menu(cx);
+    }
+
+    pub fn toggle_log_follow(&mut self, cx: &mut Context<Self>) {
+        self.logs.follow = !self.logs.follow;
+        cx.notify();
+    }
+
+    /// Empty the sink. The ring is the whole process's, so this clears every window's console.
+    pub fn clear_logs(&mut self, cx: &mut Context<Self>) {
+        crate::log::logs().clear();
+        cx.notify();
+    }
+
+    // ── Projects ────────────────────────────────────────────────────
+
+    /// This window's letter — `A`, `B`, `C`… — as the picker prints it beside every project the
+    /// window holds.
+    pub fn window_label(&self, cx: &App) -> char {
+        WindowRegistry::read(cx)
+            .slot(self.window_id)
+            .map(|slot| slot.label)
+            .unwrap_or('?')
+    }
+
+    /// The project this window is pointed at. A window always has one: the moment it has none it
+    /// closes, so the fallback is only for the frame between the two.
+    pub fn project(&self, cx: &App) -> usize {
+        WindowRegistry::read(cx)
+            .slot(self.window_id)
+            .and_then(|slot| slot.active_project())
+            .unwrap_or(0)
+    }
+
+    pub fn project_name(&self, cx: &App) -> String {
+        let registry = WindowRegistry::read(cx);
+        registry
+            .project(self.project(cx))
+            .map(|p| p.name.clone())
+            .unwrap_or_default()
+    }
+
+    /// The swatch index the whole window is identified by.
+    pub fn project_colour(&self, cx: &App) -> usize {
+        let registry = WindowRegistry::read(cx);
+        registry.project(self.project(cx)).map_or(0, |p| p.colour)
+    }
+
+    /// The picker's three groups: open here, open in another window, only remembered.
+    pub fn project_groups(&self, cx: &App) -> crate::state::ProjectGroups {
+        WindowRegistry::read(cx).groups(self.window_id, &self.workbench.project_filter)
+    }
+
+    /// Point this window at a project it already holds.
+    pub fn activate_project(&mut self, project: usize, cx: &mut Context<Self>) {
+        let id = self.window_id;
+        cx.global_mut::<WindowRegistry>().activate(id, project);
+        self.close_menu(cx);
+    }
+
+    /// Open a project in this window, taking it from whichever window held it. This is both "open
+    /// one from history" and the move-here action on a project open elsewhere: a project is open in
+    /// one window at a time, so the two are the same operation.
+    pub fn take_project(&mut self, project: usize, cx: &mut Context<Self>) {
+        let id = self.window_id;
+        let emptied = cx.global_mut::<WindowRegistry>().open_in(id, project);
+        close_windows(emptied, cx);
+        self.close_menu(cx);
+    }
+
+    /// Close a project in this window. One with terminals still running asks first: the menu row
+    /// turns into a confirmation rather than taking the click. Closing the last one closes the
+    /// window, because a window with nothing open has nothing to show.
+    pub fn close_project(&mut self, project: usize, force: bool, cx: &mut Context<Self>) {
+        let terminals = WindowRegistry::read(cx)
+            .project(project)
+            .map_or(0, |p| p.terminals);
+        if terminals > 0 && !force {
+            self.workbench.pending_close = Some(project);
+            cx.notify();
+            return;
         }
+
+        self.workbench.pending_close = None;
+        let id = self.window_id;
+        let emptied = cx.global_mut::<WindowRegistry>().close(id, project);
+        close_windows(emptied, cx);
         cx.notify();
     }
 
@@ -415,8 +768,18 @@ impl AppState {
 
 impl Render for AppState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.take_focus(window, cx);
         ui::shell::render(self, window, cx)
     }
+}
+
+/// What a pane calls itself before its harness says otherwise: the program, without its path.
+fn agent_title(agent_type: &str) -> String {
+    agent_type
+        .rsplit('/')
+        .next()
+        .unwrap_or(agent_type)
+        .to_string()
 }
 
 /// Re-exported so `main.rs` can name the palette it boots with.
@@ -428,8 +791,16 @@ pub fn boot_theme() -> ThemeId {
 ///
 /// This is the only place a window is created, so `main.rs` and the project menu's "open in a new
 /// window" reach the same code. Each window owns its own `AppState`; they share nothing but the
-/// palette, which is process-wide.
+/// palette and the window registry, both of which are process-wide.
+///
+/// The project comes with it: a project is open in one window at a time, so the new window takes it
+/// from whichever window held it, and that window closes if it held nothing else.
 pub fn open_project_window(project: usize, cx: &mut App) {
+    WindowRegistry::install(cx);
+    // The letter is allocated before the window exists, because the title carries it. Nothing can
+    // register in between — `open_window` builds the `AppState`, which is what registers.
+    let label = WindowRegistry::read(cx).next_label();
+
     // Step successive windows down and across, so a new one does not land exactly on its parent.
     let offset = (cx.windows().len() as f32) * 28.0;
     let mut bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
@@ -439,20 +810,60 @@ pub fn open_project_window(project: usize, cx: &mut App) {
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some("Ubiq - Agent Harness Multiplexer".into()),
+                title: Some(format!("Ubiq {label} - Agent Harness Multiplexer").into()),
                 ..Default::default()
             }),
             ..Default::default()
         },
         |window, cx| {
-            let view = cx.new(|cx| AppState::for_project(project, window, cx));
+            let view = cx.new(|cx| AppState::for_project(project, label, window, cx));
             cx.new(|cx| gpui_component::Root::new(view, window, cx).bg(crate::theme::app_bg()))
         },
     );
+
+    tracing::info!("window {label} opened on project {project}");
 
     if let Ok(handle) = opened {
         handle
             .update(cx, |_, window, _| window.activate_window())
             .ok();
+    }
+}
+
+/// Bring a window to the front. The picker's rows for projects open elsewhere use it: clicking one
+/// is how the user moves between windows.
+pub fn focus_window(id: WindowId, cx: &mut App) {
+    for handle in cx.windows() {
+        if handle.window_id() == id {
+            handle
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
+        }
+    }
+}
+
+/// Close the windows the registry has just emptied.
+///
+/// Deferred, because the caller is usually inside one of these windows' own event handlers, and a
+/// window may not be updated while it is being updated.
+fn close_windows(ids: Vec<WindowId>, cx: &mut App) {
+    if ids.is_empty() {
+        return;
+    }
+    cx.defer(move |cx| {
+        for handle in cx.windows() {
+            if ids.contains(&handle.window_id()) {
+                handle
+                    .update(cx, |_, window, _| window.remove_window())
+                    .ok();
+            }
+        }
+    });
+}
+
+/// A window has gone. Its slot goes with it, and everything it held returns to history.
+pub fn window_closed(id: WindowId, cx: &mut App) {
+    if cx.has_global::<WindowRegistry>() {
+        cx.global_mut::<WindowRegistry>().unregister(id);
     }
 }

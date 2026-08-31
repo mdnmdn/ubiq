@@ -24,7 +24,7 @@ pub fn mode_icon(mode: RailMode) -> IconName {
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let active = app.workbench.rail_mode;
-    let project = theme::project_colour(app.workbench.project_colour());
+    let project = theme::project_colour(app.project_colour(cx));
 
     let mut groups = Vec::new();
     for (label, modes) in RailMode::groups() {

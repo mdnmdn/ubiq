@@ -46,7 +46,7 @@ pub fn render(
         .text_color(theme::text())
         // The window wears its project's colour down its whole left edge.
         .border_l(px(theme::ACCENT_EDGE * 2.0))
-        .border_color(theme::project_colour(wb.project_colour()))
+        .border_color(theme::project_colour(app.project_colour(cx)))
         .child(
             div()
                 .flex()

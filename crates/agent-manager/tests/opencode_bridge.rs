@@ -4,8 +4,8 @@
 //! opencode's NDJSON event stream and translates it to normalized
 //! [`AgentEvent`]s.
 
-use agent_manager::io::{spawn_piped, AgentEvent, IoBridge, OpencodeBridge};
 use agent_manager::harness::Launch;
+use agent_manager::io::{AgentEvent, IoBridge, OpencodeBridge, spawn_piped};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -86,7 +86,10 @@ fn opencode_bridge_drains_fake_stream_to_completion() {
         } => {
             assert_eq!(cid, "call-1");
             assert_eq!(name, "bash");
-            assert_eq!(input.get("command").and_then(|v| v.as_str()), Some("echo test"));
+            assert_eq!(
+                input.get("command").and_then(|v| v.as_str()),
+                Some("echo test")
+            );
         }
         other => panic!("event 2: expected ToolCall, got {:?}", other),
     }

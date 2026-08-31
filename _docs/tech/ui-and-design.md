@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, or looking for the wireframe a layout came from
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/shell.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -77,6 +77,11 @@ they cannot drift into different modes. `ThemeId::toggled` gives the other palet
 titlebar's toggle needs. The palette is process-wide, so a second window opens in the mode the first
 one is in, and switching in either switches both.
 
+A pane's emulator is the one surface that does not read a token when it draws: it is built with a
+copy of the palette, so `toggle_theme()` pushes a rebuilt configuration into every emulator as well
+as calling `set_mode`. Any component given a palette rather than reading one has to be walked the
+same way.
+
 `theme.rs` also owns the constants that are not colours, for the same reason it owns the colours:
 restyling the shell should be one file to visit.
 
@@ -84,6 +89,7 @@ restyling the shell should be one file to visit.
 |---|---|
 | `MONO_FONT` | The family for code, paths, counts and every mono label |
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
+| `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
 | `EXPLORER_WIDTH`/`_MIN`/`_MAX`, `CHAT_WIDTH`/`_MIN`/`_MAX`, `DOCK_HEIGHT`/`_MIN`/`_MAX` | The default and permitted size of each resizable panel |
 
@@ -116,8 +122,12 @@ convention silently stops being available.
 - **Pane chrome stays two rows at most.** Identity and state on the first, context — folder, model,
   remaining context window — on the second. Anything more takes space from the terminal, which is
   the thing the user is actually reading.
-- **The terminal body is never styled by Ubiq.** Its colours come from the harness's own output.
-  Ubiq draws the frame and stays out of the content.
+- **The terminal body is never styled by Ubiq.** A pane's emulator is given three tokens —
+  `pane_bg` for its background, `text` for its foreground, `accent` for the cursor — so the surface
+  it sits on matches the shell. The sixteen ANSI colours are the emulator's own defaults, because
+  those are the colours the harness is choosing between, and remapping them changes what the agent
+  said. `crates/ubiq/src/ui/terminal.rs` builds that palette in `config()`, and it is the only
+  place in the UI that converts a token into anything but a GPUI colour.
 - **Spacing comes from the framework's scale**, not from arbitrary pixel values. Sizes that are part
   of the layout — chrome heights, panel widths — are constants in `theme.rs` instead.
 - **There are no radii.** See *The shape of a surface* below; a corner radius anywhere is a defect
@@ -133,6 +143,19 @@ itself. `ACCENT_EDGE` in `theme.rs` is its width, and `ui::kit::slab` is the sha
 This replaces the more usual "box with a border all the way round". A GPUI element has one
 `border_color` for all four sides, so a grey box with one coloured edge is two elements; one edge
 and no box is one, and it reads more clearly at the sizes this UI uses.
+
+**The edge collapses onto its container's edge.** A coloured border only reads as identifying the
+surface if it sits *on* the boundary; floating it a few pixels inside makes it decoration. So a
+container gives a surface with a coloured edge **no left, top or bottom inset** — no margin, no
+padding — and the edge runs the full height of what it marks. Right padding is the one judgement
+call: keep it where the content needs breathing room from the next panel, drop it where the surface
+should span.
+
+In practice that means the containers do the yielding: the chat's transcript pads only on the right
+so each turn's edge lands on the panel border, the composer has no margin at all, the terminal card
+fills its half of the dock, and the explorer's tree pads only on the right so a selected row's
+accent runs to the panel edge. Inline controls — chips, pills, tabs — are not surfaces in this
+sense and keep their own spacing.
 
 Circles survive in exactly one place: state dots, which are dots.
 

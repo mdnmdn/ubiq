@@ -26,12 +26,12 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::source::{LinkMode, Source};
 use crate::Result;
+use crate::source::{LinkMode, Source};
 
 /// Maximum depth of an `extends` inheritance chain before giving up (guards
 /// against pathological or accidentally-deep hierarchies as well as cycles).
@@ -391,10 +391,7 @@ pub fn resolve_chain(store: &dyn ProfileStore, name: &str) -> Result<Vec<Profile
         if let Some(pos) = visited.iter().position(|v| v == &current) {
             let mut cycle = visited[pos..].to_vec();
             cycle.push(current.clone());
-            bail!(
-                "profile inheritance cycle detected: {}",
-                cycle.join(" -> ")
-            );
+            bail!("profile inheritance cycle detected: {}", cycle.join(" -> "));
         }
 
         let profile = store

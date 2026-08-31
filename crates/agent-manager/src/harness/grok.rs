@@ -54,12 +54,12 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context};
-use serde_json::{json, Value};
+use anyhow::{Context, bail};
+use serde_json::{Value, json};
 
+use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
-use crate::Result;
 
 use super::{ConfigAnchor, Harness, IoSupport, Launch, SeedFile};
 
@@ -251,7 +251,11 @@ impl Harness for Grok {
             if let Some(base_url) = &account.base_url {
                 env.push(("GROK_BASE_URL".to_string(), base_url.clone()));
             }
-            if let Some(name) = account.api_key_env.as_ref().or(account.auth_token_env.as_ref()) {
+            if let Some(name) = account
+                .api_key_env
+                .as_ref()
+                .or(account.auth_token_env.as_ref())
+            {
                 let value = std::env::var(name).map_err(|_| {
                     anyhow::anyhow!(
                         "account '{}' references env var '{}' which is not set",
@@ -266,7 +270,11 @@ impl Harness for Grok {
             // HOME), so grok finds its credentials at launch. No-op when the
             // account home holds no captured login yet. The seed list is
             // declared once in `config_anchor()`.
-            if let Some(login) = spec.account_login.clone().or_else(|| account.home.clone().map(crate::source::Source::Dir)) {
+            if let Some(login) = spec
+                .account_login
+                .clone()
+                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
+            {
                 super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
             }
         }
@@ -317,10 +325,7 @@ impl Harness for Grok {
 /// guidance ahead of the concrete request.
 fn seeded_prompt(spec: &RunSpec) -> Option<String> {
     let initial = spec.initial.as_ref()?;
-    match (
-        initial.instructions.as_deref(),
-        initial.prompt.as_deref(),
-    ) {
+    match (initial.instructions.as_deref(), initial.prompt.as_deref()) {
         (Some(instr), Some(prompt)) => Some(format!("{instr}\n\n{prompt}")),
         (Some(instr), None) => Some(instr.to_string()),
         (None, Some(prompt)) => Some(prompt.to_string()),
@@ -449,21 +454,29 @@ mod tests {
         assert_eq!(servers.len(), 2);
         // stdio: explicit type + command + args.
         assert_eq!(servers["postgres"]["type"].as_str(), Some("stdio"));
-        assert_eq!(servers["postgres"]["command"].as_str(), Some("postgres-mcp"));
+        assert_eq!(
+            servers["postgres"]["command"].as_str(),
+            Some("postgres-mcp")
+        );
         assert_eq!(servers["postgres"]["args"].as_array().unwrap().len(), 1);
         // http remote: type + url.
         assert_eq!(servers["docs"]["type"].as_str(), Some("http"));
-        assert_eq!(servers["docs"]["url"].as_str(), Some("https://example.com/mcp/"));
+        assert_eq!(
+            servers["docs"]["url"].as_str(),
+            Some("https://example.com/mcp/")
+        );
 
         // Skill copied under the agent-neutral .agents/skills path.
         let skill_md = config_dir.path().join(".agents/skills/my-skill/SKILL.md");
         assert!(skill_md.exists());
 
         // Launch relocates HOME to the ephemeral dir (the isolation lever).
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
+        );
         assert_eq!(launch.program, "grok");
 
         // Invariant: nothing written under the stand-in home dir.
@@ -492,7 +505,9 @@ mod tests {
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.skills.push(SkillRef {
             id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from("/definitely/does/not/exist/anywhere")),
+            source: crate::source::Source::Dir(PathBuf::from(
+                "/definitely/does/not/exist/anywhere",
+            )),
         });
 
         let grok = Grok::new();
@@ -598,14 +613,18 @@ mod tests {
         let grok = Grok::new();
         let launch = grok.provision(&spec, config_dir.path()).unwrap();
 
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "GROK_API_KEY" && v == &expected));
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "GROK_BASE_URL" && v == "https://gw.example/v1"));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "GROK_API_KEY" && v == &expected)
+        );
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "GROK_BASE_URL" && v == "https://gw.example/v1")
+        );
 
         // No-secret-on-disk invariant.
         for entry in walkdir::WalkDir::new(config_dir.path())
@@ -659,20 +678,31 @@ mod tests {
 
         // HOME relocates to the ephemeral dir, NOT the account's private home —
         // the throwaway dir stays grok's home (config + sessions land there).
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string()));
-        assert!(!launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &account_home.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
+        );
+        assert!(
+            !launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &account_home.path().display().to_string())
+        );
 
         // The captured login is SEEDED into the ephemeral dir's relocated HOME
         // so grok finds `~/.grok/auth.json` (= <dir>/.grok/auth.json) at launch.
         let seeded = config_dir.path().join(".grok/auth.json");
-        assert!(seeded.exists(), "auth.json should be seeded into the ephemeral dir");
-        assert!(std::fs::read_to_string(&seeded).unwrap().contains("access_token"));
+        assert!(
+            seeded.exists(),
+            "auth.json should be seeded into the ephemeral dir"
+        );
+        assert!(
+            std::fs::read_to_string(&seeded)
+                .unwrap()
+                .contains("access_token")
+        );
 
         // Injected config (.grok/user-settings.json) also lands in the
         // ephemeral dir, alongside the seeded creds.
@@ -701,10 +731,12 @@ mod tests {
         // Seeding is a no-op — no auth.json seeded.
         assert!(!config_dir.path().join(".grok/auth.json").exists());
         // HOME still relocates to the ephemeral dir.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
+        );
     }
 
     #[test]
@@ -774,11 +806,12 @@ mod tests {
 
         let plan = Grok::new().login(home.path()).unwrap();
 
-        assert!(plan
-            .launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string()));
+        assert!(
+            plan.launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
+        );
         assert_eq!(
             plan.credential_files[0],
             std::path::PathBuf::from(".grok/auth.json")

@@ -16,11 +16,11 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::Result;
 use crate::harness::Launch;
 use crate::provision::Provisioned;
-use crate::Result;
 
 /// Spawn `launch` in a fresh PTY with working dir `cwd` and initial size
 /// `(rows, cols)`. Returns the child process handle and the PTY master.
@@ -130,11 +130,11 @@ fn terminal_size() -> (u16, u16) {
 /// blocks forever on the signal iterator and dies with the process.
 fn spawn_resize_watcher(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
     std::thread::spawn(move || {
-        let mut signals =
-            match signal_hook::iterator::Signals::new([signal_hook::consts::SIGWINCH]) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
+        let mut signals = match signal_hook::iterator::Signals::new([signal_hook::consts::SIGWINCH])
+        {
+            Ok(s) => s,
+            Err(_) => return,
+        };
         for _ in signals.forever() {
             if !std::io::stdout().is_terminal() {
                 continue;
