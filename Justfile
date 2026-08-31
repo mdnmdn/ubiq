@@ -1,90 +1,94 @@
-# Harness Multiplexer - Development Commands
+# Ubiq — every command anyone runs. Reference: _docs/tech/operations.md
 
-# Default recipe
+# List the recipes
 default:
     @just --list
 
-# Start development server with hot reload
+# ── the application ────────────────────────────────────────────────
+
+# Run Ubiq
 dev:
-    cargo tauri dev
+    cargo run -p ubiq
 
-# Build the application for production
+# Run Ubiq with debug logging
+verbose:
+    RUST_LOG=debug cargo run -p ubiq
+
+# Build the whole workspace for release
 build:
-    cargo tauri build
+    cargo build --workspace --release
 
-# Build the frontend only
-build-frontend:
-    npm run build
+# ── the harness library ────────────────────────────────────────────
 
-# Check Rust code without building
+# Run the `am` CLI: `just am claude --print-config`
+am *ARGS:
+    cargo run -p agent-manager -- {{ARGS}}
+
+# Build agent-manager's core the way an embedder consumes it
+core:
+    cargo build -p agent-manager --no-default-features
+
+# ── checks ─────────────────────────────────────────────────────────
+
+# Type-check everything, tests and examples included
 check:
-    cd src-tauri && cargo check
+    cargo check --workspace --all-targets
 
-# Check Rust code with all warnings
-check-all:
-    cd src-tauri && cargo check --all-targets
-
-# Run clippy for Rust linting
+# Lint, warnings are errors
 clippy:
-    cd src-tauri && cargo clippy -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
-# Format Rust code
-format-rust:
-    cd src-tauri && cargo fmt
+# Format
+fmt:
+    cargo fmt --all
 
-# Format JavaScript/TypeScript code
-format-js:
-    npm run format
-
-# Install npm dependencies
-install:
-    npm install
-
-# Clean build artifacts
-clean:
-    cd src-tauri && cargo clean
-    rm -rf dist
-    rm -rf node_modules
-
-# Run tests (when available)
+# Test. Stdin is closed: the PTY passthrough tests want a non-interactive one
 test:
-    cd src-tauri && cargo test
-    npm test
+    cargo test --workspace < /dev/null
+
+# check + clippy + test + docs-lint
+verify: check clippy test docs-lint
+
+# ── documentation ──────────────────────────────────────────────────
+
+# Lint _docs/ — L1, L2, L4, L5, L7, L9, L10
+docs-lint *PATHS:
+    uv run _tools/docs.py lint {{PATHS}}
+
+# Regenerate the INDEX catalogue and the code map
+docs-index:
+    uv run _tools/docs.py index
+
+# Fail if a generated block is out of date, without writing
+docs-check:
+    uv run _tools/docs.py index --check
+
+# L3: documents whose anchored files moved after they were verified
+docs-drift:
+    uv run _tools/docs.py drift
+
+# Which documents your change owes an update — no args reads the working diff
+docs-touched *PATHS:
+    uv run _tools/docs.py touched {{PATHS}}
+
+# The depends_on graph: roots, isolated documents, over-connected hubs
+docs-graph:
+    uv run _tools/docs.py graph
+
+# Render a diagram: `just diagram _docs/design/wireframe-opus/02-session.excalidraw.yaml`
+diagram SOURCE:
+    uv run _tools/excalidraw.py to-image -i {{SOURCE}} -o {{without_extension(SOURCE)}}.png --scale 2
+
+# ── housekeeping ───────────────────────────────────────────────────
+
+# Remove build output
+clean:
+    cargo clean
 
 # Update dependencies
 update:
-    cd src-tauri && cargo update
-    npm update
+    cargo update
 
-# Run the application in release mode
-run-release:
-    cargo tauri dev --release
-
-# Generate Tauri icons from a source image (requires ImageMagick)
-generate-icons source="icon.png":
-    # Generate 32x32
-    magick {{source}} -resize 32x32 src-tauri/icons/32x32.png
-    # Generate 128x128
-    magick {{source}} -resize 128x128 src-tauri/icons/128x128.png
-    # Generate 128x128@2x
-    magick {{source}} -resize 256x256 src-tauri/icons/128x128@2x.png
-    # Copy as icon.icns and icon.ico (placeholders)
-    cp src-tauri/icons/128x128.png src-tauri/icons/icon.icns
-    cp src-tauri/icons/128x128.png src-tauri/icons/icon.ico
-
-# Display project information
-info:
-    cargo tauri info
-
-# Check for security vulnerabilities
+# Audit dependencies for advisories
 audit:
     cargo audit
-    npm audit
-
-# Run the application with verbose logging
-verbose:
-    RUST_LOG=debug cargo tauri dev
-
-# Build for specific platform (e.g., just build-platform macos)
-platform target:
-    cargo tauri build --target {{target}}

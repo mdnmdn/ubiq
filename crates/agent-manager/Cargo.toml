@@ -19,8 +19,8 @@ required-features = ["frontend"]
 # Default build (standalone tool) ships both front ends.
 default = ["frontend"]
 # The clap CLI + ratatui TUI. Disable (`default-features = false`) when
-# embedding the library — e.g. the Ubiq Tauri app only needs the core
-# config/harness/project/sync modules.
+# embedding the library — e.g. the Ubiq multiplexer only needs the core
+# spec/resolve/registry/harness/provision modules.
 frontend = ["cli", "tui"]
 # The clap CLI plus the runtime that launches a harness through a PTY.
 cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty", "isolate-lib", "keyring-store"]

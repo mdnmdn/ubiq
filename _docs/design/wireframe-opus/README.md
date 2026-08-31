@@ -1,7 +1,7 @@
 # Ubiq — Wireframes (wireframe-opus)
 
 Desktop UI wireframes for Ubiq, the harness multiplexer. Authored in the
-[simple Excalidraw format](../../simple-excalidraw-spec.md); each screen ships as
+[simple Excalidraw format](../../tech/diagram-format.md); each screen ships as
 `*.excalidraw.yaml` (source), `*.excalidraw` (native, open in Excalidraw), and `*.png` (preview).
 
 A persistent **left sidebar** (dark) is present on every screen: brand, an **Add session**

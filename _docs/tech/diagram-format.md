@@ -1,8 +1,22 @@
+---
+id: tech-diagrams
+title: Diagram format
+kind: tech
+status: current
+summary: The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it.
+read_when: you are editing or rendering a wireframe, or adding a diagram to the documentation
+updated: 2026-08-31
+verified: 2026-08-31
+code_anchors: [_tools/excalidraw.py]
+depends_on: [tech-ui]
+review_cycle: quarterly
+---
+
 # Simple Excalidraw Format — Specification
 
 A compact, YAML-based authoring format for [Excalidraw](https://excalidraw.com) diagrams,
 designed to be easy for humans and AI agents to write by hand. The companion CLI
-(`_tools/excalidraw.py`) converts it to and from the native `.excalidraw` JSON, validates it,
+(`_tools/excalidraw.py`, fronted by `just diagram`) converts it to and from the native `.excalidraw` JSON, validates it,
 and renders SVG/PNG previews.
 
 ## Why
@@ -16,7 +30,7 @@ the converter generates everything else exactly the way Excalidraw's importer ex
 
 ```bash
 # render the bundled example to PNG
-uv run _tools/excalidraw.py to-image -i _docs/examples/sample.excalidraw.yaml -o /tmp/out.png
+uv run _tools/excalidraw.py to-image -i _docs/design/wireframe-opus/02-session.excalidraw.yaml -o /tmp/out.png
 
 # author -> native, via a pipe
 cat diagram.yaml | uv run _tools/excalidraw.py to-excalidraw > diagram.excalidraw
@@ -193,3 +207,14 @@ elements:
     bg: "#b2f2bb"
   - arrow: { from: a, to: b }
 ```
+
+## Where the sources live
+
+The wireframes this format exists for are in `_docs/design/wireframe-opus/`, each shipping as YAML
+source, native diagram JSON, and a rendered PNG. That folder's `README.md` explains the screens and
+how to regenerate the combined board.
+
+## Related docs
+
+- [`ui-and-design.md`](./ui-and-design.md) — the design assets and how they relate to the code
+- [`operations.md`](./operations.md) — `just diagram`, and the rest of the command surface
