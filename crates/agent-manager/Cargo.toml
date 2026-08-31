@@ -23,7 +23,7 @@ default = ["frontend"]
 # config/harness/project/sync modules.
 frontend = ["cli", "tui"]
 # The clap CLI plus the runtime that launches a harness through a PTY.
-cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty", "isolate-lib"]
+cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty", "isolate-lib", "keyring-store"]
 tui = ["dep:ratatui", "dep:crossterm"]
 # The passthrough runner: spawn the real harness in a PTY, forward the tty,
 # resize on SIGWINCH, and propagate its exit code. Pulled in by `cli`; kept
@@ -43,6 +43,13 @@ inproc-mcp = ["dep:tiny_http"]
 # as `src/isolate.rs`'s `am <harness> --isolate`, which shells out to the
 # `isol8` CLI binary and has no dependency on this feature.
 isolate-lib = ["dep:isol8"]
+# `engine = "keyring"` credentials backend: stores secrets in the OS system
+# credential store (macOS Keychain / Windows Credential Manager / Linux
+# Secret Service) via the `keyring` crate, as a sibling to the `os` engine
+# (which uses the `security` CLI on macOS instead). Pulled in by `cli` (so
+# the standalone tool has it); kept separate so the core still builds
+# `--no-default-features` without ever pulling in `keyring`.
+keyring-store = ["dep:keyring"]
 
 [dependencies]
 # CLI (optional — `cli` feature)
@@ -86,6 +93,12 @@ tiny_http = { version = "0.12", optional = true }
 # (`default-features = false` drops isol8's own `cli` feature — its clap/
 # serde_yaml — since agent-manager only calls the `Sandbox` builder API).
 isol8 = { git = "https://github.com/mdnmdn/isol8", branch = "featurs/lib-crate", default-features = false, optional = true }
+
+# OS system credential store for the `keyring` credentials engine (optional —
+# `keyring-store` feature). Default features (`v1`) pull in the
+# platform-native backend: Keychain Services on macOS, Credential Manager on
+# Windows, Secret Service (zbus) on Linux.
+keyring = { version = "4", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

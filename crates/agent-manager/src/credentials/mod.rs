@@ -23,6 +23,11 @@
 //! - [`OsSecretStore`] — the real, OS-encrypted secure store (`engine = "os"`):
 //!   macOS Keychain via a custom keychain file under the config dir, with
 //!   Linux (`secret-tool`) and Windows (DPAPI) drafts.
+//! - [`KeyringSecretStore`] (optional — `keyring-store` feature; `engine =
+//!   "keyring"`) — a sibling to [`OsSecretStore`], storing directly in the OS
+//!   system credential store via the [`keyring`] crate instead of shelling
+//!   out to `security`. See its module doc for the retrieval-prompt/size
+//!   caveats that come with that choice.
 //!
 //! This is core (no `clap`/terminal/tokio, `--no-default-features` builds
 //! it): an embedder can substitute its own [`SecretStore`] (e.g. backed by a
@@ -37,11 +42,15 @@ use crate::Result;
 
 mod file;
 mod keychain;
+#[cfg(feature = "keyring-store")]
+mod keyring_store;
 mod memory;
 mod os;
 
 pub use file::FileSecretStore;
 pub use keychain::PrivateKeychainStore;
+#[cfg(feature = "keyring-store")]
+pub use keyring_store::KeyringSecretStore;
 pub use memory::MemorySecretStore;
 pub use os::OsSecretStore;
 
@@ -203,6 +212,9 @@ fn keychain_dir(settings: &crate::settings::Settings) -> Result<PathBuf> {
 ///   not OS-encrypted; see [`PrivateKeychainStore`]).
 /// - `"os"` (the real, OS-encrypted secure store — macOS Keychain, with
 ///   Linux/Windows drafts) roots at `keychain_dir` too.
+/// - `"keyring"` (optional — `keyring-store` feature; see
+///   [`KeyringSecretStore`]) roots at `keychain_dir` too. Selecting it in a
+///   build without the feature is an error.
 /// - any other string is an error naming the unknown engine.
 pub fn build_secret_store(settings: &crate::settings::Settings) -> Result<Box<dyn SecretStore>> {
     let engine = resolve_engine(settings);
@@ -224,8 +236,15 @@ pub fn build_secret_store(settings: &crate::settings::Settings) -> Result<Box<dy
         }
         "keychain" => Ok(Box::new(PrivateKeychainStore::new(keychain_dir(settings)?))),
         "os" => Ok(Box::new(OsSecretStore::new(keychain_dir(settings)?))),
+        #[cfg(feature = "keyring-store")]
+        "keyring" => Ok(Box::new(KeyringSecretStore::new(keychain_dir(settings)?))),
+        #[cfg(not(feature = "keyring-store"))]
+        "keyring" => anyhow::bail!(
+            "the \"keyring\" credentials engine requires agent-manager to be built with the \
+             \"keyring-store\" feature"
+        ),
         other => anyhow::bail!(
-            "unknown credentials engine '{other}' (expected \"files\", \"keychain\", or \"os\")"
+            "unknown credentials engine '{other}' (expected \"files\", \"keychain\", \"os\", or \"keyring\")"
         ),
     }
 }
