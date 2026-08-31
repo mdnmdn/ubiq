@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs]
 review_cycle: quarterly
 ---
@@ -117,18 +117,20 @@ the transport beneath the contract.
 | The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | Window, panes, chrome, focus | `crates/ubiq/src/app.rs`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
-| Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor and chat state |
+| Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor and chat state. A window holds one tree and one set of open files per project |
 | The message set | `crates/ubiq-proto/src/messages.rs` | The contract, serialisable by construction |
 | The bus, and a pane's byte streams | `crates/ubiq-proto/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
-| Process and PTY lifecycle | `crates/ubiq-host/src/coordinator.rs` | Spawn, supervise, reap. One coordinator thread, started from `for_project()` |
-| PTY streams and backpressure | `crates/ubiq/src/pty/` | `portable-pty` |
+| Process and PTY lifecycle | `crates/ubiq-host/src/coordinator.rs` | Spawn, supervise, reap. One coordinator thread, started by the binary before the first window |
+| PTY streams and backpressure | `crates/ubiq-host/src/pty/` | `portable-pty` |
+| A project's folder, its files and a save | `crates/ubiq-host/src/files/` | The walk, the read and the atomic write, on a worker thread of their own so no listing blocks the coordinator |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
 | Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
 
-`crates/ubiq-app/src/main.rs` does nothing but start the application: install the GPUI component library,
-set the palette, bind the quit action, and ask for the first window. Opening a window is
+`crates/ubiq-app/src/main.rs` does nothing but start the application: resolve the config root, start
+the one host, install the GPUI component library, set the palette, bind the quit action and the
+interface's own, and ask for the first window. Opening a window is
 `app::open_project_window`, the single place one is created, so the first window and "open in a new
 window" cannot drift apart. `main.rs` consumes the crate as a library rather than redeclaring its
 modules, so the tree is compiled once. All real logic sits in the library root,

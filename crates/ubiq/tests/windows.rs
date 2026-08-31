@@ -91,12 +91,12 @@ fn a_project_is_open_in_one_window_at_a_time() {
     registry.register(id(1), 'A', Some(p[0]));
     registry.register(id(2), 'B', Some(p[1]));
 
-    // B takes A's project. A is left with nothing, so its slot goes and its ID comes back for the
-    // caller to close.
-    let emptied = registry.open_in(id(2), p[0]);
+    // B takes A's project. A is left with nothing and stays open on it: a window is never closed
+    // on the user's behalf.
+    assert!(registry.open_in(id(2), p[0]));
 
-    assert_eq!(emptied, vec![id(1)]);
-    assert!(registry.slot(id(1)).is_none());
+    assert!(registry.slot(id(1)).unwrap().projects.is_empty());
+    assert_eq!(registry.slot(id(1)).unwrap().active_project(), None);
     assert_eq!(registry.holder(p[0]).map(|w| w.label), Some('B'));
     assert_eq!(registry.slot(id(2)).unwrap().projects, vec![p[1], p[0]]);
     // What a window takes is what it is pointed at.
@@ -110,22 +110,25 @@ fn a_window_keeping_a_project_is_not_closed() {
     registry.open_in(id(1), p[1]);
     registry.register(id(2), 'B', Some(p[2]));
 
-    let emptied = registry.open_in(id(2), p[1]);
+    assert!(registry.open_in(id(2), p[1]));
 
-    assert!(emptied.is_empty());
     assert_eq!(registry.slot(id(1)).unwrap().projects, vec![p[0]]);
     assert_eq!(registry.slot(id(1)).unwrap().active_project(), Some(p[0]));
 }
 
 #[test]
-fn closing_the_last_project_closes_the_window() {
+fn closing_the_last_project_leaves_the_window_open() {
     let (mut registry, p) = registry(5);
     registry.register(id(1), 'A', Some(p[0]));
     registry.open_in(id(1), p[1]);
 
-    assert!(registry.close(id(1), p[1]).is_empty());
-    assert_eq!(registry.close(id(1), p[0]), vec![id(1)]);
-    assert!(registry.slot(id(1)).is_none());
+    registry.close(id(1), p[1]);
+    assert_eq!(registry.slot(id(1)).unwrap().projects, vec![p[0]]);
+
+    // The last one goes and the window is still there, with nothing open and the picker to offer.
+    registry.close(id(1), p[0]);
+    assert!(registry.slot(id(1)).unwrap().projects.is_empty());
+    assert_eq!(registry.slot(id(1)).unwrap().active_project(), None);
 }
 
 #[test]
@@ -234,25 +237,22 @@ fn activating_a_project_only_repoints_the_window_that_holds_it() {
 // ── the projection ──────────────────────────────────────────────────
 
 #[test]
-fn a_window_on_an_empty_catalogue_is_not_closed() {
-    // The rule "a window with no project closes" would quit the application at boot, when there is
-    // nothing to open and the picker is the only thing worth showing.
-    let mut registry = WindowRegistry::default();
-    assert!(registry.is_empty());
+fn a_window_with_no_project_stays_open_whatever_the_catalogue_holds() {
+    // Nothing to open on a first run, and the picker is the only thing worth showing.
+    let mut empty = WindowRegistry::default();
+    assert!(empty.is_empty());
 
-    let emptied = registry.register(id(1), 'A', None);
+    empty.register(id(1), 'A', None);
 
-    assert!(emptied.is_empty());
-    assert!(registry.slot(id(1)).is_some());
-    assert_eq!(registry.slot(id(1)).unwrap().active_project(), None);
-}
+    assert!(empty.slot(id(1)).is_some());
+    assert_eq!(empty.slot(id(1)).unwrap().active_project(), None);
 
-#[test]
-fn once_a_project_exists_the_ordinary_rule_is_back() {
-    let (mut registry, p) = registry(2);
-    registry.register(id(1), 'A', Some(p[0]));
+    // And with projects to open, which used to be the case that closed the window.
+    let (mut stocked, _) = registry(2);
+    stocked.register(id(2), 'B', None);
 
-    assert_eq!(registry.close(id(1), p[0]), vec![id(1)]);
+    assert!(stocked.slot(id(2)).is_some());
+    assert_eq!(stocked.slot(id(2)).unwrap().active_project(), None);
 }
 
 #[test]
@@ -262,11 +262,10 @@ fn forgetting_the_only_project_leaves_the_window_open() {
     registry.replace_all(vec![snapshot(p[0], "only", "~/dev/only", Some(1))]);
     registry.register(id(1), 'A', Some(p[0]));
 
-    let emptied = registry.forget(p[0]);
+    registry.forget(p[0]);
 
     // Nothing is left to open, so the window stays and offers to add one.
-    assert!(emptied.is_empty());
-    assert!(registry.slot(id(1)).is_some());
+    assert!(registry.slot(id(1)).unwrap().projects.is_empty());
     assert!(registry.is_empty());
 }
 
@@ -329,14 +328,14 @@ fn a_project_the_catalogue_does_not_hold_cannot_be_opened() {
     let (mut registry, p) = registry(2);
     let stranger = ProjectId::generate();
 
-    // Asked for a project that is not there, with a catalogue that has others: the window has
-    // nothing to show and is reaped like any other empty one.
-    let emptied = registry.register(id(1), 'A', Some(stranger));
-    assert_eq!(emptied, vec![id(1)]);
-    assert!(registry.slot(id(1)).is_none());
+    // Asked for a project that is not there: the window opens holding nothing rather than an id
+    // nothing can answer for.
+    registry.register(id(1), 'A', Some(stranger));
+    assert!(registry.slot(id(1)).unwrap().projects.is_empty());
 
-    // A window that does exist cannot be pointed at one either.
+    // A window that does exist cannot be pointed at one either, and the refusal is said so the
+    // caller does not tell the host a window opened it.
     registry.register(id(2), 'B', Some(p[0]));
-    assert!(registry.open_in(id(2), stranger).is_empty());
+    assert!(!registry.open_in(id(2), stranger));
     assert_eq!(registry.slot(id(2)).unwrap().projects, vec![p[0]]);
 }

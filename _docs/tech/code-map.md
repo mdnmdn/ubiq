@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it.
 read_when: you changed a file and need to know which documents owe an update, or you are looking for where something lives
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -36,7 +36,8 @@ crates/ubiq-proto/src/
 ├── lib.rs
 ├── log.rs
 ├── messages.rs
-└── projects.rs
+├── projects.rs
+└── files.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -53,7 +54,10 @@ crates/ubiq-host/src/
 ├── config.rs
 ├── gc.rs
 ├── health.rs
-└── projects.rs
+├── projects.rs
+└── files/
+    ├── mod.rs
+    └── path.rs
 
 crates/ubiq/src/
 ├── state/
@@ -124,6 +128,7 @@ the documents in its row.
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-proto/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-proto/src/bus.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-proto/src/files.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/ids.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/log.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
@@ -133,6 +138,8 @@ the documents in its row.
 | `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md) |
+| `crates/ubiq/src/state/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/logs.rs` | [`features/logs.md`](../features/logs.md) |
 | `crates/ubiq/src/state/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/prefs.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -145,6 +152,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/chat/sidebar.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/chat/transcript.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/empty.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/kit/mod.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/logs.rs` | [`features/logs.md`](../features/logs.md), [`features/workbench.md`](../features/workbench.md) |
@@ -165,16 +173,15 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 |---|
 | `crates/ubiq-host/src/atomic.rs` |
 | `crates/ubiq-host/src/config.rs` |
+| `crates/ubiq-host/src/files/mod.rs` |
+| `crates/ubiq-host/src/files/path.rs` |
 | `crates/ubiq-host/src/gc.rs` |
 | `crates/ubiq-host/src/health.rs` |
 | `crates/ubiq-host/src/mcp_server.rs` |
 | `crates/ubiq-host/src/store/file.rs` |
 | `crates/ubiq-host/src/store/memory.rs` |
 | `crates/ubiq-host/src/store/mod.rs` |
-| `crates/ubiq/src/state/editor.rs` |
-| `crates/ubiq/src/state/explorer.rs` |
 | `crates/ubiq/src/state/sample.rs` |
-| `crates/ubiq/src/ui/empty.rs` |
 | `crates/ubiq/src/ui/kit/controls.rs` |
 | `crates/ubiq/src/ui/kit/menu.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |

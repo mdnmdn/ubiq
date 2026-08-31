@@ -106,6 +106,15 @@ impl Projects {
         self.records.iter().find(|r| r.id == id)
     }
 
+    /// One record, for the coordinator.
+    ///
+    /// Starting a harness and reading a file both need a project's folder and nothing else the
+    /// catalogue holds, so this is the whole surface either of them takes — a lookup in memory,
+    /// with no syscall on the run loop.
+    pub fn record(&self, id: ProjectId) -> Option<&ProjectRecord> {
+        self.find(id)
+    }
+
     /// Write a record down, and say so only the first time durability is lost.
     fn keep(&mut self, record: ProjectRecord) -> Option<Reply> {
         match self.records.iter_mut().find(|r| r.id == record.id) {

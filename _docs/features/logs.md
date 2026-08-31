@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq-app/src/main.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -81,7 +81,9 @@ watching.
 **Two controls decide what is drawn.** The subsystem selector picks one subsystem or `All`; the level
 selector sets a floor, so `WARN` means warnings and errors. Both sit in the dock's tab strip while
 the console is the tab shown, beside the record count, the follow switch and `Clear` — the strip
-carries the actions of whatever tab is active, so a pane tab shows the dock's `+` instead. Both are
+carries the actions of whatever tab is active, so a pane tab shows the dock's `+` instead — and a
+window with no project shows the console alone, which is the state in which it is most worth
+reaching. Both are
 the window's own state, so two windows can watch the same ring through different filters.
 
 **A row states when, how loud, from where and what.** Time in the reader's own zone to the

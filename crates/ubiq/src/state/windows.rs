@@ -11,9 +11,10 @@
 //! idempotent by construction.
 //!
 //! Two rules the whole feature rests on. **A project is open in at most one window** — opening it
-//! somewhere takes it from wherever it was. And **a window with no project open has nothing to
-//! show**, so it is closed — except when the catalogue is empty, where a window with nothing open
-//! still has an "Add a project…" to offer, and closing it would quit the application at boot.
+//! somewhere takes it from wherever it was. And **a window with no project open stays open**,
+//! showing what it has to offer instead: the picker, and "Add a project…". Ubiq never closes a
+//! window on the user's behalf, whatever the catalogue holds — closing one is the user's action,
+//! and the application ends with the last of them.
 
 use std::collections::BTreeMap;
 
@@ -127,8 +128,8 @@ impl WindowRegistry {
 
     /// Replace the whole catalogue, as `ProjectList` says it is.
     ///
-    /// A window holding a project that no longer exists loses it, but is **not** reaped here: the
-    /// catalogue arriving is not the user closing anything.
+    /// A window holding a project that no longer exists loses it and stays open on nothing, because
+    /// the catalogue arriving is not the user closing anything.
     pub fn replace_all(&mut self, projects: Vec<ProjectSnapshot>) {
         self.projects = projects.into_iter().map(|p| (p.record.id, p)).collect();
         let known: Vec<ProjectId> = self.projects.keys().copied().collect();
@@ -143,25 +144,22 @@ impl WindowRegistry {
         self.projects.insert(project.record.id, project);
     }
 
-    /// The host has forgotten a project. Answers the windows this emptied.
-    pub fn forget(&mut self, id: ProjectId) -> Vec<WindowId> {
+    /// The host has forgotten a project. Every window that held it is left pointed at whatever else
+    /// it holds, or at nothing.
+    pub fn forget(&mut self, id: ProjectId) {
         self.projects.remove(&id);
         for slot in &mut self.windows {
             remove(slot, id);
         }
-        self.reap()
     }
 
     // ── which window holds what ─────────────────────────────────────
 
     /// Add a window, optionally pointed at one project taken from whichever window held it.
-    /// Answers the windows that opening it emptied, which the caller closes.
-    pub fn register(
-        &mut self,
-        id: WindowId,
-        label: char,
-        project: Option<ProjectId>,
-    ) -> Vec<WindowId> {
+    ///
+    /// A project the catalogue does not hold is dropped rather than registered, so the window opens
+    /// on nothing instead of on an id nothing can answer for.
+    pub fn register(&mut self, id: WindowId, label: char, project: Option<ProjectId>) {
         let project = project.filter(|p| self.projects.contains_key(p));
         if let Some(project) = project {
             self.release(project);
@@ -172,7 +170,6 @@ impl WindowRegistry {
             projects: project.into_iter().collect(),
             active: 0,
         });
-        self.reap()
     }
 
     /// Drop a window's slot. Everything it held goes back to history.
@@ -180,17 +177,23 @@ impl WindowRegistry {
         self.windows.retain(|w| w.id != id);
     }
 
-    /// Open a project in a window, taking it from any other. Answers the windows this emptied.
-    pub fn open_in(&mut self, id: WindowId, project: ProjectId) -> Vec<WindowId> {
+    /// Open a project in a window, taking it from any other.
+    ///
+    /// Answers whether it happened: a project the catalogue does not hold cannot be opened, and the
+    /// caller must not then tell the host that a window pointed at it.
+    pub fn open_in(&mut self, id: WindowId, project: ProjectId) -> bool {
         if !self.projects.contains_key(&project) {
-            return Vec::new();
+            return false;
         }
         self.release(project);
-        if let Some(slot) = self.windows.iter_mut().find(|w| w.id == id) {
-            slot.projects.push(project);
-            slot.active = slot.projects.len() - 1;
+        match self.windows.iter_mut().find(|w| w.id == id) {
+            Some(slot) => {
+                slot.projects.push(project);
+                slot.active = slot.projects.len() - 1;
+                true
+            }
+            None => false,
         }
-        self.reap()
     }
 
     /// Point a window at a project it already holds.
@@ -202,12 +205,12 @@ impl WindowRegistry {
         }
     }
 
-    /// Close a project in a window. Answers the windows this emptied.
-    pub fn close(&mut self, id: WindowId, project: ProjectId) -> Vec<WindowId> {
+    /// Close a project in a window. The window stays, pointed at whatever else it holds, or at
+    /// nothing.
+    pub fn close(&mut self, id: WindowId, project: ProjectId) {
         if let Some(slot) = self.windows.iter_mut().find(|w| w.id == id) {
             remove(slot, project);
         }
-        self.reap()
     }
 
     /// The three groups one window's picker shows, filtered on name and path so a path fragment
@@ -268,25 +271,6 @@ impl WindowRegistry {
         for slot in &mut self.windows {
             remove(slot, project);
         }
-    }
-
-    /// Drop every window left with nothing open, and answer which they were.
-    ///
-    /// **Except when the catalogue is empty.** A window with no project normally has nothing to
-    /// show, but with nothing to open it still offers "Add a project…", and reaping it would quit
-    /// the application on a first run.
-    fn reap(&mut self) -> Vec<WindowId> {
-        if self.projects.is_empty() {
-            return Vec::new();
-        }
-        let emptied: Vec<WindowId> = self
-            .windows
-            .iter()
-            .filter(|w| w.projects.is_empty())
-            .map(|w| w.id)
-            .collect();
-        self.windows.retain(|w| !w.projects.is_empty());
-        emptied
     }
 }
 

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface is drawn in, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, or looking for the wireframe a layout came from
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -22,9 +22,10 @@ set on top for the components an application expects to be given rather than to 
 Three properties shape how UI code reads:
 
 **Views are structs that render.** A type implementing `Render` owns its state and produces an
-element tree from it. `AppState` in `crates/ubiq/src/app.rs` is the root and the only one: it owns
-the panes, the focused pane and the layout mode, plus the workbench, explorer, editor and chat
-state, and its render delegates to `crates/ubiq/src/ui/shell.rs`.
+element tree from it. `AppState` in `crates/ubiq/src/app.rs` is the root and the only one: it owns the
+window's own state — the layout mode, the chat, the console, the emulators — and one `OpenProject` per
+project the window holds, carrying that project's tree, files and panes. Its render delegates to
+`crates/ubiq/src/ui/shell.rs`.
 
 **Mutation ends in a redraw request.** Nothing repaints because a field changed; it repaints because
 the code that changed it said so through its context. Every state-mutating method on `AppState` ends
@@ -193,11 +194,13 @@ while the content moves under it — not a child, which would scroll with the co
 
 To add an area to the window:
 
-1. Put its state in `crates/ubiq/src/state/`, as data plus small mutators. No component-library
-   types and nothing that draws.
-2. Add a field to `AppState`, and a mutator that ends in `cx.notify()`. Any component-library state
-   it needs — an `InputState`, an `EditorState` — is an `Entity` field there too, with its
-   subscription pushed onto `_subscriptions`.
+1. Put its state in `crates/ubiq/src/state/`, as data plus small mutators. Nothing that draws, and no
+   component-library type unless the widget's own state *is* the thing being modelled —
+   `state/editor.rs` holds a buffer per open file for that reason, and it is the exception.
+2. Add a field to `AppState`, or to `OpenProject` when it belongs to a project rather than to the
+   window, and a mutator that ends in `cx.notify()`. Any component-library state the window itself
+   needs — an `InputState` — is an `Entity` field on `AppState`, with its subscription pushed onto
+   `_subscriptions`.
 3. Write `crates/ubiq/src/ui/<area>.rs` as `fn render(&AppState, &mut Context<AppState>)`, and hang
    it off `shell.rs`.
 4. Reach for a `gpui-component` widget first. If there is none, and a second caller wants the same thing,

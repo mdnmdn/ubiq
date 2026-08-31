@@ -73,6 +73,9 @@ fn main() {
                 KeyBinding::new("cmd-q", Quit, None),
                 KeyBinding::new("ctrl-q", Quit, None),
             ]);
+            // Quit is the application's; everything else a window answers to belongs to the
+            // interface, which binds it beside the action it dispatches.
+            app::install_key_bindings(cx);
 
             // Nothing is open yet: the window asks the host what exists and points itself at the
             // most recently opened, or at nothing when the catalogue is empty.

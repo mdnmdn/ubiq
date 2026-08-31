@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane family, the session family, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project and file families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-08-31
-verified: 2026-08-31
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs]
+updated: 2026-09-01
+verified: 2026-09-01
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -28,7 +28,8 @@ without a body omit `payload` entirely.
 
 ```json
 { "type": "SpawnWorkspace",
-  "payload": { "session_id": "…", "agent_type": "claude", "args": [], "folder": null } }
+  "payload": { "session_id": "…", "project_id": "…", "rel_path": null,
+               "agent_type": "claude", "args": [] } }
 ```
 
 Every id in the contract is a ULID behind a per-kind newtype — `PaneId`, `SessionId`,
@@ -69,7 +70,7 @@ The control path. Lower volume, request-and-response.
 | `CreateSession` | UI → coordinator | `name`, `agent_type`, `home_folder?` | `SessionCreated` |
 | `AttachToSession` | UI → coordinator | `session_id` | `SessionAttached` |
 | `DetachFromSession` | UI → coordinator | `session_id` | — |
-| `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id?`, `agent_type?`, `args`, `folder?` | `WorkspaceSpawned` |
+| `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args` | `WorkspaceSpawned` or `ProjectError` |
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
 | `SessionList` | coordinator → UI | `sessions[]` | — |
@@ -80,10 +81,16 @@ The control path. Lower volume, request-and-response.
 | `Status` | coordinator → UI | `message` | — |
 | `Error` | coordinator → UI | `message` | — |
 
-An optional field marked `?` falls back to the session's default: `home_folder` to the session home,
-`folder` to the session's `home_folder`, and `agent_type` to the agent type the session starts when
-it is told nothing. `args` is the argument list the harness is launched with, empty for a plain
-start.
+An optional field marked `?` falls back to a default: `home_folder` to the session home, `rel_path`
+to the project's own root, and `agent_type` to the agent type the session starts when it is told
+nothing. `args` is the argument list the harness is launched with, empty for a plain start.
+
+**`SpawnWorkspace` names a project, not a folder.** `project_id` is not optional, because a pane's
+working directory is the project's folder and nothing else: the host resolves it from the record and
+the interface never holds the path. A spawn into a project whose folder is missing, is not a
+directory or cannot be read is refused with a `ProjectError` **before a pseudo-terminal exists**, and
+the fresh snapshot is broadcast so every picker marks the row from the probe that just happened. A
+`rel_path` that escapes the root is refused the same way.
 
 `CloseWorkspace` names a pane rather than a workspace ID because the two are the same ID, and the
 pane is what the user closed. It kills and reaps the harness; it is the only variant that ends one.
@@ -123,9 +130,11 @@ a `Preferences` go only to the window that asked.
 recolour is display only: it touches no filesystem and cannot fail. Locate changes truth — it
 canonicalises, re-probes the folder, and is refused when another record already owns it.
 
-**No message browses a filesystem.** A folder is chosen in the platform's own dialog and reaches the
-host as the `path` of an `AddProject` or a `LocateProject` — which makes the interface's filesystem
-the one being browsed, and is the one place the two halves are assumed to share a machine (`D32`).
+**No message browses a filesystem to find a project.** A project's folder is chosen in the platform's
+own dialog and reaches the host as the `path` of an `AddProject` or a `LocateProject` — which makes
+the interface's filesystem the one being browsed, and is the one place the two halves are assumed to
+share a machine (`D32`). Once a project exists, browsing *inside* it is the file family's, and every
+path in it is relative.
 
 **`HostInfo` is unsolicited**, sent once to each window as it attaches. The interface reads no
 disk, so it is the only way the status bar can say that a run is not writing to the usual place.
@@ -136,21 +145,87 @@ already in the catalogue answers with the project that is there, so no duplicate
 **`ForgetProject` is not deleting.** It removes the record and the project's own directory in
 Ubiq's config, and touches nothing inside the project's folder.
 
+## The file family
+
+The fourth family. Every variant names a project by id **and a path by `rel_path`**, because an
+answer arrives after the click that asked for it and the window may have changed project since.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth` | `ProjectTreeListing` or `ProjectFileError` |
+| `ReadProjectFile` | UI → host | `project_id`, `rel_path`, `max_bytes?` | `ProjectFileContents` or `ProjectFileError` |
+| `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?` | `ProjectFileWritten` or `ProjectFileError` |
+| `ProjectTreeListing` | host → UI | `project_id`, `rel_path`, `listings[]` | — |
+| `ProjectFileContents` | host → UI | `project_id`, `rel_path`, `contents` | — |
+| `ProjectFileWritten` | host → UI | `project_id`, `rel_path`, `version` | — |
+| `ProjectFileError` | host → UI | `project_id`, `rel_path`, `error` | — |
+
+Every one of these answers only the window that asked. Nothing in this family is broadcast: what one
+window is looking at is not a fact about the catalogue.
+
+**The interface holds project-relative paths only.** A `rel_path` is forward-slashed, has no leading
+slash and no `..`, and is empty for the project's root. The host resolves it against the record's
+root, and one that escapes the root after every symlink is resolved is refused. This is the
+file-level form of the rule that the UI never assumes the pseudo-terminal is local, and it is the
+seam a remote drone slots into: a project id and a relative path do not say which machine answered.
+
+**A listing is one directory.** `depth` asks the host to descend, and it is clamped; the reply is a
+flat list of one-level listings whatever was asked for, so a depth change never changes a type. The
+interface asks for `depth: 1` when a folder is expanded, which is why a repository's `node_modules`
+costs one row rather than a walk. A directory over the host's entry ceiling comes back `truncated`
+rather than quietly short.
+
+**Contents cross as bytes**, on the same discipline that keeps terminal bytes uninterpreted: a read
+cut short at the ceiling can sever a multi-byte sequence, a binary file has no text at all, and which
+encoding to draw is the interface's decision. `is_binary` is the host reporting a NUL byte near the
+start, not a verdict on encoding.
+
+**A save names the version it read.** `expected` is the `FileVersion` that came back with the
+contents, and a mismatch is refused as `Conflict` with the file untouched — which is what stops a
+save landing on a change an agent made in a pane. `expected` absent means creating a file, and is
+refused if anything is already there. No folder is ever created, the mirror of `AddProject` never
+creating one, and the write is atomic and keeps the file's permissions.
+
+**A truncated read cannot be saved**, and mechanically rather than by the interface remembering:
+`FileContents.version` is absent when `truncated`, so there is no version to name, and a write naming
+none is refused on a file that exists.
+
+**`ProjectFileError` is per path**, not per project, for the reason `PaneError` is per pane: the
+interface can only mark the row or the tab the user is looking at if the message says which one. Its
+`error` is a `FileError` — `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict` or `Failed` — and
+each arm is a different thing for the interface to do rather than a sentence to match on. **The host
+does not re-probe a project's health for a file failure**; a `Missing` or a `Denied` is the
+interface's cue to send `RefreshProject`, which is the project family's job.
+
 ## The payload records
 
-Five records travel inside payloads.
+Nine records travel inside payloads.
 
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
-| `WorkspaceInfo` | `id`, `session_id`, `agent_type`, `folder`, `cols`, `rows`, `running` |
+| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `AgentTypeInfo` | `name`, `command`, `description`, `default_args` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health` and `open_panes` |
+| `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
+| `DirListing` | `rel_path`, `entries[]`, `truncated` |
+| `FileContents` | `bytes`, `len`, `truncated`, `is_binary`, `version?` |
+| `FileVersion` | `len`, `modified?` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
 what stops a stale health flag or a pane count from being written down and believed at the next
-boot. `health` is `Ok`, `Missing`, `NotADirectory`, or `Unreadable` with the reason.
+boot.
+
+Four enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
+`Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
+or `Failed`, and the file family's section says what each one asks the interface to do.
+
+`EntryKind` is `Dir`, `File`, or `Other` — a symlink leading out of the project or nowhere, a socket,
+a device, a pipe. `Other` is **drawn and refused**: the row appears, because a tree with rows missing
+is a tree that lies, and a `ProjectTree` or a `ReadProjectFile` naming it comes back `WrongKind`.
+`size` is present only for a regular file, and it is the only way the interface can know how large
+something is before it asks for it.
 
 A `Scope` — `Interface` or `Project(ProjectId)` — says what a stored preference belongs to. Its
 `value` is **opaque**: a string the host writes down and hands back and never parses, on the same
@@ -173,11 +248,15 @@ mechanical form of the rule that the UI never assumes the pseudo-terminal is loc
   a send never waits on a receiver. A queue that fills is a UI that has fallen behind, not a
   harness that has stopped. What a bounded transport would drop instead is open — see
   [`../backlog.md`](../backlog.md).
+- **The file family is answered in the order it was asked.** One worker and one queue, so two
+  expands of the same folder cannot leave the older answer on screen. A pool would reorder, and
+  fixing that would cost a sequence number on the wire.
 
 ## Adding a variant
 
-1. Decide the family. If it names a pane it belongs to the pane family; if it names a project, the
-   project family; otherwise the session family.
+1. Decide the family. If it names a pane, the pane family. If it names a project **and a path inside
+   it**, the file family. If it names a project alone, the project family. Otherwise the session
+   family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

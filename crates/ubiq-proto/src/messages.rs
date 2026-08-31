@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::files::{DirListing, FileContents, FileError, FileVersion};
 use crate::ids::{PaneId, ProjectId, SessionId};
 use crate::projects::{ProjectSnapshot, Scope};
 
@@ -52,16 +53,21 @@ pub enum Message {
     },
 
     // ── Session family ──────────────────────────────────────────────
-    /// Start a workspace, and with it the pane that shows it. `agent_type` and `folder` fall back
-    /// to the session's defaults when absent.
+    /// Start a workspace, and with it the pane that shows it.
+    ///
+    /// The harness starts in the project's folder, or in `rel_path` below it. `agent_type` falls
+    /// back to the session's default when absent. A spawn into a project whose folder is missing,
+    /// is not a directory or cannot be read is refused with [`Message::ProjectError`] before a
+    /// pseudo-terminal exists, rather than becoming a failed spawn.
     SpawnWorkspace {
         session_id: SessionId,
-        /// Which project the pane belongs to, so the catalogue can count what is running in it.
-        /// Absent only while a window holds no project.
-        project_id: Option<ProjectId>,
+        /// Which project the pane runs in. Not optional: the project's folder is the only thing a
+        /// pane's working directory can be, so the interface draws no pane without one.
+        project_id: ProjectId,
+        /// Where in the project to start. Absent is its root.
+        rel_path: Option<String>,
         agent_type: Option<String>,
         args: Vec<String>,
-        folder: Option<String>,
     },
     /// The answer to [`Message::SpawnWorkspace`], carrying the pane the UI now draws.
     WorkspaceSpawned {
@@ -148,6 +154,64 @@ pub enum Message {
         scope: Scope,
         value: Option<String>,
     },
+
+    // ── File family: UI → host ──────────────────────────────────────
+    /// One level of a project's tree. `rel_path` is empty for the root; `depth` is how many levels
+    /// below it to list, clamped by the host, and one is what an expand asks for.
+    ProjectTree {
+        project_id: ProjectId,
+        rel_path: String,
+        depth: u8,
+    },
+    /// Read a file. `max_bytes` narrows the host's own ceiling and never widens it.
+    ReadProjectFile {
+        project_id: ProjectId,
+        rel_path: String,
+        max_bytes: Option<u64>,
+    },
+    /// Save a file, whole.
+    ///
+    /// The interface sends the buffer it holds, never a patch, and names the version it read so a
+    /// write cannot land on somebody else's change. `expected` absent means it is creating a file
+    /// that must not already exist. No folder is ever created — the mirror of
+    /// [`Message::AddProject`] never creating one.
+    WriteProjectFile {
+        project_id: ProjectId,
+        rel_path: String,
+        bytes: Vec<u8>,
+        expected: Option<FileVersion>,
+    },
+
+    // ── File family: host → UI ──────────────────────────────────────
+    /// `rel_path` first, then every directory listed below it. Both paths are echoed, because an
+    /// answer arrives after the click that asked for it and has to land on the right row.
+    ProjectTreeListing {
+        project_id: ProjectId,
+        rel_path: String,
+        listings: Vec<DirListing>,
+    },
+    ProjectFileContents {
+        project_id: ProjectId,
+        rel_path: String,
+        contents: FileContents,
+    },
+    /// The file as it now is, so the tab's next save has a version to name and its dirty mark
+    /// clears on a fact rather than on optimism.
+    ProjectFileWritten {
+        project_id: ProjectId,
+        rel_path: String,
+        version: FileVersion,
+    },
+    /// Something went wrong for one path in one project.
+    ///
+    /// Separate from [`Message::ProjectError`] on the reasoning that separates
+    /// [`Message::PaneError`] from a catalogue-wide one: the interface can only mark the row or the
+    /// tab the user is looking at if the message says which one.
+    ProjectFileError {
+        project_id: ProjectId,
+        rel_path: String,
+        error: FileError,
+    },
 }
 
 /// One running workspace, as the UI is told about it. It carries no process, no writer and no
@@ -159,7 +223,12 @@ pub struct WorkspaceInfo {
     pub session_id: SessionId,
     /// The resolved agent type — what the coordinator actually started.
     pub agent_type: String,
-    pub folder: Option<String>,
+    /// Which project the pane runs in. It is what routes a spawn that lands after the window has
+    /// switched projects, and it is why no absolute path is needed here: the interface already
+    /// holds the project's name and path-free identity in its projection.
+    pub project_id: ProjectId,
+    /// Where in the project it started, absent for its root.
+    pub rel_path: Option<String>,
     pub cols: u16,
     pub rows: u16,
     pub running: bool,

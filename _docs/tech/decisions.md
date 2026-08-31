@@ -402,6 +402,93 @@ different answer: that is the explorer's, drawn in the interface over a project-
 detached host makes the dialog point at the wrong machine, and the browser this replaces would have
 to come back — as a host-side listing behind the same two messages, not as a third path. Filed.
 
+### D33 — A window with no project stays open, and Ubiq never closes a window by itself
+
+A window whose last project was closed used to close, with an exception carved out for a first run so
+that booting on an empty catalogue did not quit the application. The exception was the tell: "no
+project open" was a real state the design kept trying not to have, reachable only by accident, and so
+never drawn. It is the empty state instead — no panes, an explorer that says so, and an "Add a
+project…" in the middle of the window — and the rule it needed is gone. `WindowRegistry::reap` is
+deleted, and with it the convention where four mutations each answered with the windows they had
+emptied.
+
+**Cost:** a window may sit there holding nothing, which is one more screen to design and to keep
+honest. The application still quits with its last *window*, so nothing about shutdown moved; what
+moved is that only the user closes a window.
+
+### D34 — A file failure names its path, not just its project
+
+`ProjectFileError` carries a `project_id` **and** a `rel_path`, and its `error` is a `FileError` enum
+rather than a sentence. `ProjectError` has nowhere to put a path, so the interface would have to
+guess which tab to un-load or which folder to stop spinning, or mark the whole project for one
+unreadable file. This is the third instance of a rule the contract states twice over: `PaneError` is
+per pane so the message can go where the user is looking.
+
+**Cost:** a fourth error variant, and an enum whose arms both halves have to agree about. The
+alternative — one error type for everything — costs the interface a prose match on every failure.
+
+### D35 — The file tree is listed one directory at a time
+
+`ProjectTree` asks for one level, and the interface asks again when a folder is expanded. A bounded
+eager walk was the alternative, and it loses on a real repository: `node_modules` and `target` are
+hundreds of thousands of entries, and lazily each of them costs exactly one row and no recursion —
+which is what stops the ignore set being the thing that saves you. It is also the shape a filesystem
+watch wants (invalidate one directory, ask for one listing) and the shape a bounded transport wants
+(a reply is bounded by one directory, not by the repository).
+
+The ignore set follows from this: it **bounds descent and never hides a row**. A `ProjectTree` aimed
+straight at `node_modules` lists it in full, because a tree with rows missing is a tree that lies. A
+false positive — a `build/` holding real source — costs one extra click rather than a hidden file.
+
+**Cost:** expanding a folder costs a round trip, so a deep tree is restored over several. Reading
+`.gitignore` instead of a fixed set is filed, and is the one thing that would justify the `ignore`
+crate.
+
+### D36 — The file family runs off the coordinator's thread
+
+A `read_dir` on a cold directory, a `canonicalize` on a dead network mount and a two-megabyte read
+all block, and the coordinator's loop is what every pane's keystrokes and resizes pass through. So
+file requests go to one worker thread and answer through a `Mailbox`, which is the device a pane's
+reader thread uses for the same reason. This is the dual of the rule that a slow UI never blocks the
+coordinator's reader.
+
+One thread rather than a pool, deliberately: FIFO means one window's replies arrive in the order it
+asked, which is what makes "replace the rows under this path" safe. A pool reorders, so two clicks on
+one folder could leave the older answer on screen, and fixing that costs a sequence number on the
+wire.
+
+**Cost:** head-of-line blocking. A request against a hung mount holds the ones behind it. The fix is
+the sequence number and a pool, and it is filed rather than built.
+
+### D37 — A save names the version it read, and is refused if that moved
+
+`WriteProjectFile` carries the `FileVersion` that came back with the contents, and a mismatch is a
+`Conflict` with the file untouched. Ubiq is not the only thing editing these files — the agents in
+the panes are — so last-writer-wins would silently discard an agent's edit, which is exactly the
+class of loss the feature must not introduce. A write with no version means *create*, and is refused
+if anything is there; the other reading, "force overwrite", is a footgun the contract would be
+handing out for free.
+
+A read cut short at the byte ceiling comes back with **no** version, which is what makes a truncated
+buffer unsavable mechanically rather than by the interface remembering not to offer it.
+
+**Cost:** an extra stat either side of a read, and a conflict the user has to resolve by hand —
+Ubiq offers no merge. Writes are atomic and preserve the file's permissions, so a saved script does
+not stop being executable.
+
+### D38 — Each open file owns its buffer
+
+One `EditorState` per open file, replacing the single shared buffer that was copied in and out on
+every tab click. With real bytes behind a tab the shared buffer stops working rather than merely
+costing a copy: "dirty" has to be a comparison against exactly what the host sent, contents can
+arrive for a tab that is not in front, and a tab can exist with no bytes yet — none of which a
+single buffer can express. Buffers also survive a project switch with their undo history, which is
+the same promise the panes make.
+
+**Cost:** N editor entities and N change subscriptions per window, each carrying a highlighter and an
+undo stack — what every editor in this class carries. `state/editor.rs` names the component library,
+which it was written not to.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

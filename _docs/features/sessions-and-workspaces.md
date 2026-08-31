@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -28,16 +28,21 @@ holds zero or more workspaces. Creating one starts nothing; it makes a place for
 started in. Several sessions exist at once and are independent of each other.
 
 **A session's home folder is created if it is absent.** The default is the workspace folder under
-the application's own directory. Every workspace in the session inherits it unless given a folder of
-its own.
+the application's own directory.
+
+**A workspace's working directory is its project's, not its session's.** `SpawnWorkspace` names a
+project, and the host resolves the folder from that project's record; an optional path relative to it
+starts the harness in a subdirectory. The session's home folder is what a session with no project
+would fall back to, and no caller does that — a window with no project spawns nothing.
 
 **Attaching is how the user sees a session.** Attaching returns the session and the full list of its
 workspaces, so the UI can rebuild the panes from one message rather than reconstructing state
 incrementally. Detaching removes the view and touches nothing else — the agents keep running, and
 reattaching finds them where they were.
 
-**A workspace is one agent, one directory, one terminal.** It carries its agent type, its folder,
-its terminal dimensions, and whether the process is alive. Spawning one creates a pseudo-terminal,
+**A workspace is one agent, one project, one terminal.** It carries its agent type, the project it
+runs in and where inside it, its terminal dimensions, and whether the process is alive. It carries no
+absolute path: the interface is told which project, and holds the name and colour for that already. Spawning one creates a pseudo-terminal,
 launches the harness inside it, and starts streaming output.
 
 **A workspace never outlives its session in the user's model.** Closing a session closes its
@@ -58,8 +63,9 @@ correctly; one that never learns its size does not.
 
 The session family of the transport contract carries all of this: `CreateSession`, `AttachToSession`,
 `DetachFromSession`, `ListSessions`, `SpawnWorkspace`, `ListAgentTypes`, and the responses to each.
-`SpawnWorkspace` also names the project the pane belongs to, so the catalogue can count what is
-running in it.
+`SpawnWorkspace` names the project the pane belongs to — which is where its working directory comes
+from, and what lets the catalogue count what is running in it — and answers `ProjectError` instead
+when that project's folder cannot be worked in.
 Variant names, payload fields and the `SessionInfo`, `WorkspaceInfo` and `AgentTypeInfo` records are
 owned by [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
@@ -79,8 +85,10 @@ design change; both are listed in [`../backlog.md`](../backlog.md).
 launch facts come from the embedded harness library rather than a hard-coded table — see
 [`../tech/agent-manager.md`](../tech/agent-manager.md).
 
-The spawn path, in order: resolve the agent type, falling back to what the session starts by
-default; resolve the folder; open a pseudo-terminal pair at 80×24; build the command with its
+The spawn path, in order: look the project's record up and probe its folder, refusing before
+anything is opened if it cannot be worked in; resolve the working directory from that record and the
+optional path below it; resolve the agent type, falling back to what the session starts by default;
+open a pseudo-terminal pair at 80×24; build the command with its
 arguments, its working directory and the `TERM` and `COLORTERM` a harness reads before it decides
 what it may draw; spawn the child; take a writer and a reader from the master; start the reader
 thread and the one that waits for the child; and answer with the workspace, which is what makes the
@@ -111,4 +119,4 @@ restarts, and what "reattach" means once the coordinator is a separate process, 
 
 - Persist sessions across restarts, so reattaching survives a quit.
 - Rename and delete a session from the UI.
-- Spawn a workspace into a folder chosen per workspace rather than inherited.
+- Let the user choose which folder inside a project a workspace starts in.

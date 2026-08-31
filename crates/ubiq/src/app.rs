@@ -1,9 +1,13 @@
 //! `AppState`: everything the window knows, and the root of its element tree.
 //!
-//! It owns the panes, the focused pane and the layout mode, plus the workbench's own state — which
-//! rail mode is active, which panels are open, what the explorer, the editor and the chat are
-//! showing. No process handle and no pseudo-terminal reaches this far: a pane is an ID, a title,
-//! and an emulator reading one end of the bus.
+//! It owns the window's own chrome — which rail mode is active, which panels are open, what the
+//! chat is showing — and one [`OpenProject`] for every project it holds. No process handle and no
+//! pseudo-terminal reaches this far: a pane is an ID, a title, and an emulator reading one end of
+//! the bus.
+//!
+//! **A project's state lives as long as the window holds the project.** Its panes, its tree and
+//! its open files are looked up rather than rebuilt, so switching between two projects kills
+//! nothing and asks the host for nothing — and switching back finds the terminals still running.
 //!
 //! Every mutator ends in `cx.notify()`. One that forgets is a panel that stops updating.
 
@@ -11,8 +15,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::state::{
-    ChatState, EditorPaneState, ExplorerState, LogState, MenuId, RailMode, WindowRegistry,
-    WorkbenchState, prefs, sample,
+    ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, RailMode, Toggle,
+    WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -25,9 +29,20 @@ use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, Textar
 use gpui_component::resizable::ResizableState;
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
+use ubiq_proto::files::{FileContents, FileError};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
+
+/// How much of a file the interface asks for. The host has a ceiling of its own and this never
+/// widens it; what it does is keep a buffer the user cannot read to the end of off the bus.
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// One level of a folder is what an expand asks for. A deeper walk exists for revealing a path,
+/// which nothing does yet.
+const EXPAND_DEPTH: u8 = 1;
+
+gpui::actions!(ubiq, [SaveFile]);
 
 /// The process-wide switchboard, so every window reaches the same host.
 ///
@@ -69,7 +84,7 @@ struct PaneTerminal {
     output: Option<flume::Sender<Vec<u8>>>,
 }
 
-/// What the dock's body draws. Which pane, when it is a pane, is [`AppState::focused_pane`].
+/// What the dock's body draws. Which pane, when it is a pane, is the active project's focused one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DockTab {
     /// The focused pane's terminal.
@@ -98,14 +113,68 @@ pub enum LayoutMode {
     Grid,
 }
 
+/// What one window holds for one project it has open.
+///
+/// A window can hold several, and switching between them is a lookup: nothing is rebuilt, nothing
+/// is re-read from the host, and the project's terminals keep running behind the one on screen.
+pub struct OpenProject {
+    /// The panes running in this project, in the order the dock's tabs show them.
+    panes: Vec<PaneState>,
+    /// Which of them holds the keyboard while this project is the one on screen.
+    focused_pane: Option<PaneId>,
+    /// Whether this project has ever been given a pane in this window, so becoming active twice
+    /// does not spawn twice and a project that had its last pane closed is left alone.
+    seeded: bool,
+    pub explorer: ExplorerState,
+    pub editor: EditorPaneState,
+    /// The furniture this project was last left in, kept current so a background project is never
+    /// written down wearing the active one's.
+    prefs: prefs::ViewPrefs,
+    /// Whether the file set has been restored yet — from a parked blob or from the host, first one
+    /// wins. Without it a restart's answer would reopen tabs the user has since closed.
+    restored: bool,
+    /// Folders a blob said were open and that are still out of reach, because a deep folder cannot
+    /// be opened before its parents have been listed.
+    wanted: Vec<String>,
+}
+
+impl OpenProject {
+    /// A project this window has just taken, in the furniture it was last left in.
+    fn new(prefs: prefs::ViewPrefs) -> Self {
+        Self {
+            panes: Vec::new(),
+            focused_pane: None,
+            seeded: false,
+            explorer: ExplorerState::empty(),
+            editor: EditorPaneState::empty(),
+            prefs,
+            restored: false,
+            wanted: Vec::new(),
+        }
+    }
+}
+
+/// A read the host answered, waiting for the frame that can turn it into a buffer.
+///
+/// A buffer needs a window and a message does not come with one, so contents queue here exactly as
+/// panel sizes and focus already do.
+struct FileArrival {
+    project: ProjectId,
+    path: String,
+    contents: FileContents,
+}
+
 pub struct AppState {
     /// Which window this state belongs to. It is the key into the process-wide
     /// [`WindowRegistry`], and the only thing that tells two windows apart.
     window_id: WindowId,
-    /// Active panes, in the order the dock's tabs show them.
-    panes: Vec<PaneState>,
-    /// Currently focused pane.
-    focused_pane: Option<PaneId>,
+    /// One entry per project this window holds. The registry says which of them is on screen.
+    projects: HashMap<ProjectId, OpenProject>,
+    /// Which project the window was last pointed at, so a switch is noticed exactly once.
+    active_seen: Option<ProjectId>,
+    /// What a project left behind when it was closed here, so reopening it in the same session
+    /// restores its furniture with no round trip and no debounce to race.
+    parked: HashMap<ProjectId, prefs::ViewPrefs>,
     /// How the dock arranges its panes.
     layout_mode: LayoutMode,
 
@@ -124,8 +193,6 @@ pub struct AppState {
     pending_focus: Option<PendingFocus>,
 
     pub workbench: WorkbenchState,
-    pub explorer: ExplorerState,
-    pub editor: EditorPaneState,
     pub chat: ChatState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
@@ -138,13 +205,15 @@ pub struct AppState {
     adding: bool,
     /// Panel sizes read back from the host, waiting for the frame that can apply them.
     pending_sizes: Option<prefs::ViewPrefs>,
+    /// Contents the host sent that still need a window to become buffers. Drained in `render`.
+    pending_files: Vec<FileArrival>,
     /// The two resizable groups' own state, owned here rather than left implicit, because a size
     /// that cannot be read back cannot be remembered.
     pub columns: Entity<ResizableState>,
     pub centre: Entity<ResizableState>,
 
-    /// The component library's own state entities.
-    pub editor_state: Entity<EditorState>,
+    /// The component library's own state entities. Each open file owns its buffer, so none of
+    /// them is the editor's.
     pub chat_input: Entity<TextareaState>,
     pub file_filter: Entity<InputState>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
@@ -173,35 +242,11 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> Self {
         // The window takes the project from whatever window held it, so opening one somewhere can
-        // leave another with nothing to show.
+        // leave another showing nothing. That window stays: Ubiq never closes one on the user's
+        // behalf.
         let window_id = window.window_handle().window_id();
-        let emptied = cx
-            .global_mut::<WindowRegistry>()
+        cx.global_mut::<WindowRegistry>()
             .register(window_id, label, project);
-        close_windows(emptied, cx);
-
-        let editor = sample::editor();
-        let source = editor
-            .active_file()
-            .map(|f| f.source.clone())
-            .unwrap_or_default();
-        let language = editor
-            .active_file()
-            .map(|f| ui::editor::highlighter_language(f.language))
-            .unwrap_or(gpui_component::highlighter::Language::Plain);
-
-        let editor_state = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language(language)
-                .line_number(true)
-                .folding(true)
-                .show_whitespaces(false)
-                .tab_size(TabSize {
-                    tab_size: 2,
-                    ..Default::default()
-                })
-                .default_value(source)
-        });
 
         let chat_input = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -230,8 +275,9 @@ impl AppState {
         let mut subscriptions = Vec::new();
 
         // Every window draws from the same registry, so a project moved in one window redraws the
-        // picker in all of them.
-        subscriptions.push(cx.observe_global::<WindowRegistry>(|_, cx| cx.notify()));
+        // picker in all of them. Another window taking a project is also a change this window has
+        // to act on, and it learns about it the same way it learns about its own.
+        subscriptions.push(cx.observe_global::<WindowRegistry>(|this, cx| this.sync_projects(cx)));
 
         subscriptions.push(cx.subscribe_in(
             &chat_input,
@@ -253,7 +299,7 @@ impl AppState {
             window,
             |this, input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
-                    this.explorer.filter = input.read(cx).value().to_string();
+                    this.workbench.file_filter = input.read(cx).value().to_string();
                     cx.notify();
                 }
             },
@@ -328,8 +374,9 @@ impl AppState {
 
         let mut this = Self {
             window_id,
-            panes: Vec::new(),
-            focused_pane: None,
+            projects: HashMap::new(),
+            active_seen: None,
+            parked: HashMap::new(),
             layout_mode: LayoutMode::Single,
             session: SessionId::generate(),
             bus,
@@ -337,17 +384,15 @@ impl AppState {
             geometry,
             dock_tab: DockTab::Pane,
             pending_focus: None,
-            workbench: sample::workbench(),
-            explorer: sample::explorer(),
-            editor,
+            workbench: WorkbenchState::default(),
             chat: sample::chat(),
             logs: LogState::default(),
             adopt_on_list: false,
             adding: false,
             pending_sizes: None,
+            pending_files: Vec::new(),
             columns,
             centre,
-            editor_state,
             chat_input,
             file_filter,
             command_input,
@@ -364,32 +409,179 @@ impl AppState {
         this.bus.send(Message::GetPreferences {
             scope: Scope::Interface,
         });
-        if let Some(project) = project {
-            this.bus.send(Message::GetPreferences {
-                scope: Scope::Project(project),
-            });
+
+        // Whatever the registry says this window holds, it now holds — including the pane a
+        // project gets when it is first entered. A window opening on nothing spawns nothing.
+        this.sync_projects(cx);
+        this
+    }
+
+    // ── Which projects this window holds ────────────────────────────
+
+    /// Reconcile what the window holds with what the registry says it holds.
+    ///
+    /// Idempotent, and driven by the registry rather than by each call site, because another
+    /// window taking a project is a change this window learns about the same way it learns about
+    /// its own.
+    fn sync_projects(&mut self, cx: &mut Context<Self>) {
+        let (held, active) = match WindowRegistry::read(cx).slot(self.window_id) {
+            Some(slot) => (slot.projects.clone(), slot.active_project()),
+            None => (Vec::new(), None),
+        };
+
+        let gone: Vec<ProjectId> = self
+            .projects
+            .keys()
+            .copied()
+            .filter(|id| !held.contains(id))
+            .collect();
+        for id in gone {
+            self.drop_project(id, cx);
         }
 
-        // A window opens on one pane, running the session's default agent type. The pane itself
-        // arrives with `WorkspaceSpawned`, because only the coordinator knows what started.
-        this.spawn_pane(None, Vec::new(), cx);
-        this
+        for id in held {
+            if self.projects.contains_key(&id) {
+                continue;
+            }
+            // A project closed here earlier in the session left its furniture behind, which is
+            // better than the host's copy: it cannot be older, and it costs no round trip.
+            let parked = self.parked.remove(&id);
+            let restore = parked.clone();
+            self.projects
+                .insert(id, OpenProject::new(parked.unwrap_or_default()));
+            // The tree is the host's, and a project shows nothing until it answers. One level:
+            // what is inside a folder is asked for when the folder is opened.
+            self.bus.send(Message::ProjectTree {
+                project_id: id,
+                rel_path: String::new(),
+                depth: EXPAND_DEPTH,
+            });
+            // Where this project's furniture was left across a restart. The answer arrives as
+            // `Preferences`, and is ignored if the parked blob got there first.
+            self.bus.send(Message::GetPreferences {
+                scope: Scope::Project(id),
+            });
+            if let Some(view) = restore {
+                self.restore_files(id, &view, cx);
+            }
+        }
+
+        if self.active_seen != active {
+            self.active_seen = active;
+            if let Some(id) = active {
+                self.enter_project(id, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Everything a project takes with it when it leaves this window: its panes are killed, its
+    /// emulators dropped, and what it looked like is written down and parked.
+    ///
+    /// The panes have to go. No other window can adopt an emulator, and a pane runs in the
+    /// project's folder — a harness left behind would be running somewhere nobody is looking.
+    fn drop_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        self.remember(project, cx);
+        let Some(open) = self.projects.remove(&project) else {
+            return;
+        };
+        self.parked.insert(project, open.prefs);
+
+        for pane in open.panes {
+            self.bus.send(Message::CloseWorkspace { pane_id: pane.id });
+            self.terminals.remove(&pane.id);
+        }
+        if self.active_seen == Some(project) {
+            self.active_seen = None;
+        }
+        cx.notify();
+    }
+
+    /// A project has become the one this window is pointed at: its furniture reaches the window,
+    /// the keyboard goes to its focused pane, and the first time round it is given one.
+    fn enter_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let view = open.prefs.clone();
+        let focused = open.focused_pane;
+        let seeded = open.seeded;
+        open.seeded = true;
+
+        // A background project keeps its own furniture, so entering one is where it reaches the
+        // window rather than the other way round.
+        self.workbench.rail_mode = view.rail_mode;
+        self.workbench.show_left = view.show_left;
+        self.workbench.show_bottom = view.show_bottom;
+        self.workbench.show_right = view.show_right;
+        self.pending_sizes = Some(view);
+
+        if self.dock_tab == DockTab::Pane {
+            self.pending_focus = focused.map(PendingFocus::Pane);
+        }
+        if let Some(pane_id) = focused {
+            self.bus.send(Message::Focus { pane_id });
+        }
+
+        // A window opens a project on one pane, running the session's default agent type. The
+        // pane itself arrives with `WorkspaceSpawned`, because only the coordinator knows what
+        // started.
+        if !seeded {
+            self.spawn_pane(None, Vec::new(), cx);
+        }
+        cx.notify();
+    }
+
+    /// What the window holds for the project it is pointed at, if it is pointed at one.
+    pub fn open_project(&self, cx: &App) -> Option<&OpenProject> {
+        self.projects.get(&self.project(cx)?)
+    }
+
+    pub fn open_project_mut(&mut self, cx: &App) -> Option<&mut OpenProject> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id)
+    }
+
+    /// The tree the explorer draws, which belongs to the project it is showing.
+    pub fn explorer(&self, cx: &App) -> Option<&ExplorerState> {
+        self.open_project(cx).map(|open| &open.explorer)
+    }
+
+    /// The files open in the project on screen.
+    pub fn editor(&self, cx: &App) -> Option<&EditorPaneState> {
+        self.open_project(cx).map(|open| &open.editor)
+    }
+
+    /// Which project a pane belongs to. A pane is only ever in one, so the first answer is the
+    /// answer.
+    fn project_of_pane(&self, pane_id: PaneId) -> Option<ProjectId> {
+        self.projects
+            .iter()
+            .find(|(_, open)| open.panes.iter().any(|pane| pane.id == pane_id))
+            .map(|(id, _)| *id)
     }
 
     // ── Panes ───────────────────────────────────────────────────────
 
-    pub fn panes(&self) -> &[PaneState] {
-        &self.panes
+    /// The panes the dock draws: the active project's, and none at all without one.
+    pub fn panes(&self, cx: &App) -> &[PaneState] {
+        self.open_project(cx)
+            .map(|open| open.panes.as_slice())
+            .unwrap_or(&[])
     }
 
-    pub fn focused_pane(&self) -> Option<&PaneState> {
-        self.focused_pane
-            .and_then(|id| self.panes.iter().find(|p| p.id == id))
+    pub fn focused_pane(&self, cx: &App) -> Option<&PaneState> {
+        let open = self.open_project(cx)?;
+        let id = open.focused_pane?;
+        open.panes.iter().find(|pane| pane.id == id)
     }
 
-    pub fn focused_pane_index(&self) -> usize {
-        self.focused_pane
-            .and_then(|id| self.panes.iter().position(|p| p.id == id))
+    pub fn focused_pane_index(&self, cx: &App) -> usize {
+        self.open_project(cx)
+            .and_then(|open| {
+                let id = open.focused_pane?;
+                open.panes.iter().position(|pane| pane.id == id)
+            })
             .unwrap_or(0)
     }
 
@@ -399,8 +591,14 @@ impl AppState {
 
     /// Which tab the dock draws. The console is a tab like a pane, so the dock is the one place
     /// that decides between them.
-    pub fn dock_tab(&self) -> DockTab {
-        self.dock_tab
+    ///
+    /// With no project there are no panes, so the console is the only thing the dock can be
+    /// showing whatever the window last selected.
+    pub fn dock_tab(&self, cx: &App) -> DockTab {
+        match self.project(cx) {
+            Some(_) => self.dock_tab,
+            None => DockTab::Logs,
+        }
     }
 
     /// The handle the console's body tracks, so it can hold the keyboard while it is shown.
@@ -415,57 +613,92 @@ impl AppState {
 
     /// Ask for a workspace. The pane appears when the coordinator answers, so a harness that fails
     /// to start leaves no empty tab behind.
+    ///
+    /// A pane runs in a project's folder, so a window holding no project asks for nothing: there is
+    /// no directory a harness could be started in that the user chose.
     pub fn spawn_pane(
         &mut self,
         agent_type: Option<String>,
         args: Vec<String>,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
-        let project_id = self.project(_cx);
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
         self.bus.send(Message::SpawnWorkspace {
             session_id: self.session,
             project_id,
+            rel_path: None,
             agent_type,
             args,
-            folder: None,
         });
     }
 
     pub fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         self.bus.send(Message::CloseWorkspace { pane_id });
-        self.panes.retain(|p| p.id != pane_id);
         self.terminals.remove(&pane_id);
-        if self.focused_pane == Some(pane_id) {
-            let next = self.panes.first().map(|p| p.id);
-            self.focused_pane = next;
-            // Closing a pane from the strip while the console is the tab shown must not hand the
-            // keyboard to a terminal that is off screen.
-            if self.dock_tab == DockTab::Pane {
-                self.pending_focus = next.map(PendingFocus::Pane);
+
+        let showing = self.project(cx);
+        let Some(project) = self.project_of_pane(pane_id) else {
+            cx.notify();
+            return;
+        };
+        // The keyboard only moves for the project on screen: a pane closed in a background
+        // project must not take focus off the terminal the user is typing into.
+        let on_screen = showing == Some(project) && self.dock_tab == DockTab::Pane;
+
+        let mut next = None;
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.panes.retain(|pane| pane.id != pane_id);
+            if open.focused_pane == Some(pane_id) {
+                next = open.panes.first().map(|pane| pane.id);
+                open.focused_pane = next;
             }
+        }
+        // Closing a pane from the strip while the console is the tab shown must not hand the
+        // keyboard to a terminal that is off screen.
+        if on_screen && let Some(pane_id) = next {
+            self.pending_focus = Some(PendingFocus::Pane(pane_id));
         }
         cx.notify();
     }
 
     pub fn resize_pane(&mut self, pane_id: PaneId, cols: u16, rows: u16, cx: &mut Context<Self>) {
-        if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
-            if pane.cols == cols && pane.rows == rows {
+        // A background project's panes are still measured — an emulator that is not drawn keeps
+        // the geometry it was last given — so the search is across every project the window holds.
+        for open in self.projects.values_mut() {
+            if let Some(pane) = open.panes.iter_mut().find(|pane| pane.id == pane_id) {
+                if pane.cols == cols && pane.rows == rows {
+                    return;
+                }
+                pane.cols = cols;
+                pane.rows = rows;
+                cx.notify();
                 return;
             }
-            pane.cols = cols;
-            pane.rows = rows;
-            cx.notify();
         }
     }
 
+    /// Give a pane the keyboard. Only the project on screen has panes the user can click, so a
+    /// pane belonging to any other is not focusable.
     pub fn focus_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
-        if self.panes.iter().any(|p| p.id == pane_id) {
-            self.focused_pane = Some(pane_id);
-            self.dock_tab = DockTab::Pane;
-            self.pending_focus = Some(PendingFocus::Pane(pane_id));
-            self.bus.send(Message::Focus { pane_id });
-            cx.notify();
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let held = self
+            .projects
+            .get(&project)
+            .is_some_and(|open| open.panes.iter().any(|pane| pane.id == pane_id));
+        if !held {
+            return;
         }
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.focused_pane = Some(pane_id);
+        }
+        self.dock_tab = DockTab::Pane;
+        self.pending_focus = Some(PendingFocus::Pane(pane_id));
+        self.bus.send(Message::Focus { pane_id });
+        cx.notify();
     }
 
     /// Draw the console in the dock, opening the dock if it is shut. The keyboard comes with it:
@@ -479,7 +712,7 @@ impl AppState {
 
     /// The dock's tab strip, in one place: the panes in order, and the console last.
     pub fn select_dock_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        match self.panes.get(index).map(|pane| pane.id) {
+        match self.panes(cx).get(index).map(|pane| pane.id) {
             Some(pane_id) => self.focus_pane(pane_id, cx),
             None => self.show_logs(cx),
         }
@@ -503,9 +736,7 @@ impl AppState {
             // An exited harness leaves its pane, showing its last screen. Closing the output
             // stream is what tells the emulator to stop reading.
             Message::PaneExited { pane_id, code } => {
-                if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
-                    pane.running = false;
-                }
+                self.pane_stopped(pane_id);
                 if let Some(terminal) = self.terminals.get_mut(&pane_id) {
                     terminal.output = None;
                 }
@@ -514,9 +745,7 @@ impl AppState {
             }
 
             Message::PaneError { pane_id, error } => {
-                if let Some(pane) = self.panes.iter_mut().find(|p| p.id == pane_id) {
-                    pane.running = false;
-                }
+                self.pane_stopped(pane_id);
                 tracing::error!("pane {pane_id}: {error}");
                 cx.notify();
             }
@@ -527,7 +756,9 @@ impl AppState {
             Message::ProjectList { projects } => {
                 cx.global_mut::<WindowRegistry>().replace_all(projects);
                 self.adopt_if_owed(cx);
-                cx.notify();
+                // A catalogue that no longer names a project this window held takes it away, so
+                // what the window holds is reconciled before anything is drawn from it.
+                self.sync_projects(cx);
             }
 
             Message::ProjectAdded { project } => {
@@ -547,9 +778,8 @@ impl AppState {
             }
 
             Message::ProjectForgotten { project_id } => {
-                let emptied = cx.global_mut::<WindowRegistry>().forget(project_id);
-                close_windows(emptied, cx);
-                cx.notify();
+                cx.global_mut::<WindowRegistry>().forget(project_id);
+                self.sync_projects(cx);
             }
 
             Message::ProjectError { project_id, error } => {
@@ -560,6 +790,69 @@ impl AppState {
             }
 
             Message::Preferences { scope, value } => self.apply_preferences(scope, value, cx),
+
+            // ── the file family ─────────────────────────────────────
+            // Every answer names its project and its path, so one that arrives after the user has
+            // switched projects lands where it belongs rather than on screen.
+            Message::ProjectTreeListing {
+                project_id,
+                rel_path,
+                listings,
+            } => {
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                open.explorer.set_loading(&rel_path, false);
+                for listing in listings {
+                    open.explorer.merge(listing);
+                }
+                // A listing can put a remembered folder within reach, which is what makes
+                // restoring a deep one terminate: each answer either resolves one or drops it.
+                self.reach_wanted(project_id, cx);
+                cx.notify();
+            }
+
+            Message::ProjectFileContents {
+                project_id,
+                rel_path,
+                contents,
+            } => {
+                self.pending_files.push(FileArrival {
+                    project: project_id,
+                    path: rel_path,
+                    contents,
+                });
+                cx.notify();
+            }
+
+            Message::ProjectFileWritten {
+                project_id,
+                rel_path,
+                version,
+            } => {
+                // What the buffer holds now, not what was written: anything typed while the save
+                // was in flight is still unsaved, and the tab has to keep saying so.
+                let current = self
+                    .projects
+                    .get(&project_id)
+                    .and_then(|open| open.editor.open.iter().find(|f| f.path == rel_path))
+                    .and_then(|file| file.buffer())
+                    .map(|buffer| buffer.read(cx).value().to_string())
+                    .unwrap_or_default();
+
+                if let Some(open) = self.projects.get_mut(&project_id)
+                    && let Some(file) = open.editor.find_mut(&rel_path)
+                {
+                    file.saved(version, &current);
+                }
+                cx.notify();
+            }
+
+            Message::ProjectFileError {
+                project_id,
+                rel_path,
+                error,
+            } => self.file_failed(project_id, rel_path, error, cx),
 
             // What the host is. The status bar says so when the root is not the usual one.
             Message::HostInfo {
@@ -576,10 +869,71 @@ impl AppState {
         }
     }
 
+    /// One path in one project failed.
+    ///
+    /// A tab waiting for bytes says why instead of sitting empty; a folder waiting for a listing
+    /// stops spinning. A folder or a file that has gone is the cue to look at the project's own
+    /// health again — the worker that answered does not know the catalogue and cannot say.
+    fn file_failed(
+        &mut self,
+        project: ProjectId,
+        rel_path: String,
+        error: FileError,
+        cx: &mut Context<Self>,
+    ) {
+        let reason = describe(&error);
+        tracing::warn!("{project} {rel_path}: {reason}");
+
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.explorer.set_loading(&rel_path, false);
+            open.wanted.retain(|wanted| wanted != &rel_path);
+            if let Some(file) = open.editor.find_mut(&rel_path) {
+                match file.is_loading() {
+                    // The read never landed, so the tab has nothing but the reason.
+                    true => file.set_failed(reason.clone()),
+                    // A write failed against a buffer the user still has: it is untouched, and
+                    // still dirty.
+                    false => file.save_failed(reason.clone()),
+                }
+            }
+        }
+
+        if matches!(error, FileError::Missing | FileError::Denied(_)) {
+            self.bus.send(Message::RefreshProject {
+                project_id: project,
+            });
+        }
+        cx.notify();
+    }
+
+    /// A pane's harness has stopped, wherever the pane is. An exited pane keeps its last screen,
+    /// so the only thing that changes is what the tab's dot reports.
+    fn pane_stopped(&mut self, pane_id: PaneId) {
+        for open in self.projects.values_mut() {
+            if let Some(pane) = open.panes.iter_mut().find(|pane| pane.id == pane_id) {
+                pane.running = false;
+                return;
+            }
+        }
+    }
+
     /// Draw a workspace the coordinator started: a tab, and an emulator on the pane's stream.
+    ///
+    /// The workspace names its project, which is what makes an answer that arrives after the user
+    /// has switched projects land in the right place rather than on screen.
     fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
         let pane_id = workspace.id;
+        let project = workspace.project_id;
         let title = agent_title(&workspace.agent_type);
+
+        // A pane for a project this window no longer holds has nowhere to be drawn, and a harness
+        // nobody can see is a leak: it is closed rather than kept.
+        if !self.projects.contains_key(&project) {
+            tracing::info!("pane {pane_id} arrived for a project this window no longer holds");
+            self.bus.send(Message::CloseWorkspace { pane_id });
+            return;
+        }
+        let showing = self.project(cx) == Some(project);
 
         let (output, reader) = bus::pane_output();
         let writer = self.bus.input(pane_id);
@@ -599,14 +953,21 @@ impl AppState {
             })
         });
 
-        self.panes.push(PaneState {
-            id: pane_id,
-            harness: workspace.agent_type,
-            rows: workspace.rows,
-            cols: workspace.cols,
-            title,
-            running: workspace.running,
-        });
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.panes.push(PaneState {
+                id: pane_id,
+                harness: workspace.agent_type,
+                rows: workspace.rows,
+                cols: workspace.cols,
+                title,
+                running: workspace.running,
+            });
+            // A pane in a background project becomes that project's focused one only if it had
+            // none: the keyboard belongs to whatever is on screen.
+            if showing || open.focused_pane.is_none() {
+                open.focused_pane = Some(pane_id);
+            }
+        }
         self.terminals.insert(
             pane_id,
             PaneTerminal {
@@ -615,10 +976,11 @@ impl AppState {
             },
         );
 
-        self.focused_pane = Some(pane_id);
-        self.dock_tab = DockTab::Pane;
-        self.pending_focus = Some(PendingFocus::Pane(pane_id));
-        self.bus.send(Message::Focus { pane_id });
+        if showing {
+            self.dock_tab = DockTab::Pane;
+            self.pending_focus = Some(PendingFocus::Pane(pane_id));
+            self.bus.send(Message::Focus { pane_id });
+        }
         cx.notify();
     }
 
@@ -769,6 +1131,9 @@ impl AppState {
         self.bus.send(Message::OpenedProject {
             project_id: project,
         });
+        // The window now points somewhere else: its tree, its tabs and its terminals are the new
+        // project's from here.
+        self.sync_projects(cx);
         self.close_menu(cx);
     }
 
@@ -777,26 +1142,32 @@ impl AppState {
     /// one window at a time, so the two are the same operation.
     pub fn take_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
-        let emptied = cx.global_mut::<WindowRegistry>().open_in(id, project);
-        close_windows(emptied, cx);
+        // A project the catalogue does not hold is not opened, and the host is not told that a
+        // window pointed at one.
+        if !cx.global_mut::<WindowRegistry>().open_in(id, project) {
+            self.close_menu(cx);
+            return;
+        }
         // The host decides what opening a project means, and stamps it.
         self.bus.send(Message::OpenedProject {
             project_id: project,
         });
-        // Where this project's furniture was left. The answer arrives as `Preferences`.
-        self.bus.send(Message::GetPreferences {
-            scope: Scope::Project(project),
-        });
+        // Everything the project brings with it — its furniture, its pane, its tree — is the
+        // reconciliation's, including the `GetPreferences` that asks where it was left.
+        self.sync_projects(cx);
         self.close_menu(cx);
     }
 
     /// Close a project in this window. One with terminals still running asks first: the menu row
-    /// turns into a confirmation rather than taking the click. Closing the last one closes the
-    /// window, because a window with nothing open has nothing to show.
+    /// turns into a confirmation rather than taking the click. Closing the last one leaves the
+    /// window open on nothing, with the picker to offer.
     pub fn close_project(&mut self, project: ProjectId, force: bool, cx: &mut Context<Self>) {
-        let panes = WindowRegistry::read(cx)
-            .project(project)
-            .map_or(0, |p| p.open_panes);
+        // This window's own count, not the catalogue's: closing a project here kills the panes
+        // *this* window is running in it, and says so about those.
+        let panes = self
+            .projects
+            .get(&project)
+            .map_or(0, |open| open.panes.len());
         if panes > 0 && !force {
             self.workbench.pending_close = Some(project);
             cx.notify();
@@ -805,9 +1176,8 @@ impl AppState {
 
         self.workbench.pending_close = None;
         let id = self.window_id;
-        let emptied = cx.global_mut::<WindowRegistry>().close(id, project);
-        close_windows(emptied, cx);
-        cx.notify();
+        cx.global_mut::<WindowRegistry>().close(id, project);
+        self.sync_projects(cx);
     }
 
     pub fn cancel_close(&mut self, cx: &mut Context<Self>) {
@@ -980,41 +1350,82 @@ impl AppState {
                 }
             }
             Scope::Project(id) => {
-                // The answer may arrive after the window has moved on to another project.
-                if self.project(cx) != Some(id) {
-                    return;
-                }
                 let Some(view) = prefs::decode::<prefs::ViewPrefs>(&blob) else {
                     return;
                 };
-                self.workbench.rail_mode = view.rail_mode;
-                self.workbench.show_left = view.show_left;
-                self.workbench.show_bottom = view.show_bottom;
-                self.workbench.show_right = view.show_right;
-                self.pending_sizes = Some(view);
+                // An answer for a project this window holds without showing still has to reach
+                // it: a project's furniture is its own, whether or not anyone is looking at it.
+                let showing = self.project(cx) == Some(id);
+                let Some(open) = self.projects.get_mut(&id) else {
+                    return;
+                };
+                open.prefs = view.clone();
+                let restore = (!open.restored).then(|| view.clone());
+                if showing {
+                    self.workbench.rail_mode = view.rail_mode;
+                    self.workbench.show_left = view.show_left;
+                    self.workbench.show_bottom = view.show_bottom;
+                    self.workbench.show_right = view.show_right;
+                    self.pending_sizes = Some(view);
+                }
+                // A project closed and reopened in this session restored from the parked blob
+                // already, and reopening the tabs the user has since closed would be worse than
+                // useless.
+                if let Some(view) = restore {
+                    self.restore_files(id, &view, cx);
+                }
             }
         }
         cx.notify();
     }
 
-    /// Write down what this window looks like now. Debounced by the host, so this may be called as
-    /// freely as a drag fires.
+    /// Write down what this window looks like now, for the project on screen. Debounced by the
+    /// host, so this may be called as freely as a drag fires.
     pub fn remember_view(&mut self, cx: &App) {
         let Some(id) = self.project(cx) else { return };
-        let sizes = self.panel_sizes(cx);
-        let view = prefs::ViewPrefs {
-            schema: prefs::SCHEMA,
-            rail_mode: self.workbench.rail_mode,
-            show_left: self.workbench.show_left,
-            show_bottom: self.workbench.show_bottom,
-            show_right: self.workbench.show_right,
-            explorer_width: sizes.0,
-            chat_width: sizes.1,
-            dock_height: sizes.2,
+        self.remember(id, cx);
+    }
+
+    /// Write down what one project this window holds was left looking like.
+    ///
+    /// The furniture is read off the window only for the project on screen. A background project
+    /// keeps the furniture its own blob already carries, which is what stops a project being
+    /// written down wearing whatever the user happened to be looking at.
+    fn remember(&mut self, project: ProjectId, cx: &App) {
+        // The file set is the project's own whether or not anyone is looking at it, so it is read
+        // back from the project every time.
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.prefs.open_files = open.editor.paths();
+            open.prefs.active_file = open.editor.active_path();
+            open.prefs.expanded = open.explorer.expanded();
+            open.prefs.selected = open.explorer.selected.clone();
+        }
+
+        if self.project(cx) == Some(project) {
+            let sizes = self.panel_sizes(cx);
+            let (rail_mode, show_left, show_bottom, show_right) = (
+                self.workbench.rail_mode,
+                self.workbench.show_left,
+                self.workbench.show_bottom,
+                self.workbench.show_right,
+            );
+            if let Some(open) = self.projects.get_mut(&project) {
+                open.prefs.rail_mode = rail_mode;
+                open.prefs.show_left = show_left;
+                open.prefs.show_bottom = show_bottom;
+                open.prefs.show_right = show_right;
+                open.prefs.explorer_width = sizes.0;
+                open.prefs.chat_width = sizes.1;
+                open.prefs.dock_height = sizes.2;
+            }
+        }
+
+        let Some(open) = self.projects.get(&project) else {
+            return;
         };
         self.bus.send(Message::SetPreferences {
-            scope: Scope::Project(id),
-            value: prefs::encode(&view),
+            scope: Scope::Project(project),
+            value: prefs::encode(&open.prefs),
         });
     }
 
@@ -1079,70 +1490,296 @@ impl AppState {
 
     // ── Explorer ────────────────────────────────────────────────────
 
+    /// Open or shut a folder, asking the host what is inside it the first time.
+    ///
+    /// Which folders are open is persisted state, so a toggle is written down as well as drawn.
     pub fn toggle_folder(&mut self, path: String, cx: &mut Context<Self>) {
-        self.explorer.toggle(&path);
-        cx.notify();
-    }
-
-    pub fn select_file(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.explorer.selected = Some(path.clone());
-        if let Some(index) = self.editor.open.iter().position(|f| f.path == path) {
-            self.activate_editor_tab(index, window, cx);
-        } else {
-            cx.notify();
-        }
-    }
-
-    // ── Editor ──────────────────────────────────────────────────────
-
-    /// Switch tabs, writing the outgoing buffer back first so an edit survives the move.
-    pub fn activate_editor_tab(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if index >= self.editor.open.len() || index == self.editor.active {
-            return;
-        }
-
-        let current = self.editor_state.read(cx).value().to_string();
-        if let Some(file) = self.editor.active_file_mut() {
-            file.dirty = file.dirty || file.source != current;
-            file.source = current;
-        }
-
-        self.editor.active = index;
-        let Some(file) = self.editor.active_file() else {
+        let Some(project) = self.project(cx) else {
             return;
         };
-        let (source, language) = (file.source.clone(), file.language);
-        self.explorer.selected = Some(file.path.clone());
-
-        self.editor_state.update(cx, |state, cx| {
-            state.set_highlighter(ui::editor::highlighter_language(language), cx);
-            state.set_value(source, window, cx);
-        });
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        // A folder opened for the first time knows nothing about what is inside it, and says so
+        // on the row until the host answers.
+        if open.explorer.toggle(&path) == Toggle::Listing {
+            open.explorer.set_loading(&path, true);
+            self.bus.send(Message::ProjectTree {
+                project_id: project,
+                rel_path: path,
+                depth: EXPAND_DEPTH,
+            });
+        }
+        self.remember(project, cx);
         cx.notify();
     }
 
-    pub fn close_editor_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let was_active = index == self.editor.active;
-        self.editor.close(index);
-        if was_active && let Some(file) = self.editor.active_file() {
-            let (source, language) = (file.source.clone(), file.language);
-            self.editor_state.update(cx, |state, cx| {
-                state.set_highlighter(ui::editor::highlighter_language(language), cx);
-                state.set_value(source, window, cx);
+    /// Select a row, and open it if it is a file.
+    ///
+    /// The tab appears on the click rather than on the answer: a click with no visible effect
+    /// invites a second one, and a read that fails needs somewhere to say so.
+    pub fn select_file(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        open.explorer.selected = Some(path.clone());
+
+        let fresh = open.editor.index_of(&path).is_none();
+        let index = open.editor.open_pending(&path);
+        open.editor.active = index;
+
+        if fresh {
+            self.bus.send(Message::ReadProjectFile {
+                project_id: project,
+                rel_path: path,
+                max_bytes: Some(MAX_FILE_BYTES),
+            });
+        }
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// Ask for every file a project's blob said was open, and open the folders it said were.
+    ///
+    /// The tree is restored a level at a time: a folder cannot be opened before its parent has
+    /// been listed, so what is out of reach waits in `wanted` for the next listing.
+    fn restore_files(
+        &mut self,
+        project: ProjectId,
+        view: &prefs::ViewPrefs,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        if open.restored {
+            return;
+        }
+        open.restored = true;
+
+        for path in &view.open_files {
+            open.editor.open_pending(path);
+        }
+        if let Some(active) = &view.active_file
+            && let Some(at) = open.editor.index_of(active)
+        {
+            open.editor.active = at;
+        }
+        open.explorer.selected = view.selected.clone();
+        open.wanted = view.expanded.clone();
+
+        let files = open.editor.paths();
+        for rel_path in files {
+            self.bus.send(Message::ReadProjectFile {
+                project_id: project,
+                rel_path,
+                max_bytes: Some(MAX_FILE_BYTES),
+            });
+        }
+        self.reach_wanted(project, cx);
+        cx.notify();
+    }
+
+    /// Open whichever remembered folders have become reachable, and ask for what they hold.
+    fn reach_wanted(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let mut wanted = std::mem::take(&mut open.wanted);
+        let ask = open.explorer.reopen(&mut wanted);
+        open.wanted = wanted;
+        for rel_path in &ask {
+            open.explorer.set_loading(rel_path, true);
+        }
+
+        for rel_path in ask {
+            self.bus.send(Message::ProjectTree {
+                project_id: project,
+                rel_path,
+                depth: EXPAND_DEPTH,
             });
         }
         cx.notify();
     }
 
-    /// The caret's one-based position, as the status bar reports it.
-    pub fn cursor_line_column(&self, cx: &App) -> (u32, u32) {
-        let position = self.editor_state.read(cx).cursor_position();
-        (position.line + 1, position.character + 1)
+    // ── Editor ──────────────────────────────────────────────────────
+
+    /// Bring a tab forward. Each file owns its buffer, so nothing is copied and nothing is lost.
+    pub fn activate_editor_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        if index >= open.editor.open.len() {
+            return;
+        }
+        open.editor.active = index;
+        open.editor.pending_tab_close = None;
+        if let Some(path) = open.editor.active_path() {
+            open.explorer.selected = Some(path);
+        }
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// Close a tab. One holding unsaved changes asks first: the × becomes a confirmation rather
+    /// than taking the click, on the pattern a project with running terminals already uses.
+    ///
+    /// Clicking the tab itself is how the question is answered no, because bringing a tab forward
+    /// is already the one thing that clears it.
+    pub fn close_editor_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.open.get(index) else {
+            return;
+        };
+        let path = file.path.clone();
+        if file.dirty() && open.editor.pending_tab_close.as_deref() != Some(path.as_str()) {
+            open.editor.pending_tab_close = Some(path);
+            cx.notify();
+            return;
+        }
+
+        open.editor.close(index);
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// The caret's one-based position, as the status bar reports it. Absent when nothing is open,
+    /// so the status bar omits the segment rather than reporting a caret in a buffer nobody is
+    /// looking at.
+    pub fn cursor_line_column(&self, cx: &App) -> Option<(u32, u32)> {
+        let buffer = self.editor(cx)?.active_file()?.buffer()?;
+        let position = buffer.read(cx).cursor_position();
+        Some((position.line + 1, position.character + 1))
+    }
+
+    /// Write the active file back.
+    ///
+    /// Nothing happens with no project, no active file, bytes that never arrived, or a read the
+    /// host cut short: writing a prefix back would shorten the file.
+    pub fn save_active_file(&mut self, _: &SaveFile, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.active_file() else {
+            return;
+        };
+        if !file.savable() {
+            return;
+        }
+        let Some(buffer) = file.buffer() else {
+            return;
+        };
+        let text = buffer.read(cx).value().to_string();
+        let (rel_path, expected) = (file.path.clone(), file.version());
+
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_mut(&rel_path)
+        {
+            file.mark_saving(text.clone());
+        }
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path,
+            bytes: text.into_bytes(),
+            expected,
+        });
+        cx.notify();
+    }
+
+    /// Turn everything that arrived since the last frame into a buffer.
+    ///
+    /// In `render`, because a buffer needs a window and a message does not come with one.
+    fn attach_arrived_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for arrival in std::mem::take(&mut self.pending_files) {
+            self.attach_file(arrival, window, cx);
+        }
+    }
+
+    fn attach_file(&mut self, arrival: FileArrival, window: &mut Window, cx: &mut Context<Self>) {
+        let FileArrival {
+            project,
+            path,
+            contents,
+        } = arrival;
+
+        // A tab that already holds bytes is never overwritten: there is no reload action, and
+        // whatever has been typed into it would go with them.
+        let wanted = self
+            .projects
+            .get(&project)
+            .and_then(|open| open.editor.open.iter().find(|file| file.path == path))
+            .is_some_and(|file| file.is_loading());
+        if !wanted {
+            return;
+        }
+
+        if contents.is_binary {
+            if let Some(open) = self.projects.get_mut(&project)
+                && let Some(file) = open.editor.find_mut(&path)
+            {
+                file.set_binary();
+            }
+            cx.notify();
+            return;
+        }
+
+        // Bytes are the host's, and decoding is the interface's: a file that is not valid UTF-8 is
+        // still text somebody wants to read.
+        let text = String::from_utf8_lossy(&contents.bytes).into_owned();
+        let language = FileLanguage::of(&path);
+        let buffer = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(ui::editor::highlighter_language(language))
+                .line_number(true)
+                .folding(true)
+                .show_whitespaces(false)
+                .tab_size(TabSize {
+                    tab_size: 2,
+                    ..Default::default()
+                })
+                .default_value(text.clone())
+        });
+
+        // Dirty is kept current by the buffer's own change event, because comparing every frame
+        // costs the file's length times the tabs open times the frame rate.
+        let watched = path.clone();
+        let change = cx.subscribe_in(
+            &buffer,
+            window,
+            move |this, buffer, event: &InputEvent, _window, cx| {
+                if !matches!(event, InputEvent::Change) {
+                    return;
+                }
+                let typed = buffer.read(cx).value().to_string();
+                if let Some(open) = this.projects.get_mut(&project)
+                    && let Some(file) = open.editor.find_mut(&watched)
+                {
+                    file.refresh_dirty(&typed);
+                }
+                cx.notify();
+            },
+        );
+
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_mut(&path)
+        {
+            file.attach(buffer, text, contents.truncated, contents.version, change);
+        }
+        cx.notify();
     }
 
     // ── Chat ────────────────────────────────────────────────────────
@@ -1185,8 +1822,35 @@ impl Render for AppState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.take_focus(window, cx);
         self.apply_pending_sizes(window, cx);
+        self.attach_arrived_files(window, cx);
         ui::shell::render(self, window, cx)
     }
+}
+
+/// What the interface says about a path the host refused.
+///
+/// Each arm is a different thing for the user to do about it, which is why the contract carries an
+/// enum rather than a sentence.
+fn describe(error: &FileError) -> String {
+    match error {
+        FileError::Refused(reason) => format!("refused: {reason}"),
+        FileError::Missing => "no longer there".to_string(),
+        FileError::WrongKind => "not a file Ubiq can open".to_string(),
+        FileError::Denied(reason) => format!("cannot be read: {reason}"),
+        FileError::Conflict => "changed on disk since it was read".to_string(),
+        FileError::Failed(reason) => reason.clone(),
+    }
+}
+
+/// The keys the workbench answers to.
+///
+/// Called once by the binary, which owns the application's own actions and leaves the window's to
+/// the window. The context is what keeps the binding from meaning "save" outside a workbench.
+pub fn install_key_bindings(cx: &mut App) {
+    cx.bind_keys([
+        gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
+    ]);
 }
 
 /// What a pane calls itself before its harness says otherwise: the program, without its path.
@@ -1210,7 +1874,7 @@ pub fn boot_theme() -> ThemeId {
 /// palette and the window registry, both of which are process-wide.
 ///
 /// The project comes with it: a project is open in one window at a time, so the new window takes it
-/// from whichever window held it, and that window closes if it held nothing else.
+/// from whichever window held it, and that window is left showing nothing.
 pub fn open_project_window(project: Option<ProjectId>, cx: &mut App) {
     open_window(project, false, cx)
 }
@@ -1272,25 +1936,6 @@ pub fn focus_window(id: WindowId, cx: &mut App) {
                 .ok();
         }
     }
-}
-
-/// Close the windows the registry has just emptied.
-///
-/// Deferred, because the caller is usually inside one of these windows' own event handlers, and a
-/// window may not be updated while it is being updated.
-fn close_windows(ids: Vec<WindowId>, cx: &mut App) {
-    if ids.is_empty() {
-        return;
-    }
-    cx.defer(move |cx| {
-        for handle in cx.windows() {
-            if ids.contains(&handle.window_id()) {
-                handle
-                    .update(cx, |_, window, _| window.remove_window())
-                    .ok();
-            }
-        }
-    });
 }
 
 /// A window has gone. Its slot goes with it, and everything it held returns to history.

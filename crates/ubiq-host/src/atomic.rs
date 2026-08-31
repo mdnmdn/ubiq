@@ -17,13 +17,38 @@ use chrono::{DateTime, Utc};
 /// Enough to keep two writers in one process off each other's temp file.
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Write `bytes` to `path`, atomically.
+/// Write `bytes` to `path`, atomically, creating the directories above it.
 ///
 /// A crash at any point leaves either the previous contents or the new ones, never a mixture and
 /// never an empty file.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_inner(path, bytes, None, true)
+}
+
+/// The same, keeping the permissions the file already had and creating no directory.
+///
+/// A rename replaces the inode, so without carrying the mode over a saved script stops being
+/// executable. And a write inside a *user's project* must never bring a folder into existence:
+/// whoever calls this has already established that the parent is there, which is the rule that
+/// makes a save the mirror of `AddProject` never creating one.
+pub fn write_atomic_with(
+    path: &Path,
+    bytes: &[u8],
+    mode: Option<fs::Permissions>,
+) -> io::Result<()> {
+    write_inner(path, bytes, mode, false)
+}
+
+fn write_inner(
+    path: &Path,
+    bytes: &[u8],
+    mode: Option<fs::Permissions>,
+    make_parent: bool,
+) -> io::Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    fs::create_dir_all(parent)?;
+    if make_parent {
+        fs::create_dir_all(parent)?;
+    }
 
     let name = path
         .file_name()
@@ -40,6 +65,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let written = (|| -> io::Result<()> {
         let mut file = File::create(&temp)?;
         file.write_all(bytes)?;
+        // The mode goes on before the rename, so the file is never briefly readable by more than
+        // the original was.
+        if let Some(mode) = mode {
+            file.set_permissions(mode)?;
+        }
         // The rename is only worth having if the bytes are on the disk before it happens.
         file.sync_all()?;
         Ok(())
