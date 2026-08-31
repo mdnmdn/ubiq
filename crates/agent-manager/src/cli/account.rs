@@ -54,7 +54,9 @@ enum AccountCommand {
         #[arg(long)]
         harness: String,
         /// Run the interactive login capture inside an isol8 sandbox instead
-        /// of the plain PTY runner. Bare `--isolate` composes the layers the
+        /// of the plain PTY runner. **Default on macOS** (where a relocated
+        /// HOME alone no longer forces the plaintext fallback — see below); use
+        /// `--no-isolate` to opt out. Bare `--isolate` composes the layers the
         /// harness needs to run normally *minus* the OS-keychain layer (on
         /// macOS: `macos/system-runtime` + browser/launch-services, i.e. the
         /// `agents/claude-code` set without `integrations/keychain`);
@@ -68,6 +70,10 @@ enum AccountCommand {
         /// `frontend` build).
         #[arg(long, num_args = 0..=1)]
         isolate: Option<Option<String>>,
+        /// Force the plain (non-isolated) PTY capture, overriding the macOS
+        /// default of running the capture in an isol8 keychain-denying sandbox.
+        #[arg(long, conflicts_with = "isolate")]
+        no_isolate: bool,
     },
     /// Show a stored credential's metadata (and, with `--show-secrets`, raw
     /// bytes) from the [`crate::credentials::SecretStore`].
@@ -164,7 +170,8 @@ pub(super) fn run(args: &[String]) -> Result<()> {
             id,
             harness,
             isolate,
-        } => cmd_login(&id, &harness, isolate),
+            no_isolate,
+        } => cmd_login(&id, &harness, isolate, no_isolate),
         AccountCommand::Dump {
             name,
             harness,
@@ -1245,17 +1252,37 @@ fn partition_new(
 /// store at the capture home and checks that the harness wrote *something*
 /// there.
 ///
-/// `isolate`: `None` runs the plain (non-isolated) capture, unchanged from
-/// before — HOME is relocated to `home` and the harness is launched through
-/// the ordinary PTY runner ([`crate::run::run`]), relying on the harness
-/// failing to *reach* the OS keychain from a bare relocated `HOME` and
-/// falling back to a plaintext credential file. `Some(None)` (bare
-/// `--isolate`) / `Some(Some(profile))` (`--isolate=<profile>`) instead run
-/// the capture inside an isol8 deny-by-default sandbox (profile `"base"` for
-/// the bare case), which denies keychain access at the sandbox layer rather
-/// than merely relocating HOME — see [`run_login_isolated`] for why that
-/// distinction matters for Claude Code 2.1.218+.
-fn cmd_login(id: &str, harness_key: &str, isolate: Option<Option<String>>) -> Result<()> {
+/// Isolation decision (`isolate` = the `--isolate[=profile]` flag, `no_isolate`
+/// = `--no-isolate`):
+/// - `--no-isolate` always runs the plain (non-isolated) capture: HOME is
+///   relocated to `home` and the harness is launched through the ordinary PTY
+///   runner ([`crate::run::run`]), relying on the harness falling back to a
+///   plaintext credential file when it can't reach the OS keychain.
+/// - `--isolate` / `--isolate=<profile>` always run the capture inside an isol8
+///   sandbox that denies keychain access at the sandbox layer (see
+///   [`run_login_isolated`]).
+/// - Neither flag: **macOS defaults to the sandbox** (bare-`--isolate`
+///   behavior), because as of Claude Code 2.1.218 a merely-relocated HOME no
+///   longer forces the plaintext fallback there; every other OS defaults to the
+///   plain path, where the keychain-denial problem doesn't arise.
+fn cmd_login(
+    id: &str,
+    harness_key: &str,
+    isolate: Option<Option<String>>,
+    no_isolate: bool,
+) -> Result<()> {
+    // Fold the two flags + the per-OS default into the existing
+    // `Option<Option<String>>` shape the launch branch below already handles
+    // (`Some(_)` = sandbox, `None` = plain PTY path).
+    let isolate: Option<Option<String>> = if no_isolate {
+        None
+    } else {
+        match isolate {
+            Some(profile) => Some(profile),
+            None if cfg!(target_os = "macos") => Some(None),
+            None => None,
+        }
+    };
     let root = account::resolve_accounts_root(None)
         .ok_or_else(|| anyhow!("no accounts root; set AM_ACCOUNTS"))?;
     // Route the capture through the store trait: `login_home` gives a real dir
