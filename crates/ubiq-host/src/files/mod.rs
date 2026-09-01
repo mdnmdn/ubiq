@@ -1,5 +1,5 @@
-//! A project's files as the host reads them: one level of its tree, one file's bytes, and one
-//! file written back.
+//! A project's files as the host reads them: one level of its tree, one file's bytes, one file
+//! written back, and one file compared with what version control holds.
 //!
 //! Everything here is bounded. A directory has an entry ceiling, a read has a byte ceiling, a walk
 //! has a depth, and a path has a length — because the interface asks for these by clicking, and a
@@ -12,7 +12,9 @@
 //! record's root from memory, hands over a [`Job`], and answers nothing itself.
 //!
 //! The path resolution every one of these starts with is [`path`], which is the security boundary.
+//! The comparison is [`diff`], which is the only place version control is read.
 
+pub mod diff;
 pub mod path;
 
 use std::fs;
@@ -21,7 +23,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use ubiq_proto::bus::Mailbox;
-use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion};
+use ubiq_proto::files::{
+    DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion,
+};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 
@@ -236,10 +240,7 @@ pub fn contents(
         bytes.truncate(limit as usize);
     }
 
-    // A NUL in the first few kilobytes, which is what git does. Not a UTF-8 check: a Latin-1 file,
-    // and a UTF-8 one cut mid-sequence, are both still text the user wants to see.
-    let sniff = SNIFF_BYTES.min(bytes.len());
-    let is_binary = bytes[..sniff].contains(&0);
+    let is_binary = looks_binary(&bytes);
 
     // Taken after the read, and withheld when the read was cut short. A file being written while
     // it is read cannot be made consistent here; the version guard on the save is what covers it.
@@ -298,6 +299,16 @@ pub fn save(
     fs::metadata(&file).map(version_of).map_err(from_io)
 }
 
+/// Whether the host will treat these bytes as text.
+///
+/// A NUL in the first few kilobytes, which is what git does. Not a UTF-8 check: a Latin-1 file, and
+/// a UTF-8 one cut mid-sequence, are both still text the user wants to see. The read reports it and
+/// the diff obeys it, so a file drawn in a viewer rather than an editor is never diffed either.
+fn looks_binary(bytes: &[u8]) -> bool {
+    let sniff = SNIFF_BYTES.min(bytes.len());
+    bytes[..sniff].contains(&0)
+}
+
 /// What a stat says about a file, as the write guard compares it.
 fn version_of(stat: fs::Metadata) -> FileVersion {
     FileVersion {
@@ -334,6 +345,10 @@ pub enum Request {
         rel_path: String,
         bytes: Vec<u8>,
         expected: Option<FileVersion>,
+    },
+    Diff {
+        rel_path: String,
+        base: DiffBase,
     },
 }
 
@@ -420,6 +435,14 @@ fn answer(job: &Job) -> Message {
                 project_id,
                 rel_path: rel_path.clone(),
                 version,
+            },
+            Err(error) => file_error(project_id, rel_path, error),
+        },
+        Request::Diff { rel_path, base } => match diff::diff(&job.root, rel_path, *base) {
+            Ok(diff) => Message::ProjectFileDiffed {
+                project_id,
+                rel_path: rel_path.clone(),
+                diff,
             },
             Err(error) => file_error(project_id, rel_path, error),
         },

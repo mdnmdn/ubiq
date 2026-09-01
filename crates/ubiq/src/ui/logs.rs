@@ -1,18 +1,22 @@
-//! The log console: a tab in the terminal dock, beside the panes.
+//! The log console: a panel in the window's dock, like any other.
 //!
 //! Everything the application, the coordinator and the harness library say through `tracing`
 //! lands in the process-wide sink in [`ubiq_proto::log`]; this draws a filtered view of it. It reads and
 //! never writes — clearing the ring is the one thing it asks of the sink.
 //!
-//! The dock owns the chrome, so this module hands it two pieces: [`actions`] for its tab strip,
-//! and [`body`] for the space a pane's emulator would fill. Rows are uniform and drawn lazily,
-//! because a full ring is thousands of them and only the visible ones are worth laying out.
+//! The console used to borrow the pane strip, which cost the strip one tab with no pane behind it
+//! and meant a pane and the console could not be read at once. Under a dock it is a panel: it has
+//! its own tab, its own toolbar in [`actions`], and it sits wherever the user has dragged it —
+//! beside a terminal, in the centre, or in a group of its own. That is `D25` superseded.
+//!
+//! Rows are uniform and drawn lazily, because a full ring is thousands of them and only the
+//! visible ones are worth laying out.
 
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Rgba, ScrollStrategy,
-    SharedString, Styled, div, px, uniform_list,
+    AnyElement, Context, IntoElement, ParentElement, Rgba, ScrollStrategy, SharedString, Styled,
+    div, px, uniform_list,
 };
 use gpui_component::IconName;
 
@@ -39,8 +43,32 @@ pub fn level_colour(level: LogLevel) -> Rgba {
     }
 }
 
-/// What the console puts in the dock's tab strip: what it is showing, and the two selectors that
-/// decide.
+/// The whole panel: its toolbar over its records.
+pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .bg(theme::pane_bg())
+        .child(
+            div()
+                .h(px(34.))
+                .px_2()
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_end()
+                .border_b_1()
+                .border_color(theme::border())
+                .child(actions(app, cx)),
+        )
+        .child(body(app, cx))
+        .into_any_element()
+}
+
+/// The console's toolbar: what it is showing, and the two selectors that decide.
 pub fn actions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
     let logs = &app.logs;
@@ -122,9 +150,7 @@ pub fn body(app: &AppState, _cx: &mut Context<AppState>) -> AnyElement {
                 .loudest()
                 .filter(|level| *level >= LogLevel::Warn)
                 .map_or(theme::text_faint(), level_colour),
-        )
-        // The keyboard stops here while the console is shown, rather than reaching the pane behind.
-        .track_focus(app.log_focus());
+        );
 
     if records.is_empty() {
         return surface.child(empty(app)).into_any_element();

@@ -1,5 +1,9 @@
-//! The shell's own state: which rail mode is active, which panels are open, and which of the
-//! window's single-open-at-a-time menus is down.
+//! The shell's own state: which rail mode is active, and which of the window's
+//! single-open-at-a-time menus is down.
+//!
+//! Where the panels are is not here. The window's arrangement is the dock's own — see
+//! [`super::dock`] for what a panel is and where it may sit — and asking the dock is the only way
+//! to know whether a region is on screen, because the user can empty one by dragging.
 //!
 //! Which projects exist and which window holds which is not here — that is process-wide, and lives
 //! in [`super::windows`]. What stays is what belongs to this window alone: what was typed into the
@@ -12,7 +16,7 @@ use ubiq_proto::ids::ProjectId;
 
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. `Ide`, `Agents` and `Tasks` are built; the rest render an
+/// The left rail's destinations. `Ide`, `Agents`, `Tasks` and `Sink` are built; the rest render an
 /// empty page.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
@@ -21,6 +25,9 @@ pub enum RailMode {
     Agents,
     Kb,
     Tasks,
+    /// The kitchen sink: the application's own test bench. The one mode with no project behind it
+    /// at all — see [`super::sink`].
+    Sink,
 }
 
 impl RailMode {
@@ -31,6 +38,7 @@ impl RailMode {
             RailMode::Agents => "Agents",
             RailMode::Kb => "KB",
             RailMode::Tasks => "Tasks",
+            RailMode::Sink => "Sink",
         }
     }
 
@@ -42,13 +50,14 @@ impl RailMode {
             RailMode::Agents => "Agent types, accounts, skills and MCP servers.",
             RailMode::Kb => "Notes and documents the agents can read.",
             RailMode::Tasks => "Work queued for the agents in this session.",
+            RailMode::Sink => "The application's own test bench.",
         }
     }
 
     /// The rail groups, in the order they are drawn.
     pub fn groups() -> &'static [(&'static str, &'static [RailMode])] {
         &[
-            ("APP", &[RailMode::Control]),
+            ("APP", &[RailMode::Control, RailMode::Sink]),
             (
                 "PROJECT",
                 &[
@@ -83,6 +92,9 @@ pub enum MenuId {
     /// The task panel's session picker. Priority and shape are pill rows rather than menus, because
     /// three fixed values read better as the report and the control at once.
     TaskSession,
+    /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
+    /// looked at, and one menu in the window has to be openable with no project behind it.
+    SinkPicker,
 }
 
 pub struct WorkbenchState {
@@ -92,9 +104,6 @@ pub struct WorkbenchState {
     pub config_root_is_default: bool,
 
     pub rail_mode: RailMode,
-    pub show_left: bool,
-    pub show_bottom: bool,
-    pub show_right: bool,
     pub theme_id: ThemeId,
     pub open_menu: Option<MenuId>,
 
@@ -124,9 +133,6 @@ impl Default for WorkbenchState {
             config_root: None,
             config_root_is_default: true,
             rail_mode: RailMode::Ide,
-            show_left: true,
-            show_bottom: true,
-            show_right: true,
             theme_id: ThemeId::Dark,
             open_menu: None,
             project_filter: String::new(),
@@ -140,8 +146,9 @@ impl Default for WorkbenchState {
 }
 
 impl WorkbenchState {
-    /// Whether the explorer, the editor, the dock and the chat are on screen at all. They are all
-    /// IDE furniture and leave together.
+    /// Whether the explorer and the chat are on screen at all. They are IDE furniture and leave
+    /// together — every other panel outlives a rail-mode switch, and the centre panel is what the
+    /// mode actually selects between.
     pub fn is_ide(&self) -> bool {
         self.rail_mode == RailMode::Ide
     }

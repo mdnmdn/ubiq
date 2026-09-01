@@ -3,11 +3,11 @@ id: feat-logs
 title: Logs
 kind: feature
 status: current
-summary: One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor.
+summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq-app/src/main.rs]
+code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/main.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
 ---
@@ -21,8 +21,8 @@ a pseudo-terminal and a reader thread per pane, and the harness library composin
 all of it. When one of them misbehaves, the question is always the same — what did the others say
 while it happened. The log system answers it in one place: every subsystem's diagnostics land in one
 ring, and the console reads that ring with the two controls the question needs, which subsystem and
-how loud. It sits where the user looks when an agent misbehaves: in the terminal dock, as a tab
-beside the panes.
+how loud. It sits where the user puts it: a panel in the window's dock, beside a terminal, in a
+group of its own, or wherever it has been dragged to.
 
 ## Behaviour
 
@@ -54,43 +54,42 @@ the other. Clearing empties it for all of them at once.
 
 **What reaches the ring is `RUST_LOG`'s decision.** With nothing set, Ubiq's own modules and the
 harness library are collected down to debug and everything else only when it complains —
-`ubiq=debug,agent_manager=debug,gpui_terminal=debug,warn`. The same filter feeds a writer on
-standard error, so a run from a terminal reports without the console being open.
-[`../tech/operations.md`](../tech/operations.md) owns the commands that set it.
+`ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,gpui_terminal=debug,warn`.
+The same filter feeds a writer on standard error, so a run from a terminal reports without the
+console being open. [`../tech/operations.md`](../tech/operations.md) owns the commands that set it.
 
 **Terminal bytes are never logged.** A harness drives a screen at full refresh; putting that stream
 in a diagnostic ring would cost more than the harness it is diagnosing and would leak what the agent
 said into a buffer nobody asked for. What is logged about a pane is its lifecycle: opened at a size,
 started, stream ended, exited, failed.
 
-**The console is a dock tab, not a panel.** It is the dock's last tab, it is always present, and it
-is never closed — it is the window's own output rather than a process someone started. Selecting it
-draws it where a pane's terminal would be, at the dock's size, and the dock's hide button takes it
-away with everything else in the dock. A window that is drawing something else is not redrawn by
-arriving records at all.
+**The console is a panel.** It has its own tab, its own toolbar and its own place in the
+arrangement, so it is dragged, tabbed beside a terminal, split, zoomed and moved between the centre
+and the bottom region like anything else in the dock, which is what lets a pane and the console be
+read at once. It is always present and is never closed — it is the window's own output rather than a
+process someone started, so it is put away by collapsing the region it sits in. It is drawn in every
+rail mode and with no project open, which is the state in which it is most worth reaching.
 
-**Selecting the console takes the keyboard.** A pane that is off screen must not keep receiving
-keystrokes, so the console holds focus while it is the tab shown, and selecting a pane tab hands the
-keyboard back. Nothing types into a terminal nobody can see.
+**The console's panel holds the keyboard while it is displayed.** A pane that is off screen must
+not keep receiving keystrokes, so a panel that is not a terminal becoming its group's displayed tab
+leaves no pane focused at all, and a terminal panel becoming one hands the keyboard back to its
+harness. Nothing types into a terminal nobody can see.
 
-**The tab reports the loudest thing the ring holds.** A warning or an error puts a dot of its own
-colour on the tab, so it is visible while a pane is the tab on screen; clearing the ring clears the
-dot. That is the whole notification surface — nothing steals the view from the agent the user is
-watching.
+**The tab reports the loudest thing the ring holds.** A record at `WARN` or above puts a dot of its
+own colour on the console's tab and the same colour on the panel's left edge, so it is visible while
+the console is a background tab; clearing the ring clears both. That is the whole notification
+surface — nothing steals the view from the agent the user is watching.
 
 **Two controls decide what is drawn.** The subsystem selector picks one subsystem or `All`; the level
-selector sets a floor, so `WARN` means warnings and errors. Both sit in the dock's tab strip while
-the console is the tab shown, beside the record count, the follow switch and `Clear` — the strip
-carries the actions of whatever tab is active, so a pane tab shows the dock's `+` instead — and a
-window with no project shows the console alone, which is the state in which it is most worth
-reaching. Both are
-the window's own state, so two windows can watch the same ring through different filters.
+selector sets a floor, so `WARN` means warnings and errors. Both sit in the console's own toolbar
+row, above the records and beside the record count, the follow switch and `Clear`. Both are the
+window's own state, so two windows can watch the same ring through different filters.
 
 **A row states when, how loud, from where and what.** Time in the reader's own zone to the
 millisecond, the level as a coloured word, the subsystem, and the message with any structured fields
-appended as `key=value`. A warning or an error also carries its status colour on the row's left edge,
-which is what makes one findable in a wall of debug. A message is one line and is cut off rather
-than wrapped, because uniform rows are what let the list draw only what is visible.
+appended as `key=value`. A warning or an error carries its status colour on the message as well as
+the level word, which is what makes one findable in a wall of debug. A message is one line and is
+cut off rather than wrapped, because uniform rows are what let the list draw only what is visible.
 
 **Following keeps the tail in view.** With it on, an arriving record scrolls the list; with it off,
 the list stays where the reader put it. Records keep arriving either way.
@@ -107,9 +106,9 @@ recorded as a decision rather than left as an exception. When the coordinator be
 process, its records need the transport like everything else; that is filed in
 [`../backlog.md`](../backlog.md).
 
-State: `LogState` for the console's filter and its follow flag, `DockTab` on `AppState` for which
-of the dock's tabs is drawn, and `MenuId::LogSubsystem` and `MenuId::LogLevel` for the two
-selectors. Which panes the dock lists, and the focus rule the console takes part in, belong to
+State: `LogState` for the console's filter and its follow flag, `PanelKind::Logs` for the panel
+itself, and `MenuId::LogSubsystem` and `MenuId::LogLevel` for the two selectors. The arrangement the
+panel sits in, and the focus rule it takes part in, belong to
 [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## Implementation
@@ -135,25 +134,24 @@ push.
 flag, and the index arithmetic the two selectors are drawn and answered with. It holds no records —
 those belong to the sink, which is why the console's state is a default rather than a fixture.
 
-`crates/ubiq/src/ui/logs.rs` hands the dock two pieces rather than drawing a panel of its own:
-`actions()` for the tab strip — the two selectors, the record readout, the follow switch and
-`Clear` — and `body()` for a lazy uniform list of rows in the space a pane's emulator would fill.
-`crates/ubiq/src/ui/terminal.rs` puts the console's tab after the panes and chooses between the two
-bodies.
+`crates/ubiq/src/ui/logs.rs` draws the panel. `render()` is the whole of it, a toolbar row over the
+records; `actions()` is that toolbar — the two selectors, the record readout, the follow switch and
+`Clear` — and `body()` is a lazy uniform list of rows on a surface like a pane's. `level_colour()`
+is what a level is reported in, on a row and on the tab's dot alike.
 
-`AppState` owns the filter state, the list's scroll handle, the console's focus handle, and the task
-started in `for_project()` that drains the sink's nudges and requests a redraw only while the
-console is the dock's visible tab. `show_logs()` selects the tab, opens the dock and queues the
-keyboard; `select_dock_tab()` resolves a click on the strip into a pane or the console; and
-`pick_log_subsystem()`, `pick_log_level()`, `toggle_log_follow()` and `clear_logs()` are the rest.
+`AppState` owns the filter state, the list's scroll handle, and the task started in `for_project()`
+that drains the sink's nudges and asks the window to redraw. The console's keyboard belongs to its
+panel, like every other panel's. `pick_log_subsystem()`, `pick_log_level()`, `toggle_log_follow()`
+and `clear_logs()` are the rest.
 
 The events themselves are spread across the subsystems that own them: a window opening, a workspace
 started or failed, a pane closed and its harness killed, a pseudo-terminal opened at a size, a
 pane's stream ending, a pane exiting, and a message that arrived at the half that may only send it.
 
-`crates/ubiq/tests/logs.rs` drives the sink the way a subsystem does — real `tracing` events, read
-back through `snapshot()` — and covers the classification, the two filters composing, the nudge and
-the clear. No window is needed for any of it.
+`crates/ubiq-proto/tests/log_sink.rs` drives the sink the way a subsystem does — real `tracing`
+events, read back through `snapshot()` — and covers the classification, the two filters composing,
+the nudge and the clear. `crates/ubiq/tests/logs.rs` covers the two pickers on the indexing the
+console draws them with. No window is needed for either.
 
 ## Failure
 
@@ -162,18 +160,18 @@ the clear. No window is needed for any of it.
 | Nothing matches the filter | The console says which subsystem and level found nothing; the controls keep their selection |
 | The ring fills | The oldest records go, and the header reports how many |
 | `install()` is called twice | The first collector stays; the second is dropped rather than replacing it |
-| A record arrives while another tab is drawn | It is kept in the ring, and a warning or an error shows on the tab's dot; the window is not redrawn |
+| A record arrives while the console is a background tab | It is kept in the ring, and a warning or an error shows on the tab's dot; a collapsed region draws nothing for it |
 | A record is emitted while the window draws | Coalesced behind the settling delay, so it cannot drive the frame that emitted it |
 | A window closes | Its listener is dropped on the next push; the ring and every other console are untouched |
 | `RUST_LOG` names a filter that excludes a subsystem | That subsystem's records never reach the ring, and the console cannot show what was not collected |
 
 ## Related docs
 
-- [`panes-and-terminals.md`](./panes-and-terminals.md) — the dock the console is a tab of, and the focus rule it takes part in
+- [`panes-and-terminals.md`](./panes-and-terminals.md) — the panes the console shares the dock with, and the focus rule it takes part in
 - [`workbench.md`](./workbench.md) — the shell the dock sits in
 - [`../tech/architecture.md`](../tech/architecture.md) — the two halves, and the rule the sink is measured against
-- [`../tech/decisions.md`](../tech/decisions.md) — `D24`, why the sink is shared and what it costs
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens the rows are coloured with and the panel's size constants
+- [`../tech/decisions.md`](../tech/decisions.md) — `D24`, why the sink is shared and what it costs, and `D42`, the dock the console is a panel in
+- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens the rows are coloured with and the console's size constants
 
 ## Next steps
 

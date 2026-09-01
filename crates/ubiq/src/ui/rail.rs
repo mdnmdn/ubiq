@@ -19,6 +19,7 @@ pub fn mode_icon(mode: RailMode) -> IconName {
         RailMode::Agents => IconName::Asterisk,
         RailMode::Kb => IconName::BookOpen,
         RailMode::Tasks => IconName::CircleCheck,
+        RailMode::Sink => IconName::Palette,
     }
 }
 

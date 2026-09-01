@@ -9,7 +9,7 @@ use ubiq_host::projects::Projects;
 use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore, MemoryTaskStore};
 use ubiq_host::work::Work;
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
-use ubiq_proto::files::{FileError, FileVersion};
+use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::Message;
 
@@ -586,6 +586,107 @@ fn expect_written(ui: &Client) -> FileVersion {
     }
 }
 
+#[test]
+fn a_diff_answers_the_window_that_asked_and_no_other() {
+    let (hub, ui) = coordinator();
+    let other = hub.connect();
+    let (project_id, path) = a_project(&ui);
+
+    // A scratch repository, committed and then changed — the diff has to come from version
+    // control rather than from anything the host remembers about the read.
+    scratch_git(&path, &["init", "-q", "-b", "main"]);
+    std::fs::write(path.join("file.txt"), b"one\ntwo\n").unwrap();
+    scratch_git(&path, &["add", "."]);
+    scratch_git(&path, &["commit", "-q", "-m", "first"]);
+    std::fs::write(path.join("file.txt"), b"one\nchanged\n").unwrap();
+
+    ui.send(Message::DiffProjectFile {
+        project_id,
+        rel_path: "file.txt".to_string(),
+        base: DiffBase::Head,
+    });
+
+    let diff = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectFileDiffed { diff, rel_path, .. }) => {
+                assert_eq!(rel_path, "file.txt");
+                break diff;
+            }
+            Ok(Message::ProjectFileError { error, .. }) => panic!("the diff failed: {error:?}"),
+            Ok(_) => continue,
+            Err(_) => panic!("the diff was never answered"),
+        }
+    };
+
+    assert_eq!(diff.base, DiffBase::Head);
+    assert_eq!(diff.hunks.len(), 1, "{diff:?}");
+    let added: Vec<&str> = diff.hunks[0]
+        .rows
+        .iter()
+        .filter(|row| row.kind == DiffRowKind::Added)
+        .map(|row| row.text.as_str())
+        .collect();
+    assert_eq!(added, vec!["changed"]);
+
+    // The file family answers one window, and a diff is no exception.
+    while let Ok(message) = other.from_host().recv_timeout(Duration::from_millis(200)) {
+        assert!(
+            !matches!(message, Message::ProjectFileDiffed { .. }),
+            "a diff reached a window that did not ask for it"
+        );
+    }
+}
+
+#[test]
+fn a_diff_in_a_project_with_no_version_control_is_refused() {
+    let (_hub, ui) = coordinator();
+    let (project_id, path) = a_project(&ui);
+    std::fs::write(path.join("alone.txt"), b"alone\n").unwrap();
+
+    ui.send(Message::DiffProjectFile {
+        project_id,
+        rel_path: "alone.txt".to_string(),
+        base: DiffBase::Head,
+    });
+
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectFileError {
+                error, rel_path, ..
+            }) => {
+                assert_eq!(rel_path, "alone.txt");
+                assert!(matches!(error, FileError::Refused(_)), "answered {error:?}");
+                return;
+            }
+            Ok(Message::ProjectFileDiffed { .. }) => {
+                panic!("a folder with no version control was diffed")
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the diff was never answered"),
+        }
+    }
+}
+
+/// One git command in a scratch folder, with the machine's own configuration kept out of it.
+fn scratch_git(dir: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Ubiq")
+        .env("GIT_AUTHOR_EMAIL", "ubiq@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Ubiq")
+        .env("GIT_COMMITTER_EMAIL", "ubiq@example.invalid")
+        .args(args)
+        .output()
+        .expect("git");
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 // ── the work family over the bus ────────────────────────────────────
 
 #[test]
@@ -701,6 +802,60 @@ fn a_task_change_reaches_only_the_window_that_asked() {
             ),
             "work reached a window that did not ask for it: {message:?}"
         );
+    }
+}
+
+/// The interface's workarea is reserved where the layout says, and the host leaves it empty.
+///
+/// Two facts in one test, because they are the whole of the rule: the path the snapshot carries is
+/// `projects/<ulid>/ui/`, it exists by the time the interface is told about it, and nothing the
+/// host does afterwards puts anything in it. The interface never composes this path itself.
+#[test]
+fn a_project_arrives_with_a_workarea_the_host_reserves_and_leaves_alone() {
+    let (_hub, ui, root) = coordinator_on_disk();
+    let folder = tempfile::TempDir::new().unwrap();
+    let project = add_project(&ui, folder.path());
+
+    let expected = root.join("projects").join(project.to_string()).join("ui");
+    let snapshot = expect_project_list(&ui)
+        .into_iter()
+        .find(|p| p.id() == project)
+        .expect("the project is in the listing");
+    assert_eq!(
+        std::path::Path::new(&snapshot.workarea),
+        expected,
+        "the workarea sits beside the project's own files under Ubiq's config root"
+    );
+    assert!(
+        expected.is_dir(),
+        "and the host has already made it, because the interface is told a path and not a maybe"
+    );
+
+    // The host writes a project's tasks and its view state; none of it lands in here.
+    ui.send(Message::ListWork {
+        project_id: project,
+    });
+    let _ = expect_work_list(&ui, project);
+    let path = root
+        .join("projects")
+        .join(project.to_string())
+        .join("tasks.toml");
+    wait_for_body(&path, "[[task]]");
+    assert_eq!(
+        std::fs::read_dir(&expected).unwrap().count(),
+        0,
+        "the host reserves the workarea and never writes inside it"
+    );
+}
+
+fn expect_project_list(ui: &Client) -> Vec<ubiq_proto::projects::ProjectSnapshot> {
+    ui.send(Message::ListProjects);
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectList { projects }) => return projects,
+            Ok(_) => continue,
+            Err(_) => panic!("the catalogue was never listed"),
+        }
     }
 }
 

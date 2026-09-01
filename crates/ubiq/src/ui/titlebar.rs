@@ -1,5 +1,6 @@
-//! The top row: what is open, where it lives, and the switches for the panels around it.
+//! The top row: what is open, where it lives, and the switches for the dock's three edge regions.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{Context, IntoElement, ParentElement, Styled, div, px};
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -10,7 +11,12 @@ use crate::ui::kit::{icon_button, mono};
 use crate::ui::project_menu;
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let wb = &app.workbench;
+    // The three switches report the dock's own regions rather than a flag beside it: a region the
+    // user collapsed by dragging its last panel out has to read as closed here too.
+    let (left, bottom, right) = app.regions_open(cx);
+    // A pane runs in a project's folder, so with none open there is nothing a new one could be
+    // started in and the action is not offered.
+    let has_project = app.project(cx).is_some();
 
     div()
         .h(px(theme::TITLEBAR_HEIGHT))
@@ -35,33 +41,40 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .child(icon_button(
                     "toggle-left",
                     IconName::PanelLeft,
-                    wb.show_left,
-                    cx.listener(|this, _, _, cx| {
-                        this.workbench.show_left = !this.workbench.show_left;
-                        this.remember_view(cx);
-                        cx.notify();
+                    left,
+                    cx.listener(|this, _, window, cx| {
+                        this.toggle_region(crate::state::Region::Left, window, cx)
                     }),
                 ))
                 .child(icon_button(
                     "toggle-bottom",
                     IconName::PanelBottom,
-                    wb.show_bottom,
-                    cx.listener(|this, _, _, cx| {
-                        this.workbench.show_bottom = !this.workbench.show_bottom;
-                        this.remember_view(cx);
-                        cx.notify();
+                    bottom,
+                    cx.listener(|this, _, window, cx| {
+                        this.toggle_region(crate::state::Region::Bottom, window, cx)
                     }),
                 ))
                 .child(icon_button(
                     "toggle-right",
                     IconName::PanelRight,
-                    wb.show_right,
-                    cx.listener(|this, _, _, cx| {
-                        this.workbench.show_right = !this.workbench.show_right;
-                        this.remember_view(cx);
-                        cx.notify();
+                    right,
+                    cx.listener(|this, _, window, cx| {
+                        this.toggle_region(crate::state::Region::Right, window, cx)
                     }),
                 ))
+                // Opening a terminal is chrome rather than a panel's own action: a new pane's
+                // panel joins whichever region terminals live in, and no one group owns the
+                // gesture once every group can hold one.
+                .when(has_project, |this| {
+                    this.child(icon_button(
+                        "new-pane",
+                        IconName::Plus,
+                        false,
+                        cx.listener(|this, _, _, cx| {
+                            this.spawn_pane(None, Vec::new(), cx);
+                        }),
+                    ))
+                })
                 .child(
                     div()
                         .w(px(1.))

@@ -9,6 +9,7 @@
 pub mod agents;
 pub mod board;
 pub mod chat;
+pub mod dock;
 pub mod editor;
 pub mod empty;
 pub mod explorer;
@@ -17,9 +18,11 @@ pub mod logs;
 pub mod project_menu;
 pub mod rail;
 pub mod shell;
+pub mod sink;
 pub mod status_bar;
 pub mod terminal;
 pub mod titlebar;
+pub mod viewer;
 
 use gpui::{App, Context, ElementId, Entity, Window};
 

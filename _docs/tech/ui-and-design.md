@@ -3,11 +3,11 @@ id: tech-ui
 title: UI and design
 kind: tech
 status: current
-summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface is drawn in, and the design assets screens are built against.
-read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, or looking for the wireframe a layout came from
+summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface and modal is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
+read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -22,10 +22,16 @@ set on top for the components an application expects to be given rather than to 
 Three properties shape how UI code reads:
 
 **Views are structs that render.** A type implementing `Render` owns its state and produces an
-element tree from it. `AppState` in `crates/ubiq/src/app.rs` is the root and the only one: it owns the
-window's own state — the layout mode, the chat, the console, the emulators — and one `OpenProject` per
-project the window holds, carrying that project's tree, files and panes. Its render delegates to
+element tree from it. `AppState` in `crates/ubiq/src/app.rs` is the root: it owns the window's own
+state — the dock, the chat, the console, the emulators — and one `OpenProject` per project the
+window holds, carrying that project's tree, files and panes. Its render delegates to
 `crates/ubiq/src/ui/shell.rs`.
+
+**`AppState` is the only owner of state, and not the only view.** The window's arrangement is a
+dock of movable panels, and the component library requires each panel to be an entity that renders,
+focuses and emits — `D42`, which half reverses `D17`. A panel is an adapter: `WorkbenchPanel` in
+`crates/ubiq/src/ui/dock/mod.rs` holds a weak `AppState` handle and a panel kind, and its render is
+a `match` that delegates to the same free functions every screen area is.
 
 **Mutation ends in a redraw request.** Nothing repaints because a field changed; it repaints because
 the code that changed it said so through its context. Every state-mutating method on `AppState` ends
@@ -51,7 +57,7 @@ a palette swap changes every surface consistently.
 
 | Group | Accessors | For |
 |---|---|---|
-| Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected` | The stack of backgrounds, from the window down to a selected row |
+| Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `scrim` | The stack of backgrounds, from the window down to a selected row — and what a modal lays over the window it took the keyboard from |
 | Text | `text`, `text_muted`, `text_faint`, `on_accent` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — and copy sitting on a filled surface |
 | Accent | `accent`, `accent_muted`, `accent_soft` | The interactive colour, its subdued form, and the fill behind a selected row |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
@@ -61,6 +67,11 @@ a palette swap changes every surface consistently.
 The `_soft` variants are declared with their own alpha in `theme.rs` rather than computed at a call
 site with `.alpha(...)`. A shade that only exists at one call site is a shade a palette swap cannot
 reach.
+
+`scrim` is the newest member of the surface group and the clearest case for the rule above. A modal
+has to dim what is behind it, and how much a palette dims by is not the same in both — a dark ground
+needs a heavier veil than a light one — so it is a token with a value in each rather than a `fade` at
+the one call site that raises a modal.
 
 `theme::fade` is the one transform allowed on a token: the same colour at another alpha, for
 something that has to sit under, over or beside a surface — a dotted ground, a connector, a fading
@@ -102,13 +113,13 @@ restyling the shell should be one file to visit.
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
 | `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
-| `EXPLORER_WIDTH`/`_MIN`/`_MAX`, `CHAT_WIDTH`/`_MIN`/`_MAX`, `DOCK_HEIGHT`/`_MIN`/`_MAX` | The default and permitted size of each resizable panel. A size the user has dragged is remembered per project and seeds the panel over its default |
+| `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The agents screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
+| `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
 
-A panel's three constants travel together: the default is what a fresh window opens at, and the two
-bounds are what the drag handle will not pass. Adding a panel means adding all three. The agents
-screen's three are not a triple of that kind: its inspector and its drawer are shown and hidden
-rather than dragged, so each is one number and there is nothing to bound.
+A region's constant is what a fresh window opens it at; what the drag will not pass is the dock's
+own, so a region is one number rather than a triple. The agents screen's three are the same shape
+for a different reason: its inspector and its drawer are shown and hidden rather than dragged.
 
 Syntax colours are the one thing not tokenised here. They come from the component library's own
 highlighter theme, which `theme::set_mode` keeps in step with Ubiq's palette, so the editor and the
@@ -120,11 +131,12 @@ the accessor. Adding a group means a role none of the six covers, which is rare 
 arguing about in [`decisions.md`](./decisions.md) — `Project` is the only group added since the
 original five, and it carries `D19`.
 
-Not every token has a call site. `border_focus`, `accent_muted`, `selected` and `info_soft` are
-defined in both palettes and unused, because the conventions they belong to — focus across split
-panes, in particular — are designed ahead of the code. They are listed as a gap in
-[`../backlog.md`](../backlog.md) rather than quietly deleted, because deleting a token is how a
-convention silently stops being available.
+Every token has a call site, and for two of them the only one is a specimen. The style reference
+draws all of them by name — that is what the page is for — but `selected` fills no row and
+`border_focus` marks no focused pane, because the conventions they belong to, focus across split
+panes in particular, are designed ahead of the code. That is listed as a gap in
+[`../backlog.md`](../backlog.md) rather than quietly resolved by the drawing, because a specimen is
+evidence a token has a value, not evidence anything uses it.
 
 ## Conventions for a screen
 
@@ -173,10 +185,26 @@ sense and keep their own spacing.
 
 Circles survive in exactly one place: state dots, which are dots.
 
+**A modal is that same surface, over the window.** One question at a time, drawn by `kit::modal`:
+`MODAL_WIDTH` wide because a modal is one question rather than a panel, at most `MODAL_MAX_HEIGHT` of
+the window's height with its body scrolling inside, square, filled with `surface_raised`, and
+identified by the coloured left edge — `accent` for a question, `danger` for something that will not
+come back. `scrim` is what it lays over the window.
+
+Three rules come with it, and none of them is the caller's to re-decide. **It is painted where it is
+asked for**, through `deferred` and `anchored` at the window's origin, so a modal raised inside a
+dock panel covers the window instead of being clipped to the panel — which is what lets a screen own
+its own modal rather than the shell keeping a layer for one screen's sake. **It is dismissed by an
+outside click and by its own close**, through `on_mouse_down_out` on the panel, exactly as the kit's
+dropdown is, so the two behave the same way and neither uses the scrim as a click target. And **the
+scrim occludes the mouse**, so nothing behind a modal can be clicked while it is up. It sits above
+the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
+
 ## How a screen is put together
 
 **`gpui-component` first.** Its `Icon`, `Kbd`, `Badge`, `Editor`, `Textarea`, `Scrollbar`, markdown
-view and resizable group are used directly. `crates/ubiq/src/ui/kit/` holds only what the library
+view and dock are used directly — the dock being the largest widget in the library and the whole of
+the window's arrangement, `D42`. `crates/ubiq/src/ui/kit/` holds only what the library
 does not give us — the slab every surface is drawn in and the card that is a slab you can pick, the
 state dot, the pill, the state chip, the toggle pill for an independent facet and the choice pill
 for one value of a set, the filled button a screen's single obvious action is drawn as, the stepper,
@@ -198,9 +226,22 @@ device inline.
 `AppState` has stopped being a primitive.
 
 **Screen areas are free functions, not views.** One module per area under `ui/`, each a
-`fn(&AppState, &mut Context<AppState>) -> impl IntoElement`. Keeping one view means one place owns
-state and one place requests redraws. A helper that takes `cx` and is called in a loop returns
-`AnyElement`, because Rust 2024's capture rules make `impl IntoElement` borrow the context.
+`fn(&AppState, &mut Context<AppState>) -> impl IntoElement`. One place owns state and one place
+requests redraws. A helper that takes `cx` and is called in a loop returns `AnyElement`, because
+Rust 2024's capture rules make `impl IntoElement` borrow the context.
+
+That signature is what makes a screen area a **panel** for nothing: the dock's adapter calls it
+inside `app.update(...)` from its own render, which is sound because a child view's render runs in
+the layout pass, after the parent's has returned. The one thing a panel may not do is read
+`AppState` outside a render — the dock asks a panel whether it is visible while the window is
+mid-update, and the window pushes that answer to the panel rather than the panel reading it back.
+
+**The dock is the component library's; the skin is Ubiq's.** `crates/ubiq/src/ui/dock/skin.rs`
+implements the library's three renderer traits and draws every pixel of a group: the tab strip at
+the same height as `kit::tab_strip`, the displayed tab marked on its bottom edge, a dot per panel,
+a close only where the panel offers one, the drop indicator, and the regions' resize strips. The
+tokens, the square surfaces and the coloured left edge therefore hold inside a group exactly as
+outside one, and Ubiq writes no drag, no drop geometry and no layout serialisation.
 
 **Exactly one menu is open at a time**, tracked as a single `Option<MenuId>` on the workbench state.
 A trigger *opens* rather than toggles, so the open panel's outside-click dismissal cannot race the
@@ -220,6 +261,15 @@ site. Hashing the id into a `u64` instead would collide silently, and an id that
 trap rather than a shortcut. A row keyed by an *enum discriminant* keeps the tuple form: a column
 and a filter pill are one of a fixed few, and nothing is gained by naming them in words.
 
+**Every primitive has a specimen, and the kitchen sink's style reference is where it is.** The page
+draws each token and each kit function under the name a call site reaches it by, wired to real state
+where the primitive has a state, so a control's off state, a token's value in the other palette and a
+surface whose edge floats inside its container are all looked at in one place rather than hunted for
+across screens. A primitive added to `ui/kit/` gets a specimen there in the same change; that is also
+where a convention drawn ahead of its use — `border_focus`, the modal — becomes something a reader
+can see instead of something the documentation asserts. What the page holds and how it is built is
+[`../features/workbench.md`](../features/workbench.md)'s.
+
 To add an area to the window:
 
 1. Put its state in `crates/ubiq/src/state/`, as data plus small mutators. Nothing that draws, and no
@@ -229,10 +279,11 @@ To add an area to the window:
    window, and a mutator that ends in `cx.notify()`. Any component-library state the window itself
    needs — an `InputState` — is an `Entity` field on `AppState`, with its subscription pushed onto
    `_subscriptions`.
-3. Write `crates/ubiq/src/ui/<area>.rs` as `fn render(&AppState, &mut Context<AppState>)`, and hang
-   it off `shell.rs`.
+3. Write `crates/ubiq/src/ui/<area>.rs` as `fn render(&AppState, &mut Context<AppState>)`. Hang it
+   off `shell.rs` if it is chrome, or give it a `PanelKind` and an arm in `ui::dock::body` if it is
+   a panel — [`../features/workbench.md`](../features/workbench.md) has that path in full.
 4. Reach for a `gpui-component` widget first. If there is none, and a second caller wants the same thing,
-   it belongs in `ui/kit/` and must not name `AppState`.
+   it belongs in `ui/kit/`, must not name `AppState`, and gets a specimen on the style reference.
 5. Colours through tokens, sizes through constants, no radii, and a coloured left edge on anything
    that reads as a surface.
 

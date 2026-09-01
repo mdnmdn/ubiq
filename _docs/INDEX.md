@@ -69,7 +69,7 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
-| [Glossary](./product/glossary.md) | Plain definitions of the recurring terms — harness, agent type, session, workspace, pane, coordinator, bus, catalog — for anyone reading the rest of this documentation. | 2026-08-31 |
+| [Glossary](./product/glossary.md) | Plain definitions of the recurring terms — harness, agent type, session, workspace, panel, pane, dock, coordinator, bus, catalog — for anyone reading the rest of this documentation. | 2026-09-01 |
 | [Product overview](./product/overview.md) | What Ubiq is, who runs it, why an agent harness needs a real terminal rather than a chat box, and what the product deliberately refuses to be. | 2026-08-31 |
 
 ### Features
@@ -77,10 +77,10 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-09-01 |
-| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor. | 2026-09-01 |
-| [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in. | 2026-09-01 |
+| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-01 |
+| [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-01 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-01 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer and editor a project owns, the agents screen and the tasks board the rail's other built modes hold, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-01 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-01 |
 
 ### Tech
 
@@ -95,7 +95,7 @@ states the boundary once.
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-08-31 |
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-01 |
 | [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file and work families, the framing rules, and the procedure for adding a variant. | 2026-09-01 |
-| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface is drawn in, and the design assets screens are built against. | 2026-09-01 |
+| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface and modal is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-01 |
 
 ### Meta
 

@@ -11,12 +11,17 @@
 pub mod agents;
 pub mod board;
 pub mod chat;
+pub mod diagrams;
+pub mod dock;
 pub mod editor;
 pub mod explorer;
 pub mod layout;
 pub mod logs;
 pub mod prefs;
 pub mod sample;
+pub mod scene;
+pub mod sink;
+pub mod viewport;
 pub mod when;
 pub mod windows;
 pub mod work;
@@ -28,10 +33,14 @@ pub use chat::{
     Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
     THINKING, ToolCall, ToolKind,
 };
+pub use diagrams::{DiagramImage, DiagramPalette};
+pub use dock::{PanelClass, PanelKind, Region};
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
 pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row, Toggle};
 pub use layout::Layout;
 pub use logs::LogState;
+pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
+pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{MenuId, RailMode, RowAction, WorkbenchState};

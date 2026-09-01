@@ -48,7 +48,7 @@ pub fn dot_grid(spacing: f32, offset: Point<f32>) -> impl IntoElement {
                 y += spacing;
             }
         },
-    ))
+    ).size_full())
 }
 
 /// One curve between two points, in the colour of whatever it connects.
@@ -100,7 +100,7 @@ pub fn links(links: Vec<Link>) -> impl IntoElement {
                 }
             }
         },
-    ))
+    ).size_full())
 }
 
 /// One grain of a drag trail, as the painter wants it: where it is, how far through its life it
@@ -139,7 +139,7 @@ pub fn sand(grains: Vec<Grain>, colour: Rgba) -> impl IntoElement {
                 ));
             }
         },
-    ))
+    ).size_full())
 }
 
 /// The box a task's cards sit in: a dashed outline, drawn rather than bordered because GPUI's
@@ -171,5 +171,5 @@ pub fn dashed_box(rect: (f32, f32, f32, f32), colour: Rgba, active: bool) -> imp
                 window.paint_path(path, colour);
             }
         },
-    ))
+    ).size_full())
 }

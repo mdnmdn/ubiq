@@ -11,28 +11,36 @@
 //!
 //! Every mutator ends in `cx.notify()`. One that forgets is a panel that stops updating.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::state::agents::{GraphView, Held, InspectorTab, Selection};
 use crate::state::board::{BoardState, Field};
+use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
+use crate::state::viewport::{Content, Viewport};
+use crate::state::dock::Visibility;
+use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
+use crate::state::sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, RailMode, Toggle,
-    WindowRegistry, WorkbenchState, prefs, sample,
+    ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, OpenFile, PanelKind,
+    RailMode, Region, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
+use crate::ui::dock::{self as dock, WorkbenchPanel};
 use gpui::{
-    App, Bounds, Context, Entity, FocusHandle, Global, IntoElement, PathPromptOptions, Render,
-    ScrollHandle, Subscription, UniformListScrollHandle, Window, WindowBounds, WindowId,
-    WindowOptions, point, prelude::*, px, size,
+    App, Bounds, Context, Entity, Global, Image, ImageFormat, IntoElement, PathPromptOptions,
+    Render, ScrollHandle, Subscription, UniformListScrollHandle, WeakEntity, Window, WindowBounds,
+    WindowId, WindowOptions, point, prelude::*, px, size,
 };
+use gpui_component::dock::{DockArea, DockEvent, PanelId};
 use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
-use gpui_component::resizable::ResizableState;
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
-use ubiq_proto::files::{FileContents, FileError};
+use ubiq_proto::files::{DiffBase, FileContents, FileError};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
@@ -68,6 +76,41 @@ impl BusHub {
     }
 }
 
+/// A drawn diagram, ready to go on screen.
+///
+/// The picture is built when the render lands rather than on every frame: `Image` identifies
+/// itself by hashing its bytes, and a diagram rebuilt each frame would hash and copy them each
+/// frame.
+#[derive(Clone)]
+pub struct DiagramPicture {
+    pub image: Arc<Image>,
+    /// The picture's own size, read out of the SVG's viewBox. Drawing at it is what keeps a diagram
+    /// sharp instead of stretched to whatever box it landed in.
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Where one diagram has got to.
+///
+/// A source that would not draw is remembered as `Failed` rather than forgotten. Nothing is cached
+/// for it — no picture was made — but the window has to stop asking, and the viewer has to have
+/// something to say beside the source.
+#[derive(Clone)]
+pub enum DiagramEntry {
+    Pending,
+    Ready(DiagramPicture),
+    Failed(String),
+}
+
+/// The picture a rendered diagram becomes. Always SVG: that is the only thing merman emits.
+fn diagram_picture(image: DiagramImage) -> DiagramPicture {
+    DiagramPicture {
+        width: image.width,
+        height: image.height,
+        image: Arc::new(Image::from_bytes(ImageFormat::Svg, image.bytes)),
+    }
+}
+
 /// Single agent harness pane state.
 #[derive(Clone)]
 pub struct PaneState {
@@ -88,33 +131,14 @@ struct PaneTerminal {
     output: Option<flume::Sender<Vec<u8>>>,
 }
 
-/// What the dock's body draws. Which pane, when it is a pane, is the active project's focused one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DockTab {
-    /// The focused pane's terminal.
-    Pane,
-    /// The log console, which is a tab in the dock rather than a panel of its own.
-    Logs,
-}
-
-/// Who is waiting for the keyboard. Focus needs a window, which arrives with the next frame.
-enum PendingFocus {
-    Pane(PaneId),
-    /// The console. A dock showing logs must not leave the keyboard in a terminal nobody can see.
-    Logs,
-}
-
-/// Layout mode for pane arrangement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LayoutMode {
-    /// Single pane fills the dock.
-    Single,
-    /// Side-by-side vertical split.
-    Vsplit,
-    /// Top-bottom horizontal split.
-    Hsplit,
-    /// Grid layout (future).
-    Grid,
+/// An edit to the dock that is waiting for a window.
+///
+/// A panel is added and removed through the dock, which needs a `Window`, and a message does not
+/// come with one — so these queue exactly as the pending focus and the arrived files already do,
+/// and are drained in `render`.
+enum PanelEdit {
+    Open(PanelKind),
+    Close(PanelKind),
 }
 
 /// What one window holds for one project it has open.
@@ -186,6 +210,9 @@ pub struct AppState {
     /// Which window this state belongs to. It is the key into the process-wide
     /// [`WindowRegistry`], and the only thing that tells two windows apart.
     window_id: WindowId,
+    /// This state, weakly. The dock it owns holds panels that read it back, and a strong handle
+    /// either way would be a cycle the window never gets out of.
+    this: WeakEntity<Self>,
     /// One entry per project this window holds. The registry says which of them is on screen.
     projects: HashMap<ProjectId, OpenProject>,
     /// Which project the window was last pointed at, so a switch is noticed exactly once.
@@ -193,8 +220,6 @@ pub struct AppState {
     /// What a project left behind when it was closed here, so reopening it in the same session
     /// restores its furniture with no round trip and no debounce to race.
     parked: HashMap<ProjectId, prefs::ViewPrefs>,
-    /// How the dock arranges its panes.
-    layout_mode: LayoutMode,
 
     /// The window's session — the grouping every workspace it spawns belongs to.
     session: SessionId,
@@ -205,13 +230,27 @@ pub struct AppState {
     terminals: HashMap<PaneId, PaneTerminal>,
     /// Geometry an emulator measured for itself, on its way back into `PaneState`.
     geometry: flume::Sender<(PaneId, u16, u16)>,
-    /// What the dock's tab strip has selected.
-    dock_tab: DockTab,
     /// Whoever the keyboard is owed to, once there is a window to give it with.
-    pending_focus: Option<PendingFocus>,
+    pending_focus: Option<PaneId>,
+
+    /// The window's whole arrangement: a tree of tabbed groups the user rearranges by dragging.
+    /// Every area of the workbench is a panel in it, and nothing outside it decides where anything
+    /// sits.
+    dock: Entity<DockArea>,
+    /// One panel per kind, so a panel is looked up rather than rebuilt. A terminal's key carries
+    /// its pane id, which is what makes "the panel for this pane" a map read.
+    panels: HashMap<PanelKind, Entity<WorkbenchPanel>>,
+    /// Panels waiting for the frame that can put them in the dock or take them out of it.
+    pending_panels: Vec<PanelEdit>,
+    /// A saved arrangement waiting for the same frame. Restoring one needs a window, and it
+    /// arrives from the host on a message.
+    pending_layout: Option<serde_json::Value>,
 
     pub workbench: WorkbenchState,
     pub chat: ChatState,
+    /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
+    /// the window rather than to a project, because the sink has no project behind it.
+    pub sink: SinkState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
 
@@ -221,14 +260,26 @@ pub struct AppState {
     /// Whether an `AddProject` this window asked for is still outstanding, so the project it
     /// answers with is opened here rather than merely appearing in every picker.
     adding: bool,
-    /// Panel sizes read back from the host, waiting for the frame that can apply them.
-    pending_sizes: Option<prefs::ViewPrefs>,
     /// Contents the host sent that still need a window to become buffers. Drained in `render`.
     pending_files: Vec<FileArrival>,
-    /// The two resizable groups' own state, owned here rather than left implicit, because a size
-    /// that cannot be read back cannot be remembered.
-    pub columns: Entity<ResizableState>,
-    pub centre: Entity<ResizableState>,
+
+    /// Every diagram this window has drawn, by content key — the cache's memory tier. **Behind a
+    /// cell because a viewer meets it mid-frame**: the element tree is built from `&AppState`, and
+    /// a diagram is found to be missing exactly there.
+    diagrams: RefCell<HashMap<String, DiagramEntry>>,
+    /// The diagrams a frame turned out to need: the source and the palette. A render cannot be
+    /// started from inside one — `AppState` is mid-update, and the work belongs on another thread
+    /// anyway — so they queue here and are handed to the background executor once the frame is
+    /// built.
+    diagram_asks: RefCell<Vec<(String, DiagramPalette)>>,
+
+    /// The camera on each diagram and scene this window is showing, keyed by the tab (or the
+    /// sink document) that holds it. Behind a cell because a viewer meets it mid-frame the same
+    /// way it meets the diagram cache: the element tree is built from `&AppState`.
+    viewports: RefCell<HashMap<String, Viewport>>,
+    /// The picture the pointer is dragging, and where the last move was. Separate from the camera
+    /// so a drag that is interrupted leaves the pan where the last move put it.
+    viewport_drag: RefCell<Option<(String, gpui::Point<gpui::Pixels>)>>,
 
     /// The component library's own state entities. Each open file owns its buffer, so none of
     /// them is the editor's.
@@ -251,10 +302,19 @@ pub struct AppState {
     pub project_search: Entity<InputState>,
     /// The field a picker row becomes while a project is being renamed.
     pub rename_input: Entity<InputState>,
+    /// One buffer per kitchen-sink fixture, by the document's key. The sink's documents are the
+    /// window's own rather than a project's files — nothing reads them from disk and nothing writes
+    /// them back — so their buffers sit here beside the window's other component-library state
+    /// instead of on an `OpenFile`.
+    sink_buffers: HashMap<&'static str, Entity<EditorState>>,
+    /// The style reference's two fields, and the one its form modal carries. Three rather than one,
+    /// because the modal can be raised while the fields page is on screen and one state drawn twice
+    /// is one field in two places.
+    pub sink_input: Entity<InputState>,
+    pub sink_textarea: Entity<TextareaState>,
+    pub sink_modal_input: Entity<InputState>,
     pub chat_scroll: ScrollHandle,
     pub log_scroll: UniformListScrollHandle,
-    /// The console's own focus, so selecting its tab takes the keyboard off the pane behind it.
-    log_focus: FocusHandle,
     /// Which task the panel's fields were last filled from, so a selection change refills them
     /// exactly once. Writing into the component library's state needs a window and a message does
     /// not come with one, which is why this is drained in `render` beside the arrived files.
@@ -329,12 +389,81 @@ impl AppState {
 
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
 
-        // Owned rather than the implicit keyed state, so a dragged size can be read back and
-        // written down.
-        let columns = cx.new(|_| ResizableState::default());
-        let centre = cx.new(|_| ResizableState::default());
+        // The kitchen sink's fixtures become buffers here, where there is a window to build one
+        // with. They are constants, so this is the whole of their lifecycle: nothing arrives late,
+        // nothing is saved, and a change event would have nothing to compare against.
+        let sink_buffers: HashMap<&'static str, Entity<EditorState>> = crate::state::sink::docs()
+            .iter()
+            .map(|doc| {
+                let buffer = cx.new(|cx| {
+                    EditorState::new(window, cx)
+                        .language(ui::editor::highlighter_language(doc.language()))
+                        .line_number(true)
+                        .folding(true)
+                        .show_whitespaces(false)
+                        .tab_size(TabSize {
+                            tab_size: 2,
+                            ..Default::default()
+                        })
+                        .default_value(doc.source)
+                });
+                (doc.key, buffer)
+            })
+            .collect();
+
+        let sink_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("a field, with nothing behind it")
+                .default_value("crates/ubiq/src/theme.rs")
+        });
+
+        let sink_textarea = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("a textarea, with nothing behind it\u{2026}")
+                .auto_grow(2, 6)
+        });
+
+        let sink_modal_input = cx.new(|cx| InputState::new(window, cx).placeholder("Session name"));
+
+        // The window's arrangement. It is built before anything is put in it, because a panel is
+        // an entity that has to be handed somewhere the moment it exists.
+        let dock = cx.new(|cx| {
+            DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx)
+                .with_renderer(crate::ui::dock::skin::Skin::new())
+        });
+
+        // Every panel reads this window's state, and `cx.entity()` is that handle before the state
+        // it names exists — the slot is reserved for the duration of the constructor.
+        let app = cx.weak_entity();
+        let mut panels: HashMap<PanelKind, Entity<WorkbenchPanel>> = HashMap::new();
+        {
+            let mut build = |kind: PanelKind, cx: &mut App| {
+                panels
+                    .entry(kind.clone())
+                    .or_insert_with(|| WorkbenchPanel::new(kind, app.clone(), cx))
+                    .clone()
+            };
+            dock::default_layout(&dock, &mut build, window, cx);
+        }
 
         let mut subscriptions = Vec::new();
+
+        // The dock is where the arrangement lives, so it is the dock that says it changed. Every
+        // edit fires this — a drag, a split, a divider let go of — and the host debounces the
+        // write, so it may fire as freely as it likes. The placement policy is applied first: a
+        // panel that landed somewhere its kind forbids is put back before the layout is written
+        // down, so what is remembered is what is on screen.
+        subscriptions.push(cx.subscribe_in(
+            &dock,
+            window,
+            |this, _, event: &DockEvent, window, cx| {
+                if matches!(event, DockEvent::LayoutChanged) {
+                    this.enforce_placement(window, cx);
+                    this.remember_view(cx);
+                    cx.notify();
+                }
+            },
+        ));
 
         // Every window draws from the same registry, so a project moved in one window redraws the
         // picker in all of them. Another window taking a project is also a change this window has
@@ -501,11 +630,10 @@ impl AppState {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             while nudges.recv_async().await.is_ok() {
                 while nudges.try_recv().is_ok() {}
-                let shown = this.update(cx, |this, cx| {
-                    if this.workbench.show_bottom && this.dock_tab == DockTab::Logs {
-                        cx.notify();
-                    }
-                });
+                // The console is a panel of its own now, so there is no tab to test: a window
+                // whose console is a background tab redraws it and lays it out anyway, and one
+                // whose bottom region is closed draws nothing for it.
+                let shown = this.update(cx, |_, cx| cx.notify());
                 if shown.is_err() {
                     break;
                 }
@@ -534,25 +662,30 @@ impl AppState {
 
         let mut this = Self {
             window_id,
+            this: cx.weak_entity(),
             projects: HashMap::new(),
             active_seen: None,
             parked: HashMap::new(),
-            layout_mode: LayoutMode::Single,
             session: SessionId::generate(),
             bus,
             terminals: HashMap::new(),
             geometry,
-            dock_tab: DockTab::Pane,
             pending_focus: None,
+            dock,
+            panels,
+            pending_panels: Vec::new(),
+            pending_layout: None,
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
+            sink: SinkState::default(),
             logs: LogState::default(),
             adopt_on_list: false,
             adding: false,
-            pending_sizes: None,
             pending_files: Vec::new(),
-            columns,
-            centre,
+            diagrams: RefCell::new(HashMap::new()),
+            diagram_asks: RefCell::new(Vec::new()),
+            viewports: RefCell::new(HashMap::new()),
+            viewport_drag: RefCell::new(None),
             chat_input,
             agent_input,
             file_filter,
@@ -564,9 +697,12 @@ impl AppState {
             command_input,
             project_search,
             rename_input,
+            sink_buffers,
+            sink_input,
+            sink_textarea,
+            sink_modal_input,
             chat_scroll: ScrollHandle::new(),
             log_scroll: UniformListScrollHandle::new(),
-            log_focus: cx.focus_handle(),
             form_filled: None,
             refill_fields: false,
             _subscriptions: subscriptions,
@@ -661,6 +797,10 @@ impl AppState {
         for pane in open.panes {
             self.bus.send(Message::CloseWorkspace { pane_id: pane.id });
             self.terminals.remove(&pane.id);
+            // The pane's panel goes with it. It is queued rather than taken out here, because a
+            // panel leaves the dock through a `Window` and this is reached from a message.
+            self.pending_panels
+                .push(PanelEdit::Close(PanelKind::Terminal(pane.id)));
         }
         if self.active_seen == Some(project) {
             self.active_seen = None;
@@ -685,14 +825,10 @@ impl AppState {
         self.form_filled = None;
         self.refill_fields = true;
         self.workbench.rail_mode = view.rail_mode;
-        self.workbench.show_left = view.show_left;
-        self.workbench.show_bottom = view.show_bottom;
-        self.workbench.show_right = view.show_right;
-        self.pending_sizes = Some(view);
+        self.pending_layout = view.layout.clone();
+        self.sync_file_panels(project);
 
-        if self.dock_tab == DockTab::Pane {
-            self.pending_focus = focused.map(PendingFocus::Pane);
-        }
+        self.pending_focus = focused;
         if let Some(pane_id) = focused {
             self.bus.send(Message::Focus { pane_id });
         }
@@ -791,34 +927,20 @@ impl AppState {
         open.panes.iter().find(|pane| pane.id == id)
     }
 
-    pub fn focused_pane_index(&self, cx: &App) -> usize {
+    /// One pane of whichever project holds it, named rather than found through focus. Every panel
+    /// draws its own pane, so the lookup is across every project the window holds.
+    pub fn pane(&self, pane_id: PaneId) -> Option<&PaneState> {
+        self.projects
+            .values()
+            .find_map(|open| open.panes.iter().find(|pane| pane.id == pane_id))
+    }
+
+    /// Whether a pane belongs to the project this window is pointed at. A pane of any other keeps
+    /// running and keeps its scrollback; its panel is hidden rather than closed, which is what
+    /// keeps its place in the arrangement.
+    pub fn pane_is_on_screen(&self, pane_id: PaneId, cx: &App) -> bool {
         self.open_project(cx)
-            .and_then(|open| {
-                let id = open.focused_pane?;
-                open.panes.iter().position(|pane| pane.id == id)
-            })
-            .unwrap_or(0)
-    }
-
-    pub fn layout_mode(&self) -> LayoutMode {
-        self.layout_mode
-    }
-
-    /// Which tab the dock draws. The console is a tab like a pane, so the dock is the one place
-    /// that decides between them.
-    ///
-    /// With no project there are no panes, so the console is the only thing the dock can be
-    /// showing whatever the window last selected.
-    pub fn dock_tab(&self, cx: &App) -> DockTab {
-        match self.project(cx) {
-            Some(_) => self.dock_tab,
-            None => DockTab::Logs,
-        }
-    }
-
-    /// The handle the console's body tracks, so it can hold the keyboard while it is shown.
-    pub fn log_focus(&self) -> &FocusHandle {
-        &self.log_focus
+            .is_some_and(|open| open.panes.iter().any(|pane| pane.id == pane_id))
     }
 
     /// The emulator a pane is drawn by, for the one module that draws it.
@@ -849,18 +971,25 @@ impl AppState {
         });
     }
 
+    /// End a pane: the harness is killed, the emulator dropped, and the panel taken out of the
+    /// dock.
+    ///
+    /// Idempotent, because the dock reaches it too — a panel whose tab was closed asks for this
+    /// once it is sure it was closed rather than displaced. A pane the window has already let go
+    /// of is not closed twice.
     pub fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        let Some(project) = self.project_of_pane(pane_id) else {
+            return;
+        };
         self.bus.send(Message::CloseWorkspace { pane_id });
         self.terminals.remove(&pane_id);
 
         let showing = self.project(cx);
-        let Some(project) = self.project_of_pane(pane_id) else {
-            cx.notify();
-            return;
-        };
         // The keyboard only moves for the project on screen: a pane closed in a background
         // project must not take focus off the terminal the user is typing into.
-        let on_screen = showing == Some(project) && self.dock_tab == DockTab::Pane;
+        let on_screen = showing == Some(project);
+        self.pending_panels
+            .push(PanelEdit::Close(PanelKind::Terminal(pane_id)));
 
         let mut next = None;
         if let Some(open) = self.projects.get_mut(&project) {
@@ -870,10 +999,10 @@ impl AppState {
                 open.focused_pane = next;
             }
         }
-        // Closing a pane from the strip while the console is the tab shown must not hand the
-        // keyboard to a terminal that is off screen.
+        // Closing a pane while a panel that is not a terminal holds the keyboard must not hand it
+        // to a terminal that is off screen.
         if on_screen && let Some(pane_id) = next {
-            self.pending_focus = Some(PendingFocus::Pane(pane_id));
+            self.pending_focus = Some(pane_id);
         }
         cx.notify();
     }
@@ -907,30 +1036,30 @@ impl AppState {
         if !held {
             return;
         }
+        let already = self
+            .projects
+            .get(&project)
+            .is_some_and(|open| open.focused_pane == Some(pane_id));
         if let Some(open) = self.projects.get_mut(&project) {
             open.focused_pane = Some(pane_id);
         }
-        self.dock_tab = DockTab::Pane;
-        self.pending_focus = Some(PendingFocus::Pane(pane_id));
-        self.bus.send(Message::Focus { pane_id });
-        cx.notify();
-    }
-
-    /// Draw the console in the dock, opening the dock if it is shut. The keyboard comes with it:
-    /// a pane the user cannot see must not keep receiving keystrokes.
-    pub fn show_logs(&mut self, cx: &mut Context<Self>) {
-        self.dock_tab = DockTab::Logs;
-        self.workbench.show_bottom = true;
-        self.pending_focus = Some(PendingFocus::Logs);
-        cx.notify();
-    }
-
-    /// The dock's tab strip, in one place: the panes in order, and the console last.
-    pub fn select_dock_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        match self.panes(cx).get(index).map(|pane| pane.id) {
-            Some(pane_id) => self.focus_pane(pane_id, cx),
-            None => self.show_logs(cx),
+        // `Focus` is sent on the transition and no other. The dock calls this every time a
+        // terminal panel becomes the displayed tab of its group, which includes the tab it was
+        // already showing.
+        if !already {
+            self.bus.send(Message::Focus { pane_id });
         }
+        cx.notify();
+    }
+
+    /// The keyboard has gone to a panel that is not a terminal, so no pane holds it.
+    ///
+    /// This is today's console rule stated for every non-terminal panel rather than for one. The
+    /// project keeps which pane was last focused, so coming back to a terminal panel is where the
+    /// pane gets the keyboard again.
+    pub fn blur_panes(&mut self, cx: &mut Context<Self>) {
+        self.pending_focus = None;
+        cx.notify();
     }
 
     /// Everything the coordinator says, in the order it said it.
@@ -1059,6 +1188,22 @@ impl AppState {
                     && let Some(file) = open.editor.find_mut(&rel_path)
                 {
                     file.saved(version, &current);
+                }
+                cx.notify();
+            }
+
+            Message::ProjectFileDiffed {
+                project_id,
+                rel_path,
+                diff,
+            } => {
+                // The base is echoed because the interface may have switched since it asked, and
+                // it is the base that says which of a file's tabs this belongs in.
+                let key = tab_key(&rel_path, Subject::Diff(diff.base));
+                if let Some(open) = self.projects.get_mut(&project_id)
+                    && let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key)
+                {
+                    file.attach_diff(diff);
                 }
                 cx.notify();
             }
@@ -1320,29 +1465,33 @@ impl AppState {
             },
         );
 
+        // The pane's panel joins the region terminals live in. It is queued rather than added
+        // here: a panel reaches the dock through a `Window`, and a message does not come with one.
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::Terminal(pane_id)));
+
         if showing {
-            self.dock_tab = DockTab::Pane;
-            self.pending_focus = Some(PendingFocus::Pane(pane_id));
+            self.pending_focus = Some(pane_id);
             self.bus.send(Message::Focus { pane_id });
         }
         cx.notify();
     }
 
     /// Give the keyboard to whoever asked for it. Focus needs a window, so it waits for one.
+    ///
+    /// Only a pane is ever owed it here. Every other panel takes the keyboard from the dock, which
+    /// focuses whatever panel it has just displayed.
     fn take_focus(&mut self, window: &mut Window, cx: &mut App) {
-        match self.pending_focus.take() {
-            Some(PendingFocus::Pane(pane_id)) => {
-                if let Some(terminal) = self.terminals.get(&pane_id) {
-                    terminal
-                        .view
-                        .read(cx)
-                        .focus_handle()
-                        .clone()
-                        .focus(window, cx);
-                }
-            }
-            Some(PendingFocus::Logs) => self.log_focus.clone().focus(window, cx),
-            None => {}
+        let Some(pane_id) = self.pending_focus.take() else {
+            return;
+        };
+        if let Some(terminal) = self.terminals.get(&pane_id) {
+            terminal
+                .view
+                .read(cx)
+                .focus_handle()
+                .clone()
+                .focus(window, cx);
         }
     }
 
@@ -1379,6 +1528,78 @@ impl AppState {
     pub fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.pending_close = None;
+        cx.notify();
+    }
+
+    // ── The kitchen sink ────────────────────────────────────────────
+    //
+    // The application's own test bench. Every mutator here ends in `cx.notify()` like every other
+    // one, and none of them means anything: the sink is where a control is looked at, so what it
+    // holds is a value and never a claim about a project, a pane or a task.
+
+    pub fn set_sink_section(&mut self, section: SinkSection, cx: &mut Context<Self>) {
+        self.sink.section = section;
+        cx.notify();
+    }
+
+    /// Put one fixture into one of its viewer's layouts. A viewer with no preview keeps its source,
+    /// which is [`SinkState::set_layout`]'s rule rather than this method's.
+    pub fn set_sink_layout(
+        &mut self,
+        doc: &'static SinkDoc,
+        layout: ViewLayout,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.set_layout(doc, layout);
+        cx.notify();
+    }
+
+    /// The buffer one fixture is edited in. The document is a constant and the buffer is what has
+    /// been typed into it, which is what lets the preview follow the source half of a split.
+    pub fn sink_buffer(&self, key: &str) -> Option<&Entity<EditorState>> {
+        self.sink_buffers.get(key)
+    }
+
+    pub fn toggle_sink_facet(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(facet) = self.sink.facets.get_mut(index) {
+            *facet = !*facet;
+        }
+        cx.notify();
+    }
+
+    pub fn set_sink_choice(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.choice = index;
+        cx.notify();
+    }
+
+    pub fn nudge_sink(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.sink.nudge(delta);
+        cx.notify();
+    }
+
+    pub fn toggle_sink_disclosure(&mut self, cx: &mut Context<Self>) {
+        self.sink.disclosed = !self.sink.disclosed;
+        cx.notify();
+    }
+
+    /// The style reference's demo menu. It closes on the pick like every other menu in the window,
+    /// because that is the behaviour being demonstrated.
+    pub fn pick_sink_menu(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.picked = index;
+        self.workbench.open_menu = None;
+        cx.notify();
+    }
+
+    pub fn open_sink_modal(&mut self, modal: SinkModal, cx: &mut Context<Self>) {
+        // A modal takes the window's attention, so it closes whatever menu was down: two things
+        // claiming an outside click is how a dismissal races itself.
+        self.workbench.open_menu = None;
+        self.sink.modal = Some(modal);
+        cx.notify();
+    }
+
+    pub fn close_sink_modal(&mut self, cx: &mut Context<Self>) {
+        self.sink.modal = None;
         cx.notify();
     }
 
@@ -1707,10 +1928,7 @@ impl AppState {
                 let restore = (!open.restored).then(|| view.clone());
                 if showing {
                     self.workbench.rail_mode = view.rail_mode;
-                    self.workbench.show_left = view.show_left;
-                    self.workbench.show_bottom = view.show_bottom;
-                    self.workbench.show_right = view.show_right;
-                    self.pending_sizes = Some(view);
+                    self.pending_layout = view.layout.clone();
                 }
                 // A project closed and reopened in this session restored from the parked blob
                 // already, and reopening the tabs the user has since closed would be worse than
@@ -1737,30 +1955,28 @@ impl AppState {
     /// written down wearing whatever the user happened to be looking at.
     fn remember(&mut self, project: ProjectId, cx: &App) {
         // The file set is the project's own whether or not anyone is looking at it, so it is read
-        // back from the project every time.
+        // back from the project every time. Tab keys rather than paths, because a file and its diff
+        // are two tabs and a path names both.
         if let Some(open) = self.projects.get_mut(&project) {
-            open.prefs.open_files = open.editor.paths();
-            open.prefs.active_file = open.editor.active_path();
+            open.prefs.open_files = open.editor.open.iter().map(|file| file.key()).collect();
+            open.prefs.active_file = open.editor.active_file().map(|file| file.key());
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();
         }
 
         if self.project(cx) == Some(project) {
-            let sizes = self.panel_sizes(cx);
-            let (rail_mode, show_left, show_bottom, show_right) = (
-                self.workbench.rail_mode,
-                self.workbench.show_left,
-                self.workbench.show_bottom,
-                self.workbench.show_right,
-            );
+            // The whole arrangement in one blob — the tree, the axes, the sizes, and which tab is
+            // displayed. The three region flags are written beside it for a build that has the
+            // blob and cannot read it; the blob is what a restore uses.
+            let layout = self.layout_blob(cx);
+            let (left, bottom, right) = self.regions_open(cx);
+            let rail_mode = self.workbench.rail_mode;
             if let Some(open) = self.projects.get_mut(&project) {
                 open.prefs.rail_mode = rail_mode;
-                open.prefs.show_left = show_left;
-                open.prefs.show_bottom = show_bottom;
-                open.prefs.show_right = show_right;
-                open.prefs.explorer_width = sizes.0;
-                open.prefs.chat_width = sizes.1;
-                open.prefs.dock_height = sizes.2;
+                open.prefs.show_left = left;
+                open.prefs.show_bottom = bottom;
+                open.prefs.show_right = right;
+                open.prefs.layout = layout;
             }
         }
 
@@ -1773,51 +1989,219 @@ impl AppState {
         });
     }
 
-    /// The three panel sizes, as they currently stand: explorer, chat, and the dock's height.
-    ///
-    /// The columns group is explorer, centre, chat; the centre group is editor, dock. A hidden
-    /// panel keeps its size, which is what makes a toggle non-destructive.
-    fn panel_sizes(&self, cx: &App) -> (Option<f32>, Option<f32>, Option<f32>) {
-        let columns = self.columns.read(cx).sizes();
-        let centre = self.centre.read(cx).sizes();
+    // ── The dock ────────────────────────────────────────────────────
+
+    /// The window's arrangement, for the one module that draws it.
+    pub fn dock(&self) -> &Entity<DockArea> {
+        &self.dock
+    }
+
+    /// Which of the three edge regions are on screen, for the titlebar's switches. The dock is
+    /// asked rather than a flag beside it, so a region the user emptied reads as closed here too.
+    pub fn regions_open(&self, cx: &App) -> (bool, bool, bool) {
+        let dock = self.dock.read(cx);
         (
-            columns.first().map(|size| f32::from(*size)),
-            columns.get(2).map(|size| f32::from(*size)),
-            centre.get(1).map(|size| f32::from(*size)),
+            dock.is_dock_open(dock::placement_of(Region::Left)),
+            dock.is_dock_open(dock::placement_of(Region::Bottom)),
+            dock.is_dock_open(dock::placement_of(Region::Right)),
         )
     }
 
-    /// Put back the panel sizes the host handed us.
+    /// Put a region away, or bring it back. The dock remembers the size either way, which is what
+    /// makes a toggle non-destructive.
+    pub fn toggle_region(&mut self, region: Region, window: &mut Window, cx: &mut Context<Self>) {
+        self.dock.update(cx, |dock, cx| {
+            dock.toggle_dock(dock::placement_of(region), window, cx);
+        });
+        cx.notify();
+    }
+
+    /// The panel for one kind, built the first time it is asked for.
+    fn panel(&mut self, kind: PanelKind, cx: &mut App) -> Entity<WorkbenchPanel> {
+        if let Some(panel) = self.panels.get(&kind) {
+            return panel.clone();
+        }
+        let panel = WorkbenchPanel::new(kind.clone(), self.this.clone(), cx);
+        self.panels.insert(kind, panel.clone());
+        panel
+    }
+
+    /// Make the dock's file panels the files of one project.
     ///
-    /// On the frame after they arrive, because a resizable group only has its panels once it has
-    /// been laid out — before that there is nothing to resize.
-    fn apply_pending_sizes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(view) = self.pending_sizes.take() else {
+    /// **The open files are a project's, and the panels are the window's**, so the two have to be
+    /// squared whenever the window changes which project it is pointed at. A saved arrangement
+    /// usually carries the incoming project's own file panels and these edits are then no-ops;
+    /// a project that has never been written down has none, and this is what gives it them.
+    fn sync_file_panels(&mut self, project: ProjectId) {
+        let wanted: Vec<String> = self
+            .projects
+            .get(&project)
+            .map(|open| open.editor.open.iter().map(|file| file.key()).collect())
+            .unwrap_or_default();
+
+        for kind in self.panels.keys() {
+            if let Some(key) = kind.tab_key()
+                && !wanted.iter().any(|open| open == key)
+            {
+                self.pending_panels.push(PanelEdit::Close(kind.clone()));
+            }
+        }
+        for key in wanted {
+            let kind = PanelKind::File(key);
+            if !self.panels.contains_key(&kind) {
+                self.pending_panels.push(PanelEdit::Open(kind));
+            }
+        }
+    }
+
+    /// Put the panels that arrived on a message into the dock, and take out the ones that left.
+    ///
+    /// Drained in `render`, which is the same device the pending focus and the arrived files use,
+    /// and for the same reason: both halves of a panel's life need a window.
+    fn settle_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_panels.is_empty() {
+            return;
+        }
+        for edit in std::mem::take(&mut self.pending_panels) {
+            match edit {
+                PanelEdit::Open(kind) => {
+                    let home = kind.home();
+                    let panel = self.panel(kind, cx);
+                    // A saved arrangement is rebuilt before this queue is drained, so a file panel
+                    // can already be in the tree by the time the edit that asked for it is read.
+                    // Adding it twice would be two tabs on one file.
+                    if dock::holds(&self.dock.clone(), &panel, cx) {
+                        continue;
+                    }
+                    dock::add(&self.dock.clone(), &panel, home, window, cx);
+                }
+                PanelEdit::Close(kind) => {
+                    if let Some(panel) = self.panels.remove(&kind) {
+                        dock::remove(&self.dock.clone(), &panel, window, cx);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rebuild a saved arrangement, on the frame after it arrives.
+    ///
+    /// A layout this build cannot use — a stale version, or one whose panels it has all lost — is
+    /// discarded for the arrangement a fresh window opens in, rather than half-applied.
+    fn settle_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(saved) = self.pending_layout.take() else {
             return;
         };
-        let laid_out = !self.columns.read(cx).sizes().is_empty();
-        if !laid_out {
-            // Not yet. Keep them for the next frame rather than dropping them on the floor.
-            self.pending_sizes = Some(view);
-            return;
-        }
-
-        // The columns group is explorer, centre, chat; the centre group is editor, dock.
-        if let Some(width) = view.explorer_width {
-            self.columns
-                .update(cx, |state, cx| state.resize_panel(0, px(width), window, cx));
-        }
-        if let Some(width) = view.chat_width {
-            self.columns
-                .update(cx, |state, cx| state.resize_panel(2, px(width), window, cx));
-        }
-        if let Some(height) = view.dock_height
-            && !self.centre.read(cx).sizes().is_empty()
+        let dock = self.dock.clone();
+        let panels = std::mem::take(&mut self.panels);
+        let app = self.this.clone();
+        let mut kept = HashMap::new();
+        let mut layouts: Vec<(String, ViewLayout)> = Vec::new();
         {
-            self.centre.update(cx, |state, cx| {
-                state.resize_panel(1, px(height), window, cx)
+            let mut build = |kind: PanelKind, cx: &mut App| {
+                kept.entry(kind.clone())
+                    .or_insert_with(|| {
+                        panels
+                            .get(&kind)
+                            .cloned()
+                            .unwrap_or_else(|| WorkbenchPanel::new(kind, app.clone(), cx))
+                    })
+                    .clone()
+            };
+            if !dock::restore(&dock, &saved, &mut build, &mut layouts, window, cx) {
+                dock::default_layout(&dock, &mut build, window, cx);
+            }
+        }
+        // A terminal's panel is never in a saved layout — harnesses do not persist — so the ones
+        // this window still holds are put back beside whatever was restored.
+        for (kind, panel) in panels {
+            if kind.pane().is_some() && !kept.contains_key(&kind) {
+                let home = kind.home();
+                dock::add(&dock, &panel, home, window, cx);
+                kept.insert(kind, panel);
+            }
+        }
+        self.panels = kept;
+        // A file panel's payload carries the layout its viewer was left in, which belongs on the
+        // file rather than on the panel: the panel only repeats it, the way it repeats visibility.
+        if let Some(project) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&project)
+        {
+            for (key, layout) in layouts {
+                if let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key) {
+                    file.set_layout(layout);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Tell every panel whether it is drawn.
+    ///
+    /// **The window pushes this rather than the panel reading it back.** The dock asks a panel
+    /// whether it is visible while it is reconciling a tree — which happens from inside this
+    /// window's own update, when a region is toggled, a panel is added, or the arrangement is
+    /// written down — and a panel reading `AppState` there would be reading an entity that is
+    /// already leased. So the answer is kept current here, where the facts are, and the panel only
+    /// repeats it.
+    fn settle_visibility(&mut self, cx: &mut Context<Self>) {
+        let is_ide = self.workbench.is_ide();
+        let has_project = self.project(cx).is_some();
+        let on_screen: Vec<PaneId> = self
+            .open_project(cx)
+            .map(|open| open.panes.iter().map(|pane| pane.id).collect())
+            .unwrap_or_default();
+        // The tab keys the project on screen holds, and the layout each of them is in. Read once:
+        // every file panel asks the same two questions of it.
+        let files: HashMap<String, ViewLayout> = self
+            .editor(cx)
+            .map(|editor| {
+                editor
+                    .open
+                    .iter()
+                    .map(|file| (file.key(), file.layout))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut changed = false;
+        for (kind, panel) in &self.panels {
+            let key = kind.tab_key();
+            let at = Visibility {
+                is_ide,
+                has_project,
+                pane_on_screen: kind.pane().is_some_and(|id| on_screen.contains(&id)),
+                file_open: key.is_some_and(|key| files.contains_key(key)),
+                any_file_open: !files.is_empty(),
+            };
+            let drawn = kind.is_drawn(at);
+            let layout = key
+                .and_then(|key| files.get(key).copied())
+                .unwrap_or_default();
+            changed |= panel.update(cx, |panel, _| {
+                let visible = panel.set_visible(drawn);
+                panel.set_layout(layout) || visible
             });
         }
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// Put back any panel the user dropped somewhere its kind forbids.
+    fn enforce_placement(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let kinds: HashMap<PanelId, PanelKind> = self
+            .panels
+            .iter()
+            .map(|(kind, panel)| (PanelId::from(panel.entity_id()), kind.clone()))
+            .collect();
+        let dock = self.dock.clone();
+        dock::enforce_placement(&dock, &|id| kinds.get(&id).cloned(), window, cx);
+    }
+
+    /// The arrangement as it stands, for the blob the host keeps.
+    fn layout_blob(&self, cx: &App) -> Option<serde_json::Value> {
+        serde_json::to_value(self.dock.read(cx).dump(cx)).ok()
     }
 
     /// Write down what belongs to the interface as a whole.
@@ -1876,6 +2260,13 @@ impl AppState {
         open.editor.active = index;
 
         if fresh {
+            // The tab and its panel open together: each open file is its own panel, so a tab with
+            // none is a file with nowhere to be drawn.
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::File(tab_key(
+                    &path,
+                    Subject::File,
+                ))));
             self.bus.send(Message::ReadProjectFile {
                 project_id: project,
                 rel_path: path,
@@ -1883,6 +2274,72 @@ impl AppState {
             });
         }
         self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// Open a tab on a file's change against a version-control base, and ask the host for it.
+    ///
+    /// A diff is not the file, so it is a tab of its own beside it rather than something the file's
+    /// tab switches into: opening a comparison never takes over what is being read or edited.
+    pub fn open_diff(&mut self, path: String, base: DiffBase, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let key = tab_key(&path, Subject::Diff(base));
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+
+        let fresh = index_of_key(&open.editor, &key).is_none();
+        if fresh {
+            open.editor
+                .open
+                .push(OpenFile::pending_on(&path, Subject::Diff(base)));
+        }
+        open.editor.active = index_of_key(&open.editor, &key).unwrap_or(0);
+
+        if fresh {
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::File(key)));
+            self.bus.send(Message::DiffProjectFile {
+                project_id: project,
+                rel_path: path,
+                base,
+            });
+        }
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// One open tab of the project on screen, by its key. What a file panel draws and what its tab
+    /// reports are both this.
+    pub fn file(&self, key: &str, cx: &App) -> Option<&OpenFile> {
+        self.editor(cx)?.open.iter().find(|file| file.key() == key)
+    }
+
+    /// Put one file's viewer into one of its layouts.
+    ///
+    /// The panel repeats the fact rather than owning it — `settle_visibility` pushes it every
+    /// frame — but it is pushed here too, because the arrangement can be written down before the
+    /// next frame runs and a panel one frame behind would write down the layout the file was in
+    /// before the click.
+    pub fn set_view_layout(&mut self, key: &str, layout: ViewLayout, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        file.set_layout(layout);
+
+        let panel = self.panels.get(&PanelKind::File(key.to_string())).cloned();
+        if let Some(panel) = panel {
+            panel.update(cx, |panel, _| panel.set_layout(layout));
+        }
+        self.remember_view(cx);
         cx.notify();
     }
 
@@ -1904,24 +2361,47 @@ impl AppState {
         }
         open.restored = true;
 
-        for path in &view.open_files {
-            open.editor.open_pending(path);
+        // Tab keys, so a remembered diff reopens as a diff rather than as the file it was taken
+        // from. A key that is already open is not opened twice.
+        for key in &view.open_files {
+            if index_of_key(&open.editor, key).is_some() {
+                continue;
+            }
+            let (path, subject) = from_tab_key(key);
+            open.editor.open.push(OpenFile::pending_on(&path, subject));
         }
         if let Some(active) = &view.active_file
-            && let Some(at) = open.editor.index_of(active)
+            && let Some(at) = index_of_key(&open.editor, active)
         {
             open.editor.active = at;
         }
         open.explorer.selected = view.selected.clone();
         open.wanted = view.expanded.clone();
 
-        let files = open.editor.paths();
-        for rel_path in files {
-            self.bus.send(Message::ReadProjectFile {
-                project_id: project,
-                rel_path,
-                max_bytes: Some(MAX_FILE_BYTES),
-            });
+        // Each tab is a panel. A saved arrangement usually carries them and the queued edits are
+        // then no-ops, but one that was discarded — a stale version, an unreadable blob — must
+        // still leave the files somewhere to be drawn.
+        let tabs: Vec<(String, String, Subject)> = open
+            .editor
+            .open
+            .iter()
+            .map(|file| (file.key(), file.path.clone(), file.subject))
+            .collect();
+        for (key, rel_path, subject) in tabs {
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::File(key)));
+            match subject {
+                Subject::File => self.bus.send(Message::ReadProjectFile {
+                    project_id: project,
+                    rel_path,
+                    max_bytes: Some(MAX_FILE_BYTES),
+                }),
+                Subject::Diff(base) => self.bus.send(Message::DiffProjectFile {
+                    project_id: project,
+                    rel_path,
+                    base,
+                }),
+            }
         }
         self.reach_wanted(project, cx);
         cx.notify();
@@ -1986,14 +2466,73 @@ impl AppState {
         let Some(file) = open.editor.open.get(index) else {
             return;
         };
-        let path = file.path.clone();
-        if file.dirty() && open.editor.pending_tab_close.as_deref() != Some(path.as_str()) {
-            open.editor.pending_tab_close = Some(path);
+        let key = file.key();
+        if file.dirty() && open.editor.pending_tab_close.as_deref() != Some(key.as_str()) {
+            open.editor.pending_tab_close = Some(key);
             cx.notify();
             return;
         }
 
         open.editor.close(index);
+        // The tab and its panel go together, and the panel leaves through a `Window` this does not
+        // have — so it queues, like every other edit to the dock.
+        self.pending_panels
+            .push(PanelEdit::Close(PanelKind::File(key)));
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// A file panel became the displayed tab of its group, so its file is the active one.
+    ///
+    /// The dock is where that is decided and the editor learns it from here, which is the same
+    /// direction focus already travels.
+    pub fn activate_file(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            return;
+        };
+        open.editor.active = at;
+        open.editor.pending_tab_close = None;
+        if let Some(path) = open.editor.active_file().map(|file| file.path.clone()) {
+            open.explorer.selected = Some(path);
+        }
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// A file panel left the dock for good, so its tab closes with it.
+    ///
+    /// A tab holding unsaved changes asks first, which through the dock means **coming back**: the
+    /// panel is put in its home group again with its label turned into the question, and a second
+    /// close takes it. Bringing it forward is still how the question is answered no.
+    pub fn closed_file_panel(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            // The tab went first — `close_editor_tab` — and this is the panel following it out.
+            self.panels.remove(&PanelKind::File(key.to_string()));
+            return;
+        };
+
+        if open.editor.open[at].dirty() && open.editor.pending_tab_close.as_deref() != Some(key) {
+            open.editor.pending_tab_close = Some(key.to_string());
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::File(key.to_string())));
+            cx.notify();
+            return;
+        }
+
+        open.editor.close(at);
+        self.panels.remove(&PanelKind::File(key.to_string()));
         self.remember(project, cx);
         cx.notify();
     }
@@ -2871,15 +3410,195 @@ impl AppState {
     }
 }
 
+/// The diagram cache, and the queue that fills it.
+///
+/// Two tiers. The memory one is [`AppState::diagrams`], which every frame reads; the disk one is
+/// [`crate::state::diagrams::Disk`], in the project's workarea, which survives a restart. Between
+/// them and the renderer is the background executor: **a diagram is never drawn on the frame
+/// thread**, because layout is superlinear and a large graph takes seconds.
+impl AppState {
+    /// What has been drawn for a source, queueing a render if nothing has been.
+    ///
+    /// Takes `&self` and answers a clone because it is called while the frame is being built: a
+    /// viewer is a pure function of bytes and reaches no mutable window. The render is queued
+    /// rather than started, and [`AppState::drain_diagram_asks`] starts it once the frame is built.
+    pub fn diagram(&self, source: &str) -> DiagramEntry {
+        let palette = self.diagram_palette();
+        let key = diagrams::key(source, palette);
+
+        let mut cache = self.diagrams.borrow_mut();
+        if let Some(entry) = cache.get(&key) {
+            return entry.clone();
+        }
+        cache.insert(key, DiagramEntry::Pending);
+        self.diagram_asks
+            .borrow_mut()
+            .push((source.to_string(), palette));
+        DiagramEntry::Pending
+    }
+
+    /// Which palette a diagram drawn now is drawn for. The renderer bakes its colours in, so this
+    /// is part of what is asked for and part of what it is filed under.
+    fn diagram_palette(&self) -> DiagramPalette {
+        match self.workbench.theme_id {
+            ThemeId::Dark => DiagramPalette::Dark,
+            ThemeId::Light => DiagramPalette::Light,
+        }
+    }
+
+    /// Draw every diagram the frame turned out to need, off the frame thread.
+    ///
+    /// In `render` for the reason `attach_arrived_files` is: the work belongs to the frame and
+    /// cannot be done from inside it. Each render goes to the background executor and comes back
+    /// as an entity update — **the window keeps drawing and keeps taking keystrokes while it
+    /// runs**, and the viewer shows a pending state until it lands.
+    fn drain_diagram_asks(&mut self, cx: &mut Context<Self>) {
+        let asks = std::mem::take(&mut *self.diagram_asks.borrow_mut());
+        if asks.is_empty() {
+            return;
+        }
+
+        // The disk tier belongs to the project on screen. A window with no project yet renders
+        // with the memory tier alone rather than not rendering.
+        let dir = self
+            .project_snapshot(cx)
+            .map(|project| diagrams::cache_dir(&project.workarea));
+
+        for (source, palette) in asks {
+            let dir = dir.clone();
+            let drawing =
+                cx.background_spawn(async move { diagrams::resolve(&source, palette, dir) });
+            cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                let answer = drawing.await;
+                // A window closed while its diagram was being drawn is not an error.
+                let _ = this.update(cx, |this, cx| this.diagram_drawn(answer, cx));
+            })
+            .detach();
+        }
+    }
+
+    /// One background render, landed.
+    ///
+    /// Keyed by the content key the render was filed under, so an answer finds its entry however
+    /// long it took and whatever the window has done since — including a theme switch, which asks
+    /// for a different key and leaves this one to be found again on the way back.
+    fn diagram_drawn(&mut self, answer: DiagramAnswer, cx: &mut Context<Self>) {
+        let entry = match answer.result {
+            Ok(image) => DiagramEntry::Ready(diagram_picture(image)),
+            Err(reason) => DiagramEntry::Failed(reason),
+        };
+        self.diagrams.borrow_mut().insert(answer.key, entry);
+        cx.notify();
+    }
+
+    /// The camera on one picture, or the fitted default if the user has not touched it.
+    pub fn viewport(&self, key: &str) -> Viewport {
+        self.viewports
+            .borrow()
+            .get(key)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Remember the picture's own rectangle so a later wheel or drag can pin the fit.
+    pub fn touch_viewport(&self, key: &str, content: Content) {
+        self.viewports
+            .borrow_mut()
+            .entry(key.to_string())
+            .or_default()
+            .set_content(content);
+    }
+
+    /// Remember the panel a picture was just laid out in. Returns whether it went from unmeasured
+    /// to measured, which is the one change that owes the window another frame — a resize already
+    /// asked for one.
+    pub fn note_viewport_panel(&self, key: &str, bounds: Bounds<Pixels>) -> bool {
+        self.viewports.borrow_mut().entry(key.to_string()).or_default().set_panel(
+            f32::from(bounds.size.width),
+            f32::from(bounds.size.height),
+            f32::from(bounds.origin.x),
+            f32::from(bounds.origin.y),
+        )
+    }
+
+    pub fn zoom_viewport(
+        &mut self,
+        key: &str,
+        factor: f32,
+        cursor: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(vp) = self.viewports.borrow_mut().get_mut(key) {
+            vp.zoom_at(factor, f32::from(cursor.x), f32::from(cursor.y));
+        }
+        cx.notify();
+    }
+
+    pub fn start_viewport_drag(
+        &mut self,
+        key: &str,
+        at: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        *self.viewport_drag.borrow_mut() = Some((key.to_string(), at));
+        cx.notify();
+    }
+
+    pub fn drag_viewport(&mut self, key: &str, at: gpui::Point<Pixels>, cx: &mut Context<Self>) {
+        let last = {
+            let drag = self.viewport_drag.borrow();
+            match drag.as_ref() {
+                Some((held, last)) if held == key => Some(*last),
+                _ => None,
+            }
+        };
+        let Some(last) = last else {
+            return;
+        };
+        let dx = f32::from(at.x - last.x);
+        let dy = f32::from(at.y - last.y);
+        if let Some(vp) = self.viewports.borrow_mut().get_mut(key) {
+            vp.pan_by(dx, dy);
+        }
+        *self.viewport_drag.borrow_mut() = Some((key.to_string(), at));
+        cx.notify();
+    }
+
+    pub fn end_viewport_drag(&mut self, cx: &mut Context<Self>) {
+        if self.viewport_drag.borrow_mut().take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub fn reset_viewport(&mut self, key: &str, cx: &mut Context<Self>) {
+        if let Some(vp) = self.viewports.borrow_mut().get_mut(key) {
+            vp.reset();
+        }
+        cx.notify();
+    }
+}
+
 impl Render for AppState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The dock is settled first: a panel that arrived on a message has to be in the tree
+        // before the frame that focuses it, and a restored arrangement before either. Visibility
+        // leads, because installing a layout asks every panel for it.
+        self.settle_visibility(cx);
+        self.settle_layout(window, cx);
+        self.settle_panels(window, cx);
         self.take_focus(window, cx);
-        self.apply_pending_sizes(window, cx);
         self.attach_arrived_files(window, cx);
         self.fill_task_form(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
-        ui::shell::render(self, window, cx)
+        // Made anonymous straight away so the frame stops borrowing the window: the queue below
+        // is drained on the same `&mut self` the tree was built from.
+        let tree = ui::shell::render(self, window, cx).into_any_element();
+        // Diagrams a viewer found it needed while the tree was being built. Started here, where
+        // the update the frame was built inside is done with `AppState` — never from inside one,
+        // and never on this thread.
+        self.drain_diagram_asks(cx);
+        tree
     }
 }
 
@@ -2999,4 +3718,12 @@ pub fn window_closed(id: WindowId, cx: &mut App) {
     if cx.has_global::<WindowRegistry>() {
         cx.global_mut::<WindowRegistry>().unregister(id);
     }
+}
+
+/// Where a tab key sits in a project's tab order.
+///
+/// A free function rather than a method on [`EditorPaneState`], which keys its own lookups by path:
+/// a path names a file and its diff both, and a panel names exactly one of them.
+fn index_of_key(editor: &EditorPaneState, key: &str) -> Option<usize> {
+    editor.open.iter().position(|file| file.key() == key)
 }

@@ -3,10 +3,10 @@ id: prod-glossary
 title: Glossary
 kind: product
 status: current
-summary: Plain definitions of the recurring terms — harness, agent type, session, workspace, pane, coordinator, bus, catalog — for anyone reading the rest of this documentation.
+summary: Plain definitions of the recurring terms — harness, agent type, session, workspace, panel, pane, dock, coordinator, bus, catalog — for anyone reading the rest of this documentation.
 read_when: you met a term in another document and are not certain what it names here
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 review_cycle: quarterly
 ---
 
@@ -39,21 +39,48 @@ One running instance of one agent inside a session: which agent type, which work
 big its terminal is, and whether the process is alive. A session holds many; each owns exactly one
 pseudo-terminal and one child process.
 
+### Panel
+
+The movable unit of the window. A panel has a tab, a title and a focus handle, and it is dragged,
+split, tabbed, zoomed and closed. A terminal is a panel; so are the log console, the file explorer,
+the chat and the centre.
+
 ### Pane
 
-The visible half of a workspace: a terminal emulator on screen, plus the chrome around it — title,
-status, borders. Panes are what the layout arranges and what focus selects between. One workspace,
-one pane.
+The terminal view of one workspace: a terminal emulator on screen, plus the chrome around it —
+title, status, borders. A pane is one kind of panel. Panes are what focus selects between. One
+workspace, one pane.
 
 ### Focus
 
-The property of being the pane that receives keystrokes. Exactly one pane has it. Everything else
-keeps drawing but takes no input.
+The property of receiving keystrokes. Exactly one panel has it: when that panel is a terminal its
+pane takes the keystrokes and no other pane does, and when it is anything else no pane receives
+input at all. Every pane keeps drawing either way.
 
 ### Pane ID
 
 The identifier that ties a pane to its workspace, its pseudo-terminal, and every message about
 either. Every message on the bus carries one.
+
+### Group
+
+A tabbed stack of panels sharing one rectangle. Exactly one of a group's panels is displayed; the
+rest keep their tabs and their state.
+
+### Split
+
+Groups arranged along an axis — a row or a column — with a draggable divider between them. A split's
+children are groups or further splits.
+
+### Region
+
+One of centre, left, right or bottom. Each region holds its own tree of splits and groups. There is
+no top region.
+
+### Dock
+
+All four regions together: the window's whole arrangement, and what the user rearranges by dragging
+a tab. A saved layout is a dock written down.
 
 ### Coordinator
 
@@ -121,16 +148,19 @@ on top.
 An agent spawned by another agent rather than by the user. Ubiq's interest in the term is that a
 subagent gets its own pane, so the user can watch it.
 
-### Layout mode
-
-How panes are arranged in the window: one pane filling it, a vertical split, a horizontal split, or
-a grid.
-
 ### Theme token
 
 A named colour in the application's palette — a surface, a text weight, a border, a status — used
 instead of a literal colour anywhere in the UI. Owned by
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
+
+### Kitchen sink
+
+The rail destination where Ubiq is tested against itself: five pages holding a plain buffer, one
+document per special viewer, and the style reference every theme token and interface primitive is
+drawn on. It belongs to the application rather than to a project — it opens with an empty catalogue
+and asks the host for nothing — and everything on it is a fixture. Owned by
+[`../features/workbench.md`](../features/workbench.md).
 
 ## Related docs
 
