@@ -156,10 +156,11 @@ instead of a literal colour anywhere in the UI. Owned by
 
 ### Kitchen sink
 
-The rail destination where Ubiq is tested against itself: five pages holding a plain buffer, one
-document per special viewer, and the style reference every theme token and interface primitive is
-drawn on. It belongs to the application rather than to a project — it opens with an empty catalogue
-and asks the host for nothing — and everything on it is a fixture. Owned by
+The rail destination where Ubiq is tested against itself: eight pages holding a plain buffer, one
+document per special viewer, the style reference every theme token and interface primitive is
+drawn on, the file picker, and the two settings layouts composed from the kit. It belongs to the
+application rather than to a project — it opens with an empty catalogue and asks the host for
+nothing — and everything on it is a fixture. Owned by
 [`../features/workbench.md`](../features/workbench.md).
 
 ## Related docs

@@ -143,6 +143,8 @@ evidence a token has a value, not evidence anything uses it.
 - **Focus is shown on the surface's left edge**, through `border_focus`. It is the one signal that
   must be readable at a glance across a window of panes, so nothing else competes for it. With a
   single pane on screen there is nothing to contrast against, so the token has no call site yet.
+  A text field that holds the keyboard keeps that left edge and **adds an underline** on the
+  bottom, so the active box is the one that is underlined.
 - **Status is shown by colour from the status group**, never by wording alone. A stopped agent and a
   failed one are different colours.
 - **Pane chrome stays two rows at most.** Identity and state on the first, context — folder, model,

@@ -95,6 +95,8 @@ pub enum MenuId {
     /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
     /// looked at, and one menu in the window has to be openable with no project behind it.
     SinkPicker,
+    /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
+    SinkSettings,
 }
 
 pub struct WorkbenchState {

@@ -8,7 +8,8 @@
 //!
 //! Two kinds of page, and the strip along the top selects between them: four documents, each drawn
 //! by the viewer its name implies — which is how a special viewer is exercised without opening a
-//! file — and the style reference, which is every token, surface, control and field on one page.
+//! file — and the drawn pages, which are the style reference, the file picker, and the two
+//! settings layouts composed from the kit.
 //!
 //! The modal the style reference raises is drawn here rather than in [`style`], because a modal is
 //! the screen's and not a section's: exactly one may be up, and where it is asked for is not where
@@ -16,6 +17,8 @@
 
 pub mod docs;
 pub mod files;
+pub mod project;
+pub mod settings;
 pub mod style;
 
 use gpui::prelude::FluentBuilder as _;
@@ -68,8 +71,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             ),
         ))
         .child(match section {
-            SinkSection::Style => style::render(app, cx),
+            SinkSection::Style => style::render(app, window, cx),
             SinkSection::Files => files::render(app, cx),
+            SinkSection::Settings => settings::render(app, window, cx),
+            SinkSection::Project => project::render(app, window, cx),
             // Every other page is one document, drawn by the viewer its name implies.
             other => match other.doc() {
                 Some(doc) => docs::render(app, doc, cx),
@@ -116,16 +121,14 @@ fn raised(
             .child(modal_note(which.note()))
             .child(style::labelled(
                 "Name",
-                div()
-                    .h(px(30.))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .bg(theme::surface())
-                    .border_l(px(theme::ACCENT_EDGE))
-                    .border_color(theme::border())
-                    .child(Input::new(&app.sink_modal_input).appearance(false))
-                    .into_any_element(),
+                style::framed_active(
+                    theme::border(),
+                    style::input_on(&app.sink_modal_input, window, cx),
+                )
+                .h(px(30.))
+                .items_center()
+                .child(Input::new(&app.sink_modal_input).appearance(false))
+                .into_any_element(),
             ))
             .into_any_element(),
         _ => div()

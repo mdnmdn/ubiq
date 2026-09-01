@@ -6,10 +6,11 @@
 //! primitive the kit and the theme offer. It is where a control is looked at before a screen is
 //! built out of it, and where a palette change is checked against everything at once.
 //!
-//! So the documents are `&'static str` and the state is a handful of demo fields. A fixture that
-//! came from the host would make this a project screen; a fixture that came from a file would make
-//! it a file screen. The sink is neither, which is the whole reason it can be opened with no
-//! project at all.
+//! So the documents are `&'static str` and the state is a handful of demo fields — including the
+//! two settings layouts, which hold nav, harness cards and a project colour rather than a
+//! document. A fixture that came from the host would make this a project screen; a fixture that
+//! came from a file would make it a file screen. The sink is neither, which is the whole reason
+//! it can be opened with no project at all.
 //!
 //! **Nothing here draws and nothing here holds a buffer.** Which layout each document is in lives
 //! here; the buffer it is edited in is the window's, beside the other component-library state on
@@ -24,8 +25,8 @@ use crate::state::file_picker::{
 };
 
 /// One page of the sink. The first four are one document each, drawn by the viewer its name
-/// implies; the last two are drawn rather than parsed — the style reference, and the file picker
-/// raised against a fixture tree.
+/// implies; the rest are drawn rather than parsed — the style reference, the file picker raised
+/// against a fixture tree, and the two settings layouts composed from the kit.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SinkSection {
     Editor,
@@ -34,10 +35,12 @@ pub enum SinkSection {
     Excalidraw,
     Style,
     Files,
+    Settings,
+    Project,
 }
 
 impl SinkSection {
-    /// The six, in the order the strip draws them.
+    /// The eight, in the order the strip draws them.
     pub fn all() -> &'static [SinkSection] {
         &[
             SinkSection::Editor,
@@ -46,6 +49,8 @@ impl SinkSection {
             SinkSection::Excalidraw,
             SinkSection::Style,
             SinkSection::Files,
+            SinkSection::Settings,
+            SinkSection::Project,
         ]
     }
 
@@ -58,6 +63,8 @@ impl SinkSection {
             SinkSection::Excalidraw => "Excalidraw",
             SinkSection::Style => "Style",
             SinkSection::Files => "Files",
+            SinkSection::Settings => "Settings",
+            SinkSection::Project => "Project",
         }
     }
 
@@ -70,6 +77,10 @@ impl SinkSection {
             SinkSection::Excalidraw => "A scene painted from its own JSON.",
             SinkSection::Style => "Every token, surface, control and field, on one page.",
             SinkSection::Files => "The file picker, raised every way a screen can ask for it.",
+            SinkSection::Settings => {
+                "Application settings: the nav, the rows, the harness accordion."
+            }
+            SinkSection::Project => "Project settings: the dialog with a nav, a form and a footer.",
         }
     }
 
@@ -191,6 +202,408 @@ pub const CHOICES: [&str; 3] = ["source", "preview", "split"];
 
 /// The rows its demo menu offers.
 pub const MENU_ITEMS: [&str; 4] = ["Claude Code", "Codex", "Gemini CLI", "opencode"];
+
+// ── Application settings ────────────────────────────────────────────
+
+/// The left nav of the application settings page, in the order the mock draws it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SettingsNav {
+    Appearance,
+    Harnesses,
+    AgentDefaults,
+    Sessions,
+    Keyboard,
+    Privacy,
+}
+
+impl SettingsNav {
+    pub fn all() -> &'static [SettingsNav] {
+        &[
+            SettingsNav::Appearance,
+            SettingsNav::Harnesses,
+            SettingsNav::AgentDefaults,
+            SettingsNav::Sessions,
+            SettingsNav::Keyboard,
+            SettingsNav::Privacy,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SettingsNav::Appearance => "Appearance",
+            SettingsNav::Harnesses => "Harnesses",
+            SettingsNav::AgentDefaults => "Agent defaults",
+            SettingsNav::Sessions => "Sessions & worktrees",
+            SettingsNav::Keyboard => "Keyboard",
+            SettingsNav::Privacy => "Privacy & data",
+        }
+    }
+}
+
+/// Which dropdown on the settings page is the one `MenuId::SinkSettings` is holding open.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SettingsMenu {
+    Auth,
+    Model,
+    Thinking,
+    Mode,
+}
+
+/// One registered harness on the settings page. Copy is a fixture; whether it is on and whether
+/// it is open live on [`SettingsDemo`].
+pub struct HarnessFixture {
+    pub name: &'static str,
+    pub kind: &'static str,
+    pub auth: &'static str,
+    pub account: &'static str,
+    pub model: &'static str,
+    pub connected: bool,
+}
+
+pub const HARNESS_FIXTURES: [HarnessFixture; 5] = [
+    HarnessFixture {
+        name: "Claude Code — work",
+        kind: "Claude Code",
+        auth: "OAuth account",
+        account: "marco@studio.dev",
+        model: "Opus 4.6",
+        connected: true,
+    },
+    HarnessFixture {
+        name: "Claude Code — personal",
+        kind: "Claude Code",
+        auth: "API key",
+        account: "sk-ant-\u{2026}4f2c",
+        model: "Sonnet 4.5",
+        connected: true,
+    },
+    HarnessFixture {
+        name: "Codex — work",
+        kind: "Codex",
+        auth: "ChatGPT",
+        account: "marco@studio.dev",
+        model: "gpt-5",
+        connected: true,
+    },
+    HarnessFixture {
+        name: "Gemini CLI",
+        kind: "Gemini CLI",
+        auth: "OAuth account",
+        account: "not signed in",
+        model: "gemini-3-pro",
+        connected: false,
+    },
+    HarnessFixture {
+        name: "opencode",
+        kind: "opencode",
+        auth: "API key",
+        account: "local",
+        model: "qwen2.5",
+        connected: true,
+    },
+];
+
+pub const THEME_CHOICES: [&str; 3] = ["system", "dark", "light"];
+pub const DENSITY_CHOICES: [&str; 2] = ["comfortable", "compact"];
+pub const AUTH_CHOICES: [&str; 3] = ["OAuth account", "API key", "None"];
+pub const MODEL_CHOICES: [&str; 3] = ["Opus 4.6", "Sonnet 4.5", "Haiku 4.5"];
+pub const THINKING_CHOICES: [&str; 3] = ["Think", "Standard", "Fast"];
+pub const MODE_CHOICES: [&str; 3] = ["Plan", "Edit", "Auto"];
+
+/// Permission modes on Agent defaults: the label, and the one line that says what it allows.
+pub const PERMISSIONS: [(&str, &str); 3] = [
+    (
+        "Plan",
+        "Reads and searches only. Writes nothing without approval.",
+    ),
+    (
+        "Edit",
+        "May edit files in its own session. Asks before running commands.",
+    ),
+    (
+        "Auto",
+        "Edits and runs commands without prompting. Use inside a worktree.",
+    ),
+];
+
+/// What the application settings page holds between frames.
+pub struct SettingsDemo {
+    pub nav: SettingsNav,
+    pub theme: usize,
+    pub accent_follows: bool,
+    pub density: usize,
+    pub font_size: u8,
+    pub reduce_motion: bool,
+    pub permission: usize,
+    pub max_agents: u8,
+    pub context_warn: u8,
+    pub retry: bool,
+    pub idle: u8,
+    /// Which harness card is open. Independent of whether it is enabled.
+    pub open_harness: Option<usize>,
+    pub harness_on: [bool; HARNESS_FIXTURES.len()],
+    pub auth: usize,
+    pub model: usize,
+    pub thinking: usize,
+    pub mode: usize,
+    pub env: Vec<String>,
+    /// Which of the page's pickers `MenuId::SinkSettings` is holding open.
+    pub menu: Option<SettingsMenu>,
+}
+
+impl Default for SettingsDemo {
+    fn default() -> Self {
+        Self {
+            nav: SettingsNav::Appearance,
+            theme: 0,
+            accent_follows: true,
+            density: 1,
+            font_size: 12,
+            reduce_motion: false,
+            permission: 0,
+            max_agents: 6,
+            context_warn: 85,
+            retry: true,
+            idle: 30,
+            open_harness: Some(0),
+            harness_on: [true, true, true, true, false],
+            auth: 0,
+            model: 0,
+            thinking: 0,
+            mode: 0,
+            env: vec!["NODE_ENV=development".into()],
+            menu: None,
+        }
+    }
+}
+
+impl SettingsDemo {
+    pub fn enabled_count(&self) -> usize {
+        self.harness_on.iter().filter(|on| **on).count()
+    }
+
+    pub fn toggle_harness(&mut self, index: usize) {
+        if let Some(on) = self.harness_on.get_mut(index) {
+            *on = !*on;
+        }
+    }
+
+    /// Open this card, or shut it if it is already the open one.
+    pub fn toggle_open(&mut self, index: usize) {
+        self.open_harness = if self.open_harness == Some(index) {
+            None
+        } else {
+            Some(index)
+        };
+    }
+
+    pub fn nudge_font(&mut self, delta: i32) {
+        self.font_size = (self.font_size as i32 + delta).clamp(8, 24) as u8;
+    }
+
+    pub fn nudge_agents(&mut self, delta: i32) {
+        self.max_agents = (self.max_agents as i32 + delta).clamp(1, 16) as u8;
+    }
+
+    pub fn nudge_warn(&mut self, delta: i32) {
+        self.context_warn = (self.context_warn as i32 + delta).clamp(50, 100) as u8;
+    }
+
+    pub fn nudge_idle(&mut self, delta: i32) {
+        self.idle = (self.idle as i32 + delta).clamp(5, 120) as u8;
+    }
+
+    pub fn add_env(&mut self, pair: String) {
+        let pair = pair.trim().to_string();
+        if pair.is_empty()
+            || !pair.contains('=')
+            || self.env.iter().any(|existing| existing == &pair)
+        {
+            return;
+        }
+        self.env.push(pair);
+    }
+
+    pub fn remove_env(&mut self, index: usize) {
+        if index < self.env.len() {
+            self.env.remove(index);
+        }
+    }
+}
+
+// ── Project settings ────────────────────────────────────────────────
+
+/// The left nav of the project settings dialog.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProjectNav {
+    General,
+    Documentation,
+    Integrations,
+}
+
+impl ProjectNav {
+    pub fn all() -> &'static [ProjectNav] {
+        &[
+            ProjectNav::General,
+            ProjectNav::Documentation,
+            ProjectNav::Integrations,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ProjectNav::General => "General",
+            ProjectNav::Documentation => "Documentation",
+            ProjectNav::Integrations => "Integrations",
+        }
+    }
+
+    /// The count the nav prints, when the item has one.
+    pub fn count(self) -> Option<u32> {
+        match self {
+            ProjectNav::Documentation => Some(4),
+            ProjectNav::Integrations => Some(1),
+            ProjectNav::General => None,
+        }
+    }
+}
+
+/// The project the dialog is about. A fixture: the sink has no project behind it.
+pub const PROJECT_NAME: &str = "agent-manager";
+pub const PROJECT_PATH: &str = "~/dev/agent-manager";
+pub const PROJECT_BRANCH: &str = "main";
+pub const PROJECT_MARK: &str = "am";
+pub const PROJECT_ABOUT: &str = "Tauri + React desktop app that multiplexes coding agents. Rust backend in src-tauri, panels in src/panels.";
+pub const PROJECT_ABOUT_LIMIT: usize = 280;
+pub const PROJECT_COLOUR: usize = 0;
+
+/// What the project settings dialog holds between frames.
+pub struct ProjectDemo {
+    pub nav: ProjectNav,
+    /// Index into the project swatches, used while [`Self::custom`] is empty.
+    pub colour: usize,
+    /// A free colour the picker committed, as `0xRRGGBB`. Takes over from the swatch.
+    pub custom: Option<u32>,
+    pub picker_open: bool,
+    pub hue: f32,
+    pub sat: f32,
+    pub val: f32,
+}
+
+impl Default for ProjectDemo {
+    fn default() -> Self {
+        Self {
+            nav: ProjectNav::General,
+            colour: PROJECT_COLOUR,
+            custom: None,
+            picker_open: false,
+            hue: 0.6,
+            sat: 0.6,
+            val: 0.95,
+        }
+    }
+}
+
+impl ProjectDemo {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The colour the dialog is showing, as `0xRRGGBB`, when a custom one has been picked.
+    pub fn rgb(&self) -> Option<u32> {
+        self.custom
+    }
+
+    pub fn set_hsv(&mut self, hue: f32, sat: f32, val: f32) {
+        self.hue = hue.clamp(0.0, 1.0);
+        self.sat = sat.clamp(0.0, 1.0);
+        self.val = val.clamp(0.0, 1.0);
+        self.custom = Some(hsv_to_rgb(self.hue, self.sat, self.val));
+    }
+
+    pub fn set_rgb(&mut self, rgb: u32) {
+        let (hue, sat, val) = rgb_to_hsv(rgb);
+        self.hue = hue;
+        self.sat = sat;
+        self.val = val;
+        self.custom = Some(rgb & 0x00ff_ffff);
+    }
+
+    pub fn set_swatch(&mut self, index: usize) {
+        self.colour = index;
+        self.custom = None;
+        self.picker_open = false;
+    }
+}
+
+/// Parses `#rgb` or `#rrggbb`, with or without the `#`.
+pub fn parse_hex(text: &str) -> Option<u32> {
+    let text = text.trim();
+    let text = text.strip_prefix('#').unwrap_or(text);
+    if !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    match text.len() {
+        3 => {
+            let n = u32::from_str_radix(text, 16).ok()?;
+            let r = (n >> 8) & 0xf;
+            let g = (n >> 4) & 0xf;
+            let b = n & 0xf;
+            Some((r * 0x11) << 16 | (g * 0x11) << 8 | b * 0x11)
+        }
+        6 => u32::from_str_radix(text, 16).ok(),
+        _ => None,
+    }
+}
+
+pub fn hex_string(rgb: u32) -> String {
+    format!("#{:06X}", rgb & 0x00ff_ffff)
+}
+
+pub fn rgb_from_channels(r: f32, g: f32, b: f32) -> u32 {
+    let byte = |channel: f32| (channel.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (byte(r) << 16) | (byte(g) << 8) | byte(b)
+}
+
+pub fn hsv_to_rgb(hue: f32, sat: f32, val: f32) -> u32 {
+    let hue = hue.rem_euclid(1.0) * 6.0;
+    let sat = sat.clamp(0.0, 1.0);
+    let val = val.clamp(0.0, 1.0);
+    let chroma = val * sat;
+    let x = chroma * (1.0 - (hue % 2.0 - 1.0).abs());
+    let m = val - chroma;
+    let (r, g, b) = match hue as i32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let byte = |channel: f32| ((channel + m).clamp(0.0, 1.0) * 255.0).round() as u32;
+    (byte(r) << 16) | (byte(g) << 8) | byte(b)
+}
+
+pub fn rgb_to_hsv(rgb: u32) -> (f32, f32, f32) {
+    let r = ((rgb >> 16) & 0xff) as f32 / 255.0;
+    let g = ((rgb >> 8) & 0xff) as f32 / 255.0;
+    let b = (rgb & 0xff) as f32 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let hue = if delta < 1e-6 {
+        0.0
+    } else if (max - r).abs() < 1e-6 {
+        (g - b) / delta
+    } else if (max - g).abs() < 1e-6 {
+        (b - r) / delta + 2.0
+    } else {
+        (r - g) / delta + 4.0
+    };
+    let hue = (hue / 6.0).rem_euclid(1.0);
+    let sat = if max < 1e-6 { 0.0 } else { delta / max };
+    (hue, sat, max)
+}
 
 // ── The file picker's page ──────────────────────────────────────────
 
@@ -358,6 +771,10 @@ pub struct SinkState {
     pub picked: usize,
     /// The file picker page: how the next dialog is asked for, and what the last one answered.
     pub picker: PickerDemo,
+    /// Application settings: the nav, the rows, the harness accordion.
+    pub settings: SettingsDemo,
+    /// Project settings: the dialog's nav and the colour swatch.
+    pub project: ProjectDemo,
 }
 
 impl Default for SinkState {
@@ -372,6 +789,8 @@ impl Default for SinkState {
             disclosed: true,
             picked: 0,
             picker: PickerDemo::default(),
+            settings: SettingsDemo::default(),
+            project: ProjectDemo::default(),
         }
     }
 }

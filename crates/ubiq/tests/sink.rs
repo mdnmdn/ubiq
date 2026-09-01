@@ -46,19 +46,22 @@ fn the_sink_is_an_app_destination_and_never_a_project_one() {
 
 // ── the pages ───────────────────────────────────────────────────────
 
-/// Four pages hold a document; the other two are drawn rather than parsed. A page that is neither
+/// Four pages hold a document; the rest are drawn rather than parsed. A page that is neither
 /// would draw nothing at all.
 #[test]
-fn every_page_holds_a_document_or_is_one_of_the_two_that_are_drawn() {
+fn every_page_holds_a_document_or_is_one_of_the_drawn_pages() {
     for section in SinkSection::all() {
         match section {
-            SinkSection::Style | SinkSection::Files => {
+            SinkSection::Style
+            | SinkSection::Files
+            | SinkSection::Settings
+            | SinkSection::Project => {
                 assert!(section.doc().is_none(), "{section:?} holds a document")
             }
             _ => assert!(section.doc().is_some(), "{section:?} holds nothing"),
         }
     }
-    assert_eq!(SinkSection::all().len(), 6);
+    assert_eq!(SinkSection::all().len(), 8);
 }
 
 /// The page and its viewer cannot disagree, because neither is written down twice: the document's
@@ -227,6 +230,52 @@ fn every_page_says_what_it_is_for() {
     }
 }
 
+/// The settings fixtures start in the state the mock draws: Appearance selected, four harnesses
+/// on, the first card open, Plan as the default permission.
+#[test]
+fn the_settings_page_opens_on_the_fixture() {
+    use ubiq::state::sink::{HARNESS_FIXTURES, SettingsNav, SinkState};
+
+    let sink = SinkState::default();
+    assert_eq!(sink.settings.nav, SettingsNav::Appearance);
+    assert_eq!(sink.settings.enabled_count(), 4);
+    assert_eq!(sink.settings.open_harness, Some(0));
+    assert_eq!(sink.settings.permission, 0);
+    assert_eq!(HARNESS_FIXTURES.len(), 5);
+}
+
+/// `#rgb` and `#rrggbb` both parse; junk does not. HSV round-trips through RGB well enough
+/// that a picked colour is the one the hex field will print.
+#[test]
+fn a_hex_colour_parses_and_an_hsv_pick_has_a_hex() {
+    use ubiq::state::sink::{hex_string, hsv_to_rgb, parse_hex};
+
+    assert_eq!(parse_hex("#5b8def"), Some(0x5b8def));
+    assert_eq!(parse_hex("5B8DEF"), Some(0x5b8def));
+    assert_eq!(parse_hex("#fff"), Some(0xffffff));
+    assert_eq!(parse_hex("not a colour"), None);
+    assert_eq!(parse_hex("#12"), None);
+
+    let rgb = hsv_to_rgb(0.0, 1.0, 1.0);
+    assert_eq!(hex_string(rgb), "#FF0000");
+}
+
+/// Opening one harness card shuts the other; toggling the same one shuts it. Enabling is
+/// independent of that.
+#[test]
+fn a_harness_card_opens_and_shuts_without_touching_whether_it_is_on() {
+    let mut sink = SinkState::default();
+    sink.settings.toggle_open(1);
+    assert_eq!(sink.settings.open_harness, Some(1));
+    sink.settings.toggle_open(1);
+    assert_eq!(sink.settings.open_harness, None);
+
+    assert!(!sink.settings.harness_on[4]);
+    sink.settings.toggle_harness(4);
+    assert!(sink.settings.harness_on[4]);
+    assert_eq!(sink.settings.enabled_count(), 5);
+}
+
 // ── drawn ───────────────────────────────────────────────────────────
 
 /// Every page drawn, every modal raised, and every shape of picker opened, answered and dismissed
@@ -309,6 +358,45 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
         state.update(cx, |state, cx| state.close_sink_modal(cx));
         cx.run_until_parked();
     }
+
+    // The settings layouts: every nav item, an open harness, a dropdown, a project swatch.
+    use ubiq::state::sink::{ProjectNav, SettingsMenu, SettingsNav};
+    state.update(cx, |state, cx| {
+        state.set_sink_section(SinkSection::Settings, cx)
+    });
+    cx.run_until_parked();
+    for nav in SettingsNav::all() {
+        state.update(cx, |state, cx| state.set_sink_settings_nav(*nav, cx));
+        cx.run_until_parked();
+    }
+    state.update(cx, |state, cx| {
+        state.set_sink_settings_nav(SettingsNav::Harnesses, cx);
+        state.toggle_sink_harness_open(0, cx);
+        state.toggle_sink_harness(4, cx);
+        state.open_sink_settings_menu(SettingsMenu::Model, cx);
+    });
+    cx.run_until_parked();
+    state.update(cx, |state, cx| state.pick_sink_settings_menu(1, cx));
+    cx.run_until_parked();
+
+    state.update(cx, |state, cx| {
+        state.set_sink_section(SinkSection::Project, cx)
+    });
+    cx.run_until_parked();
+    for nav in ProjectNav::all() {
+        state.update(cx, |state, cx| state.set_sink_project_nav(*nav, cx));
+        cx.run_until_parked();
+    }
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_sink_project_colour(3, window, cx);
+                state.toggle_sink_colour_picker(window, cx);
+                state.set_sink_project_hsv(0.1, 0.8, 0.9, window, cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
 
     // The picker page, and a dialog raised over it in each of the shapes it can be asked for.
     // Every row builds four element ids of its own, so a collision between two rows — or between

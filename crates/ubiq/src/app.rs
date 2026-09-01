@@ -24,7 +24,9 @@ use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
 use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
-use crate::state::sink::{SinkDoc, SinkModal, SinkSection, SinkState};
+use crate::state::sink::{
+    ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
+};
 use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
@@ -323,6 +325,18 @@ pub struct AppState {
     pub sink_input: Entity<InputState>,
     pub sink_textarea: Entity<TextareaState>,
     pub sink_modal_input: Entity<InputState>,
+    /// The settings pages' fields. Separate from the style reference's, because a fixture's
+    /// value is the thing being looked at and one state drawn on two pages is one field in two
+    /// places if both were ever on screen at once — they are not, but the split matches every
+    /// other pair of fields in the window.
+    pub sink_search: Entity<InputState>,
+    pub sink_harness_name: Entity<InputState>,
+    pub sink_harness_exec: Entity<InputState>,
+    pub sink_harness_prompt: Entity<TextareaState>,
+    pub sink_harness_env: Entity<InputState>,
+    pub sink_project_name: Entity<InputState>,
+    pub sink_project_about: Entity<TextareaState>,
+    pub sink_project_hex: Entity<InputState>,
     pub chat_scroll: ScrollHandle,
     /// The file picker's rows. It is what a keyboard cursor moved past the last drawn row is
     /// brought back into view with.
@@ -440,6 +454,51 @@ impl AppState {
         });
 
         let sink_modal_input = cx.new(|cx| InputState::new(window, cx).placeholder("Session name"));
+
+        let sink_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
+        let sink_harness_name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Display name")
+                .default_value("Claude Code — work")
+        });
+        let sink_harness_exec = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("/absolute/path")
+                .default_value("/opt/homebrew/bin/claude")
+        });
+        let sink_harness_prompt = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("House rules, not a task\u{2026}")
+                .auto_grow(3, 8)
+                .default_value(
+                    "You work in a Tauri + React codebase. Prefer small diffs, keep the existing \
+                     file conventions, and never touch src-tauri without saying so first.",
+                )
+        });
+        let sink_harness_env = cx.new(|cx| InputState::new(window, cx).placeholder("KEY=value"));
+        let sink_project_name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Project name")
+                .default_value(crate::state::sink::PROJECT_NAME)
+        });
+        let sink_project_about = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Two lines about this codebase\u{2026}")
+                .auto_grow(3, 6)
+                .default_value(crate::state::sink::PROJECT_ABOUT)
+        });
+        let sink_project_hex = {
+            let swatch = theme::project_colour(crate::state::sink::PROJECT_COLOUR);
+            let hex = crate::state::sink::hex_string(crate::state::sink::rgb_from_channels(
+                swatch.r, swatch.g, swatch.b,
+            ));
+            cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("#RRGGBB")
+                    .default_value(hex)
+            })
+        };
 
         // The window's arrangement. It is built before anything is put in it, because a panel is
         // an entity that has to be handed somewhere the moment it exists.
@@ -635,6 +694,35 @@ impl AppState {
             },
         ));
 
+        subscriptions.push(cx.subscribe_in(
+            &sink_project_hex,
+            window,
+            |this, _, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.apply_sink_project_hex(cx);
+                }
+            },
+        ));
+
+        // A field's underline is drawn by the parent, so a focus change has to redraw the window
+        // rather than only the library widget.
+        for handle in [
+            sink_input.read(cx).focus_handle(cx),
+            sink_textarea.read(cx).focus_handle(cx),
+            sink_modal_input.read(cx).focus_handle(cx),
+            sink_search.read(cx).focus_handle(cx),
+            sink_harness_name.read(cx).focus_handle(cx),
+            sink_harness_exec.read(cx).focus_handle(cx),
+            sink_harness_prompt.read(cx).focus_handle(cx),
+            sink_harness_env.read(cx).focus_handle(cx),
+            sink_project_name.read(cx).focus_handle(cx),
+            sink_project_about.read(cx).focus_handle(cx),
+            sink_project_hex.read(cx).focus_handle(cx),
+        ] {
+            subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.on_focus_out(&handle, window, |_, _, _, cx| cx.notify()));
+        }
+
         // This window's connection to the host, which is process-wide and already running. The
         // window never starts one: two hosts would race the catalogue and disagree about what
         // exists.
@@ -733,6 +821,14 @@ impl AppState {
             sink_input,
             sink_textarea,
             sink_modal_input,
+            sink_search,
+            sink_harness_name,
+            sink_harness_exec,
+            sink_harness_prompt,
+            sink_harness_env,
+            sink_project_name,
+            sink_project_about,
+            sink_project_hex,
             chat_scroll: ScrollHandle::new(),
             picker_scroll: ScrollHandle::new(),
             log_scroll: UniformListScrollHandle::new(),
@@ -1561,6 +1657,7 @@ impl AppState {
     pub fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.pending_close = None;
+        self.sink.settings.menu = None;
         cx.notify();
     }
 
@@ -1633,6 +1730,193 @@ impl AppState {
 
     pub fn close_sink_modal(&mut self, cx: &mut Context<Self>) {
         self.sink.modal = None;
+        cx.notify();
+    }
+
+    pub fn set_sink_settings_nav(&mut self, nav: SettingsNav, cx: &mut Context<Self>) {
+        self.sink.settings.nav = nav;
+        cx.notify();
+    }
+
+    pub fn set_sink_settings_theme(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.settings.theme = index;
+        cx.notify();
+    }
+
+    pub fn toggle_sink_accent_follows(&mut self, cx: &mut Context<Self>) {
+        self.sink.settings.accent_follows = !self.sink.settings.accent_follows;
+        cx.notify();
+    }
+
+    pub fn set_sink_settings_density(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.settings.density = index;
+        cx.notify();
+    }
+
+    pub fn nudge_sink_font(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.sink.settings.nudge_font(delta);
+        cx.notify();
+    }
+
+    pub fn toggle_sink_reduce_motion(&mut self, cx: &mut Context<Self>) {
+        self.sink.settings.reduce_motion = !self.sink.settings.reduce_motion;
+        cx.notify();
+    }
+
+    pub fn set_sink_permission(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.settings.permission = index;
+        cx.notify();
+    }
+
+    pub fn nudge_sink_agents(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.sink.settings.nudge_agents(delta);
+        cx.notify();
+    }
+
+    pub fn nudge_sink_warn(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.sink.settings.nudge_warn(delta);
+        cx.notify();
+    }
+
+    pub fn toggle_sink_retry(&mut self, cx: &mut Context<Self>) {
+        self.sink.settings.retry = !self.sink.settings.retry;
+        cx.notify();
+    }
+
+    pub fn nudge_sink_idle(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.sink.settings.nudge_idle(delta);
+        cx.notify();
+    }
+
+    pub fn toggle_sink_harness(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.settings.toggle_harness(index);
+        cx.notify();
+    }
+
+    pub fn toggle_sink_harness_open(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.settings.toggle_open(index);
+        cx.notify();
+    }
+
+    pub fn open_sink_settings_menu(&mut self, which: SettingsMenu, cx: &mut Context<Self>) {
+        self.workbench.open_menu = Some(MenuId::SinkSettings);
+        self.sink.settings.menu = Some(which);
+        cx.notify();
+    }
+
+    pub fn pick_sink_settings_menu(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.sink.settings.menu {
+            Some(SettingsMenu::Auth) => self.sink.settings.auth = index,
+            Some(SettingsMenu::Model) => self.sink.settings.model = index,
+            Some(SettingsMenu::Thinking) => self.sink.settings.thinking = index,
+            Some(SettingsMenu::Mode) => self.sink.settings.mode = index,
+            None => {}
+        }
+        self.workbench.open_menu = None;
+        self.sink.settings.menu = None;
+        cx.notify();
+    }
+
+    pub fn add_sink_env(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pair = self.sink_harness_env.read(cx).value().to_string();
+        self.sink.settings.add_env(pair);
+        let input = self.sink_harness_env.clone();
+        input.update(cx, |input, cx| input.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub fn remove_sink_env(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.settings.remove_env(index);
+        cx.notify();
+    }
+
+    pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
+        self.sink.project.nav = nav;
+        cx.notify();
+    }
+
+    pub fn set_sink_project_colour(
+        &mut self,
+        colour: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.project.set_swatch(colour);
+        self.sync_sink_project_hex(window, cx);
+        cx.notify();
+    }
+
+    pub fn toggle_sink_colour_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let open = !self.sink.project.picker_open;
+        if open {
+            let rgb = self.sink_project_rgb();
+            let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
+            self.sink.project.hue = hue;
+            self.sink.project.sat = sat;
+            self.sink.project.val = val;
+        }
+        self.sink.project.picker_open = open;
+        self.sync_sink_project_hex(window, cx);
+        cx.notify();
+    }
+
+    pub fn set_sink_project_hsv(
+        &mut self,
+        hue: f32,
+        sat: f32,
+        val: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.project.set_hsv(hue, sat, val);
+        self.sync_sink_project_hex(window, cx);
+        cx.notify();
+    }
+
+    fn apply_sink_project_hex(&mut self, cx: &mut Context<Self>) {
+        let text = self.sink_project_hex.read(cx).value();
+        let Some(rgb) = crate::state::sink::parse_hex(text.as_ref()) else {
+            return;
+        };
+        if self.sink.project.custom == Some(rgb) {
+            return;
+        }
+        if self.sink.project.custom.is_none() && rgb == self.sink_project_swatch_rgb() {
+            return;
+        }
+        self.sink.project.set_rgb(rgb);
+        cx.notify();
+    }
+
+    fn sync_sink_project_hex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let hex = crate::state::sink::hex_string(self.sink_project_rgb());
+        let input = self.sink_project_hex.clone();
+        input.update(cx, |input, cx| input.set_value(&hex, window, cx));
+    }
+
+    fn sink_project_rgb(&self) -> u32 {
+        self.sink
+            .project
+            .custom
+            .unwrap_or_else(|| self.sink_project_swatch_rgb())
+    }
+
+    fn sink_project_swatch_rgb(&self) -> u32 {
+        let colour = theme::project_colour(self.sink.project.colour);
+        crate::state::sink::rgb_from_channels(colour.r, colour.g, colour.b)
+    }
+
+    pub fn reset_sink_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sink.project.reset();
+        let name = self.sink_project_name.clone();
+        let about = self.sink_project_about.clone();
+        name.update(cx, |input, cx| {
+            input.set_value(crate::state::sink::PROJECT_NAME, window, cx)
+        });
+        about.update(cx, |input, cx| {
+            input.set_value(crate::state::sink::PROJECT_ABOUT, window, cx)
+        });
+        self.sync_sink_project_hex(window, cx);
         cx.notify();
     }
 
