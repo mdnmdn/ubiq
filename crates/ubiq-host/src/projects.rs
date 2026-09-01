@@ -14,6 +14,7 @@ use ubiq_proto::projects::{ProjectRecord, ProjectSnapshot, Scope};
 
 use crate::gc;
 use crate::health::probe;
+use crate::reply::Reply;
 use crate::store::{PreferenceStore, ProjectStore, StoreError};
 
 /// How long a preference sits before it is written.
@@ -21,18 +22,6 @@ use crate::store::{PreferenceStore, ProjectStore, StoreError};
 /// A panel drag fires continuously, so the writes are coalesced per scope. Long enough that a drag
 /// is one write, short enough that quitting straight after a change keeps it.
 pub const DEBOUNCE: Duration = Duration::from_millis(400);
-
-/// What the service wants said, so the caller can address it.
-///
-/// The service does not hold the bus: it answers in terms of who should hear a thing, and the
-/// coordinator turns that into a `To`. That is what keeps the catalogue testable without a bus.
-#[derive(Debug)]
-pub enum Reply {
-    /// Only the window that asked. A listing, or its own preferences.
-    Asker(ubiq_proto::messages::Message),
-    /// Every window, because the catalogue is one thing they all show.
-    Everyone(ubiq_proto::messages::Message),
-}
 
 /// The catalogue, the view state, and what is running in each project.
 pub struct Projects {
@@ -401,26 +390,6 @@ impl Projects {
                 },
             )],
             None => Vec::new(),
-        }
-    }
-}
-
-impl Reply {
-    /// The message itself, whoever it is for.
-    pub fn message(&self) -> &ubiq_proto::messages::Message {
-        match self {
-            Reply::Asker(message) | Reply::Everyone(message) => message,
-        }
-    }
-
-    /// Whether every window should hear this.
-    pub fn is_broadcast(&self) -> bool {
-        matches!(self, Reply::Everyone(_))
-    }
-
-    pub fn into_message(self) -> ubiq_proto::messages::Message {
-        match self {
-            Reply::Asker(message) | Reply::Everyone(message) => message,
         }
     }
 }

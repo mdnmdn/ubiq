@@ -45,14 +45,19 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     .child(terminal::render(app, cx).into_any_element()),
             )
             .into_any_element()
-    } else if wb.rail_mode == crate::state::RailMode::Agents {
+    } else if wb.rail_mode == crate::state::RailMode::Agents && has_project {
         // A built screen outside IDE mode. It brings its own panels — the inspector and the tasks
         // drawer are the agents screen's, not the window's — so it fills the centre whole.
         agents::render(app, window, cx).into_any_element()
-    } else if wb.rail_mode == crate::state::RailMode::Tasks {
+    } else if wb.rail_mode == crate::state::RailMode::Tasks && has_project {
         // The other one, and the other view of the same work: the board draws the tasks the graph
         // hangs off, at the scale of the project. Its panel is its own too.
         board::render(app, cx).into_any_element()
+    } else if !has_project && wb.rail_mode != crate::state::RailMode::Control {
+        // Both screens over the work are a project's, as the rail says by putting them under
+        // `PROJECT`. With none open there is no work to draw, so they say what the editor says
+        // rather than leaving the centre blank.
+        empty::no_project(cx)
     } else {
         empty::empty_page(
             wb.rail_mode.label(),

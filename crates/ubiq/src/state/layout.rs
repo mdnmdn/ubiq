@@ -15,7 +15,8 @@
 
 use std::collections::HashMap;
 
-use super::agents::{Agent, AgentId, SessionId, Task, TaskId};
+use ubiq_proto::ids::{SessionId, TaskId};
+use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 
 /// The card's size at 100% zoom. The graph's arithmetic — containers, connectors, hit testing —
 /// all works from these, so a card that changes size changes them in one place.
@@ -52,7 +53,7 @@ impl Layout {
     /// Each session is laid out from the same top-left corner, because only one is on screen at a
     /// time and a session that starts where the last one ended would open scrolled away from its
     /// own work.
-    pub fn auto(agents: &[Agent], tasks: &[Task]) -> Self {
+    pub fn auto(agents: &[WorkAgent], tasks: &[TaskRecord]) -> Self {
         let mut layout = Self::default();
         let mut sessions: Vec<SessionId> = Vec::new();
         for session in agents
@@ -64,10 +65,32 @@ impl Layout {
                 sessions.push(session);
             }
         }
+        // Sessions stack, each starting below the one before it. They used to be laid out from
+        // the same origin, which was invisible while the canvas drew one at a time and is a pile
+        // the moment it draws them all.
+        let mut y = LAYOUT_MARGIN;
         for session in sessions {
-            layout.arrange(session, agents, tasks);
+            y = layout.arrange(session, y, agents, tasks);
         }
         layout
+    }
+
+    /// Give anything the arrangement has never seen a place of its own, without moving what is
+    /// already placed. `auto` is the whole arrangement recomputed and discards every hand-placed
+    /// position, which is why only `tidy` may call it; this is what an arriving card gets.
+    ///
+    /// The place it gets is the one `auto` would have given it, taken from a tidy arrangement of
+    /// everything and adopted for the unseen keys alone — so a new task takes the next container
+    /// slot in the same flow-and-wrap order and a new agent the next offset inside its task, with
+    /// no second geometry to keep in step with the first.
+    pub fn place_new(&mut self, agents: &[WorkAgent], tasks: &[TaskRecord]) {
+        let tidy = Self::auto(agents, tasks);
+        for (task, origin) in tidy.tasks {
+            self.tasks.entry(task).or_insert(origin);
+        }
+        for (agent, offset) in tidy.agents {
+            self.agents.entry(agent).or_insert(offset);
+        }
     }
 
     pub fn task_origin(&self, task: TaskId) -> (f32, f32) {
@@ -83,7 +106,7 @@ impl Layout {
     }
 
     /// Where a card is drawn, on the canvas.
-    pub fn at(&self, agent: &Agent) -> (f32, f32) {
+    pub fn at(&self, agent: &WorkAgent) -> (f32, f32) {
         let origin = agent
             .task
             .map(|task| self.task_origin(task))
@@ -102,22 +125,31 @@ impl Layout {
 
     /// One session: the agents nobody gave work to along the top, then the containers flowing
     /// left to right underneath.
-    fn arrange(&mut self, session: SessionId, agents: &[Agent], tasks: &[Task]) {
-        let mut y = LAYOUT_MARGIN;
+    /// Lay one session out, starting at `top`, and answer the `y` the next one starts at.
+    fn arrange(
+        &mut self,
+        session: SessionId,
+        top: f32,
+        agents: &[WorkAgent],
+        tasks: &[TaskRecord],
+    ) -> f32 {
+        let mut y = top;
 
         // An agent with no task is usually the one handing work out, so it goes above the
         // containers rather than below them: a connector that runs down into a box reads better
-        // than one that climbs out of the bottom of the graph.
-        let loose: Vec<&Agent> = agents
+        // than one that climbs out of the bottom of the graph. They are stacked rather than merely
+        // laid in a row, because the set can be a spawn tree of its own.
+        let loose: Vec<&WorkAgent> = agents
             .iter()
             .filter(|a| a.session == session && a.task.is_none())
             .collect();
-        if !loose.is_empty() {
-            for (ix, agent) in loose.iter().enumerate() {
-                let x = LAYOUT_MARGIN + ix as f32 * (CARD_WIDTH + CARD_GAP_X);
-                self.agents.insert(agent.id, (x, y));
+        let Contents { cards, height, .. } = stack(&loose);
+        if !cards.is_empty() {
+            for (agent, offset) in cards {
+                self.agents
+                    .insert(agent, (LAYOUT_MARGIN + offset.0, y + offset.1));
             }
-            y += CARD_HEIGHT + TASK_GAP;
+            y += height + TASK_GAP;
         }
 
         let mut x = LAYOUT_MARGIN;
@@ -154,6 +186,13 @@ impl Layout {
             x += box_w + TASK_GAP;
             row_height = row_height.max(box_h);
         }
+
+        // Past the last row this session drew, so the next session clears it. A session that drew
+        // nothing at all leaves `y` where it found it and costs no gap.
+        if row_height > 0.0 {
+            y += row_height + TASK_GAP;
+        }
+        y
     }
 }
 
@@ -170,8 +209,17 @@ struct Contents {
 /// their children on the next — which draws the three task shapes without knowing about any of
 /// them. One agent is one card. A chain is a column, because each link answers to the last. A
 /// coordinated task is a coordinator over a row of workers.
-fn inside(task: TaskId, agents: &[Agent]) -> Contents {
-    let members: Vec<&Agent> = agents.iter().filter(|a| a.task == Some(task)).collect();
+fn inside(task: TaskId, agents: &[WorkAgent]) -> Contents {
+    let members: Vec<&WorkAgent> = agents.iter().filter(|a| a.task == Some(task)).collect();
+    stack(&members)
+}
+
+/// Stack one set of cards by how far each is from whoever started the work.
+///
+/// Shared by a container and by the row of agents that have no task, because the second one holds a
+/// spawn tree too: the agent coordinating a project parents each session's master, and drawing it
+/// beside its own child rather than above it would send the connector sideways.
+fn stack(members: &[&WorkAgent]) -> Contents {
     if members.is_empty() {
         return Contents {
             cards: Vec::new(),
@@ -180,10 +228,10 @@ fn inside(task: TaskId, agents: &[Agent]) -> Contents {
         };
     }
 
-    // Only a parent inside the same container counts. An agent answering to one outside it is a
-    // root here, and the connector to its parent is drawn across the boundary.
+    // Only a parent inside the same set counts. An agent answering to one outside it is a root
+    // here, and the connector to its parent is drawn across the boundary.
     let mut parents: HashMap<AgentId, AgentId> = HashMap::new();
-    for agent in &members {
+    for agent in members {
         if let Some(parent) = agent.parent
             && members.iter().any(|m| m.id == parent)
         {
@@ -192,7 +240,7 @@ fn inside(task: TaskId, agents: &[Agent]) -> Contents {
     }
 
     let mut rows: Vec<Vec<AgentId>> = Vec::new();
-    for agent in &members {
+    for agent in members {
         let depth = depth_of(agent.id, &parents);
         if rows.len() <= depth {
             rows.resize(depth + 1, Vec::new());

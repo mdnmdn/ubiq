@@ -18,8 +18,10 @@ use ubiq_proto::projects::ProjectHealth;
 use crate::config::ConfigRoot;
 use crate::files::{self, Files};
 use crate::health;
-use crate::projects::{Projects, Reply};
+use crate::projects::Projects;
 use crate::pty::{self, Pty};
+use crate::reply::Reply;
+use crate::work::Work;
 
 /// The geometry a pane starts at, before the emulator has measured its own bounds and said what it
 /// really is. The harness is told the truth a frame later, by [`Message::TerminalResize`].
@@ -30,10 +32,10 @@ const INITIAL_ROWS: u16 = 24;
 /// catalogue it will own is process-wide, and two of them would disagree about what exists.
 ///
 /// It ends when the hub and every client have gone.
-pub fn start(host: HostEnd, root: ConfigRoot, projects: Projects, pending: Vec<Reply>) {
+pub fn start(host: HostEnd, root: ConfigRoot, projects: Projects, work: Work, pending: Vec<Reply>) {
     thread::Builder::new()
         .name("ubiq-coordinator".to_string())
-        .spawn(move || Coordinator::new(host, root, projects, pending).run())
+        .spawn(move || Coordinator::new(host, root, projects, work, pending).run())
         .expect("the coordinator thread");
 }
 
@@ -44,6 +46,8 @@ struct Coordinator {
     root: ConfigRoot,
     /// The catalogue, the view state, and what is running in each project.
     projects: Projects,
+    /// Each project's tasks, and the sessions and agents the two screens over the work draw.
+    work: Work,
     /// The thread that reads and writes a project's files. Nothing in the file family touches disk
     /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
     files: Files,
@@ -63,11 +67,18 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn new(host: HostEnd, root: ConfigRoot, projects: Projects, pending: Vec<Reply>) -> Self {
+    fn new(
+        host: HostEnd,
+        root: ConfigRoot,
+        projects: Projects,
+        work: Work,
+        pending: Vec<Reply>,
+    ) -> Self {
         Self {
             host,
             root,
             projects,
+            work,
             files: Files::start(),
             pending,
             pane_projects: HashMap::new(),
@@ -266,6 +277,10 @@ impl Coordinator {
             }
             Message::ForgetProject { project_id } => {
                 let replies = self.projects.forget(project_id);
+                // The catalogue went first and took the project's directory with it, so the
+                // tasks on disk are already gone. This is the memory that was left, and this
+                // is the only place that knows both services.
+                self.work.forget(project_id);
                 self.answer(client, replies);
             }
             Message::UpdateProject {
@@ -335,12 +350,157 @@ impl Coordinator {
                 self.file_job(client, project_id, &rel_path, request);
             }
 
+            // ── the work family ─────────────────────────────────────
+            // Thirteen arms and one helper. Every one names a project, and none of them touches a
+            // user's folder — a task file lives under Ubiq's own config root, which the catalogue
+            // and the view state already write from this thread.
+            Message::ListWork { project_id } => {
+                self.work_job(client, project_id, |work| work.list(project_id));
+            }
+            Message::CreateTask {
+                project_id,
+                title,
+                session,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.create(project_id, title, session)
+                });
+            }
+            Message::UpdateTask {
+                project_id,
+                task_id,
+                title,
+                description,
+                priority,
+                shape,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.update(project_id, task_id, title, description, priority, shape)
+                });
+            }
+            Message::MoveTask {
+                project_id,
+                task_id,
+                status,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.move_task(project_id, task_id, status)
+                });
+            }
+            Message::AssignTask {
+                project_id,
+                task_id,
+                session,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.assign(project_id, task_id, session)
+                });
+            }
+            Message::DeleteTask {
+                project_id,
+                task_id,
+            } => {
+                self.work_job(client, project_id, |work| work.delete(project_id, task_id));
+            }
+            Message::AddStep {
+                project_id,
+                task_id,
+                title,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.add_step(project_id, task_id, title)
+                });
+            }
+            Message::RenameStep {
+                project_id,
+                task_id,
+                step_id,
+                title,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.rename_step(project_id, task_id, step_id, title)
+                });
+            }
+            Message::RemoveStep {
+                project_id,
+                task_id,
+                step_id,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.remove_step(project_id, task_id, step_id)
+                });
+            }
+            Message::MoveStep {
+                project_id,
+                task_id,
+                step_id,
+                to,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.move_step(project_id, task_id, step_id, to)
+                });
+            }
+            Message::ToggleStep {
+                project_id,
+                task_id,
+                step_id,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.toggle_step(project_id, task_id, step_id)
+                });
+            }
+            Message::AssignAgent {
+                project_id,
+                agent_id,
+                task_id,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.assign_agent(project_id, agent_id, task_id)
+                });
+            }
+            Message::SendToAgent {
+                project_id,
+                agent_id,
+                text,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.send_to_agent(project_id, agent_id, text)
+                });
+            }
+
             // Response-direction variants are never received here. Dropping one silently would
             // hide a wiring mistake, so it is named.
             other => {
                 tracing::warn!("the coordinator was sent a message only it may send: {other:?}")
             }
         }
+    }
+
+    /// Hand one work-family message to the work.
+    ///
+    /// The only thing this decides is whether the project exists, and it is not a formality: a task
+    /// file written for an id the catalogue does not hold would be collected as an orphan at the
+    /// next boot, so the write must never happen. The record is a lookup in memory, so this costs
+    /// no syscall — the same as `file_job`.
+    fn work_job(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        change: impl FnOnce(&mut Work) -> Vec<Reply>,
+    ) {
+        if self.projects.record(project_id).is_none() {
+            self.host.send(
+                To::Client(client),
+                Message::WorkError {
+                    project_id,
+                    task_id: None,
+                    error: "no such project".to_string(),
+                },
+            );
+            return;
+        }
+        let replies = change(&mut self.work);
+        self.answer(client, replies);
     }
 
     /// Hand one file-family request to the worker.

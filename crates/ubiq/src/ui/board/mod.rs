@@ -3,20 +3,25 @@
 //!
 //! It is the second view of the work the agents screen draws. The graph answers "who is doing
 //! what"; the board answers "what is there, and where has it got to" — the same tasks, in
-//! [`crate::state::agents`], read at the scale of the project rather than of one session. Which is
+//! [`crate::state::work`], read at the scale of the project rather than of one session. Which is
 //! why a card carries an agent's name and a state, and why `Show in graph` is one click away: the
 //! two screens are two questions about one set of facts, not two sets.
 //!
-//! Three things on it are live. **A task is made** from the filter field — one field to find work
-//! and to name it — and lands in the backlog. **A card is dragged between columns**, and unlike
-//! the graph's canvas the column *is* the drop target: a task is filed somewhere rather than
+//! Three things on it are live. **A task is asked for** from the filter field — one field to find
+//! work and to name it — and lands in the backlog. **A card is dragged between columns**, and
+//! unlike the graph's canvas the column *is* the drop target: a task is filed somewhere rather than
 //! placed anywhere, so the box it lands on is what takes the drop and what lights up under it.
 //! **A column and a card both shut**, to a strip and to a title, because a board is read by
 //! ignoring most of it.
 //!
-//! Two files: this one is the toolbar, the columns and the cards; [`detail`] is the panel.
+//! What a column a card is in is the host's, so a drag asks rather than moves, and the card is
+//! drawn muted until the answer comes back — a slow host must not read as a drag that failed.
+//!
+//! Three files: this one is the toolbar, the columns and the cards; [`detail`] is the panel that
+//! reports one task, and [`form`] is the controls that change it.
 
 pub mod detail;
+pub mod form;
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, DragMoveEvent, InteractiveElement, IntoElement,
@@ -26,10 +31,14 @@ use gpui::{
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::ids::TaskId;
+use ubiq_proto::work::{Status, TaskRecord};
+
 use crate::app::AppState;
-use crate::state::agents::{Status, Task, TaskId};
+use crate::state::work;
 use crate::theme;
 use crate::ui::agents::{activity_colour, bucket_colour};
+use crate::ui::eid;
 use crate::ui::kit::{card, choice_pill, meter, mono, primary_button, section_label};
 
 /// The task under the pointer. It carries the id alone: where the task belongs is the column's
@@ -68,13 +77,19 @@ pub fn status_colour(status: Status) -> Rgba {
 }
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    // The board is a view of one project's work, and the shell keeps a window with no project off
+    // it entirely — so there is nothing here to draw rather than an empty board to explain.
+    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+        return div().into_any_element();
+    };
+
     let mut body = div()
         .flex()
         .flex_1()
         .min_h(px(0.))
         .child(columns(app, cx).into_any_element());
 
-    if let Some(task) = app.board.open_task(&app.agents) {
+    if let Some(task) = board.open_task(work) {
         body = body.child(
             div()
                 .w(px(theme::TASK_PANEL_WIDTH))
@@ -95,20 +110,22 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::app_bg())
         .child(toolbar(app, cx))
         .child(body)
+        .into_any_element()
 }
 
 /// The strip over the columns: what is being looked for, whose work it is, and the way to add one.
 fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let board = &app.board;
+    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+        return div().into_any_element();
+    };
 
-    let sessions: Vec<AnyElement> = app
-        .agents
+    let sessions: Vec<AnyElement> = work
         .sessions
         .iter()
         .map(|session| {
             let id = session.id;
             choice_pill(
-                ("board-session", id),
+                eid("board-session", id),
                 session.name.clone(),
                 board.session == Some(id),
                 cx.listener(move |this, _, _, cx| this.pick_board_session(Some(id), cx)),
@@ -151,6 +168,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             "New task",
             cx.listener(|this, _, window, cx| this.new_task(window, cx)),
         ))
+        .into_any_element()
 }
 
 /// One field, doing both jobs: it filters the cards, and what is in it names the next one.
@@ -198,12 +216,16 @@ fn columns(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 }
 
 fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElement {
-    let board = &app.board;
-    let tasks = board.column(&app.agents, status);
+    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+        return div().into_any_element();
+    };
+    let tasks = board.column(work, status);
     let count = tasks.len();
     let shut = board.is_shut(status);
     let lit = board.carry.is_some_and(|carry| carry.over == Some(status));
     let colour = status_colour(status);
+    // The three ids on a column key off the enum's discriminant rather than an id: a column is one
+    // of five stages, not a record, so there is nothing here for a ULID to name.
     let key = status as u32;
 
     let mut root = div()
@@ -324,19 +346,23 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
 
 /// One card. Its left edge carries the worst thing happening in the task, because that is what is
 /// read from across a column; everything finer than that is the panel's job.
-fn task_card(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
-    let agents = &app.agents;
-    let board = &app.board;
+fn task_card(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+        return div().into_any_element();
+    };
     let id = task.id;
-    let colour = bucket_colour(agents.pulse(task));
+    let colour = bucket_colour(work.pulse(task));
     let selected = board.selected == Some(id) && board.show_detail;
     let folded = board.is_folded(id);
     let carried = board.carry.is_some_and(|carry| carry.task == id);
+    // A drop the host has not answered yet. The card goes muted rather than moving, because the
+    // column it is in is the host's answer and this one has not arrived.
+    let moving = board.is_moving(id);
     let title = SharedString::from(task.title.clone());
     let ghost = title.clone();
     let view = cx.entity();
 
-    let mut root = card(("board-task", id), colour, selected)
+    let mut root = card(eid("board-task", id), colour, selected)
         .w_full()
         .p_2p5()
         .gap_1p5()
@@ -361,6 +387,19 @@ fn task_card(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElem
                         .with_size(Size::XSmall)
                         .text_color(theme::danger())
                 }))
+                // That a description exists is a fact about the task at card scale, and one mark is
+                // all a card can honestly take: what a card carries is fixed, and a folded one
+                // keeps only its shape, its title and whose session it is.
+                .children((!task.description.trim().is_empty()).then(|| {
+                    Icon::new(IconName::BookOpen)
+                        .with_size(Size::XSmall)
+                        .text_color(theme::text_faint())
+                }))
+                // The drop the host has not answered yet, said in the faintest token there is: the
+                // card is still in its old column and saying so is the whole point.
+                .children(
+                    moving.then(|| mono("moving\u{2026}", theme::text_faint()).text_size(px(11.))),
+                )
                 .child(div().flex_1().min_w(px(0.)))
                 .children(task.priority.label().map(|label| {
                     mono(
@@ -375,7 +414,7 @@ fn task_card(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElem
                 }))
                 .child(
                     div()
-                        .id(("board-task-fold", id))
+                        .id(eid("board-task-fold", id))
                         .flex()
                         .flex_none()
                         .items_center()
@@ -400,11 +439,11 @@ fn task_card(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElem
                 .text_color(theme::text())
                 .child(title),
         )
-        .child(session_line(app, task));
+        .child(session_line(app, task, cx));
 
     if !folded {
         if !task.steps.is_empty() {
-            root = root.child(meter(task.fraction(), colour));
+            root = root.child(meter(work::fraction(task), colour));
         }
         root = root.child(now_line(app, task, cx));
     }
@@ -420,8 +459,11 @@ fn task_card(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElem
 
 /// Whose work it is — or that it is nobody's yet, which is a fact about the task rather than a
 /// missing field.
-fn session_line(app: &AppState, task: &Task) -> AnyElement {
-    match task.session.and_then(|id| app.agents.session(id)) {
+fn session_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    match app
+        .work(cx)
+        .and_then(|work| task.session.and_then(|id| work.session(id)))
+    {
         Some(session) => div()
             .flex()
             .flex_none()
@@ -442,8 +484,8 @@ fn session_line(app: &AppState, task: &Task) -> AnyElement {
 
 /// The bottom line of a card: the agent holding the task and what it is saying, or — when nobody
 /// is — how many sub-tasks there are to be done.
-fn now_line(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(agent) = app.agents.now(task) else {
+fn now_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(agent) = app.work(cx).and_then(|work| work.now(task)) else {
         let total = task.steps.len();
         let text = if total == 0 {
             "no sub-tasks yet".to_string()
@@ -467,7 +509,7 @@ fn now_line(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyEleme
         // sentence that changes the screen when you touch it is a trap.
         .child(
             div()
-                .id(("board-task-now", task.id))
+                .id(eid("board-task-now", task.id))
                 .flex()
                 .flex_none()
                 .items_center()

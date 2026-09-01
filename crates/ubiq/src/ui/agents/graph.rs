@@ -26,13 +26,17 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::work::{TaskRecord, WorkAgent};
+
 use crate::app::AppState;
 use crate::state::agents::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD};
-use crate::state::{Agent, Held, Selection};
+use crate::state::work;
+use crate::state::{Held, Selection};
 use crate::theme;
 use crate::ui::agents::{activity_colour, role_mark};
+use crate::ui::eid;
 use crate::ui::kit::canvas::{self, Link};
-use crate::ui::kit::{card, mono, state_chip};
+use crate::ui::kit::{card, ghost_button, mono, state_chip};
 
 /// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
 /// the state, so a drag that is interrupted leaves it wherever the last move put it rather than in
@@ -54,43 +58,66 @@ impl Render for Empty {
 /// still be picked up and dropped without fighting the scroll.
 const GRAPH_MARGIN: f32 = 60.0;
 
+/// A task's outline: the record the box is drawn for, and the rectangle it came out as.
+type TaskBox<'a> = (&'a TaskRecord, (f32, f32, f32, f32));
+
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
-    let agents = &app.agents;
-    let zoom = agents.zoom;
+    let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
+        return div().into_any_element();
+    };
+    let zoom = graph.zoom;
     let view = cx.entity();
 
-    let visible: Vec<&Agent> = agents.agents.iter().filter(|a| agents.visible(a)).collect();
+    let visible: Vec<&WorkAgent> = work.agents.iter().filter(|a| graph.visible(a)).collect();
 
     if visible.is_empty() {
-        return div()
+        // Two different emptinesses, and saying which is the whole value of the message: a project
+        // with no agents has nothing to offer, while a filter that hid them all has a way back.
+        let filtered = graph.filtered() && !work.agents.is_empty();
+        let mut said = div()
             .flex()
             .flex_1()
             .min_w(px(0.))
             .min_h(px(0.))
+            .flex_col()
             .items_center()
             .justify_center()
+            .gap_2()
             .bg(theme::app_bg())
             .child(
                 div()
                     .text_size(px(12.5))
                     .text_color(theme::text_faint())
-                    .child("No agent in this session matches the filters."),
-            )
-            .into_any_element();
+                    .child(if filtered {
+                        "No agent matches the filters."
+                    } else {
+                        "No agent is running in this project."
+                    }),
+            );
+        if filtered {
+            said = said.child(ghost_button(
+                "agents-empty-clear",
+                None,
+                "Show everything",
+                cx.listener(|this, _, _, cx| this.clear_graph_filters(cx)),
+            ));
+        }
+        return said.into_any_element();
     }
 
     // The containers that are actually drawn, measured once: the boxes decide the canvas size, take
-    // the drags that move a whole task, and light up under a carried card.
-    let boxes: Vec<(usize, (f32, f32, f32, f32))> = agents
+    // the drags that move a whole task, and light up under a carried card. The record travels with
+    // its box rather than a place in the vector — the projection is replaced whole every time the
+    // host answers, and an index into a vector somebody else owns is not worth keeping.
+    let boxes: Vec<TaskBox<'_>> = work
         .tasks
         .iter()
-        .enumerate()
-        .filter_map(|(ix, task)| Some((ix, agents.bounds_of(task.id)?)))
+        .filter_map(|task| Some((task, graph.bounds_of(work, task.id)?)))
         .collect();
 
     // The canvas is as big as what is on it, so scrolling reaches everything at any zoom.
     let mut extent = visible.iter().fold((0.0f32, 0.0f32), |(w, h), agent| {
-        let at = agents.at(agent);
+        let at = graph.at(agent);
         (
             w.max(at.0 + CARD_WIDTH + GRAPH_MARGIN),
             h.max(at.1 + CARD_HEIGHT + GRAPH_MARGIN),
@@ -115,10 +142,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // The task containers, under everything: a dashed box round the cards serving one task, with
     // its shape and its title on the top edge. The box is computed from where its cards are, so a
     // card dragged out of one takes the outline with it.
-    let over = agents.carry.and_then(|c| c.over);
-    let held = agents.carry.map(|c| c.held);
-    for (ix, (x, y, w, h)) in boxes {
-        let task = &agents.tasks[ix];
+    let over = graph.carry.and_then(|c| c.over);
+    let held = graph.carry.map(|c| c.held);
+    for (task, (x, y, w, h)) in boxes {
         let id = task.id;
         let lit = over == Some(id);
         let carried = held == Some(Held::Task(id));
@@ -140,7 +166,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             // it.
             .child(
                 div()
-                    .id(("agents-task", id))
+                    .id(eid("agents-task", id))
                     .absolute()
                     .left(px(x * zoom))
                     .top(px(y * zoom))
@@ -178,12 +204,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     let links: Vec<Link> = visible
         .iter()
         .filter_map(|agent| {
-            let parent = agents.agent(agent.parent?)?;
-            if !agents.visible(parent) {
+            let parent = work.agent(agent.parent?)?;
+            if !graph.visible(parent) {
                 return None;
             }
-            let from = agents.at(parent);
-            let to = agents.at(agent);
+            let from = graph.at(parent);
+            let to = graph.at(agent);
             Some(Link {
                 from: point(
                     (from.0 + CARD_WIDTH / 2.0) * zoom,
@@ -199,8 +225,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     for agent in &visible {
         content = content.child(agent_card(
             agent,
-            agents.at(agent),
-            agents.selection == Some(Selection::Agent(agent.id)),
+            graph.at(agent),
+            graph.selection == Some(Selection::Agent(agent.id)),
             held == Some(Held::Agent(agent.id)),
             zoom,
             &view,
@@ -209,9 +235,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     }
 
     // The sand goes over everything, including the card that is shedding it.
-    if !agents.sand.is_empty() {
+    if !graph.sand.is_empty() {
         let now = std::time::Instant::now();
-        let grains = agents
+        let grains = graph
             .sand
             .iter()
             .map(|grain| canvas::Grain {
@@ -235,10 +261,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 if !event.bounds.contains(&event.event.position) {
                     return;
                 }
-                let Some(carry) = this.agents.carry else {
+                let Some(graph) = this.graph(cx) else {
                     return;
                 };
-                let zoom = this.agents.zoom;
+                let Some(carry) = graph.carry else {
+                    return;
+                };
+                let zoom = graph.zoom;
                 let local = event.event.position - event.bounds.origin;
                 let local = (f32::from(local.x), f32::from(local.y));
                 // The grab point is where inside the card — or inside the container's box — the
@@ -264,11 +293,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .into_any_element()
 }
 
-/// One card. Everything about it is either a fact the fixture carries or a colour from a token —
+/// One card. Everything about it is either a fact the record carries or a colour from a token —
 /// nothing on it is invented at draw time, and where it goes is handed in rather than read off it.
 #[allow(clippy::too_many_arguments)]
 fn agent_card(
-    agent: &Agent,
+    agent: &WorkAgent,
     at: (f32, f32),
     selected: bool,
     carried: bool,
@@ -280,7 +309,7 @@ fn agent_card(
     let colour = activity_colour(agent.activity);
     let view = view.clone();
 
-    let body = card(("agents-card", id), colour, selected)
+    let body = card(eid("agents-card", id), colour, selected)
         .absolute()
         .left(px(at.0 * zoom))
         .top(px(at.1 * zoom))
@@ -345,13 +374,15 @@ fn agent_card(
                         .text_color(theme::text_faint()),
                 )
                 .child(mono(agent.branch.clone(), theme::text_muted()).text_size(px(10.5 * zoom)))
-                .child(mono(agent.tokens_label(), theme::text_faint()).text_size(px(10.5 * zoom)))
+                .child(
+                    mono(work::tokens_label(agent), theme::text_faint()).text_size(px(10.5 * zoom)),
+                )
                 .child(div().flex_1().min_w(px(0.)))
                 // The way into the conversation with this one agent: it selects the card and puts
                 // the inspector on its thread, which is two clicks the card can save.
                 .child(
                     div()
-                        .id(("agents-card-chat", id))
+                        .id(eid("agents-card-chat", id))
                         .flex()
                         .flex_none()
                         .items_center()

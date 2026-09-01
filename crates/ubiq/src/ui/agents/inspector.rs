@@ -6,9 +6,9 @@
 //! across the four states, and its tasks. With an **agent** selected it reports that one workspace
 //! — its harness, its model, how much context it has left, its thread, and a composer.
 //!
-//! The composer is real: what is typed lands in the agent's thread. Nothing answers, and the panel
-//! says so rather than inventing a reply, because a fabricated answer is the one thing a screen
-//! with no transport family behind it must not draw.
+//! The composer is real: what is typed is sent to the agent, and the line appears in the thread
+//! when the host answers with the agent carrying it. Nothing here writes into a transcript, because
+//! an interface that draws its own half of a conversation is inventing the other half too.
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -17,8 +17,11 @@ use gpui::{
 use gpui_component::input::Textarea;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::ids::SessionId;
+use ubiq_proto::work::{AgentId, Bucket, Speaker};
+
 use crate::app::AppState;
-use crate::state::agents::{Bucket, Speaker};
+use crate::state::work;
 use crate::state::{InspectorTab, Selection};
 use crate::theme;
 use crate::ui::agents::{activity_colour, bucket_colour, role_mark};
@@ -29,9 +32,11 @@ use crate::ui::kit::{
 };
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let agents = &app.agents;
+    let Some(graph) = app.graph(cx) else {
+        return div().into_any_element();
+    };
 
-    let Some(selection) = agents.selection else {
+    let Some(selection) = graph.selection else {
         return panel()
             .child(header_bar("Nothing selected", "", theme::text_faint(), cx))
             .child(
@@ -93,20 +98,18 @@ fn header_bar(
 }
 
 /// A session: how its agents are spread across the four states, and the tasks it holds.
-fn session_view(
-    app: &AppState,
-    id: crate::state::agents::SessionId,
-    cx: &mut Context<AppState>,
-) -> gpui::AnyElement {
-    let agents = &app.agents;
-    let Some(session) = agents.session(id) else {
+fn session_view(app: &AppState, id: SessionId, cx: &mut Context<AppState>) -> gpui::AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let Some(session) = work.session(id) else {
         return div().into_any_element();
     };
 
     let counts: Vec<_> = Bucket::all()
         .into_iter()
         .map(|bucket| {
-            let n = agents
+            let n = work
                 .agents
                 .iter()
                 .filter(|a| a.session == id && a.activity.bucket() == bucket)
@@ -151,25 +154,23 @@ fn session_view(
 }
 
 /// One agent — that is, one workspace: one harness, one terminal, one thread.
-fn agent_view(
-    app: &AppState,
-    id: crate::state::agents::AgentId,
-    cx: &mut Context<AppState>,
-) -> gpui::AnyElement {
+fn agent_view(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> gpui::AnyElement {
     let view = cx.entity();
-    let agents = &app.agents;
-    let Some(agent) = agents.agent(id) else {
+    let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
+        return div().into_any_element();
+    };
+    let Some(agent) = work.agent(id) else {
         return div().into_any_element();
     };
     let colour = activity_colour(agent.activity);
 
-    let owned = agents
+    let owned = work
         .tasks
         .iter()
         .flat_map(|t| t.steps.iter())
         .filter(|s| s.owner == Some(id))
         .count();
-    let open = agents
+    let open = work
         .tasks
         .iter()
         .flat_map(|t| t.steps.iter())
@@ -180,12 +181,12 @@ fn agent_view(
         Tab::new("chat"),
         Tab::new(format!("tasks {open}\u{b7}{owned}")),
     ];
-    let active = match agents.tab {
+    let active = match graph.tab {
         InspectorTab::Chat => 0,
         InspectorTab::Tasks => 1,
     };
 
-    let body = match agents.tab {
+    let body = match graph.tab {
         InspectorTab::Chat => thread(app, id, cx),
         InspectorTab::Tasks => super::tasks::list(app, cx),
     };
@@ -220,7 +221,7 @@ fn agent_view(
                 .child(div().flex_1().min_w(px(0.)))
                 .child(progress_ring(agent.context_pct, 13.))
                 .child(mono(format!("{}%", agent.context_pct), theme::text()).text_size(px(11.5)))
-                .child(mono(agent.tokens_label(), theme::text_muted()).text_size(px(11.5))),
+                .child(mono(work::tokens_label(agent), theme::text_muted()).text_size(px(11.5))),
         )
         .child(tab_strip(
             "inspector-tabs",
@@ -232,7 +233,7 @@ fn agent_view(
         ))
         .child(body);
 
-    if agents.tab == InspectorTab::Chat {
+    if graph.tab == InspectorTab::Chat {
         root = root.child(composer(app, cx));
     }
 
@@ -240,12 +241,8 @@ fn agent_view(
 }
 
 /// What has been said to and by one agent, oldest first.
-fn thread(
-    app: &AppState,
-    id: crate::state::agents::AgentId,
-    _cx: &mut Context<AppState>,
-) -> AnyElement {
-    let Some(agent) = app.agents.agent(id) else {
+fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(agent) = app.work(cx).and_then(|work| work.agent(id)) else {
         return div().into_any_element();
     };
 
@@ -293,8 +290,8 @@ fn thread(
                 .text_size(px(11.5))
                 .text_color(theme::text_faint())
                 .child(
-                    "Nothing is listening yet \u{2014} the graph has no transport family, so what \
-                     you send is kept and not answered.",
+                    "Nothing is listening yet \u{2014} what you send reaches the host and no agent \
+                     answers it.",
                 ),
         )
         .into_any_element()
@@ -302,10 +299,13 @@ fn thread(
 
 /// The composer, in the shape the chat's is: what is typed, what it will reach, and the button.
 fn composer(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let can_send = !app.agents.draft.trim().is_empty();
+    let can_send = app
+        .graph(cx)
+        .is_some_and(|graph| !graph.draft.trim().is_empty());
     let target = app
-        .agents
-        .selected_agent()
+        .work(cx)
+        .zip(app.graph(cx))
+        .and_then(|(work, graph)| graph.selected_agent(work))
         .map(|a| a.name.clone())
         .unwrap_or_default();
 

@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project and file families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file and work families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/work.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -33,9 +33,11 @@ without a body omit `payload` entirely.
 ```
 
 Every id in the contract is a ULID behind a per-kind newtype — `PaneId`, `SessionId`,
-`WorkspaceId`, `ProjectId` in `crates/ubiq-proto/src/ids.rs` — so a pane's id cannot be passed
-where a session's belongs. Each serialises as its bare 26-character string, and all four come from
-one monotonic generator, because sorting by creation time is most of why a ULID is worth having.
+`WorkspaceId`, `ProjectId`, `TaskId`, `StepId` in `crates/ubiq-proto/src/ids.rs` — so a pane's id
+cannot be passed where a session's belongs. Each serialises as its bare 26-character string, and all
+six come from one monotonic generator, because sorting by creation time is most of why a ULID is
+worth having. `WorkspaceId` is also an agent's id: the work family calls it `AgentId`, an alias of
+the same type, because a workspace and an agent are one thing until a workspace outlives its pane.
 `gpui::WindowId` is the framework's and is not one of these.
 
 In Rust that is `#[serde(tag = "type", content = "payload")]` over a single enum. Two properties
@@ -197,9 +199,101 @@ each arm is a different thing for the interface to do rather than a sentence to 
 does not re-probe a project's health for a file failure**; a `Missing` or a `Denied` is the
 interface's cue to send `RefreshProject`, which is the project family's job.
 
+## The work family
+
+The fifth family. **Every variant names a project by id**, because the work belongs to a project:
+its tasks are written down under that project's own directory in Ubiq's config root, and its
+sessions and agents are minted per project. A task id alone would not say which store to write.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListWork` | UI → host | `project_id` | `WorkList` or `WorkError` |
+| `CreateTask` | UI → host | `project_id`, `title`, `session?` | `TaskCreated` or `WorkError` |
+| `UpdateTask` | UI → host | `project_id`, `task_id`, `title?`, `description?`, `priority?`, `shape?` | `TaskChanged` or `WorkError` |
+| `MoveTask` | UI → host | `project_id`, `task_id`, `status` | `TaskChanged` or `WorkError` |
+| `AssignTask` | UI → host | `project_id`, `task_id`, `session?` | `TaskChanged` or `WorkError` |
+| `DeleteTask` | UI → host | `project_id`, `task_id` | `TaskDeleted` or `WorkError` |
+| `AddStep` | UI → host | `project_id`, `task_id`, `title` | `TaskChanged` or `WorkError` |
+| `RenameStep` | UI → host | `project_id`, `task_id`, `step_id`, `title` | `TaskChanged` or `WorkError` |
+| `RemoveStep` | UI → host | `project_id`, `task_id`, `step_id` | `TaskChanged` or `WorkError` |
+| `MoveStep` | UI → host | `project_id`, `task_id`, `step_id`, `to` | `TaskChanged` or `WorkError` |
+| `ToggleStep` | UI → host | `project_id`, `task_id`, `step_id` | `TaskChanged` or `WorkError` |
+| `AssignAgent` | UI → host | `project_id`, `agent_id`, `task_id?` | `AgentChanged` or `WorkError` |
+| `SendToAgent` | UI → host | `project_id`, `agent_id`, `text` | `AgentChanged` or `WorkError` |
+| `WorkList` | host → UI | `project_id`, `sessions[]`, `agents[]`, `tasks[]` | — |
+| `TaskCreated` | host → UI | `project_id`, `task` | — |
+| `TaskChanged` | host → UI | `project_id`, `task` | — |
+| `TaskDeleted` | host → UI | `project_id`, `task_id` | — |
+| `AgentChanged` | host → UI | `project_id`, `agent` | — |
+| `WorkError` | host → UI | `project_id`, `task_id?`, `error` | — |
+
+**Nothing in this family is broadcast.** Every reply goes to the window that asked, on the file
+family's rule for the file family's reason: a project is open in exactly one window at a time, so
+the window that asked is the only one drawing that project's work, and what one window is looking at
+is not a fact about the catalogue.
+
+**`project_id` is echoed on every reply**, and `task_id` on a `TaskDeleted`, because an answer
+arrives after the click that asked for it and the window may have moved on.
+
+**A move and an assignment are their own messages rather than fields on `UpdateTask`**, by the same
+test `D31` applies to the project family. `UpdateTask` is display only: it renames, re-describes,
+reprioritises and reshapes, touches nothing outside the record, and can be refused for nothing but a
+task that is not there. `MoveTask` carries the one field the board reserves for a drag — a column is
+a stage and a card only ever changes column, which [`workbench.md`](../features/workbench.md)
+prescribes — so folding `status` into an update would offer a second way to do the one thing the drag
+exists for. `AssignTask` names another entity and is
+refused for a session the host does not hold, which makes it fallible where an update is not; it
+also spares the wire an `Option<Option<SessionId>>` inside an update, which is a type nobody should
+have to read.
+
+**`WorkList` is one message, not three.** Sessions, agents and tasks arrive in the same frame,
+because two round trips would let the board draw a card naming a session it has not heard of.
+
+**A mutation echoes the whole record, not a diff** — `ProjectChanged`'s discipline, and what makes
+the interface's projection idempotent: applying a record replaces on id, so the same answer twice
+changes nothing.
+
+**`TaskCreated` is separate from `TaskChanged`** because the asker cannot know an id it did not mint,
+and the board selects the card it just made. It is the shape `ProjectAdded` has.
+
+**A step is addressed by a `StepId`, never by its place in the list.** Two clicks in one frame — a
+remove and a tick — would otherwise arrive as two indices into two different lists, and the second
+would land on the wrong step. `MoveStep` reorders by naming the step and the place it should end up
+in; its `to` is clamped by the host, because a list that shortened under a drag is not an error the
+user can do anything about.
+
+**`ToggleStep` carries no target state.** Unticking lands on idle, because nothing can know what a
+step's owner would go back to doing — a rule about the work, and so the host's to keep rather than a
+value the interface works out and sends.
+
+**`AssignAgent` and `SendToAgent` change the host's mock agents.** Which task an agent serves is the
+host's fact even while the agent is invented; where its card sits is the interface's and never
+crosses. `SendToAgent` answers with the agent record carrying one more `Turn`, and **nothing answers
+the thread**: a fabricated reply is the one thing a screen with no live agent must not draw.
+
+**A `DeleteTask` can answer with more than a `TaskDeleted`.** Every agent pointing at the task is
+taken off it and reported as an `AgentChanged`, because a card pointing at a task that has gone would
+be drawn in no container and counted in one, and the repair is the interface's to hear rather than to
+work out.
+
+**Nothing in this family is unsolicited.** The host never pushes a change nobody asked for, so there
+is no variant for an agent making progress of its own — a gap in [`../backlog.md`](../backlog.md).
+
+**`WorkError.error` is a sentence rather than an enum**, and deliberately the opposite of `D34`. An
+enum earns its keep when each arm is a different thing for the interface to do; every failure here —
+no such project, no such task, no such step, no such session, a store that will not write — comes
+down to saying so once, where the user is looking. `task_id` is present when one task is at fault and
+absent when a project's work as a whole is.
+
+**`AgentChanged` boxes its payload, and is the only variant in the set that does.** A `WorkAgent` is
+272 bytes, the widest record in the contract by some way, and an enum is as wide as its widest
+variant — so an unboxed one makes every message on the bus that wide, including the terminal chunks
+on the hot path. `Message` is 192 bytes with the box and 288 without it. The wire form is the same
+either way, because a `Box` serialises as what is inside it.
+
 ## The payload records
 
-Nine records travel inside payloads.
+Fourteen records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -212,12 +306,23 @@ Nine records travel inside payloads.
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |
 | `FileContents` | `bytes`, `len`, `truncated`, `is_binary`, `version?` |
 | `FileVersion` | `len`, `modified?` |
+| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
+| `Step` | `id`, `title`, `state`, `owner?` |
+| `WorkSession` | `id`, `name`, `branch`, `worktree` |
+| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
+| `Turn` | `from`, `text` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
 what stops a stale health flag or a pane count from being written down and believed at the next
 boot.
 
-Four enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
+**The work's names carry the same distinction without a second type.** A `TaskRecord` is written
+down, and `tasks.toml` holds exactly what crosses the bus, so there is nothing to keep apart: no
+field on a task is like `health` or `open_panes`, which can only be known at the moment they are
+asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round — per-request payloads
+with no store behind them, in the class `DirEntry` and `DirListing` are in.
+
+Ten enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
 or `Failed`, and the file family's section says what each one asks the interface to do.
 
@@ -231,6 +336,18 @@ A `Scope` — `Interface` or `Project(ProjectId)` — says what a stored prefere
 `value` is **opaque**: a string the host writes down and hands back and never parses, on the same
 discipline that keeps terminal bytes uninterpreted. The interface owns that schema and versions
 it.
+
+Six of the ten are the work's, and all but `Speaker` carry the words they answer to — a `label()`,
+plus a `note()`, an `all()` or a `bucket()` where there is one — because the host needs those as much
+as the interface does: it seeds the columns, it writes a `Status` down, and it classifies its own
+agents. `Status` is
+`Backlog`, `Ready`, `InProgress`, `InReview` or `Done`, in the order the board draws and work moves
+along. `Priority` is `Low`, `Normal` or `High`, where `Normal` is the absence of a claim rather than
+a middle value and so has no word. `Shape` is `Direct`, `Chain` or `Coordinated`, and says whether
+the agents on a task run in order. `StepState` is `Idle`, `Working`, `NeedsYou`, `Failed` or `Done`.
+`Activity` is `Thinking`, `Writing`, `Tools`, `NeedsYou`, `Ended` or `Failed`, and buckets into the
+four coarse states — `Running`, `Waiting`, `Ended`, `Error` — a filter asks about. `Speaker` is `You`
+or `Agent`. Which token any of them reads in stays the interface's alone.
 
 `WorkspaceInfo` carries no handle to a process, a writer or a pseudo-terminal. Those live in the
 coordinator and stay there — a record that crosses the bus must survive serialisation, which is the
@@ -255,8 +372,9 @@ mechanical form of the rule that the UI never assumes the pseudo-terminal is loc
 ## Adding a variant
 
 1. Decide the family. If it names a pane, the pane family. If it names a project **and a path inside
-   it**, the file family. If it names a project alone, the project family. Otherwise the session
-   family.
+   it**, the file family. If it names a project **and a piece of work inside it** — a task, a step or
+   an agent — the work family. If it names a project alone, the project family. Otherwise the
+   session family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.
@@ -287,3 +405,4 @@ attached UIs needs to know which one is typing.
 - [`architecture.md`](./architecture.md) — the two halves and the rules the contract enforces
 - [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — what the session family is for
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what the pane family is for
+- [`../features/workbench.md`](../features/workbench.md) — what the work family is drawn as

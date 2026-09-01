@@ -10,8 +10,9 @@
 use gpui::{Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::work::Bucket;
+
 use crate::app::AppState;
-use crate::state::agents::Bucket;
 use crate::state::{OpenFile, RailMode, SaveState};
 use crate::theme;
 use crate::ui::agents::bucket_colour;
@@ -66,23 +67,33 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .border_t_1()
         .border_color(theme::border());
 
+    // A window holding no project has one fact to report, and reports only that. A config root
+    // pointed anywhere but the usual place still says so: it is true whatever is open.
+    if app.project(cx).is_none() {
+        return strip
+            .child(mono("no project", theme::text_faint()))
+            .child(div().flex_1().min_w(px(0.)))
+            .children(config_root(app));
+    }
+
     // On the agents screen there is no file and no caret to report, so the strip reports what is
     // on screen instead: how many sessions and agents there are, and how the agents are spread
     // across the four states. A count of zero is drawn as zero rather than dropped — "no agent is
     // failing" is a fact, and it is the one the user is checking for.
-    if app.workbench.rail_mode == RailMode::Agents {
-        let agents = &app.agents;
+    if app.workbench.rail_mode == RailMode::Agents
+        && let Some(work) = app.work(cx)
+    {
         return strip
             .child(mono(
                 format!(
                     "{} sessions \u{b7} {} agents",
-                    agents.sessions.len(),
-                    agents.agents.len()
+                    work.sessions.len(),
+                    work.agents.len()
                 ),
                 theme::text_muted(),
             ))
             .children(Bucket::all().into_iter().map(|bucket| {
-                let n = agents.count(bucket);
+                let n = work.count(bucket);
                 mono(
                     format!("{n} {}", bucket.label()),
                     if n == 0 {
@@ -100,12 +111,13 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     // many cards are in each column, how many sub-tasks are done across them, and how many of them
     // nobody can finish without the user. A count of zero is drawn as zero, for the reason the
     // agents screen's is.
-    if app.workbench.rail_mode == RailMode::Tasks {
-        let board = &app.board;
-        let (done, total) = board.steps(&app.agents);
-        let blocked = board.blocked(&app.agents);
+    if app.workbench.rail_mode == RailMode::Tasks
+        && let (Some(work), Some(board)) = (app.work(cx), app.board(cx))
+    {
+        let (done, total) = board.steps(work);
+        let blocked = board.blocked(work);
         return strip
-            .children(board.counts(&app.agents).into_iter().map(|(status, n)| {
+            .children(board.counts(work).into_iter().map(|(status, n)| {
                 mono(
                     format!("{n} {}", status.label()),
                     if n == 0 {
@@ -129,15 +141,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     theme::danger()
                 },
             ));
-    }
-
-    // A window holding no project has one fact to report, and reports only that. A config root
-    // pointed anywhere but the usual place still says so: it is true whatever is open.
-    if app.project(cx).is_none() {
-        return strip
-            .child(mono("no project", theme::text_faint()))
-            .child(div().flex_1().min_w(px(0.)))
-            .children(config_root(app));
     }
 
     let active = app.editor(cx).and_then(|editor| editor.active_file());

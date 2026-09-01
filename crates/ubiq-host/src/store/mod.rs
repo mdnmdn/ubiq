@@ -1,10 +1,13 @@
-//! What Ubiq writes down, behind two traits.
+//! What Ubiq writes down, behind three traits.
 //!
-//! The catalogue and the interface's view state have different durability rules, and the
-//! differences are the point:
+//! The catalogue, a project's tasks and the interface's view state have different durability
+//! rules, and the differences are the point:
 //!
 //! - **The catalogue is the host's to understand.** It parses it, acts on it, and reports when it
 //!   cannot be written. A corrupt one is preserved rather than truncated.
+//! - **Tasks are the catalogue's class, not view state's.** The host parses them, acts on them,
+//!   and reports when they cannot be written; a corrupt file is preserved. What differs is scale:
+//!   they are per project, so they are per file.
 //! - **View state is opaque.** The host stores a string it never reads, on the same discipline
 //!   that keeps terminal bytes uninterpreted — the interface owns that schema, so the interface
 //!   versions it. A failed write is a log line, not an error anybody has to read.
@@ -16,6 +19,7 @@ use std::path::PathBuf;
 
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
+use ubiq_proto::work::TaskRecord;
 
 /// What can go wrong reaching a store.
 #[derive(Debug, thiserror::Error)]
@@ -62,6 +66,16 @@ pub trait ProjectStore: Send + Sync {
     fn load(&self) -> Result<Vec<ProjectRecord>, StoreError>;
     fn upsert(&self, record: &ProjectRecord) -> Result<(), StoreError>;
     fn remove(&self, id: ProjectId) -> Result<(), StoreError>;
+}
+
+/// A project's tasks. The caller holds the list and hands the whole of it back, because the order
+/// is the user's and a partial write cannot preserve it.
+pub trait TaskStore: Send + Sync {
+    /// `None` means never written, which is not the same as no tasks — the distinction the
+    /// seeding rule turns on, and the one `PreferenceStore::get` already draws.
+    fn load(&self, project: ProjectId) -> Result<Option<Vec<TaskRecord>>, StoreError>;
+    fn save(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError>;
+    fn clear(&self, project: ProjectId) -> Result<(), StoreError>;
 }
 
 /// The interface's view state, which the host holds and never reads.

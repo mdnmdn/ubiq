@@ -9,11 +9,13 @@
 //!
 //! - `config`: where Ubiq's config root is, and how it is found
 //! - `atomic`: writing a file so a crash never leaves half of one
-//! - `store`: the catalogue and the interface's view state, behind two traits
+//! - `store`: the catalogue, a project's tasks and the interface's view state, behind three traits
 //! - `health`: what is actually at a project's path
 //! - `projects`: the catalogue as the host runs it
 //! - `gc`: collecting the directories of projects no record names
 //! - `files`: a project's tree and its files, read and written off the coordinator's thread
+//! - `work`: the tasks a project has written down, and the sessions and agents doing them
+//! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
 //! - `pty`: pseudo-terminal streams, the one place a descriptor or a process is held
 //! - `agent`: agent-type definitions and the registry over them
@@ -29,4 +31,6 @@ pub mod health;
 pub mod mcp_server;
 pub mod projects;
 pub mod pty;
+pub mod reply;
 pub mod store;
+pub mod work;

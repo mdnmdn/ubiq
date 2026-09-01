@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the three panel
 read_when: you are changing the window layout, a rail mode, panel visibility or resizing, the explorer, the editor tabs, saving a file, the agents screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, or the status bar
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -45,30 +45,51 @@ are all functions of that one field, so the three cannot disagree about what the
 
 **What a thing is and where it is drawn are separate, and the graph arranges itself.** No position
 is authored anywhere. Position is held apart from the definitions and held relative — a task owns an
-origin, an agent owns an offset inside the task it serves. Containers flow left to right and wrap;
-inside one, cards stack by how far they are from whoever started the work, which draws the three
-shapes without naming them: one agent is one card, a chain is a column, a coordinated task is a
-coordinator over a row of workers. An agent nobody gave work to sits above the containers. The
-toolbar's tidy control asks for the arrangement again, discarding every hand-placed position — the
-only thing that undoes a drag.
+origin, an agent owns an offset inside the task it serves. Sessions stack down the canvas, each one
+clear of the last; inside a session, containers flow left to right and wrap; inside a container,
+cards stack by how far they are from whoever started the work, which draws the three shapes without
+naming them: one agent is one card, a chain is a column, a coordinated task is a coordinator over a
+row of workers. **An agent nobody gave work to sits above its session's containers**, which is where
+an agent coordinating a whole session's work belongs and where one coordinating the project ends up;
+that row is stacked by the same rule, because it holds a spawn tree of its own. A card whose parent
+is in another container stays on its own container's top row, and the connector is drawn across the
+boundary — which is what lets one agent parent every session's master without sinking any of them a
+level.
+The toolbar's tidy control asks for the arrangement again, discarding every hand-placed position —
+the only thing that undoes a drag.
 
-**The graph draws one session's agents as cards on a dotted ground.** A card carries the agent's
-name, role, state, the one line it says, its branch and its token count, in the colour of the
-state's bucket. Four filter pills — running, waiting, ended, error — decide which buckets are drawn,
-and the last one lit cannot be turned off: a graph emptied by a filter looks like an empty session.
-Zoom scales positions, cards and type together, so the graph reads the same at every step.
+**The graph draws a project's agents as cards on a dotted ground, and opens on all of them.** A
+card carries the agent's name, role, state, the one line it says, its branch and its token count, in
+the colour of the state's bucket. Zoom scales positions, cards and type together, so the graph reads
+the same at every step.
+
+**Two filters narrow it, and both clear.** The session row leads with `all` and then names each
+session with the count of agents under it; the four bucket pills — running, waiting, ended, error —
+decide which states are drawn. Any pill may be the last one turned off, because **a bucket row with
+none lit is not filtering**: the row means "narrow it to these", and narrowing to nothing is what an
+untouched row already does. That is what makes an empty canvas honest — it means an empty project,
+never a filter the user cannot find their way back out of — and one control at the end of the strip
+puts both filters back at once, drawn only while there is something to put back.
+
+**Which session is drawn and which is selected are two questions.** Picking a session from the row
+does both, because narrowing to one and looking at it are the same gesture; `all` does neither to the
+selection, so "show me all of it" never means "stop looking at this". The inspector and the tasks
+drawer follow the selection, and go on reporting one session while every session is on screen.
 
 **A task is an outline round the cards serving it, not a container they sit in.** The dashed box is
 computed each frame from where its cards are, so dragging a card takes the outline with it, and a
-task whose cards are all filtered out has no box. Its shape — direct, chain or coordinated — is
+task with no cards drawn has no box — because nobody serves it, or because a filter hid every card
+that does. Its shape — direct, chain or coordinated — is
 printed on the outline: whether the agents run in order is a fact about the task, not about any one
 of them.
 
 **A card is carried, and dropping it inside another task's outline moves it there.** The card itself
 follows the pointer rather than a ghost, and the box it would land in lights up while it is in the
 air. Which task it landed in is worked out from where it came to rest, not from what took the drop:
-an outline takes no clicks. A card that changes task loses its parent but stays where it was let go
-of; one put down on open ground keeps both.
+an outline takes no clicks. Where a card sits is the interface's own fact and is written on the spot;
+which task it *serves* is the host's, so the drop asks and the outline redraws round the card when
+the answer lands — `D41`. A card put down on open ground, or back in the box it came from, asks
+nothing and stays where it was let go of.
 
 **A container is dragged by the ground inside it, and takes everything with it.** The empty space in
 a box is the handle, and the cards drawn over it take their own drags, so grabbing a card moves one
@@ -84,16 +105,25 @@ branch and how its agents are spread across the four states; an agent gives its 
 what is left of its context window, its thread and a composer. Its tabs are that thread and the
 drawer's own task list, and the toolbar dismisses the panel and brings it back.
 
-**The composer is real, and nothing answers it.** What is typed lands in the selected agent's
-thread, which says in as many words that nothing is listening: a fabricated reply is the one thing a
-screen with no transport family must not draw. Enter sends, Shift-Enter inserts a newline, and the
-draft is the agents screen's own rather than the chat's.
+**The composer is real, and nothing answers it.** What is typed goes to the host, which puts it in
+the selected agent's thread and answers with the agent carrying it — the line appears because the
+host said it did, not because the interface wrote it there. Nothing replies, and the thread says in
+as many words that nothing is listening: a fabricated reply is the one thing a screen with a mock
+behind it must not draw. Enter sends, Shift-Enter inserts a newline, and the draft is the agents
+screen's own rather than the chat's.
 
 **The board and the graph are two views of one set of tasks.** The graph answers "who is doing
 what"; the board answers "what is there, and where has it got to" — the same tasks, at the scale of
-the project rather than of one session. Nothing is copied between them: a task ticked on the board
-is ticked in the drawer under the graph, and `Show in graph` is one click because the two screens
-are two questions about one set of facts.
+the project rather than of one session. Nothing is copied between them, and the one set is the
+host's, held per project: a task ticked on the board is ticked in the drawer under the graph, and
+`Show in graph` is one click because the two screens are two questions about one set of facts.
+
+**A project's sessions and agents are the host's mocks; its tasks are written down.** The mock is
+minted per project and made again at every boot, so nothing an agent says outlives the process. A
+task belongs to the project instead: it survives the window that made it and the restart after it. A
+project's tasks are seeded from the fixture exactly once — an absent store and an empty one are
+different things, so a user who deletes every task gets an empty board back rather than the fixture
+again — and where that is kept and how is `D39`'s, not this document's.
 
 **A column is a stage, and a card only ever changes column.** Backlog, ready, in progress, in
 review, done: moving a card changes where the work has got to and nothing else about it. Each column
@@ -114,7 +144,8 @@ what is shut is still counted.
 and its session, and `New task` names the next one after whatever is in that field — so typing to
 look for a card that turns out not to exist is already most of making it. The new task lands in the
 backlog, in the session the pills are on, and the field clears rather than leaving the board
-filtered down to the one card just made.
+filtered down to the one card just asked for. `New task` cannot select what it asked for, because
+the id is the host's to mint: the task that arrives is the one selected.
 
 **A card carries the worst thing happening in its task.** Its left edge is the state the user would
 want to be told first: a failed sub-task beats one waiting on a person, which beats one moving. The
@@ -122,11 +153,68 @@ line under it names the agent the task speaks through — the coordinator of a c
 whoever is holding it now for any other shape — and clicking that name opens its conversation. A
 task nobody has started says so, and counts its sub-tasks instead.
 
-**The task panel reports one task whole, and its checkboxes are the one thing on this screen that
-changes the work.** Its session and whether that session is a worktree, its shape in a sentence, who
-it speaks through, and every sub-task with the agent that has it and where that has got to. Ticking
-one is a change to the task rather than to the view of it; unticking lands on idle, because nothing
-here can know what its owner would go back to doing.
+**The task panel reports one task whole, and edits it in place.** Its session and whether that
+session is a worktree, its shape in a sentence, who it speaks through, its description, and every
+sub-task with the agent that has it and where that has got to. Ticking one is a change to the task
+rather than to the view of it; unticking lands on idle, because nothing here can know what its owner
+would go back to doing.
+
+**The form edits everything about a task except where it has got to.** Its title, its description,
+its priority, its shape and the session it belongs to, and its sub-tasks — added at the foot of the
+list, renamed in place, ticked and removed. Priority and shape are rows of pills, which are the
+report and the control at once because each has three fixed values; the session is a picker, because
+that list is as long as the project has sessions and it grows. Handing a task to no session at all
+is a row in that picker rather than an absence the user has to find the way back to.
+
+**One field is open at a time.** The panel is a report first, and a panel where every field is a
+text box has stopped reporting. A field opens on a click and closes on a commit, exactly as a
+picker's row expands into a rename and folds back.
+
+**Enter or the ✓ commits, the ✕ discards, and losing focus does neither** — the field stays open.
+That is the picker's rename rule, for the picker's reason: a blur fires before the click that caused
+it, so a field that committed on blur could not be cancelled by the button beside it. Selecting
+another card discards as well, because the field was about the card it was typed on.
+
+**An empty title is refused where it was typed and never sent.** It is a slip rather than an
+intention — the posture Send takes on an empty draft. A description may be emptied, because clearing
+one is a thing to mean. And a value equal to the one the host holds sends nothing at all: the
+message set is for acts, and re-asserting a title is not one.
+
+**A status has no control.** The column a card is in is drawn on the panel and not offered there: a
+column is a stage, and a card only ever changes column by being moved, so a picker for it would be a
+second way to do the one thing the drag is for. `BLOCKED` is derived from the sub-tasks, so there is
+nothing to offer there either. This is the one place the panel deliberately stops short of what it
+reports.
+
+**Delete asks first, and a sub-task's × does not.** A task is the one thing on the panel that cannot
+be retyped, so it takes the question the picker's Forget takes: the first click asks, the second
+sends, and any other click on the panel withdraws it. A sub-task's title is one line, so its × goes
+straight through.
+
+**A description is Markdown, rendered by default**, with one control that swaps it for the source —
+because a description is read far more often than written. The preview sits *inside* edit mode
+rather than instead of it, so Save is still there and the draft is not lost, and what it renders is
+the draft rather than the record: seeing what has just been typed is the point of the control. A
+task with no description says so rather than dropping the section, on the rule the status bar and
+the explorer's git marks both follow. On a **card** it is one mark saying a description exists and
+nothing more — what a card carries is fixed, and a folded card keeps only its shape, its title and
+whose session it is.
+
+**Every change is a message, and the card says it is waiting.** Nothing on either screen writes to
+the work: a field sends, the host answers, and the panel goes on reporting the task the host last
+confirmed, so a refusal leaves nothing to unwind. A drop asks the same way — the card stays in the
+column it came from, drawn muted and saying so, until the answer comes, so a slow host does not read
+as a drag that failed. The mark comes off on any answer naming that task, the old column included, so
+a refusal cannot leave a card stuck on its way somewhere. Why the interface asks rather than writing
+first is the state ownership rule in [`../tech/architecture.md`](../tech/architecture.md).
+
+**A refusal ends whatever asked for it.** What the host would not do is said on the panel, in its
+own sentence rather than the project picker's, because a task that would not move is not a fact
+about the catalogue and has to be said where the user was looking. It also puts the open field away,
+takes the waiting mark off, gives up on selecting a `New task` that never arrived and withdraws an
+unanswered delete question — so nothing is left in a state that cannot resolve. The next thing the
+host confirms clears the sentence: a report about a change that did not happen is stale the moment
+one does.
 
 **Both ways out of a task lead to the agents screen.** `Show in graph` switches the mode and points
 the graph at whoever is doing the task; `Open …'s chat` does the same and puts the inspector on that
@@ -310,10 +398,17 @@ Every one of them names a project and a path inside it, and each answers only th
 The blob behind what a project remembers grows the open files, the active one, the expanded folders
 and the selected row, and the host neither parses nor validates any of it.
 
-Two fixtures are left. `crates/ubiq/src/state/sample.rs` holds the chat and the work the agents
-screen and the board both draw, because neither has a transport family — [`chat.md`](./chat.md) has
-the first, and the graph and the board go the same way when the second gets one, together, since
-they read one set of tasks. The terminal dock has its own family, in
+**The work crosses the bus as well, and every message names a project.** Going out: `ListWork`,
+`CreateTask`, `UpdateTask`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`, `RenameStep`,
+`RemoveStep`, `MoveStep`, `ToggleStep`, `AssignAgent` and `SendToAgent`. Coming back: `WorkList`,
+`TaskCreated`, `TaskChanged`, `TaskDeleted`, `AgentChanged` and `WorkError`. A project is open in one
+window at a time, so each answer reaches only the window that asked, and both screens over the work
+draw from the same projection of it. The full family, with its payloads and its rules, is
+[`../tech/transport-contract.md`](../tech/transport-contract.md).
+
+One fixture is left. `crates/ubiq/src/state/sample.rs` holds the chat, the one screen with no
+transport family behind it: its composer sends to nothing and its reply is canned, which is
+[`chat.md`](./chat.md)'s. The terminal dock has its own family, in
 [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## The window's areas
@@ -332,12 +427,12 @@ state.
 | Terminal dock | `ui/terminal.rs` | Centre, below the editor | `DOCK_HEIGHT`/`_MIN`/`_MAX` | The active project's panes, and the window's emulators |
 | Log console | `ui/logs.rs` | The dock's last tab | The dock's | `LogState` over the process-wide sink |
 | Chat | `ui/chat/` | Right panel | `CHAT_WIDTH`/`_MIN`/`_MAX` | `ChatState` |
-| Agents screen | `ui/agents/mod.rs` | Replaces the centre in Agents mode | Grows; its toolbar takes `TITLEBAR_HEIGHT` | `AgentsState` |
-| Orchestration graph | `ui/agents/graph.rs` | The agents screen, beside the inspector | Grows; scrolls to the extent of its cards | `AgentsState` and its `Layout`, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
-| Inspector | `ui/agents/inspector.rs` | The agents screen, right | `INSPECTOR_WIDTH`, fixed | `AgentsState::selection`, and `agent_input` on `AppState` |
-| Tasks drawer | `ui/agents/tasks.rs` | The agents screen, under the graph | `TASKS_HEIGHT` open, its header shut | `AgentsState::tasks_open` |
-| Tasks board | `ui/board/mod.rs` | Replaces the centre in Tasks mode | Grows; its columns scroll sideways | `BoardState` over `AgentsState::tasks`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
-| Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected` and `show_detail` |
+| Agents screen | `ui/agents/mod.rs` | Replaces the centre in Agents mode | Grows; its toolbar takes `TITLEBAR_HEIGHT` | `GraphView`, over the project's `WorkProjection` |
+| Orchestration graph | `ui/agents/graph.rs` | The agents screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
+| Inspector | `ui/agents/inspector.rs` | The agents screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
+| Tasks drawer | `ui/agents/tasks.rs` | The agents screen, under the graph | `TASKS_HEIGHT` open, its header shut | `GraphView::tasks_open` |
+| Tasks board | `ui/board/mod.rs` | Replaces the centre in Tasks mode | Grows; its columns scroll sideways | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
+| Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Empty page | `ui/empty.rs` | Replaces the centre in `Control` and `KB` mode, and above the dock with no project | Grows | `RailMode`, or nothing at all |
 | Status bar | `ui/status_bar.rs` | Bottom, full width | `STATUS_BAR_HEIGHT`, fixed | Read from everything above |
 
@@ -360,10 +455,18 @@ the centre.
 
 A window is one `AppState`, and inside it one `OpenProject` per project open in that window. The
 split between them is the feature's spine. **A project owns what is about that project** — its
-explorer tree, its open files and their buffers, its panes, which of them holds the keyboard, and the
-furniture it was last left in. **The window owns what is about the window** — its panel sizes, the
+explorer tree, its open files and their buffers, its panes, which of them holds the keyboard, the
+furniture it was last left in, the work the host last described to it, and the graph's and the
+board's own views of that work. **The window owns what is about the window** — its panel sizes, the
 palette, the chat, the log console, which dock tab is showing, and one flat map from pane id to
 emulator, because an emulator does not care which list draws it.
+
+The task panel's four fields and the board's filter sit across that line: the entities are the
+**window's**, because a text field is a component the window builds and there is one of each, while
+the text in them is the **project's**, because it is about the task that project has open. So a
+project switch refills them from whichever project came forward. That is the `file_filter` precedent
+one step on — there both the field and what was typed into it are the window's; here only the field
+is.
 
 A project's state lives exactly as long as the window holds the project. That one rule is why
 switching projects is a lookup rather than a rebuild, and why the terminals of a project nobody is
@@ -402,8 +505,9 @@ reaches this one down the same path as a local change. `enter_project()` is wher
 first pane, which is why a window opening on nothing starts no harness.
 
 Accessors read through the active project and tolerate its absence: `open_project()`, `explorer()`,
-`editor()`, `panes()`, `focused_pane()` and `dock_tab()` each answer for a window with no project
-without a caller having to check. `drop_project()` writes the project's blob, parks a copy against a
+`editor()`, `work()`, `graph()`, `board()`, `panes()`, `focused_pane()` and `dock_tab()` each answer
+for a window with no project without a caller having to check, and `work_mut()`, `graph_mut()` and
+`board_mut()` are the writing twins of the three over the work. `drop_project()` writes the project's blob, parks a copy against a
 reopen in the same session, and kills its panes.
 
 `open_project_window` in `crates/ubiq/src/app.rs` is the only place a window is created, so the
@@ -443,50 +547,107 @@ is not just a value. Shared primitives are in `ui/kit/`; the conventions behind 
 
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, panel visibility,
 the open menu and what was typed into the explorer's filter; `explorer.rs` for the tree; `editor.rs`
-for the open files; `logs.rs` for the console's filter; `agents.rs` for the agents screen and the tasks every screen
-over the work reads; `board.rs` for the board's view of them.
+for the open files; `logs.rs` for the console's filter; `work.rs` for one project's work as the host
+describes it; `agents.rs` for the graph's view of that work; `board.rs` for the board's.
 
-`state/agents.rs` is to the agents screen what `state/explorer.rs` is to the tree: data and small
-mutators, nothing that draws and nothing that names a colour. It owns the sessions, agents, tasks and
-steps, the selection, the showing buckets, the zoom, what a drag is carrying and the grains behind it.
-It owns what the board reads off a task too — its `Status`, its `Priority`, the `StepState` of each
-step and the session it may not have yet — because a task is one record and the two screens are two
-views of it. `now()` picks the agent a task speaks through, `pulse()` reduces everything happening in
-one to the state its card's edge carries, and `add_task()`, `move_task()` and `toggle_step()` are the
-three things the board changes.
-`Held` — a card or a container — is what `start_carry()` takes and what `carry_to()` branches on.
-`bounds_of()` is the box round a task's cards; `task_at()` is what a drop lands in, and leaves the
-carried card out of every box it tests against; `end_carry()` is where a card that changed task loses
-its parent and is re-anchored; `settle_sand()` answers whether the trail still owes a frame.
+`state/work.rs` is the projection and nothing else: the sessions, agents and tasks of one project as
+the window last heard the host describe them, and a flag saying whether it has heard at all. The
+records are `ubiq_proto::work`'s own, carried across the bus rather than rebuilt beside it.
+`replace_all()` takes a `WorkList` whole; `apply_task()` and `apply_agent()` replace on id and answer
+whether the record was new, which is what tells the arrangement there is something to find a place
+for; `forget_task()` answers whether there was anything to drop. Replacing on id is the property the
+whole family rests on — a projection that appended on a re-send is the duplicate-card bug. The
+questions the two screens ask of the records live here too, because the host has no use for them:
+`members()` is the agents serving a task, `now()` picks the one it speaks through, `pulse()` reduces
+everything happening in a task to the state its card's edge carries, and `count()` is what the status
+bar counts by bucket. The free `fraction()` and `tokens_label()` are two values a card prints, worked
+out at draw time for the reason `state/when.rs` renders how long ago something was rather than
+storing it.
+
+`state/agents.rs` holds `GraphView`, the agents screen's *view* of that work: the selection, the
+session being drawn, the showing buckets, the zoom, the composer's draft, what a drag is carrying,
+the grains behind it, and the arrangement. It holds no records, which is why every reader takes a
+`WorkProjection` as its first argument — the shape `BoardState`'s readers have. Nothing here draws
+and nothing names a colour. `visible()` is the two filters together and is the one reader that needs
+no projection, because both are answered by the agent in hand; `showing()` treats an empty bucket
+list as no filter; `session` absent is every session, and is its own field rather than a reading of
+`selection` so that clearing what is drawn does not throw away what is selected — `active_session()`
+answers that second question, and scopes nothing. `show_session()`, `toggle_bucket()` and
+`clear_filters()` are the three mutations, and `filtered()` is what tells the toolbar and the empty
+canvas whether there is anything to clear. `Held` — a card or a container — is what `start_carry()`
+takes and what `carry_to()` branches on. `bounds_of()` is the box round a task's cards; `task_at()` is what a drop lands in, and leaves
+the carried card out of every box it tests against; `end_carry()` writes the card's new offset
+against the container it came to rest in and answers the pair for an `AssignAgent`, touching no
+membership itself; `settle_sand()` answers whether the trail still owes a frame.
 
 `state/layout.rs` holds every position, relative: a task's origin and an agent's offset inside it,
-absolute only for an agent with no task. `at()` resolves the two, `Layout::auto()` is the arrangement
-computed from the definitions alone, `relayout()` replaces one with a fresh one, and `CARD_WIDTH`,
-`CARD_HEIGHT`, `GROUP_PAD` and `GROUP_LABEL` live there because the outlines, the connectors and the
-hit testing work from them. Both are tested without a frame in `crates/ubiq/tests/agents.rs`, which
+absolute only for an agent with no task. `at()` resolves the two. `Layout::auto()` is the whole
+arrangement computed from the records alone and discards every hand-placed position, which is why
+only `relayout()`, behind the tidy control, may ask for it. `Layout::place_new()` is what an arriving
+record gets instead: it takes a tidy arrangement of everything and adopts it for the keys the layout
+has never seen, so a new task takes the next container slot in the same flow-and-wrap order and a new
+agent the next offset inside its task, with nothing already placed moving and no second geometry to
+keep in step. `CARD_WIDTH`, `CARD_HEIGHT`, `GROUP_PAD` and `GROUP_LABEL` live there because the
+outlines, the connectors and the hit testing work from them. Both are tested without a frame in `crates/ubiq/tests/agents.rs`, which
 asserts no position against the fixture — it has none.
 
-`AppState` carries the screen as `agents` and the composer as `agent_input`, a `TextareaState` of its
-own so the two drafts cannot leak into each other. `start_graph_carry()` selects a card and does not
-select a container; `move_graph_carry()` honours reduced motion, moving what is held without laying a
-grain; `tidy_graph()` is the tidy control; `settle_graph()`, called from `render` beside the other
-end-of-frame passes, ages the trail and puts down a carry whose drag ended where the canvas's drop
-handler never sees it. `ui/agents/mod.rs` is the frame and its `activity_colour()` is the one place a
+`AppState` carries the graph's view as `graph` and the composer as `agent_input`, a `TextareaState`
+of its own so the two drafts cannot leak into each other. `start_graph_carry()` selects a card and
+does not select a container; `move_graph_carry()` honours reduced motion, moving what is held without
+laying a grain; `tidy_graph()` is the tidy control; `end_graph_carry()` sends the `AssignAgent` a
+drop asks for; `send_to_agent()` sends the composer's line and appends nothing itself;
+`settle_graph()`, called from `render` beside the other end-of-frame passes, ages the trail and puts
+down a carry whose drag ended where the canvas's drop handler never sees it. `ui/agents/mod.rs` is the frame and its `activity_colour()` is the one place a
 state becomes a colour; `graph.rs`, `inspector.rs` and `tasks.rs` are its three areas, painted from
 the layers in `ui/kit/canvas.rs`.
 
-`state/board.rs` is the *view* of those tasks, and holds nothing that is a fact about one: the filter
-text, which session's pills are on, which task is open, which columns and cards are shut, and the
-carry. `column()` is what one column draws, `matches()` is the filter both it and the status bar's
-counts go through, and `end_carry()` answers the task and the column it landed in. It is tested
-without a frame in `crates/ubiq/tests/board.rs`.
+`state/board.rs` is the board's view of the same projection, and holds nothing that is a fact about a
+task: the filter text, which session's pills are on, which task is open, which columns and cards are
+shut, the carry, and what the panel is in the middle of doing. `Field` names the one field open — the
+title, the description, a step by its id rather than its place in the list, or the field that names
+the next one — and `TaskForm` is what was typed into them. `moving` is a drop the host has not
+answered, read back by `is_moving()`; `awaiting_new` is a `CreateTask` whose id is not known;
+`preview` is the description showing as markdown while it is written; `confirm_delete` is a delete
+asked once. `is_editing()`, `edit()` and `stop_editing()` are the one-field-at-a-time rule, `select()`
+discards an open field because it was about the card being left, and `needs_fill()` answers whether
+the fields still describe the open task — a pure predicate rather than the refill itself, because
+writing into the component library's state needs a window and this has to be testable without one.
+`column()` is what one column draws, `matches()` is the filter both it and the status bar's counts go
+through, and `end_carry()` answers the task and the column it landed in. It is tested without a frame
+in `crates/ubiq/tests/board.rs`.
 
-`AppState` carries it as `board` and the filter field as `task_filter`, an `InputState` of its own.
-`new_task()` is where the field becomes a title and the task lands in the backlog; `drop_task()` is
-the column's own drop handler, because the column is the drop target here; `settle_board()`, beside
-`settle_graph()` in `render`, puts down a carry whose drag ended outside every column.
-`ui/board/mod.rs` is the toolbar, the columns and the cards, and its `status_colour()` is the one
-place a column becomes a colour; `ui/board/detail.rs` is the panel.
+`AppState` carries it as `board`, the filter as `task_filter`, and the panel's four fields as
+`task_title_input`, `task_description_input`, `step_title_input` and `new_step_input`. Every edit is
+a handler that sends and waits: `begin_task_edit()` opens a field and gives it the keyboard,
+`cancel_task_edit()` puts it away and refills it from the record, `commit_task_title()` and
+`commit_step_title()` refuse an empty title and send nothing when the value has not changed,
+`commit_task_description()` allows an empty one, `set_task_priority()`, `set_task_shape()` and
+`set_task_session()` send on the click, `add_task_step()` keeps its field so several can be typed in
+a row, `remove_task_step()` goes straight through, `delete_task()` asks the first time and sends the
+second, `withdraw_task_delete()` takes the question back, and `toggle_description_preview()` swaps
+the markdown for the source. `new_task()` is where the filter field becomes a title and the task is
+asked for; `drop_task()` is the column's own drop handler, because the column is the drop target
+here; `settle_board()`, beside `settle_graph()` in `render`, puts down a carry whose drag ended
+outside every column. `ui/board/mod.rs` is the toolbar, the columns and the cards, and its
+`status_colour()` is the one place a column becomes a colour.
+
+`ui/board/detail.rs` is the report and `ui/board/form.rs` the controls, drawn into the same column.
+The form is not an area of its own and has no row in the table above: the rule about adding an area
+is about something that occupies new space, and this fills the panel that has a row and a
+`TASK_PANEL_WIDTH` of its own. It is a second file for the reason `ui/chat/` keeps its transcript
+apart from its composer — the report and the controls are two jobs. `title()` and `description()` are
+the two fields that open, `pills()` is priority and shape, `session()` is the picker behind
+`MenuId::TaskSession`, `step_controls()`, `step_field()` and `new_step()` belong to the sub-task
+list, `delete()` is the two-click question, and `refusal()` is where `WorkbenchState::work_error` is
+said.
+
+`state/sample.rs` is down to `chat()`. Projects, the file tree, a file's bytes, the panes and the
+work all come from the host, and the constructors that invented them are gone.
+
+A row keyed by a ULID takes its element id from `ui::eid`, or `ui::eid2` for a row two ids deep like
+a step inside a task, because a ULID is not a `u64` and the tuple form the rest of the window uses
+cannot carry one. That convention is
+[`../tech/ui-and-design.md`](../tech/ui-and-design.md)'s.
 
 `state/explorer.rs` holds every piece of tree logic and no frame, which is what makes it testable in
 `crates/ubiq/tests/explorer.rs`. `merge()` puts one directory's listing into the tree, matching
@@ -509,7 +670,12 @@ The file path through the two halves: `select_file()` opens a tab and sends `Rea
 `WriteProjectFile` with the version the read came with. Contents cannot become a buffer where they
 arrive, because a buffer needs a window and a message does not come with one, so they queue and
 `attach_arrived_files()` drains them in `render` — the same device the panel sizes and the pending
-focus already use. `install_key_bindings()` binds `⌘S` in the `Workbench` key context, and the binary
+focus already use, and the one `fill_task_form()` uses for the task panel's fields. It exists for
+that reason and no other: `set_value` needs a window and a message does not come with one, so a
+selection change, a project switch and a `TaskChanged` for the open task each leave a flag for the
+next frame to drain. Its guard is what stops it writing over what is being typed on every frame, and
+it fills from the record the host confirmed rather than from what was typed — never while a field is
+open. `install_key_bindings()` binds `⌘S` in the `Workbench` key context, and the binary
 calls it beside its own quit binding.
 
 ## Failure
@@ -526,14 +692,21 @@ calls it beside its own quit binding.
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
-| Nothing is selected on the agents screen | The inspector says so and points at the toolbar and the graph. The graph and the drawer fall back to the first session, so neither goes blank |
-| Every agent in a session is filtered out | The graph says no agent matches the filters. The last pill lit cannot be turned off, so an empty graph is always an empty session |
+| Nothing is selected on the agents screen | The inspector says so and points at the toolbar and the graph. The drawer falls back to the first session, so it does not go blank; the graph draws every session and needs no fallback |
+| Every agent is filtered out | The graph says so and offers to show everything. It says the opposite thing — that no agent is running in this project — when there was nothing to hide, so the two emptinesses are never confused |
+| Every bucket pill is turned off | The row is not filtering, and every card is drawn. This is the way back from having turned them all off, which is why no pill refuses a click |
 | A task's cards are all hidden | No outline is drawn for it. The task keeps its place in the drawer's list |
 | A card is dropped outside the graph | The next frame puts it down where the drag left it, so it cannot stay stuck to the pointer |
 | A card is dropped on open ground | It keeps its task and its parent, and stays where it was put |
 | A container is dragged onto another | Nothing is filed anywhere. The outlines overlap until one is moved or the graph is tidied |
 | The composer sends with a session selected, or with nothing | Nothing is sent, and Send reads as disabled while the draft is empty |
-| A message is sent to an agent | It is appended to that agent's thread. Nothing answers, and the thread says so rather than inventing a reply |
+| A message is sent to an agent | The host puts it in that agent's thread and answers with the agent carrying it. Nothing replies, and the thread says so rather than inventing one |
+| Either screen is opened with no project | The centre draws nothing. Both are views of one project's work and there is none; the rail, titlebar and status bar stay |
+| A move is never answered | The card stays in the column it came from, drawn muted and saying it is waiting. Nothing times it out, and the mark comes off on the next answer naming that task |
+| An edit is never answered | The field closes and the panel goes on reporting the task the host last confirmed, so the change reads as not having happened. What was typed stays in the form until the selection changes or the project is entered again |
+| The host refuses a change to the work | The panel says what it would not do, puts the open field away, takes the waiting mark off, gives up on a `New task` that never arrived and withdraws a pending delete. The next thing the host confirms clears the sentence |
+| The selected task is absent from a fresh listing | The panel closes rather than reporting a task nobody holds. The selection is left as it was, so the panel returns if a later listing carries the task again |
+| A project's tasks cannot be written | The change holds for the session and one refusal says once that it is not durable. The card moves, so the board and the store disagree until a write succeeds |
 | A project's folder is deleted, renamed or unmounted | The next probe marks the row; the record stays and the window keeps its last screen |
 | A marked project is located again | The record keeps its id, colour and history; only its path moves |
 | A folder already in the catalogue is added again | The picker points at the project that is there; no duplicate appears |
@@ -559,12 +732,18 @@ calls it beside its own quit binding.
 - [`panes-and-terminals.md`](./panes-and-terminals.md) — what the dock's tabs actually are
 - [`chat.md`](./chat.md) — the panel that survives every mode switch
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the component conventions
+- [`../tech/architecture.md`](../tech/architecture.md) — who owns which state, and why the interface asks
+- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the project, file and work families in full
 - [`../backlog.md`](../backlog.md) — what the shell still lacks
 
 ## Next steps
 
 - Build the Control, KB and Tasks screens.
-- Give the orchestration graph a transport family, so its sessions, agents and tasks are the host's.
+- Reorder a task's sub-tasks, which `MoveStep` names on the wire for exactly that.
+- Hand a sub-task to an agent, so `Step.owner` is set by something.
+- Write the graph's arrangement down, so a hand-placed card survives a restart.
+- Remember which of the board's columns were shut.
+- Reach a status change from the keyboard, so a card can move without a drag.
 - Keyboard navigation for the rail, the tabs and the explorer.
 - Give the explorer's git marks and the status bar a branch something to read.
 - A viewer per kind of file, so Markdown, a diagram and a diff are not drawn as source.

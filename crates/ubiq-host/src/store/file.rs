@@ -1,9 +1,10 @@
 //! The stores as files under the config root.
 //!
-//! One TOML file for the catalogue, and one per scope for view state. Nothing the catalogue does
-//! needs a query, an index or a partial read, so a whole-file rewrite of a few tens of records is
-//! microseconds and a database is a cost with no matching benefit. Where volume eventually arrives
-//! is the per-project cache, which is a different store behind a different trait.
+//! One TOML file for the catalogue, one per project for its tasks, and one per scope for view
+//! state. Nothing any of them does needs a query, an index or a partial read, so a whole-file
+//! rewrite of a few tens of records is microseconds and a database is a cost with no matching
+//! benefit. Where volume eventually arrives is the per-project cache, which is a different store
+//! behind a different trait.
 
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -13,8 +14,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
+use ubiq_proto::work::TaskRecord;
 
-use super::{PreferenceStore, ProjectStore, StoreError};
+use super::{PreferenceStore, ProjectStore, StoreError, TaskStore};
 use crate::atomic::{preserve_aside, write_atomic};
 
 /// The catalogue format this Ubiq writes and understands.
@@ -26,6 +28,22 @@ struct CatalogueFile {
     version: u32,
     #[serde(default, rename = "project", skip_serializing_if = "Vec::is_empty")]
     projects: Vec<ProjectRecord>,
+}
+
+/// The `version` at the top of a file, before anything else about it is believed.
+///
+/// A version above ours is not corruption. The caller leaves the file exactly as it is: overwriting
+/// it with a format that cannot hold what it holds would lose what the user wrote. `None` is a file
+/// whose version cannot even be read, which is the parse path's business rather than this one's.
+fn version_of(raw: &str) -> Option<u32> {
+    #[derive(Deserialize)]
+    struct JustTheVersion {
+        #[serde(default)]
+        version: u32,
+    }
+    toml::from_str::<JustTheVersion>(raw)
+        .ok()
+        .map(|probe| probe.version)
 }
 
 /// The catalogue, as one TOML file.
@@ -111,14 +129,7 @@ impl ProjectStore for FileProjectStore {
             }
         };
 
-        // A version above ours is not corruption. The file is left exactly as it is: overwriting
-        // it with a format that cannot hold what it holds would lose the user's catalogue.
-        #[derive(Deserialize)]
-        struct JustTheVersion {
-            #[serde(default)]
-            version: u32,
-        }
-        if let Ok(JustTheVersion { version }) = toml::from_str::<JustTheVersion>(&raw)
+        if let Some(version) = version_of(&raw)
             && version > CATALOGUE_VERSION
         {
             self.durable.store(false, Ordering::Relaxed);
@@ -158,6 +169,105 @@ impl ProjectStore for FileProjectStore {
 
     fn remove(&self, id: ProjectId) -> Result<(), StoreError> {
         self.mutate(|records| records.retain(|record| record.id != id))
+    }
+}
+
+/// The task format this Ubiq writes and understands.
+pub const TASKS_VERSION: u32 = 1;
+
+/// The whole file, mirroring [`CatalogueFile`]: `version` at the top so a future migration has a
+/// hook to read.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct TasksFile {
+    version: u32,
+    #[serde(default, rename = "task", skip_serializing_if = "Vec::is_empty")]
+    tasks: Vec<TaskRecord>,
+}
+
+/// A project's tasks, one file per project under the config root.
+///
+/// Deliberately unlike [`FileProjectStore`]: no in-memory copy of the list and no `durable` flag.
+/// The service above holds the authoritative list and hands the whole of it back on every save, so
+/// a cache here would be a second copy of the same truth; and the told-once flag belongs where it
+/// can be kept per project rather than for the store as a whole.
+pub struct FileTaskStore {
+    root: PathBuf,
+}
+
+impl FileTaskStore {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    /// One file per project, for `FilePreferenceStore::path`'s reason: a task edit must not rewrite
+    /// the catalogue the user may be hand-editing. Under the project's own directory, so Forget and
+    /// the orphan collector already cover it.
+    pub fn path(&self, project: ProjectId) -> PathBuf {
+        self.root
+            .join("projects")
+            .join(project.to_string())
+            .join("tasks.toml")
+    }
+}
+
+impl TaskStore for FileTaskStore {
+    fn load(&self, project: ProjectId) -> Result<Option<Vec<TaskRecord>>, StoreError> {
+        let path = self.path(project);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            // The seeding hook. No file yet is a project whose tasks were never written, which is
+            // not the same as a project with none: the caller may seed the first, never the second.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(StoreError::Io { path, source }),
+        };
+
+        if let Some(version) = version_of(&raw)
+            && version > TASKS_VERSION
+        {
+            return Err(StoreError::UnknownVersion {
+                path,
+                found: version,
+                supported: TASKS_VERSION,
+            });
+        }
+
+        match toml::from_str::<TasksFile>(&raw) {
+            Ok(file) => Ok(Some(file.tasks)),
+            Err(error) => {
+                // Preserved, never truncated. The user's tasks are worth as much as the catalogue.
+                let preserved_as = preserve_aside(&path, Utc::now()).ok();
+                Err(StoreError::Parse {
+                    path,
+                    preserved_as,
+                    message: error.message().to_string(),
+                })
+            }
+        }
+    }
+
+    fn save(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError> {
+        let path = self.path(project);
+        let file = TasksFile {
+            version: TASKS_VERSION,
+            tasks: tasks.to_vec(),
+        };
+        let body = toml::to_string_pretty(&file).map_err(|error| StoreError::Parse {
+            path: path.clone(),
+            preserved_as: None,
+            message: error.to_string(),
+        })?;
+        // The variant that creates the directories above it: a project that never had view state
+        // has no directory of its own yet, and must still be able to write a task.
+        write_atomic(&path, body.as_bytes()).map_err(|source| StoreError::Io { path, source })
+    }
+
+    fn clear(&self, project: ProjectId) -> Result<(), StoreError> {
+        let path = self.path(project);
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(StoreError::Io { path, source }),
+        }
     }
 }
 

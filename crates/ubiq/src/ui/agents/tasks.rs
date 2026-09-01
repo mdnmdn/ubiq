@@ -15,22 +15,25 @@ use crate::app::AppState;
 use crate::state::Selection;
 use crate::theme;
 use crate::ui::agents::activity_colour;
+use crate::ui::eid2;
 use crate::ui::kit::{disclosure, mono, slab};
 
 /// The drawer under the graph: shut, it is one line saying what there is; open, it is the list.
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let agents = &app.agents;
-    let tasks = agents.listed_tasks();
+    let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
+        return div().into_any_element();
+    };
+    let tasks = graph.listed_tasks(work);
     let steps: usize = tasks.iter().map(|t| t.steps.len()).sum();
 
-    let about = match agents.selection {
-        Some(Selection::Agent(id)) => agents
+    let about = match graph.selection {
+        Some(Selection::Agent(id)) => work
             .agent(id)
             .map(|a| a.name.clone())
             .unwrap_or_else(|| "\u{2014}".to_string()),
-        _ => agents
-            .active_session()
-            .and_then(|id| agents.session(id))
+        _ => graph
+            .active_session(work)
+            .and_then(|id| work.session(id))
             .map(|s| s.name.clone())
             .unwrap_or_else(|| "\u{2014}".to_string()),
     };
@@ -54,11 +57,11 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         "agents-tasks",
         "Tasks",
         summary,
-        agents.tasks_open,
+        graph.tasks_open,
         cx.listener(|this, _, _, cx| this.toggle_tasks_drawer(cx)),
     ));
 
-    if agents.tasks_open {
+    if graph.tasks_open {
         root = root.child(
             div()
                 .h(px(theme::TASKS_HEIGHT))
@@ -69,14 +72,16 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         );
     }
 
-    root
+    root.into_any_element()
 }
 
 /// The list itself. Used by the drawer and by the inspector's tasks tab, which is why it fills
 /// whatever it is put in rather than sizing itself.
 pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    let agents = &app.agents;
-    let tasks = agents.listed_tasks();
+    let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
+        return div().into_any_element();
+    };
+    let tasks = graph.listed_tasks(work);
 
     if tasks.is_empty() {
         return div()
@@ -103,9 +108,8 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             let steps: Vec<AnyElement> = task
                 .steps
                 .iter()
-                .enumerate()
-                .map(|(ix, step)| {
-                    let owner = step.owner.and_then(|id| agents.agent(id));
+                .map(|step| {
+                    let owner = step.owner.and_then(|id| work.agent(id));
                     let colour = owner
                         .map(|a| activity_colour(a.activity))
                         .unwrap_or_else(theme::text_faint);
@@ -146,7 +150,7 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         let id = owner.id;
                         row = row.child(
                             div()
-                                .id(("task-owner", (task.id as u64) << 32 | ix as u64))
+                                .id(eid2("task-owner", task.id, step.id))
                                 .px_1p5()
                                 .flex()
                                 .flex_none()
