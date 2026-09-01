@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, or looking for the wireframe a layout came from
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -62,6 +62,12 @@ The `_soft` variants are declared with their own alpha in `theme.rs` rather than
 site with `.alpha(...)`. A shade that only exists at one call site is a shade a palette swap cannot
 reach.
 
+`theme::fade` is the one transform allowed on a token: the same colour at another alpha, for
+something that has to sit under, over or beside a surface — a dotted ground, a connector, a fading
+grain of a drag trail. It is not a way to invent a shade, and it does not soften the rule above: a
+fill or a text colour that a call site wants at a fixed alpha is a `_soft` token with a value in
+both palettes, not a `fade` where it is drawn.
+
 The project group is the one group whose members carry no role. A swatch means *this project* and
 nothing else, and a project keeps the same one everywhere it is drawn: its dot in the picker, the
 fill behind its name in the titlebar, the mark above the rail, and the window's whole left edge.
@@ -97,9 +103,12 @@ restyling the shell should be one file to visit.
 | `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
 | `EXPLORER_WIDTH`/`_MIN`/`_MAX`, `CHAT_WIDTH`/`_MIN`/`_MAX`, `DOCK_HEIGHT`/`_MIN`/`_MAX` | The default and permitted size of each resizable panel. A size the user has dragged is remembered per project and seeds the panel over its default |
+| `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The agents screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
 
 A panel's three constants travel together: the default is what a fresh window opens at, and the two
-bounds are what the drag handle will not pass. Adding a panel means adding all three.
+bounds are what the drag handle will not pass. Adding a panel means adding all three. The agents
+screen's three are not a triple of that kind: its inspector and its drawer are shown and hidden
+rather than dragged, so each is one number and there is nothing to bound.
 
 Syntax colours are the one thing not tokenised here. They come from the component library's own
 highlighter theme, which `theme::set_mode` keeps in step with Ubiq's palette, so the editor and the
@@ -168,8 +177,18 @@ Circles survive in exactly one place: state dots, which are dots.
 
 **`gpui-component` first.** Its `Icon`, `Kbd`, `Badge`, `Editor`, `Textarea`, `Scrollbar`, markdown
 view and resizable group are used directly. `crates/ubiq/src/ui/kit/` holds only what the library
-does not give us — the state dot, the pill, the section label, the panel header, the shared tab
-strip, the progress ring, and the one dropdown mechanism every menu in the window uses.
+does not give us — the slab every surface is drawn in and the card that is a slab you can pick, the
+state dot, the pill, the state chip and the toggle pill, the stepper, the disclosure bar, the
+section label, the panel header, the shared tab strip, the progress ring, the painted layers in
+`canvas.rs`, and the one dropdown mechanism every menu in the window uses.
+
+**Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
+what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two
+points, a dashed outline, a trail of grains, a ring at a percentage. Those go through GPUI's
+`canvas` element, and the reusable ones are `crates/ubiq/src/ui/kit/canvas.rs`: each is one layer
+that fills its parent absolutely, takes no click, and knows nothing about what it is drawing, so a
+caller stacks them in the order they should read. `progress_ring` in `controls.rs` is the same
+device inline.
 
 **The kit knows nothing about the workbench.** Its interactive helpers take a plain
 `Fn(&mut Window, &mut App)`, and call sites bridge to the root view with `ui::handler` and

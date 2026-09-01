@@ -176,3 +176,134 @@ pub fn progress_ring(pct: u8, diameter: f32) -> impl IntoElement {
         },
     ))
 }
+
+/// A slab that can be picked: it takes clicks, lights on hover, and says when it is the selected
+/// one by borrowing the accent for its edge and a soft fill behind it.
+///
+/// The edge colour is the thing's own — a status, a project — and selection overrides it, because
+/// "which one am I looking at" has to beat "what is this one doing" at a glance.
+pub fn card(id: impl Into<ElementId>, edge: Rgba, selected: bool) -> Stateful<Div> {
+    let mut root = slab(if selected { theme::accent() } else { edge })
+        .id(id)
+        .cursor_pointer();
+
+    if selected {
+        root = root.bg(theme::accent_soft());
+    }
+
+    root.hover(|this| this.bg(theme::hover()))
+}
+
+/// A state chip: a dot in the state's colour, then the word for it.
+///
+/// Colour and wording together, never colour alone — the same rule the explorer's git badges
+/// follow, for the same reason.
+///
+/// `scale` is for the one caller that draws on a surface with a zoom: the graph, where a chip that
+/// kept its size while its card shrank would stop fitting on it. Everywhere else passes `1.0`.
+pub fn state_chip(label: impl Into<SharedString>, colour: Rgba, scale: f32) -> impl IntoElement {
+    pill(colour)
+        .h(px(22. * scale))
+        .px(px(6. * scale))
+        .gap(px(5. * scale))
+        .child(
+            div()
+                .size(px(7. * scale))
+                .flex_none()
+                .rounded_full()
+                .bg(colour),
+        )
+        .child(mono(label, theme::text()).text_size(px(11. * scale)))
+}
+
+/// A chip that is also a switch: the filter pills over the graph, and anything else that is a set
+/// of independent on/off facets rather than a choice between values.
+///
+/// Off is drawn as the same chip drained of colour rather than as a different shape, so turning
+/// one back on does not move the row.
+pub fn toggle_pill(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    colour: Rgba,
+    active: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let (dot, text, edge) = if active {
+        (colour, theme::text(), colour)
+    } else {
+        (theme::text_faint(), theme::text_faint(), theme::border())
+    };
+
+    pill(edge)
+        .h(px(24.))
+        .px_2p5()
+        .gap_1p5()
+        .id(id)
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(div().size(px(7.)).flex_none().rounded_full().bg(dot))
+        .child(mono(label, text).text_size(px(11.5)))
+        .on_click(on_click)
+}
+
+/// A value between two nudges: `−`, what it currently reads, `+`.
+///
+/// The label is a string rather than a number because what a stepper steps is not always counted
+/// in the same unit it is printed in.
+pub fn stepper(
+    id: &'static str,
+    label: impl Into<SharedString>,
+    on_down: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_up: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .child(icon_button((id, 0u32), IconName::Minus, false, on_down))
+        .child(
+            div()
+                .w(px(46.))
+                .flex()
+                .justify_center()
+                .child(mono(label, theme::text_muted()).text_size(px(11.5))),
+        )
+        .child(icon_button((id, 1u32), IconName::Plus, false, on_up))
+}
+
+/// A bar that opens and shuts what is under it: a chevron, a heading, and whatever summary the
+/// caller wants readable while it is shut.
+pub fn disclosure(
+    id: impl Into<ElementId>,
+    title: &str,
+    summary: impl IntoElement,
+    open: bool,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .h(px(32.))
+        .px_3()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .bg(theme::pane_bg())
+        .border_t_1()
+        .border_color(theme::border())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(section_label(title))
+        .child(summary)
+        .child(div().flex_1().min_w(px(0.)))
+        .child(
+            Icon::new(if open {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronUp
+            })
+            .with_size(Size::XSmall)
+            .text_color(theme::text_faint()),
+        )
+        .on_click(on_toggle)
+}

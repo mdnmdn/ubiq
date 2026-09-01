@@ -6,7 +6,7 @@ status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in.
 read_when: you are changing pane layout, focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-08-31
-verified: 2026-08-31
+verified: 2026-09-01
 code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs]
 depends_on: [tech-transport]
 review_cycle: monthly

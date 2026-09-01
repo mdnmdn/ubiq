@@ -5,7 +5,7 @@ kind: meta
 status: current
 summary: Append-only ledger of documentation changes the bookkeeper may not make unilaterally, and the resolutions they received.
 read_when: you are a bookkeeper with a structural itch you may not act on yourself, or you are triaging one
-updated: 2026-08-31
+updated: 2026-09-01
 verified: 2026-08-31
 depends_on: [meta-librarian]
 review_cycle: quarterly
@@ -26,7 +26,7 @@ library (here) or changes what Ubiq does (there).
 
 | id | date | target | kind | rationale | status |
 |---|---|---|---|---|---|
-| — | — | — | — | The ledger is empty | — |
+| P1 | 2026-09-01 | `features/workbench.md` | split | The document is 480 lines and past the linter's 400-line target. It now owns two screens: the window's own shell — rail, panels, projects, explorer, editor, status bar — and the agents screen, which is a capability of its own with its own graph, inspector and drawer. Deleting the agents screen would delete those sections, which is the `features/` test | open |
 
 ## Closed
 

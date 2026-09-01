@@ -4,6 +4,7 @@
 //! descriptor. The UI reads these types. Projects arrive from the host as a projection; the rest
 //! is still seeded from `sample.rs`.
 
+pub mod agents;
 pub mod chat;
 pub mod editor;
 pub mod explorer;
@@ -14,6 +15,10 @@ pub mod when;
 pub mod windows;
 pub mod workbench;
 
+pub use agents::{
+    Activity, Agent, AgentId, AgentsState, Bucket, Carry, Grain, InspectorTab, Selection, Session,
+    SessionId, Shape, Step, Task, TaskId,
+};
 pub use chat::{
     Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
     THINKING, ToolCall, ToolKind,

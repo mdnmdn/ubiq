@@ -1,15 +1,19 @@
-//! The bottom strip: which file is open, where the caret is, and what the composer is set to.
+//! The bottom strip: which file is open, where the caret is, and what the composer is set to — or,
+//! on the agents screen, how many agents there are and what they are doing.
 //!
-//! It reports facts, never intentions, and an absent fact is drawn as absent. Nothing reads version
-//! control, so there is no branch and no working-tree count here — a readout nobody can answer for
-//! is worse than none.
+//! It reports facts, never intentions, and an absent fact is drawn as absent. It reports on
+//! whatever is on screen, which is why the rail mode picks which set of facts it has: a caret in a
+//! screen with no buffer is not a fact. Nothing reads version control, so there is no branch and no
+//! working-tree count here — a readout nobody can answer for is worse than none.
 
 use gpui::{Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
-use crate::state::{OpenFile, SaveState};
+use crate::state::agents::Bucket;
+use crate::state::{OpenFile, RailMode, SaveState};
 use crate::theme;
+use crate::ui::agents::bucket_colour;
 use crate::ui::kit::mono;
 
 /// Where this run writes everything down, when that is not `~/.config/ubiq`.
@@ -59,6 +63,36 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_t_1()
         .border_color(theme::border());
+
+    // On the agents screen there is no file and no caret to report, so the strip reports what is
+    // on screen instead: how many sessions and agents there are, and how the agents are spread
+    // across the four states. A count of zero is drawn as zero rather than dropped — "no agent is
+    // failing" is a fact, and it is the one the user is checking for.
+    if app.workbench.rail_mode == RailMode::Agents {
+        let agents = &app.agents;
+        return strip
+            .child(mono(
+                format!(
+                    "{} sessions \u{b7} {} agents",
+                    agents.sessions.len(),
+                    agents.agents.len()
+                ),
+                theme::text_muted(),
+            ))
+            .children(Bucket::all().into_iter().map(|bucket| {
+                let n = agents.count(bucket);
+                mono(
+                    format!("{n} {}", bucket.label()),
+                    if n == 0 {
+                        theme::text_faint()
+                    } else {
+                        bucket_colour(bucket)
+                    },
+                )
+            }))
+            .child(div().flex_1().min_w(px(0.)))
+            .children(config_root(app));
+    }
 
     // A window holding no project has one fact to report, and reports only that. A config root
     // pointed anywhere but the usual place still says so: it is true whatever is open.
