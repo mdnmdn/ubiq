@@ -12,7 +12,8 @@ use ubiq_proto::ids::ProjectId;
 
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. Only `Ide` is built; the rest render an empty page.
+/// The left rail's destinations. `Ide`, `Agents` and `Tasks` are built; the rest render an
+/// empty page.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
     Control,

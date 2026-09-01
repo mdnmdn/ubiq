@@ -27,6 +27,7 @@ library (here) or changes what Ubiq does (there).
 | id | date | target | kind | rationale | status |
 |---|---|---|---|---|---|
 | P1 | 2026-09-01 | `features/workbench.md` | split | The document is 480 lines and past the linter's 400-line target. It now owns two screens: the window's own shell — rail, panels, projects, explorer, editor, status bar — and the agents screen, which is a capability of its own with its own graph, inspector and drawer. Deleting the agents screen would delete those sections, which is the `features/` test | open |
+| P2 | 2026-09-01 | `features/workbench.md` | split | Sharpens `P1`, which is now blocking: the tasks board landed in the same document and it is 571 lines, past the 500-line ceiling rather than the 400-line target, so `just docs-lint` fails on it. The document owns three screens now — the shell, the agents screen and the board — and the last two are one capability between them, since they are two views of one set of tasks | open |
 
 ## Closed
 

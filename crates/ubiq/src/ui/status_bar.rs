@@ -1,5 +1,6 @@
 //! The bottom strip: which file is open, where the caret is, and what the composer is set to — or,
-//! on the agents screen, how many agents there are and what they are doing.
+//! on the agents screen, how many agents there are and what they are doing, or, on the board, how
+//! much work there is and where it has got to.
 //!
 //! It reports facts, never intentions, and an absent fact is drawn as absent. It reports on
 //! whatever is on screen, which is why the rail mode picks which set of facts it has: a caret in a
@@ -14,6 +15,7 @@ use crate::state::agents::Bucket;
 use crate::state::{OpenFile, RailMode, SaveState};
 use crate::theme;
 use crate::ui::agents::bucket_colour;
+use crate::ui::board::status_colour;
 use crate::ui::kit::mono;
 
 /// Where this run writes everything down, when that is not `~/.config/ubiq`.
@@ -92,6 +94,41 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             }))
             .child(div().flex_1().min_w(px(0.)))
             .children(config_root(app));
+    }
+
+    // The board is a screen about work rather than about a file, so the strip counts the work: how
+    // many cards are in each column, how many sub-tasks are done across them, and how many of them
+    // nobody can finish without the user. A count of zero is drawn as zero, for the reason the
+    // agents screen's is.
+    if app.workbench.rail_mode == RailMode::Tasks {
+        let board = &app.board;
+        let (done, total) = board.steps(&app.agents);
+        let blocked = board.blocked(&app.agents);
+        return strip
+            .children(board.counts(&app.agents).into_iter().map(|(status, n)| {
+                mono(
+                    format!("{n} {}", status.label()),
+                    if n == 0 {
+                        theme::text_faint()
+                    } else {
+                        status_colour(status)
+                    },
+                )
+            }))
+            .child(div().flex_1().min_w(px(0.)))
+            .children(config_root(app))
+            .child(mono(
+                format!("{done}/{total} sub-tasks done"),
+                theme::text_muted(),
+            ))
+            .child(mono(
+                format!("{blocked} blocked"),
+                if blocked == 0 {
+                    theme::text_faint()
+                } else {
+                    theme::danger()
+                },
+            ));
     }
 
     // A window holding no project has one fact to report, and reports only that. A config root

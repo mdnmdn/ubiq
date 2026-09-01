@@ -117,7 +117,7 @@ the transport beneath the contract.
 | The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | Window, panes, chrome, focus | `crates/ubiq/src/app.rs`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
-| Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor and chat state. A window holds one tree and one set of open files per project |
+| Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor, chat, agents and board state. A window holds one tree and one set of open files per project |
 | The message set | `crates/ubiq-proto/src/messages.rs` | The contract, serialisable by construction |
 | The bus, and a pane's byte streams | `crates/ubiq-proto/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
 | Process and PTY lifecycle | `crates/ubiq-host/src/coordinator.rs` | Spawn, supervise, reap. One coordinator thread, started by the binary before the first window |

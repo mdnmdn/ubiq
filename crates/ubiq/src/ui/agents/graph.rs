@@ -1,6 +1,10 @@
 //! The orchestration graph: cards on a dotted ground, boxed by the task they serve, joined to
 //! whoever spawned them — and picked up and put down with the pointer.
 //!
+//! **Nothing here knows where anything is.** A card's position comes from `state::layout`, which
+//! holds it relative to the container it serves. That is what makes a container draggable: moving
+//! its origin moves every card in it, and this file does not have to move any of them.
+//!
 //! **A card is carried, not previewed.** GPUI's own drag paints a ghost above the window while the
 //! source sits still; here the ghost is empty and the real card follows the pointer, because the
 //! thing being moved is a position on a canvas rather than a row being filed somewhere. The card
@@ -24,20 +28,20 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::agents::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD};
-use crate::state::{Agent, AgentId, Selection};
+use crate::state::{Agent, Held, Selection};
 use crate::theme;
 use crate::ui::agents::{activity_colour, role_mark};
 use crate::ui::kit::canvas::{self, Link};
 use crate::ui::kit::{card, mono, state_chip};
 
-/// What the pointer is carrying. It holds only the id: where the card is belongs to the state, so
-/// a drag that is interrupted leaves the card wherever the last move put it rather than in a
-/// position only the drag knew about.
+/// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
+/// the state, so a drag that is interrupted leaves it wherever the last move put it rather than in
+/// a position only the drag knew about.
 #[derive(Clone, Copy)]
-pub struct Carried(pub AgentId);
+pub struct Carried(pub Held);
 
-/// GPUI wants a view for the drag preview. The card itself is the preview, so this one draws
-/// nothing.
+/// GPUI wants a view for the drag preview. What is being dragged is already on the canvas and
+/// already following the pointer, so this one draws nothing.
 struct Empty;
 
 impl Render for Empty {
@@ -46,8 +50,8 @@ impl Render for Empty {
     }
 }
 
-/// The margin round the outermost card, so a card at the edge of the graph can still be picked up
-/// and dropped without fighting the scroll.
+/// The margin past the outermost thing on the canvas, so something at the edge of the graph can
+/// still be picked up and dropped without fighting the scroll.
 const GRAPH_MARGIN: f32 = 60.0;
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -75,13 +79,29 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             .into_any_element();
     }
 
-    // The canvas is as big as the cards on it, so scrolling reaches everything at any zoom.
-    let extent = visible.iter().fold((0.0f32, 0.0f32), |(w, h), a| {
+    // The containers that are actually drawn, measured once: the boxes decide the canvas size, take
+    // the drags that move a whole task, and light up under a carried card.
+    let boxes: Vec<(usize, (f32, f32, f32, f32))> = agents
+        .tasks
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, task)| Some((ix, agents.bounds_of(task.id)?)))
+        .collect();
+
+    // The canvas is as big as what is on it, so scrolling reaches everything at any zoom.
+    let mut extent = visible.iter().fold((0.0f32, 0.0f32), |(w, h), agent| {
+        let at = agents.at(agent);
         (
-            w.max(a.at.0 + CARD_WIDTH + GRAPH_MARGIN),
-            h.max(a.at.1 + CARD_HEIGHT + GRAPH_MARGIN),
+            w.max(at.0 + CARD_WIDTH + GRAPH_MARGIN),
+            h.max(at.1 + CARD_HEIGHT + GRAPH_MARGIN),
         )
     });
+    for (_, (x, y, w, h)) in &boxes {
+        extent = (
+            extent.0.max(x + w + GRAPH_MARGIN),
+            extent.1.max(y + h + GRAPH_MARGIN),
+        );
+    }
 
     let mut content = div()
         .relative()
@@ -96,21 +116,45 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // its shape and its title on the top edge. The box is computed from where its cards are, so a
     // card dragged out of one takes the outline with it.
     let over = agents.carry.and_then(|c| c.over);
-    for task in &agents.tasks {
-        let Some((x, y, w, h)) = agents.bounds_of(task.id) else {
-            continue;
-        };
-        let lit = over == Some(task.id);
+    let held = agents.carry.map(|c| c.held);
+    for (ix, (x, y, w, h)) in boxes {
+        let task = &agents.tasks[ix];
+        let id = task.id;
+        let lit = over == Some(id);
+        let carried = held == Some(Held::Task(id));
+        let view = view.clone();
+
         content = content
             .child(canvas::dashed_box(
                 (x * zoom, y * zoom, w * zoom, h * zoom),
-                if lit {
+                if lit || carried {
                     theme::accent()
                 } else {
                     theme::border()
                 },
-                lit,
+                lit || carried,
             ))
+            // The empty ground inside a container is the handle for the container itself. The
+            // cards are drawn after it and take their own drags, so grabbing a card moves one
+            // agent and grabbing anywhere else in the box moves the whole task with everything in
+            // it.
+            .child(
+                div()
+                    .id(("agents-task", id))
+                    .absolute()
+                    .left(px(x * zoom))
+                    .top(px(y * zoom))
+                    .w(px(w * zoom))
+                    .h(px(h * zoom))
+                    .cursor_grab()
+                    .on_drag(Carried(Held::Task(id)), move |_, grab, _, cx: &mut App| {
+                        let grab = (f32::from(grab.x), f32::from(grab.y));
+                        view.update(cx, |this, cx| {
+                            this.start_graph_carry(Held::Task(id), grab, cx)
+                        });
+                        cx.new(|_| Empty)
+                    }),
+            )
             .child(
                 div()
                     .absolute()
@@ -138,24 +182,26 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             if !agents.visible(parent) {
                 return None;
             }
+            let from = agents.at(parent);
+            let to = agents.at(agent);
             Some(Link {
                 from: point(
-                    (parent.at.0 + CARD_WIDTH / 2.0) * zoom,
-                    (parent.at.1 + CARD_HEIGHT) * zoom,
+                    (from.0 + CARD_WIDTH / 2.0) * zoom,
+                    (from.1 + CARD_HEIGHT) * zoom,
                 ),
-                to: point((agent.at.0 + CARD_WIDTH / 2.0) * zoom, agent.at.1 * zoom),
+                to: point((to.0 + CARD_WIDTH / 2.0) * zoom, to.1 * zoom),
                 colour: theme::fade(activity_colour(agent.activity), 0.5),
             })
         })
         .collect();
     content = content.child(canvas::links(links));
 
-    let carried = agents.carry.map(|c| c.agent);
     for agent in &visible {
         content = content.child(agent_card(
             agent,
+            agents.at(agent),
             agents.selection == Some(Selection::Agent(agent.id)),
-            carried == Some(agent.id),
+            held == Some(Held::Agent(agent.id)),
             zoom,
             &view,
             cx,
@@ -180,9 +226,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         window.request_animation_frame();
     }
 
-    // The whole canvas is the drop target, so a card put down anywhere on it lands. Which task it
+    // The whole canvas is the drop target, so anything put down on it lands. Which task a card
     // landed in is worked out from where it is, not from what it was dropped on — a container is
-    // an outline round some cards, and outlines do not take clicks.
+    // an outline round some cards, and the outline is not what takes the drop.
     let content = content
         .on_drag_move(
             cx.listener(move |this, event: &DragMoveEvent<Carried>, _, cx| {
@@ -195,14 +241,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 let zoom = this.agents.zoom;
                 let local = event.event.position - event.bounds.origin;
                 let local = (f32::from(local.x), f32::from(local.y));
+                // The grab point is where inside the card — or inside the container's box — the
+                // pointer went down, so taking it off gives the top-left of whatever is held.
                 let at = (
                     ((local.0 - carry.grab.0) / zoom).max(0.0),
                     ((local.1 - carry.grab.1) / zoom).max(0.0),
                 );
-                this.carry_agent_to(at, local, cx);
+                this.move_graph_carry(at, local, cx);
             }),
         )
-        .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_agent_carry(cx)));
+        .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_graph_carry(cx)));
 
     div()
         .id("agents-graph")
@@ -217,9 +265,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 }
 
 /// One card. Everything about it is either a fact the fixture carries or a colour from a token —
-/// nothing on it is invented at draw time.
+/// nothing on it is invented at draw time, and where it goes is handed in rather than read off it.
+#[allow(clippy::too_many_arguments)]
 fn agent_card(
     agent: &Agent,
+    at: (f32, f32),
     selected: bool,
     carried: bool,
     zoom: f32,
@@ -232,8 +282,8 @@ fn agent_card(
 
     let body = card(("agents-card", id), colour, selected)
         .absolute()
-        .left(px(agent.at.0 * zoom))
-        .top(px(agent.at.1 * zoom))
+        .left(px(at.0 * zoom))
+        .top(px(at.1 * zoom))
         .w(px(CARD_WIDTH * zoom))
         .h(px(CARD_HEIGHT * zoom))
         .p(px(10.0 * zoom))
@@ -319,11 +369,13 @@ fn agent_card(
                 ),
         )
         .on_click(cx.listener(move |this, _, _, cx| this.select_in_graph(Selection::Agent(id), cx)))
-        .on_drag(Carried(id), move |_, grab, _, cx: &mut App| {
+        .on_drag(Carried(Held::Agent(id)), move |_, grab, _, cx: &mut App| {
             // The grab point is where inside the card the pointer went down. Keeping it is what
             // stops the card jumping under the cursor on the first move.
             let grab = (f32::from(grab.x), f32::from(grab.y));
-            view.update(cx, |this, cx| this.start_agent_carry(id, grab, cx));
+            view.update(cx, |this, cx| {
+                this.start_graph_carry(Held::Agent(id), grab, cx)
+            });
             cx.new(|_| Empty)
         });
 

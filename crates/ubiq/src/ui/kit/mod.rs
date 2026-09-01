@@ -20,8 +20,9 @@ pub mod menu;
 pub mod panel;
 
 pub use controls::{
-    badge, card, disclosure, ghost_button, icon_button, mono, pill, progress_ring, section_label,
-    slab, state_chip, status_dot, stepper, toggle_pill,
+    badge, card, choice_pill, disclosure, ghost_button, icon_button, meter, mono, pill,
+    primary_button, progress_ring, section_label, slab, state_chip, status_dot, stepper,
+    toggle_pill,
 };
 pub use menu::{Picker, PickerStyle};
 pub use panel::{Tab, panel, panel_header, tab_strip};
