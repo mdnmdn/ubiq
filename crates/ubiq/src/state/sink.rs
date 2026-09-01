@@ -19,9 +19,13 @@
 use std::collections::HashMap;
 
 use crate::state::editor::{FileLanguage, ViewLayout, ViewerKind};
+use crate::state::file_picker::{
+    Commit, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest, PickerView,
+};
 
 /// One page of the sink. The first four are one document each, drawn by the viewer its name
-/// implies; the last is the style reference, which is drawn rather than parsed.
+/// implies; the last two are drawn rather than parsed — the style reference, and the file picker
+/// raised against a fixture tree.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SinkSection {
     Editor,
@@ -29,10 +33,11 @@ pub enum SinkSection {
     Mermaid,
     Excalidraw,
     Style,
+    Files,
 }
 
 impl SinkSection {
-    /// The five, in the order the strip draws them.
+    /// The six, in the order the strip draws them.
     pub fn all() -> &'static [SinkSection] {
         &[
             SinkSection::Editor,
@@ -40,6 +45,7 @@ impl SinkSection {
             SinkSection::Mermaid,
             SinkSection::Excalidraw,
             SinkSection::Style,
+            SinkSection::Files,
         ]
     }
 
@@ -51,6 +57,7 @@ impl SinkSection {
             SinkSection::Mermaid => "Mermaid",
             SinkSection::Excalidraw => "Excalidraw",
             SinkSection::Style => "Style",
+            SinkSection::Files => "Files",
         }
     }
 
@@ -62,6 +69,7 @@ impl SinkSection {
             SinkSection::Mermaid => "A diagram the renderer drew, cached by its content.",
             SinkSection::Excalidraw => "A scene painted from its own JSON.",
             SinkSection::Style => "Every token, surface, control and field, on one page.",
+            SinkSection::Files => "The file picker, raised every way a screen can ask for it.",
         }
     }
 
@@ -184,6 +192,149 @@ pub const CHOICES: [&str; 3] = ["source", "preview", "split"];
 /// The rows its demo menu offers.
 pub const MENU_ITEMS: [&str; 4] = ["Claude Code", "Codex", "Gemini CLI", "opencode"];
 
+// ── The file picker's page ──────────────────────────────────────────
+
+/// The folders the picker page can be rooted at: what the picker's `root` does, seen from outside.
+pub const PICKER_ROOTS: [(&str, &str); 3] = [
+    ("project", ""),
+    ("docs", "docs"),
+    ("src-tauri", "src-tauri"),
+];
+
+/// The prefilters it can be raised with. The first is no prefilter at all, which is what most
+/// callers ask for.
+pub const PICKER_PATTERNS: [(&str, Option<&str>); 4] = [
+    ("everything", None),
+    ("*.md", Some("*.md")),
+    ("*.rs", Some("*.rs")),
+    ("*.json", Some("*.json")),
+];
+
+/// What the page's controls hold, and what the last picker handed back.
+///
+/// Every field is one line of a [`crate::state::file_picker::PickerRequest`], because the page is
+/// the request made adjustable: a picker is looked at here in each of the shapes a screen can ask
+/// for one, and the readout under the button is the answer that came back.
+pub struct PickerDemo {
+    pub kind: PickKind,
+    pub count: PickerCount,
+    pub commit: Commit,
+    pub modal: bool,
+    /// Which view the dialog opens in. The user may change it once it is up — that is the point of
+    /// the toggle — and this is only where it starts.
+    pub view: PickerView,
+    /// Indices into [`PICKER_ROOTS`] and [`PICKER_PATTERNS`].
+    pub root: usize,
+    pub pattern: usize,
+    /// What came back, and whether the last dialog was dismissed instead of confirmed. `None` is
+    /// "nothing has been asked yet", which is not the same as a picker that answered with nothing.
+    pub result: Option<Vec<String>>,
+    pub dismissed: bool,
+}
+
+impl Default for PickerDemo {
+    fn default() -> Self {
+        Self {
+            kind: PickKind::Files,
+            count: PickerCount::Multiple,
+            commit: Commit::OnButton,
+            modal: true,
+            view: PickerView::Tree,
+            root: 0,
+            pattern: 0,
+            result: None,
+            dismissed: false,
+        }
+    }
+}
+
+impl PickerDemo {
+    /// The request the page's controls add up to.
+    pub fn request(&self) -> PickerRequest {
+        let title = match self.kind {
+            PickKind::Files => "Select documentation files",
+            PickKind::Folders => "Select a folder",
+        };
+        PickerRequest::new(PickerOwner::Sink, title)
+            .root(PICKER_ROOTS[self.root.min(PICKER_ROOTS.len() - 1)].1)
+            .pattern(PICKER_PATTERNS[self.pattern.min(PICKER_PATTERNS.len() - 1)].1)
+            .kind(self.kind)
+            .count(self.count)
+            .commit(self.commit)
+            .modal(self.modal)
+    }
+}
+
+/// The tree the picker page raises a dialog over.
+///
+/// It is this repository's own shape, written down rather than read: the sink has no project
+/// behind it, and a picker with nothing in it demonstrates nothing. Paths are project-relative and
+/// the project itself carries the empty one, exactly as a listing from the host would.
+pub fn picker_tree() -> Vec<PickerNode> {
+    vec![PickerNode::dir(
+        "agent-manager",
+        "",
+        vec![
+            PickerNode::dir(
+                "docs",
+                "docs",
+                vec![
+                    PickerNode::file("architecture.md", "docs/architecture.md", 12_400),
+                    PickerNode::file("conventions.md", "docs/conventions.md", 6_100),
+                    PickerNode::file("harnesses.md", "docs/harnesses.md", 9_200),
+                    PickerNode::dir(
+                        "adr",
+                        "docs/adr",
+                        vec![
+                            PickerNode::file(
+                                "0001-worktrees.md",
+                                "docs/adr/0001-worktrees.md",
+                                3_300,
+                            ),
+                            PickerNode::file(
+                                "0002-session-store.md",
+                                "docs/adr/0002-session-store.md",
+                                4_700,
+                            ),
+                            PickerNode::file(
+                                "0003-harness-registry.md",
+                                "docs/adr/0003-harness-registry.md",
+                                5_500,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            PickerNode::dir(
+                "src",
+                "src",
+                vec![
+                    PickerNode::file("main.rs", "src/main.rs", 1_800),
+                    PickerNode::file(
+                        "a-name-long-enough-to-need-eliding-in-any-column.rs",
+                        "src/a-name-long-enough-to-need-eliding-in-any-column.rs",
+                        2_600,
+                    ),
+                ],
+            ),
+            PickerNode::dir(
+                "src-tauri",
+                "src-tauri",
+                vec![
+                    PickerNode::file("tauri.conf.json", "src-tauri/tauri.conf.json", 2_100),
+                    PickerNode::dir(
+                        "src",
+                        "src-tauri/src",
+                        vec![PickerNode::file("lib.rs", "src-tauri/src/lib.rs", 7_400)],
+                    ),
+                ],
+            ),
+            PickerNode::file("README.md", "README.md", 4_000),
+            PickerNode::file("package.json", "package.json", 2_000),
+        ],
+    )]
+}
+
 /// What the sink remembers between frames: which page is open, which layout each document is in,
 /// which modal is up, and the state the style reference's own controls carry.
 ///
@@ -205,6 +356,8 @@ pub struct SinkState {
     pub disclosed: bool,
     /// Which row of the demo menu was picked.
     pub picked: usize,
+    /// The file picker page: how the next dialog is asked for, and what the last one answered.
+    pub picker: PickerDemo,
 }
 
 impl Default for SinkState {
@@ -218,6 +371,7 @@ impl Default for SinkState {
             level: 60,
             disclosed: true,
             picked: 0,
+            picker: PickerDemo::default(),
         }
     }
 }

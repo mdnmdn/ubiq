@@ -105,7 +105,7 @@ fn drawn(
 
     let key = file.key();
     let source = state.read(cx).value().to_string();
-    let preview = || match file.viewer {
+    let mut preview = || match file.viewer {
         ViewerKind::Markdown => markdown::render(app, &key, &source),
         ViewerKind::Mermaid => diagram::render(app, &key, &source, cx),
         ViewerKind::Excalidraw => scene::live(app, &key, &source, cx),

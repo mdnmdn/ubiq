@@ -97,12 +97,7 @@ impl Viewport {
     }
 
     /// The offset that centres a picture of this scale in the panel.
-    pub fn fitted_offset(
-        content: Content,
-        scale: f32,
-        panel_w: f32,
-        panel_h: f32,
-    ) -> (f32, f32) {
+    pub fn fitted_offset(content: Content, scale: f32, panel_w: f32, panel_h: f32) -> (f32, f32) {
         (
             (panel_w - content.width * scale) / 2.0 - content.min_x * scale,
             (panel_h - content.height * scale) / 2.0 - content.min_y * scale,

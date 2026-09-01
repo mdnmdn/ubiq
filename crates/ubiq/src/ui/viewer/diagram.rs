@@ -13,9 +13,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use gpui::{
-    AnyElement, Context, ImageSource, IntoElement, ParentElement, Styled, div, img, px,
-};
+use gpui::{AnyElement, Context, ImageSource, IntoElement, ParentElement, Styled, div, img, px};
 
 use crate::app::{AppState, DiagramEntry};
 use crate::state::viewport::Content;
@@ -23,12 +21,7 @@ use crate::theme;
 use crate::ui::kit::mono;
 
 /// The panel's diagram: whatever the window holds for this source, asked for if it holds nothing.
-pub fn render(
-    app: &AppState,
-    key: &str,
-    source: &str,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+pub fn render(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState>) -> AnyElement {
     match app.diagram(source) {
         DiagramEntry::Pending => super::note("Drawing\u{2026}", theme::text_faint()),
         DiagramEntry::Failed(reason) => failed(&reason, source),
@@ -38,16 +31,19 @@ pub fn render(
                 let vp = app.viewport(key);
                 vp.camera(content, vp.panel_w, vp.panel_h)
             };
-            super::viewport::surface(app, key, theme::app_bg(), content, cx)
-                .child(
-                    img(ImageSource::Image(picture.image))
-                        .absolute()
-                        .left(px(camera.offset_x))
-                        .top(px(camera.offset_y))
-                        .w(px(picture.width * camera.scale))
-                        .h(px(picture.height * camera.scale)),
-                )
-                .into_any_element()
+            super::viewport::surface(
+                app,
+                key,
+                theme::app_bg(),
+                content,
+                img(ImageSource::Image(picture.image))
+                    .absolute()
+                    .left(px(camera.offset_x))
+                    .top(px(camera.offset_y))
+                    .w(px(picture.width * camera.scale))
+                    .h(px(picture.height * camera.scale)),
+                cx,
+            )
         }
     }
 }

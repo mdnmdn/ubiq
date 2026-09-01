@@ -26,29 +26,35 @@ pub fn dot_grid(spacing: f32, offset: Point<f32>) -> impl IntoElement {
     let spacing = spacing.max(8.0);
     let colour = theme::fade(theme::text_faint(), 0.35);
 
-    layer().child(canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            // Start on the first dot at or before the top-left corner, so scrolling the graph
-            // moves the dots with it instead of resampling the mesh.
-            let start_x = -(offset.x.rem_euclid(spacing));
-            let start_y = -(offset.y.rem_euclid(spacing));
+    layer().child(
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                // Start on the first dot at or before the top-left corner, so scrolling the graph
+                // moves the dots with it instead of resampling the mesh.
+                let start_x = -(offset.x.rem_euclid(spacing));
+                let start_y = -(offset.y.rem_euclid(spacing));
 
-            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-            let mut y = start_y;
-            while y < h {
-                let mut x = start_x;
-                while x < w {
-                    window.paint_quad(fill(
-                        Bounds::new(bounds.origin + point(px(x), px(y)), size(px(1.5), px(1.5))),
-                        colour,
-                    ));
-                    x += spacing;
+                let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                let mut y = start_y;
+                while y < h {
+                    let mut x = start_x;
+                    while x < w {
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                bounds.origin + point(px(x), px(y)),
+                                size(px(1.5), px(1.5)),
+                            ),
+                            colour,
+                        ));
+                        x += spacing;
+                    }
+                    y += spacing;
                 }
-                y += spacing;
-            }
-        },
-    ).size_full())
+            },
+        )
+        .size_full(),
+    )
 }
 
 /// One curve between two points, in the colour of whatever it connects.
@@ -64,43 +70,46 @@ pub struct Link {
 /// points pulled vertically, so a link leaves its parent downwards and arrives at its child from
 /// above however far apart the two are.
 pub fn links(links: Vec<Link>) -> impl IntoElement {
-    layer().child(canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            for link in &links {
-                let origin: Point<Pixels> = bounds.origin;
-                let (a, b) = (link.from, link.to);
-                let lift = ((b.y - a.y).abs() * 0.5).clamp(24.0, 90.0);
-                let (c1, c2) = (point(a.x, a.y + lift), point(b.x, b.y - lift));
+    layer().child(
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                for link in &links {
+                    let origin: Point<Pixels> = bounds.origin;
+                    let (a, b) = (link.from, link.to);
+                    let lift = ((b.y - a.y).abs() * 0.5).clamp(24.0, 90.0);
+                    let (c1, c2) = (point(a.x, a.y + lift), point(b.x, b.y - lift));
 
-                let mut path = gpui::PathBuilder::stroke(px(1.25));
-                let steps = 24;
-                for step in 0..=steps {
-                    let t = step as f32 / steps as f32;
-                    let u = 1.0 - t;
-                    let cubic = |p0: f32, p1: f32, p2: f32, p3: f32| {
-                        u * u * u * p0
-                            + 3.0 * u * u * t * p1
-                            + 3.0 * u * t * t * p2
-                            + t * t * t * p3
-                    };
-                    let p = origin
-                        + point(
-                            px(cubic(a.x, c1.x, c2.x, b.x)),
-                            px(cubic(a.y, c1.y, c2.y, b.y)),
-                        );
-                    if step == 0 {
-                        path.move_to(p);
-                    } else {
-                        path.line_to(p);
+                    let mut path = gpui::PathBuilder::stroke(px(1.25));
+                    let steps = 24;
+                    for step in 0..=steps {
+                        let t = step as f32 / steps as f32;
+                        let u = 1.0 - t;
+                        let cubic = |p0: f32, p1: f32, p2: f32, p3: f32| {
+                            u * u * u * p0
+                                + 3.0 * u * u * t * p1
+                                + 3.0 * u * t * t * p2
+                                + t * t * t * p3
+                        };
+                        let p = origin
+                            + point(
+                                px(cubic(a.x, c1.x, c2.x, b.x)),
+                                px(cubic(a.y, c1.y, c2.y, b.y)),
+                            );
+                        if step == 0 {
+                            path.move_to(p);
+                        } else {
+                            path.line_to(p);
+                        }
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, link.colour);
                     }
                 }
-                if let Ok(path) = path.build() {
-                    window.paint_path(path, link.colour);
-                }
-            }
-        },
-    ).size_full())
+            },
+        )
+        .size_full(),
+    )
 }
 
 /// One grain of a drag trail, as the painter wants it: where it is, how far through its life it
@@ -119,27 +128,30 @@ pub struct Grain {
 /// They shrink and fade on the same curve, so the trail thins towards its tail rather than
 /// vanishing all at once.
 pub fn sand(grains: Vec<Grain>, colour: Rgba) -> impl IntoElement {
-    layer().child(canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            for grain in &grains {
-                let left = 1.0 - grain.age;
-                // Cubed, so most of a grain's visible life is spent near full strength and the
-                // tail goes quickly — which is what makes the trail read as a trail.
-                let alpha = left * left * left;
-                let side = (grain.size * (0.35 + left * 0.65)).max(1.0);
-                // A grain drifts a little as it dies, so the trail settles rather than freezing.
-                let drift = grain.age * grain.size * 1.6;
-                window.paint_quad(fill(
-                    Bounds::new(
-                        bounds.origin + point(px(grain.at.x), px(grain.at.y + drift)),
-                        size(px(side), px(side)),
-                    ),
-                    theme::fade(colour, alpha),
-                ));
-            }
-        },
-    ).size_full())
+    layer().child(
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                for grain in &grains {
+                    let left = 1.0 - grain.age;
+                    // Cubed, so most of a grain's visible life is spent near full strength and the
+                    // tail goes quickly — which is what makes the trail read as a trail.
+                    let alpha = left * left * left;
+                    let side = (grain.size * (0.35 + left * 0.65)).max(1.0);
+                    // A grain drifts a little as it dies, so the trail settles rather than freezing.
+                    let drift = grain.age * grain.size * 1.6;
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            bounds.origin + point(px(grain.at.x), px(grain.at.y + drift)),
+                            size(px(side), px(side)),
+                        ),
+                        theme::fade(colour, alpha),
+                    ));
+                }
+            },
+        )
+        .size_full(),
+    )
 }
 
 /// The box a task's cards sit in: a dashed outline, drawn rather than bordered because GPUI's
@@ -154,22 +166,26 @@ pub fn dashed_box(rect: (f32, f32, f32, f32), colour: Rgba, active: bool) -> imp
         (6.0, 5.0, 1.0)
     };
 
-    layer().child(canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            let (x, y, w, h) = rect;
-            let o = bounds.origin;
-            let corner = |dx: f32, dy: f32| o + point(px(x + dx), px(y + dy));
+    layer().child(
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                let (x, y, w, h) = rect;
+                let o = bounds.origin;
+                let corner = |dx: f32, dy: f32| o + point(px(x + dx), px(y + dy));
 
-            let mut path = gpui::PathBuilder::stroke(px(stroke)).dash_array(&[px(dash), px(gap)]);
-            path.move_to(corner(0.0, 0.0));
-            path.line_to(corner(w, 0.0));
-            path.line_to(corner(w, h));
-            path.line_to(corner(0.0, h));
-            path.close();
-            if let Ok(path) = path.build() {
-                window.paint_path(path, colour);
-            }
-        },
-    ).size_full())
+                let mut path =
+                    gpui::PathBuilder::stroke(px(stroke)).dash_array(&[px(dash), px(gap)]);
+                path.move_to(corner(0.0, 0.0));
+                path.line_to(corner(w, 0.0));
+                path.line_to(corner(w, h));
+                path.line_to(corner(0.0, h));
+                path.close();
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, colour);
+                }
+            },
+        )
+        .size_full(),
+    )
 }

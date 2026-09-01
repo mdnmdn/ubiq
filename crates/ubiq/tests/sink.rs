@@ -46,17 +46,19 @@ fn the_sink_is_an_app_destination_and_never_a_project_one() {
 
 // ── the pages ───────────────────────────────────────────────────────
 
-/// Four pages hold a document and the fifth holds the style reference. A page with neither would
-/// draw nothing at all.
+/// Four pages hold a document; the other two are drawn rather than parsed. A page that is neither
+/// would draw nothing at all.
 #[test]
-fn every_page_holds_a_document_or_is_the_style_reference() {
+fn every_page_holds_a_document_or_is_one_of_the_two_that_are_drawn() {
     for section in SinkSection::all() {
         match section {
-            SinkSection::Style => assert!(section.doc().is_none(), "{section:?} holds a document"),
+            SinkSection::Style | SinkSection::Files => {
+                assert!(section.doc().is_none(), "{section:?} holds a document")
+            }
             _ => assert!(section.doc().is_some(), "{section:?} holds nothing"),
         }
     }
-    assert_eq!(SinkSection::all().len(), 5);
+    assert_eq!(SinkSection::all().len(), 6);
 }
 
 /// The page and its viewer cannot disagree, because neither is written down twice: the document's
@@ -227,7 +229,8 @@ fn every_page_says_what_it_is_for() {
 
 // ── drawn ───────────────────────────────────────────────────────────
 
-/// Every page drawn, and every modal raised, in a window with no project.
+/// Every page drawn, every modal raised, and every shape of picker opened, answered and dismissed
+/// — in a window with no project.
 ///
 /// This is the sink's own claim under test: it opens on an empty catalogue and asks the host for
 /// nothing. What it guards is what only a frame can catch — a duplicate element id, a `.id()` a
@@ -235,8 +238,9 @@ fn every_page_says_what_it_is_for() {
 /// the page that draws more primitives than any other in the application.
 #[gpui::test]
 fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
-    use gpui::AppContext as _;
+    use gpui::{AppContext as _, Focusable as _};
     use ubiq::app::{AppState, BusHub};
+    use ubiq::state::file_picker::{Commit, PickKind, PickerCount, PickerKey, PickerView};
     use ubiq::state::sink::SinkModal;
     use ubiq::state::{MenuId, RailMode, WindowRegistry};
 
@@ -248,11 +252,14 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
         ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
         BusHub::install(hub, cx);
         WindowRegistry::install(cx);
+        // The binary's own call, made here for the one thing it can get wrong without a window: a
+        // key context predicate that does not parse takes the application down on the way up.
+        ubiq::app::install_key_bindings(cx);
     });
 
     let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
     let taken = held.clone();
-    cx.add_window(move |window, cx| {
+    let handle = cx.add_window(move |window, cx| {
         let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
         *taken.borrow_mut() = Some(state.clone());
         gpui_component::Root::new(state, window, cx)
@@ -303,12 +310,125 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
         cx.run_until_parked();
     }
 
+    // The picker page, and a dialog raised over it in each of the shapes it can be asked for.
+    // Every row builds four element ids of its own, so a collision between two rows — or between
+    // the dialog and the page under it — is only reachable by drawing one.
+    state.update(cx, |state, cx| {
+        state.set_sink_section(SinkSection::Files, cx)
+    });
+    cx.run_until_parked();
+
+    for (kind, count, commit, modal, view) in [
+        (
+            PickKind::Files,
+            PickerCount::Multiple,
+            Commit::OnButton,
+            true,
+            PickerView::Tree,
+        ),
+        (
+            PickKind::Folders,
+            PickerCount::Single,
+            Commit::OnClick,
+            false,
+            PickerView::List,
+        ),
+    ] {
+        state.update(cx, |state, cx| {
+            state.set_sink_pick_kind(kind, cx);
+            state.set_sink_pick_count(count, cx);
+            state.set_sink_pick_commit(commit, cx);
+            state.set_sink_pick_modal(modal, cx);
+            state.set_sink_pick_view(view, cx);
+            state.set_sink_pick_root(1, cx);
+            state.set_sink_pick_pattern(1, cx);
+        });
+
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| state.raise_sink_picker(window, cx));
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+
+        // The field has the keyboard the moment the dialog is up: typing a name into it is the
+        // first thing a picker is for.
+        handle
+            .update(cx, |_, window, cx| {
+                let field = state.read(cx).picker_filter.read(cx).focus_handle(cx);
+                assert!(
+                    field.is_focused(window),
+                    "the field did not take the keyboard"
+                );
+            })
+            .expect("the window is open");
+
+        // Both arrangements of the same dialog, a folder opened in each, and the keyboard walked
+        // through the rows — which is the only way the cursor bar is ever drawn.
+        state.update(cx, |state, cx| {
+            state.set_picker_view(PickerView::Tree, cx);
+            state.toggle_picker_folder("docs/adr".to_string(), cx);
+            state.press_picker_key(PickerKey::Down, cx);
+            state.press_picker_key(PickerKey::Right, cx);
+            state.press_picker_key(PickerKey::Down, cx);
+            state.press_picker_key(PickerKey::Left, cx);
+            state.set_picker_view(PickerView::List, cx);
+            state.press_picker_key(PickerKey::Down, cx);
+        });
+        cx.run_until_parked();
+
+        state.update(cx, |state, cx| state.cancel_file_picker(cx));
+        cx.run_until_parked();
+        state.read_with(cx, |state, _| {
+            assert!(state.file_picker.is_none(), "the dialog stayed up");
+            assert!(state.sink.picker.dismissed, "the page was not told");
+        });
+    }
+
+    // One dialog answered rather than dismissed: the paths reach the page that asked.
+    state.update(cx, |state, cx| {
+        state.set_sink_pick_kind(PickKind::Files, cx);
+        state.set_sink_pick_count(PickerCount::Multiple, cx);
+        state.set_sink_pick_pattern(0, cx);
+        state.set_sink_pick_root(0, cx);
+    });
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| state.raise_sink_picker(window, cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    // Answered from the keyboard alone: enter ticks the row the cursor is on, and the platform's
+    // confirm hands both of them back.
+    let ticked: Vec<String> = state.read_with(cx, |state, _| {
+        let picker = state.file_picker.as_ref().expect("the dialog is up");
+        picker.rows()[..2]
+            .iter()
+            .map(|row| row.path.clone())
+            .collect()
+    });
+
+    state.update(cx, |state, cx| {
+        state.press_picker_key(PickerKey::Enter, cx);
+        state.press_picker_key(PickerKey::Down, cx);
+        state.press_picker_key(PickerKey::Enter, cx);
+    });
+    cx.run_until_parked();
+    state.update(cx, |state, cx| {
+        state.press_picker_key(PickerKey::Confirm, cx);
+    });
+    cx.run_until_parked();
+
     // The window is still there, and it is still on the page it was left on.
     state.read_with(cx, |state, _| {
         assert_eq!(state.workbench.rail_mode, RailMode::Sink);
-        assert_eq!(state.sink.section, SinkSection::Style);
+        assert_eq!(state.sink.section, SinkSection::Files);
         assert_eq!(state.sink.picked, 3);
         assert_eq!(state.sink.level, 40);
         assert!(state.sink.modal.is_none());
+        assert!(state.file_picker.is_none(), "the dialog stayed up");
+        assert!(!state.sink.picker.dismissed);
+        assert_eq!(state.sink.picker.result.as_deref(), Some(ticked.as_slice()));
     });
 }

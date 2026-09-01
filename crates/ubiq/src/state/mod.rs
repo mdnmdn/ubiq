@@ -15,6 +15,7 @@ pub mod diagrams;
 pub mod dock;
 pub mod editor;
 pub mod explorer;
+pub mod file_picker;
 pub mod layout;
 pub mod logs;
 pub mod prefs;
@@ -37,6 +38,10 @@ pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{PanelClass, PanelKind, Region};
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
 pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row, Toggle};
+pub use file_picker::{
+    Commit, FilePickerState, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest,
+    PickerRow, PickerView,
+};
 pub use layout::Layout;
 pub use logs::LogState;
 pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};

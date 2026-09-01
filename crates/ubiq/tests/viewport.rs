@@ -88,8 +88,14 @@ fn a_zoom_keeps_the_point_under_the_cursor() {
     assert!((after.scale - before.scale * 2.0).abs() < 1e-4, "{after:?}");
     let again_x = (cursor.0 - after.offset_x) / after.scale;
     let again_y = (cursor.1 - after.offset_y) / after.scale;
-    assert!((again_x - content_x).abs() < 1e-3, "{again_x} vs {content_x}");
-    assert!((again_y - content_y).abs() < 1e-3, "{again_y} vs {content_y}");
+    assert!(
+        (again_x - content_x).abs() < 1e-3,
+        "{again_x} vs {content_x}"
+    );
+    assert!(
+        (again_y - content_y).abs() < 1e-3,
+        "{again_y} vs {content_y}"
+    );
 }
 
 /// A pan is a window-space shift, and it pins the fit first so the picture does not jump to the

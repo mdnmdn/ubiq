@@ -19,10 +19,13 @@ use std::time::Duration;
 use crate::state::agents::{GraphView, Held, InspectorTab, Selection};
 use crate::state::board::{BoardState, Field};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
-use crate::state::viewport::{Content, Viewport};
 use crate::state::dock::Visibility;
 use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
+use crate::state::file_picker::{
+    Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
+};
 use crate::state::sink::{SinkDoc, SinkModal, SinkSection, SinkState};
+use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, OpenFile, PanelKind,
@@ -32,9 +35,9 @@ use crate::theme::{self, ThemeId};
 use crate::ui;
 use crate::ui::dock::{self as dock, WorkbenchPanel};
 use gpui::{
-    App, Bounds, Context, Entity, Global, Image, ImageFormat, IntoElement, PathPromptOptions,
-    Render, ScrollHandle, Subscription, UniformListScrollHandle, WeakEntity, Window, WindowBounds,
-    WindowId, WindowOptions, point, prelude::*, px, size,
+    App, Bounds, Context, Entity, Focusable, Global, Image, ImageFormat, IntoElement,
+    PathPromptOptions, Pixels, Render, ScrollHandle, Subscription, UniformListScrollHandle,
+    WeakEntity, Window, WindowBounds, WindowId, WindowOptions, point, prelude::*, px, size,
 };
 use gpui_component::dock::{DockArea, DockEvent, PanelId};
 use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
@@ -253,6 +256,10 @@ pub struct AppState {
     pub sink: SinkState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
+    /// The file picker, when one is up. It belongs to the window rather than to the screen that
+    /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
+    /// who is owed the answer.
+    pub file_picker: Option<FilePickerState>,
 
     /// Whether this window should take a project from the first catalogue that arrives. True only
     /// for the window the binary opened.
@@ -288,6 +295,9 @@ pub struct AppState {
     /// because the two are two conversations and a shared draft would leak between them.
     pub agent_input: Entity<TextareaState>,
     pub file_filter: Entity<InputState>,
+    /// The file picker's own field. Separate from the explorer's because the two are up at once
+    /// and one state drawn twice is one field in two places.
+    pub picker_filter: Entity<InputState>,
     /// The board's one field: what filters the cards, and what names the next one.
     pub task_filter: Entity<InputState>,
     /// The task panel's four fields. They belong to the window because there is one of each per
@@ -314,6 +324,9 @@ pub struct AppState {
     pub sink_textarea: Entity<TextareaState>,
     pub sink_modal_input: Entity<InputState>,
     pub chat_scroll: ScrollHandle,
+    /// The file picker's rows. It is what a keyboard cursor moved past the last drawn row is
+    /// brought back into view with.
+    pub picker_scroll: ScrollHandle,
     pub log_scroll: UniformListScrollHandle,
     /// Which task the panel's fields were last filled from, so a selection change refills them
     /// exactly once. Writing into the component library's state needs a window and a message does
@@ -359,6 +372,9 @@ impl AppState {
 
         let file_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Go to file\u{2026}"));
+
+        let picker_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter by name or path\u{2026}"));
 
         let task_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter tasks\u{2026}"));
@@ -509,6 +525,20 @@ impl AppState {
             |this, input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.workbench.file_filter = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &picker_filter,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let filter = input.read(cx).value().to_string();
+                    if let Some(picker) = this.file_picker.as_mut() {
+                        picker.set_filter(filter);
+                    }
                     cx.notify();
                 }
             },
@@ -678,6 +708,7 @@ impl AppState {
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
             sink: SinkState::default(),
+            file_picker: None,
             logs: LogState::default(),
             adopt_on_list: false,
             adding: false,
@@ -689,6 +720,7 @@ impl AppState {
             chat_input,
             agent_input,
             file_filter,
+            picker_filter,
             task_filter,
             task_title_input,
             task_description_input,
@@ -702,6 +734,7 @@ impl AppState {
             sink_textarea,
             sink_modal_input,
             chat_scroll: ScrollHandle::new(),
+            picker_scroll: ScrollHandle::new(),
             log_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,
@@ -1601,6 +1634,205 @@ impl AppState {
     pub fn close_sink_modal(&mut self, cx: &mut Context<Self>) {
         self.sink.modal = None;
         cx.notify();
+    }
+
+    // The picker page's controls. Each sets one field of the request the next dialog is raised
+    // with; none of them touches a picker that is already up, because the ask a dialog was opened
+    // under is the ask it is answering.
+
+    pub fn set_sink_pick_kind(&mut self, kind: PickKind, cx: &mut Context<Self>) {
+        self.sink.picker.kind = kind;
+        cx.notify();
+    }
+
+    pub fn set_sink_pick_count(&mut self, count: PickerCount, cx: &mut Context<Self>) {
+        self.sink.picker.count = count;
+        cx.notify();
+    }
+
+    pub fn set_sink_pick_commit(&mut self, commit: Commit, cx: &mut Context<Self>) {
+        self.sink.picker.commit = commit;
+        cx.notify();
+    }
+
+    pub fn set_sink_pick_modal(&mut self, modal: bool, cx: &mut Context<Self>) {
+        self.sink.picker.modal = modal;
+        cx.notify();
+    }
+
+    pub fn set_sink_pick_view(&mut self, view: PickerView, cx: &mut Context<Self>) {
+        self.sink.picker.view = view;
+        cx.notify();
+    }
+
+    pub fn set_sink_pick_root(&mut self, root: usize, cx: &mut Context<Self>) {
+        self.sink.picker.root = root;
+        cx.notify();
+    }
+
+    pub fn set_sink_pick_pattern(&mut self, pattern: usize, cx: &mut Context<Self>) {
+        self.sink.picker.pattern = pattern;
+        cx.notify();
+    }
+
+    /// Raise a picker over the sink's fixture tree, in the shape the page's controls describe.
+    ///
+    /// The previous answer goes with it: a readout left standing over a dialog that is being asked
+    /// again reads as this dialog's answer, which it is not.
+    pub fn raise_sink_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sink.picker.result = None;
+        self.sink.picker.dismissed = false;
+        let request = self.sink.picker.request();
+        let view = self.sink.picker.view;
+        self.open_file_picker(request, crate::state::sink::picker_tree(), view, window, cx);
+    }
+
+    // ── The file picker ─────────────────────────────────────────
+    //
+    // One dialog, raised by whichever screen needs a path and answered back to whoever asked. The
+    // window holds it because exactly one may be up, and because the field above its rows is one
+    // of the window's fields like every other.
+
+    /// Raise a picker over `forest`, in the arrangement it should open in.
+    ///
+    /// The field is emptied first: a filter left over from the last dialog would hide rows the new
+    /// one was raised to show.
+    pub fn open_file_picker(
+        &mut self,
+        request: crate::state::file_picker::PickerRequest,
+        forest: Vec<crate::state::file_picker::PickerNode>,
+        view: PickerView,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // A dialog takes the window's attention, so it closes whatever menu was down: two things
+        // claiming an outside click is how a dismissal races itself.
+        self.workbench.open_menu = None;
+        self.picker_filter
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.file_picker = Some(FilePickerState::open(request, forest, view));
+        // The field takes the keyboard, because the first thing a picker is for is typing a name
+        // into it. Every other key the dialog answers to is bound against the field as well as
+        // against the dialog, so the arrows still drive the rows — see `ui::file_picker`.
+        let field = self.picker_filter.read(cx).focus_handle(cx);
+        window.focus(&field, cx);
+        cx.notify();
+    }
+
+    /// A key the dialog answered, or did not.
+    ///
+    /// Answering `false` is what hands the key back: `left` and `right` mean nothing in the flat
+    /// list, and the caller propagates so the filter field gets its caret keys back.
+    pub fn press_picker_key(&mut self, key: PickerKey, cx: &mut Context<Self>) -> bool {
+        let Some(picker) = self.file_picker.as_mut() else {
+            return false;
+        };
+        let pressed = picker.press(key);
+        let at = picker.cursor_index();
+
+        match pressed {
+            Pressed::Ignored => false,
+            Pressed::Moved => {
+                // Follow the cursor: an arrow past the last drawn row has to bring it into view.
+                if let Some(at) = at {
+                    self.picker_scroll.scroll_to_item(at);
+                }
+                cx.notify();
+                true
+            }
+            Pressed::Commit => {
+                self.commit_file_picker(cx);
+                true
+            }
+            Pressed::Dismiss => {
+                self.cancel_file_picker(cx);
+                true
+            }
+        }
+    }
+
+    pub fn set_picker_view(&mut self, view: PickerView, cx: &mut Context<Self>) {
+        if let Some(picker) = self.file_picker.as_mut() {
+            picker.set_view(view);
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_picker_folder(&mut self, path: String, cx: &mut Context<Self>) {
+        if let Some(picker) = self.file_picker.as_mut() {
+            picker.toggle_folder(&path);
+        }
+        cx.notify();
+    }
+
+    /// What a click on a row does, which the picker itself decides: a folder that cannot be picked
+    /// opens, and a pick that was asked to be final closes the dialog on the spot.
+    pub fn click_picker_row(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(picker) = self.file_picker.as_mut() else {
+            return;
+        };
+        if picker.click(&path) {
+            self.commit_file_picker(cx);
+            return;
+        }
+        cx.notify();
+    }
+
+    /// Hand what was chosen to whoever asked for it, and take the dialog down.
+    pub fn commit_file_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(picker) = self.file_picker.take() else {
+            return;
+        };
+        let picked = picker.picked().to_vec();
+        match picker.request.owner {
+            PickerOwner::Sink => {
+                self.sink.picker.result = Some(picked);
+                self.sink.picker.dismissed = false;
+            }
+        }
+        cx.notify();
+    }
+
+    /// Take the dialog down with nothing chosen. Dismissed is not the same answer as an empty one,
+    /// so whoever asked is told which it was.
+    pub fn cancel_file_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(picker) = self.file_picker.take() else {
+            return;
+        };
+        match picker.request.owner {
+            PickerOwner::Sink => {
+                self.sink.picker.result = None;
+                self.sink.picker.dismissed = true;
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn start_picker_resize(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if let Some(picker) = self.file_picker.as_mut() {
+            picker.start_drag(at);
+        }
+        cx.notify();
+    }
+
+    /// Follow a corner drag. The window is what the dialog has to fit inside, so its size comes in
+    /// with the pointer.
+    pub fn drag_picker_resize(&mut self, at: (f32, f32), window: &Window, cx: &mut Context<Self>) {
+        let viewport = window.viewport_size();
+        if let Some(picker) = self.file_picker.as_mut()
+            && picker.drag_to(at, (f32::from(viewport.width), f32::from(viewport.height)))
+        {
+            cx.notify();
+        }
+    }
+
+    pub fn end_picker_resize(&mut self, cx: &mut Context<Self>) {
+        if let Some(picker) = self.file_picker.as_mut()
+            && picker.is_resizing()
+        {
+            picker.end_drag();
+            cx.notify();
+        }
     }
 
     // ── The log console ────────────────────────────────────────
@@ -3513,12 +3745,16 @@ impl AppState {
     /// to measured, which is the one change that owes the window another frame — a resize already
     /// asked for one.
     pub fn note_viewport_panel(&self, key: &str, bounds: Bounds<Pixels>) -> bool {
-        self.viewports.borrow_mut().entry(key.to_string()).or_default().set_panel(
-            f32::from(bounds.size.width),
-            f32::from(bounds.size.height),
-            f32::from(bounds.origin.x),
-            f32::from(bounds.origin.y),
-        )
+        self.viewports
+            .borrow_mut()
+            .entry(key.to_string())
+            .or_default()
+            .set_panel(
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height),
+                f32::from(bounds.origin.x),
+                f32::from(bounds.origin.y),
+            )
     }
 
     pub fn zoom_viewport(
@@ -3626,6 +3862,9 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
     ]);
+    // The file picker's, which are the field's as well as the dialog's and have to be registered
+    // after the component library's own — `ui::file_picker::key_bindings` says why.
+    cx.bind_keys(crate::ui::file_picker::key_bindings());
 }
 
 /// What a pane calls itself before its harness says otherwise: the program, without its path.

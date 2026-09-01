@@ -3,11 +3,11 @@ id: tech-ui
 title: UI and design
 kind: tech
 status: current
-summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface and modal is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
-read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal, looking at a primitive on the style reference, or looking for the wireframe a layout came from
+summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
+read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -200,6 +200,32 @@ dropdown is, so the two behave the same way and neither uses the scrim as a clic
 scrim occludes the mouse**, so nothing behind a modal can be clicked while it is up. It sits above
 the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
 
+**A dialog is that same modal, worked in rather than answered.** The file picker — `ui/file_picker.rs`,
+raised over any screen — keeps every rule the modal keeps and differs in the three ways a dialog with
+work in it has to: it opens at `DEFAULT_WIDTH` by `DEFAULT_HEIGHT` and is **resized from a corner
+grip**, never below `MIN_WIDTH` by `MIN_HEIGHT` and never past what the window can hold; the drag is
+tracked on the full-window layer rather than on the panel, so a pointer that outruns the corner does
+not strand it; and **whether an outside click dismisses it is the caller's**, because a dialog that
+holds the window until it is answered and one that goes away the moment attention leaves it are two
+different asks. The four sizes live beside the state, in `state/file_picker.rs`, because they are
+what a resize is clamped against rather than what a screen is laid out on.
+
+**A dialog is worked from the keyboard, and a binding against a field has to be registered late.**
+The component library's input binds `up`, `down`, `left`, `right`, `enter` and `escape` for itself, in
+the `Input` context — the deepest node in the tree, and depth is what breaks a keymap's ties. A screen
+that wants those keys while the focus is in a field binds each of them twice: once for its own
+context, and once for `ItsContext > Input`, which matches at the same depth as the library's and wins
+by being registered afterwards. `app::install_key_bindings` is called after `gpui_component::init` for
+exactly that reason. A handler that turns out to have no answer calls `cx.propagate()`, and the field
+gets its key back — which is how the picker's `left` and `right` are caret keys again in its flat
+list.
+
+**A row is one line, and a value that does not fit is elided.** `kit::elided` truncates with the
+system ellipsis and carries the whole string as its tooltip, which is why it takes an element id. A
+name, a path or a title that wrapped instead would push everything under it down, and a column of
+rows is scanned by its left edge — so nothing in a row, a footer or a card header is allowed a second
+line.
+
 ## How a screen is put together
 
 **`gpui-component` first.** Its `Icon`, `Kbd`, `Badge`, `Editor`, `Textarea`, `Scrollbar`, markdown
@@ -207,17 +233,19 @@ view and dock are used directly — the dock being the largest widget in the lib
 the window's arrangement, `D42`. `crates/ubiq/src/ui/kit/` holds only what the library
 does not give us — the slab every surface is drawn in and the card that is a slab you can pick, the
 state dot, the pill, the state chip, the toggle pill for an independent facet and the choice pill
-for one value of a set, the filled button a screen's single obvious action is drawn as, the stepper,
-the flat meter, the disclosure bar, the section label, the panel header, the shared tab strip, the
-progress ring, the painted layers in `canvas.rs`, and the one dropdown mechanism every menu in the
-window uses.
+for one value of a set, the tick box a row is chosen with where several may be, the elided run that
+says the whole of itself on hover, the filled button a screen's single obvious action is drawn as,
+the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared tab
+strip, the progress ring, the painted layers in `canvas.rs`, and the one dropdown mechanism every
+menu in the window uses.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two
 points, a dashed outline, a trail of grains, a ring at a percentage. Those go through GPUI's
 `canvas` element, and the reusable ones are `crates/ubiq/src/ui/kit/canvas.rs`: each is one layer
 that fills its parent absolutely, takes no click, and knows nothing about what it is drawing, so a
-caller stacks them in the order they should read. `progress_ring` in `controls.rs` is the same
+caller stacks them in the order they should read. The canvas element itself is sized to fill that
+layer; a canvas that only laid out to its content would paint into a strip at the top of the pane. `progress_ring` in `controls.rs` is the same
 device inline.
 
 **The kit knows nothing about the workbench.** Its interactive helpers take a plain

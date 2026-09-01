@@ -15,6 +15,7 @@
 //! it is painted.
 
 pub mod docs;
+pub mod files;
 pub mod style;
 
 use gpui::prelude::FluentBuilder as _;
@@ -66,11 +67,24 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     .into_any_element(),
             ),
         ))
-        .child(match section.doc() {
-            Some(doc) => docs::render(app, doc, cx),
-            None => style::render(app, cx),
+        .child(match section {
+            SinkSection::Style => style::render(app, cx),
+            SinkSection::Files => files::render(app, cx),
+            // Every other page is one document, drawn by the viewer its name implies.
+            other => match other.doc() {
+                Some(doc) => docs::render(app, doc, cx),
+                None => div().flex_1().into_any_element(),
+            },
         })
         .children(app.sink.modal.map(|which| raised(app, which, window, cx)))
+        // The picker belongs to the window rather than to this page — one may be up at a time —
+        // but it is painted from here, like the modal above it and for the same reason: where a
+        // dialog is asked for is not where it is drawn.
+        .children(
+            app.file_picker
+                .as_ref()
+                .map(|picker| crate::ui::file_picker::render(app, picker, window, cx)),
+        )
         .into_any_element()
 }
 
