@@ -1,17 +1,26 @@
 //! The file tree panel.
+//!
+//! Tree and list are the same set the host has named, arranged twice — the same two arrangements
+//! the file picker draws, through the same chrome in `ui::kit::files`. What is different is what
+//! a row can carry: git colour, a leading mark, a badge, a loading or truncated note, and a
+//! right-click menu. The picker ticks and confirms; this panel opens and decorates.
 
 use gpui::{
-    AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, div, px,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, KeyBinding, MouseButton,
+    MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, div, point, px,
 };
+use gpui_component::IconName;
 use gpui_component::input::Input;
-use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
-use crate::state::{GitStatus, Row};
+use crate::state::{ExplorerKey, ExplorerView, GitStatus, MenuId, Row};
 use crate::theme;
+use crate::ui::eid;
 use crate::ui::empty::empty_panel;
-use crate::ui::kit::{badge, icon_button, mono, panel, panel_header};
+use crate::ui::kit::{
+    ContextItem, badge, context_menu, elided, elided_with, file_row, filter_bar, icon_button,
+    kind_icon, mono, panel, panel_header, twisty, view_switch,
+};
 
 /// The colour a row's name and dot take from its git state. Status is never shown by wording alone.
 ///
@@ -38,6 +47,67 @@ fn name_colour(status: Option<GitStatus>, readable: bool) -> Rgba {
     }
 }
 
+fn icon_colour(status: Option<GitStatus>, readable: bool) -> Rgba {
+    match status {
+        Some(GitStatus::Ignored) | None if !readable => theme::text_faint(),
+        Some(_) => git_colour(status),
+        None => theme::text_faint(),
+    }
+}
+
+/// The key context the panel is answered in, and the one the component library gives the field
+/// inside it.
+const CONTEXT: &str = "Explorer";
+const FIELD_CONTEXT: &str = "Explorer > Input";
+
+gpui::actions!(
+    ubiq_explorer,
+    [
+        ExplorerUp,
+        ExplorerDown,
+        ExplorerOut,
+        ExplorerInto,
+        ExplorerEnter,
+        ExplorerDismiss
+    ]
+);
+
+/// The keys the panel answers to, bound twice each — once for the panel and once for the field
+/// inside it, for the same reason the picker's are: the focus is in the filter, and the component
+/// library's input binds the arrows for itself at the deepest node. See
+/// `ui::file_picker::key_bindings`.
+pub fn key_bindings() -> Vec<KeyBinding> {
+    fn both<A: gpui::Action + Clone>(key: &str, action: A) -> [KeyBinding; 2] {
+        [
+            KeyBinding::new(key, action.clone(), Some(CONTEXT)),
+            KeyBinding::new(key, action, Some(FIELD_CONTEXT)),
+        ]
+    }
+
+    [
+        both("up", ExplorerUp),
+        both("down", ExplorerDown),
+        both("left", ExplorerOut),
+        both("right", ExplorerInto),
+        both("enter", ExplorerEnter),
+        both("escape", ExplorerDismiss),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn answer(
+    this: &mut AppState,
+    key: ExplorerKey,
+    window: &mut gpui::Window,
+    cx: &mut Context<AppState>,
+) {
+    if !this.press_explorer_key(key, window, cx) {
+        cx.propagate();
+    }
+}
+
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     // With no project there is no folder to list. The panel stays, so the emptiness is explained
     // and the width the user dragged survives a project opening.
@@ -56,12 +126,41 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return div().into_any_element();
     };
     let selected = explorer.selected.clone();
-    let mut rows = Vec::new();
-    for row in explorer.rows(&app.workbench.file_filter) {
-        rows.push(tree_row(row, selected.as_deref(), cx));
-    }
+    let view = explorer.view;
+    let tree = view == ExplorerView::Tree;
+    let menu = explorer.menu.clone();
+    let menu_open = app.workbench.open_menu == Some(MenuId::Explorer);
 
-    panel()
+    let rows: Vec<AnyElement> = explorer
+        .drawn_rows(&app.workbench.file_filter)
+        .iter()
+        .map(|row| line(row, tree, selected.as_deref(), cx))
+        .collect();
+    let filtered_out = rows.is_empty() && !app.workbench.file_filter.trim().is_empty();
+
+    let mut body = panel()
+        .id("explorer")
+        .key_context(CONTEXT)
+        .on_action(
+            cx.listener(|this, _: &ExplorerUp, window, cx| {
+                answer(this, ExplorerKey::Up, window, cx)
+            }),
+        )
+        .on_action(cx.listener(|this, _: &ExplorerDown, window, cx| {
+            answer(this, ExplorerKey::Down, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerOut, window, cx| {
+            answer(this, ExplorerKey::Left, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerInto, window, cx| {
+            answer(this, ExplorerKey::Right, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerEnter, window, cx| {
+            answer(this, ExplorerKey::Enter, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerDismiss, window, cx| {
+            answer(this, ExplorerKey::Dismiss, window, cx)
+        }))
         .border_r_1()
         .border_color(theme::border())
         .child(panel_header(
@@ -70,56 +169,52 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap_1()
+                .child(view_switch(
+                    "explorer-tree",
+                    "explorer-list",
+                    tree,
+                    cx.listener(|this, _, _, cx| this.set_explorer_view(ExplorerView::Tree, cx)),
+                    cx.listener(|this, _, _, cx| this.set_explorer_view(ExplorerView::List, cx)),
+                ))
                 .child(icon_button(
                     "explorer-new",
                     IconName::Plus,
                     false,
-                    |_, _, _| {},
+                    cx.listener(|this, event: &ClickEvent, _, cx| {
+                        // The plus is the empty-area menu: new file and new folder live there,
+                        // even while those two still wait on the host.
+                        let at = event.position();
+                        this.open_explorer_menu(None, (f32::from(at.x), f32::from(at.y)), cx);
+                    }),
                 ))
                 .child(icon_button(
                     "explorer-collapse",
                     IconName::ChevronsUpDown,
                     false,
-                    cx.listener(|this, _, _, cx| {
-                        if let Some(open) = this.open_project_mut(cx) {
-                            open.explorer.collapse_all();
-                        }
-                        cx.notify();
-                    }),
+                    cx.listener(|this, _, _, cx| this.collapse_explorer(cx)),
                 )),
         ))
-        .child(
-            div().pr_3().pb_2().flex().flex_none().child(
-                div()
-                    .w_full()
-                    .h(px(32.))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .bg(theme::surface())
-                    .border_l(px(theme::ACCENT_EDGE))
-                    .border_color(theme::border())
-                    .child(
-                        Icon::new(IconName::Search)
-                            .with_size(Size::XSmall)
-                            .text_color(theme::text_faint()),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .text_size(px(12.5))
-                            .child(Input::new(&app.file_filter).appearance(false)),
-                    )
-                    .child(
-                        mono("\u{2318}P", theme::text_faint())
-                            .text_size(px(10.5))
-                            .px_1()
-                            .bg(theme::surface_raised()),
-                    ),
-            ),
-        )
+        .child(filter_bar(
+            Input::new(&app.file_filter).appearance(false),
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .child(
+                    mono(view.label(), theme::text_faint())
+                        .text_size(px(10.5))
+                        .flex_none()
+                        .px_1()
+                        .bg(theme::surface_raised()),
+                )
+                .child(
+                    mono("\u{2318}P", theme::text_faint())
+                        .text_size(px(10.5))
+                        .px_1()
+                        .bg(theme::surface_raised()),
+                ),
+        ))
         .child(
             div()
                 .id("explorer-tree")
@@ -127,81 +222,156 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .flex_col()
                 .flex_1()
                 .min_h(px(0.))
-                .pr_2()
                 .overflow_y_scroll()
+                .track_scroll(&app.explorer_scroll)
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                        this.open_explorer_menu(
+                            None,
+                            (f32::from(event.position.x), f32::from(event.position.y)),
+                            cx,
+                        );
+                    }),
+                )
+                .children(filtered_out.then(|| empty_panel("Nothing matches")))
                 .children(rows),
-        )
-        .into_any_element()
+        );
+
+    if menu_open && let Some(menu) = menu {
+        let items: Vec<ContextItem> = menu
+            .entries()
+            .into_iter()
+            .map(|entry| {
+                let item = ContextItem::new(entry.label());
+                match entry.ready() {
+                    true => item,
+                    false => item.disabled(),
+                }
+            })
+            .collect();
+        body = body.child(context_menu(
+            "explorer-menu",
+            point(px(menu.x), px(menu.y)),
+            items,
+            crate::ui::indexed(&cx.entity(), |this, index, _, cx| {
+                this.pick_explorer_action(index, cx);
+            }),
+            crate::ui::handler(&cx.entity(), |this, _, cx| this.dismiss_explorer_menu(cx)),
+        ));
+    }
+
+    body.into_any_element()
 }
 
-fn tree_row(row: Row, selected: Option<&str>, cx: &mut Context<AppState>) -> AnyElement {
-    let is_selected = selected == Some(row.path.as_str());
+fn line(row: &Row, tree: bool, selected: Option<&str>, cx: &mut Context<AppState>) -> AnyElement {
     let path = row.path.clone();
-    let is_dir = row.is_dir;
+    let is_selected = selected == Some(row.path.as_str());
+    let readable = row.readable;
 
-    let mut line = div()
-        .id(ElementId::Name(format!("tree-{}", row.path).into()))
-        .h(px(26.))
-        .pr_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
-        // The indent is drawn, not padded, so the accent bar of a selected row stays flush left.
-        .child(div().w(px(6.0 + row.depth as f32 * 14.0)).flex_none())
-        .child(if is_dir {
-            Icon::new(if row.expanded {
-                IconName::ChevronDown
-            } else {
-                IconName::ChevronRight
-            })
-            .with_size(Size::XSmall)
-            .text_color(theme::text_muted())
-            .into_any_element()
-        } else {
+    let mut line = file_row(
+        eid("explorer-row", &row.path),
+        row.depth,
+        is_selected,
+        row.on_cursor,
+    );
+
+    if tree && row.is_dir {
+        let folder = row.path.clone();
+        line = line.child(twisty(
+            eid("explorer-twisty", &row.path),
+            row.expanded,
+            cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.toggle_folder(folder.clone(), cx);
+            }),
+        ));
+    }
+
+    line = line.child(kind_icon(row.is_dir, icon_colour(row.git, readable)));
+
+    // A git mark is a decorator, not the row's identity: the icon already says file or folder,
+    // and the dot is what a status fills in. Unmarked rows look like the picker's.
+    if row.git.is_some() {
+        line = line.child(
             div()
                 .size(px(14.))
                 .flex()
                 .flex_none()
                 .items_center()
                 .justify_center()
-                .child(div().size(px(6.)).rounded_full().bg(git_colour(row.git)))
-                .into_any_element()
-        })
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(13.))
-                .text_color(name_colour(row.git, row.readable))
-                .child(SharedString::from(row.name.clone())),
+                .child(div().size(px(6.)).rounded_full().bg(git_colour(row.git))),
         );
+    }
+
+    line = line.child(elided_with(
+        eid("explorer-name", &row.path),
+        row.name.clone(),
+        match row.path.is_empty() {
+            true => row.name.clone(),
+            false => row.path.clone(),
+        },
+        name_colour(row.git, readable),
+        13.0,
+    ));
 
     if let Some(status) = row.git {
         line = line.child(badge(status.badge(), git_colour(row.git)));
     }
 
-    if is_selected {
-        line = line
-            .bg(theme::accent_soft())
-            .border_l_2()
-            .border_color(theme::accent());
+    if row.loading && row.expanded {
+        line = line.child(
+            mono("\u{2026}", theme::text_faint())
+                .text_size(px(11.))
+                .flex_none(),
+        );
     }
 
+    if row.truncated {
+        line = line.child(
+            mono("+", theme::text_faint())
+                .text_size(px(11.))
+                .flex_none(),
+        );
+    }
+
+    if !row.trailing.is_empty() {
+        line = line.child(
+            div()
+                .flex()
+                .flex_none()
+                .max_w(px(140.))
+                .font_family(theme::MONO_FONT)
+                .child(elided(
+                    eid("explorer-trailing", &row.path),
+                    row.trailing.clone(),
+                    theme::text_faint(),
+                    11.5,
+                )),
+        );
+    }
+
+    let menu_path = path.clone();
+    line = line.on_mouse_down(
+        MouseButton::Right,
+        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
+            this.open_explorer_menu(
+                Some(menu_path.clone()),
+                (f32::from(event.position.x), f32::from(event.position.y)),
+                cx,
+            );
+        }),
+    );
+
     // A row the host will not follow is drawn and does nothing: there is nothing behind it to
-    // list or to open.
-    if !row.readable {
+    // list or to open. The menu still opens, so the path can be copied.
+    if !readable {
         return line.into_any_element();
     }
 
-    line.on_click(cx.listener(move |this, _, _window, cx| {
-        if is_dir {
-            this.toggle_folder(path.clone(), cx);
-        } else {
-            this.select_file(path.clone(), cx);
-        }
+    line.on_click(cx.listener(move |this, _, window, cx| {
+        this.click_explorer_row(path.clone(), window, cx);
     }))
     .into_any_element()
 }

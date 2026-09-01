@@ -7,7 +7,7 @@ summary: Every folder in the workspace, what belongs in it, what must never go i
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml]
+code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -34,6 +34,7 @@ ubiq/
 │   └── agent-manager/   the harness-management library and its `am` CLI
 ├── vendor/
 │   └── gpui-terminal/   the terminal emulator component, vendored
+├── assets/              the logos the application icon is built from
 ├── _docs/               this library
 ├── _tools/              dev-only scripts, run through `just`
 ├── refs/                read-only checkouts of other projects, for reference
@@ -119,7 +120,9 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-proto/src/ids.rs` | The contract's id newtypes, and the one generator behind them | A second id scheme |
 | `ubiq-proto/src/bus.rs` | The hub, a client's end of it, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
+| `ubiq-proto/src/git.rs` | A project's repository as it crosses the bus: overview, working-tree map, errors | A `git2` type, a path on disk |
 | `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
+| `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
 | `ubiq-host/src/store/` | The catalogue, a project's tasks and the view state, behind three traits | Any opinion about what a view blob means |
@@ -161,6 +164,7 @@ environment set up.
 |---|---|
 | `_tools/docs.py` | Lints, indexes and drift-checks this library. Fronted by the `docs-*` recipes |
 | `_tools/excalidraw.py` | Converts, validates and renders the diagram format described in [`diagram-format.md`](./diagram-format.md) |
+| `_tools/icns.py` | Builds the macOS application icon from `assets/`. Fronted by `just icns`, consumed by `just bundle` |
 
 Nothing in `_tools/` is imported by the crates, and nothing in the crates is imported by it.
 

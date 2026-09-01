@@ -24,31 +24,11 @@ use std::thread;
 
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::files::{
-    DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion,
+    DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion, LIST_HIDE,
+    WALK_SKIP,
 };
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
-
-/// Folders a walk deeper than one level never descends into.
-///
-/// It bounds a depth the interface asked for; it does **not** hide a row, because a tree with rows
-/// missing is a tree that lies. An explicit request for one of these is answered in full, which is
-/// what makes the set uncontroversial: a false positive — a `build/` holding real source — costs one
-/// extra click rather than a hidden file.
-const NOT_DESCENDED: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    ".jj",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    ".venv",
-    "__pycache__",
-    ".direnv",
-    ".cache",
-];
 
 /// One directory's ceiling. Past it the listing says it is truncated.
 const MAX_ENTRIES: usize = 2_000;
@@ -58,9 +38,9 @@ const MAX_REPLY_ENTRIES: usize = 10_000;
 
 /// How deep a single request may ask to walk.
 ///
-/// One is what an expand asks for and is the overwhelming case. More exists for revealing a file
-/// that sits some way down, which needs the chain of directories above it — which is why this is
-/// small rather than absent.
+/// One is what an expand asks for. More is what the window's background cache uses, so a search
+/// can see files in folders nobody has opened, still bounded so a click cannot walk the whole of
+/// `node_modules`.
 const MAX_DEPTH: u8 = 3;
 
 /// The most a read returns unless the interface asks for less.
@@ -102,7 +82,7 @@ pub fn listing(root: &Path, rel_path: &str, depth: u8) -> Result<Vec<DirListing>
                 // asked for was answered above, whatever it is called.
                 if reached + 1 < depth
                     && entry.kind == EntryKind::Dir
-                    && !NOT_DESCENDED.contains(&entry.name.as_str())
+                    && !WALK_SKIP.contains(&entry.name.as_str())
                 {
                     next.push(entry.rel_path.clone());
                 }
@@ -144,12 +124,14 @@ fn one_level(root: &Path, rel_path: &str) -> Result<DirListing, FileError> {
             }
         };
 
+        let name = found.file_name().to_string_lossy().into_owned();
+        if LIST_HIDE.contains(&name.as_str()) {
+            continue;
+        }
         if entries.len() >= MAX_ENTRIES {
             truncated = true;
             break;
         }
-
-        let name = found.file_name().to_string_lossy().into_owned();
         let child_rel = path::child(rel_path, &name);
         entries.push(classify(root, &found, name, child_rel));
     }

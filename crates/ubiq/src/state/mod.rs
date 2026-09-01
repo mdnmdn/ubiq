@@ -37,7 +37,10 @@ pub use chat::{
 pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{PanelClass, PanelKind, Region};
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
-pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row, Toggle};
+pub use explorer::{
+    ExplorerAction, ExplorerEntry, ExplorerKey, ExplorerMenu, ExplorerPressed, ExplorerState,
+    ExplorerView, FileNode, GitStatus, NodeKind, Row, Toggle,
+};
 pub use file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest,
     PickerRow, PickerView,

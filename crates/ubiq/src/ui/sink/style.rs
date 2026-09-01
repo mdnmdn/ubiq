@@ -28,9 +28,10 @@ use crate::state::MenuId;
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    Picker, PickerStyle, Tab, badge, card, choice_pill, disclosure, ghost_button, icon_button,
-    meter, mono, panel_header, pill, primary_button, progress_ring, section_label, slab,
-    state_chip, status_dot, stepper, tab_strip, toggle_pill,
+    ContextItem, Picker, PickerStyle, Tab, badge, card, choice_pill, context_panel, disclosure,
+    file_row, filter_bar, ghost_button, icon_button, kind_icon, meter, mono, panel_header, pill,
+    primary_button, progress_ring, section_label, slab, state_chip, status_dot, stepper, tab_strip,
+    toggle_pill, view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -48,6 +49,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .child(typography())
         .child(surfaces(cx))
         .child(controls(app, cx))
+        .child(files(app, cx))
         .child(fields(app, window, cx))
         .child(modals(cx))
         .into_any_element()
@@ -491,6 +493,69 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         "A toggle is an independent facet; a choice is one value of a set. Off keeps its outline \
          so turning it back on does not move the row.",
         vec![buttons, pills, reports, level],
+    )
+}
+
+/// The file list the picker and the explorer share: the two arrangements, the filter, one row,
+/// and the menu a right-click raises.
+fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let tree = app.sink.files_tree;
+    let switch = labelled(
+        "view_switch",
+        view_switch(
+            "sink-files-tree",
+            "sink-files-list",
+            tree,
+            cx.listener(|this, _, _, cx| this.set_sink_files_tree(true, cx)),
+            cx.listener(|this, _, _, cx| this.set_sink_files_tree(false, cx)),
+        )
+        .into_any_element(),
+    );
+
+    let filter = labelled(
+        "filter_bar",
+        filter_bar(
+            mono("Go to file\u{2026}", theme::text_faint()).text_size(px(12.5)),
+            mono(
+                if tree { "Tree view" } else { "List view" },
+                theme::text_faint(),
+            )
+            .text_size(px(10.5))
+            .px_1()
+            .bg(theme::surface_raised()),
+        )
+        .into_any_element(),
+    );
+
+    let specimen = labelled(
+        "file_row",
+        file_row("sink-file-row", 1, true, true)
+            .child(kind_icon(false, theme::warning()))
+            .child(mono("main.rs", theme::warning()).text_size(px(13.)))
+            .child(badge("M", theme::warning()))
+            .into_any_element(),
+    );
+
+    let menu = labelled(
+        "context_menu",
+        context_panel(
+            "sink-context",
+            vec![
+                ContextItem::new("Open"),
+                ContextItem::new("Copy path"),
+                ContextItem::new("New file").disabled(),
+            ],
+            None,
+            None,
+        )
+        .into_any_element(),
+    );
+
+    group(
+        "Files",
+        "The picker and the explorer draw the same chrome. Colour, a leading mark and a badge \
+         are the caller's, so git state has somewhere to land.",
+        vec![row(vec![switch, filter]), row(vec![specimen, menu])],
     )
 }
 

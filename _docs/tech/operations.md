@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands.
 read_when: you are setting the project up, running or testing it, or adding a command
-updated: 2026-08-31
-verified: 2026-08-31
-code_anchors: [Justfile, _tools/docs.py]
+updated: 2026-09-01
+verified: 2026-09-01
+code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -68,6 +68,16 @@ everything else only when it complains. What the console does with the records i
 and an interactive stdin makes them hang rather than fail, which is the worse of the two outcomes.
 The application's own tests drive the coordinator over the bus and start real processes in
 pseudo-terminals for the same reason; they need no display.
+
+### Packaging
+
+| Command | Does |
+|---|---|
+| `just icns` | Build `target/AppIcon.icns` from the logo in `assets/` — the ten representations an `.iconset` needs, assembled by `iconutil` |
+| `just bundle` | Assemble `target/Ubiq.app`: release build of the binary, `AppIcon.icns`, and `_tools/Info.plist`. macOS-only, unsigned, for a local `.app` |
+
+`just bundle` requires macOS and Xcode's command line tools for `iconutil`. The bundle is unsigned
+and carries no hardened-runtime entitlements, so it launches locally but is not ready to distribute.
 
 ### Documentation
 

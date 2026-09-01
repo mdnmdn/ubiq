@@ -1,0 +1,154 @@
+//! Shared chrome for a file list: the picker and the explorer draw the same row.
+//!
+//! **A row is one line, always.** A name that does not fit is elided; nothing here wraps, because
+//! a wrapped row would push the rest of the list down and a list is scanned by its left edge. The
+//! indent is drawn rather than padded, so a selected row's accent bar stays flush left.
+//!
+//! The picker and the explorer are two arrangements of this chrome: the picker ticks and confirms,
+//! the explorer tints and badges. Colour, a leading mark and whatever sits at the far end are the
+//! caller's — that is what lets git state land on an explorer row without the picker learning
+//! version control.
+
+use gpui::{
+    App, ClickEvent, Div, ElementId, InteractiveElement, IntoElement, ParentElement, Rgba,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
+
+use crate::theme;
+use crate::ui::kit::controls::icon_button;
+
+/// How tall one row is, and how far each level of the tree indents it.
+pub const ROW_HEIGHT: f32 = 34.0;
+pub const INDENT: f32 = 16.0;
+
+/// The two-arrangement toggle: tree on the left, list on the right, lit when it is the one on
+/// screen.
+pub fn view_switch(
+    tree_id: &'static str,
+    list_id: &'static str,
+    tree: bool,
+    on_tree: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_list: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .border_1()
+        .border_color(theme::border())
+        .child(icon_button(tree_id, IconName::PanelLeft, tree, on_tree))
+        .child(icon_button(list_id, IconName::Menu, !tree, on_list))
+}
+
+/// The filter field's surface: a search mark, the field, and whatever the caller puts at the end
+/// — a prefilter chip, the name of the arrangement, a shortcut.
+///
+/// One field over both views on purpose: what was typed survives the toggle, because a user who
+/// cannot find something in the tree switches to the list to look for the same thing.
+pub fn filter_bar(field: impl IntoElement, trailing: impl IntoElement) -> impl IntoElement {
+    div().px_3().pb_2().flex().flex_none().child(
+        div()
+            .w_full()
+            .h(px(34.))
+            .px_2()
+            .flex()
+            .items_center()
+            .gap_2()
+            .bg(theme::surface())
+            .border_l(px(theme::ACCENT_EDGE))
+            .border_color(theme::border())
+            .child(
+                Icon::new(IconName::Search)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_size(px(12.5))
+                    .child(field),
+            )
+            .child(trailing),
+    )
+}
+
+/// One visible line, already indented and already marked for selection and the keyboard.
+///
+/// Two marks, and they say different things: the accent is what is chosen, and the keyboard's own
+/// bar is only where the next key lands. A row that is both keeps the accent — what is chosen
+/// outranks where the cursor happens to be — and takes the focus colour's edge to say the keyboard
+/// is there too.
+pub fn file_row(
+    id: impl Into<ElementId>,
+    depth: usize,
+    selected: bool,
+    on_cursor: bool,
+) -> Stateful<Div> {
+    let mut line = div()
+        .id(id)
+        .h(px(ROW_HEIGHT))
+        .pr_3()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(div().w(px(6.0 + depth as f32 * INDENT)).flex_none());
+
+    line = match (selected, on_cursor) {
+        (true, false) => line
+            .bg(theme::accent_soft())
+            .border_l_2()
+            .border_color(theme::accent()),
+        (true, true) => line
+            .bg(theme::accent_soft())
+            .border_l_2()
+            .border_color(theme::border_focus()),
+        (false, true) => line
+            .bg(theme::selected())
+            .border_l_2()
+            .border_color(theme::border_focus()),
+        (false, false) => line,
+    };
+
+    line
+}
+
+/// The chevron that opens a folder. Its own click target, so a row that *can* be chosen is opened
+/// by this and chosen by the rest of itself.
+pub fn twisty(
+    id: impl Into<ElementId>,
+    expanded: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .size(px(16.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(
+            Icon::new(match expanded {
+                true => IconName::ChevronDown,
+                false => IconName::ChevronRight,
+            })
+            .with_size(Size::XSmall)
+            .text_color(theme::text_muted()),
+        )
+        .on_click(on_click)
+}
+
+/// The folder-or-file mark a row leads with. Colour is the caller's: muted by default, a git
+/// token when the explorer has something to say.
+pub fn kind_icon(is_dir: bool, color: Rgba) -> impl IntoElement {
+    Icon::new(match is_dir {
+        true => IconName::Folder,
+        false => IconName::File,
+    })
+    .with_size(Size::XSmall)
+    .text_color(color)
+}

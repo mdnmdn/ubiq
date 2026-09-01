@@ -363,7 +363,9 @@ discovered by the half that wrote it.
 
 Everything Ubiq remembers about a project lives under its own config root, keyed by the project's
 ULID. Forgetting a project then cleans up completely, a read-only or missing folder still has its
-view state, no repository acquires a file to gitignore, and no team has to agree on one.
+view state, no repository acquires a file to gitignore, and no team has to agree on one. The git
+directory is inside the project's folder, so this covers it too: the host never writes a ref, never
+stages, and never lets libgit2 refresh the index stat cache.
 
 That root is movable — `--config-root`, then `UBIQ_CONFIG_DIR`, then the nearest `ubiq.toml`, then
 `~/.config/ubiq` — so a development run is self-contained by construction rather than by care. A
@@ -622,7 +624,8 @@ step by hand.
 
 `crates/ubiq-host` reads version control through `git2` and builds the hunks with `similar`. Both
 are the host's alone: the interface gains no dependency, because a `FileDiff` crosses the bus as
-rows with their line numbers on them.
+rows with their line numbers on them. The git family — the overview and the working-tree map — uses
+the same library, on a worker of its own; gitoxide is not a second reader.
 
 **Why:** the alternative is spawning `git diff` and parsing its output, which puts a text format
 between the host and the answer — the parser then owns every corner case the format has, and a

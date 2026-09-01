@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, or the status bar
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -341,11 +341,41 @@ rather than a flag beside it — so a region the user emptied by dragging its la
 closed. The `+` beside them opens a terminal, and is drawn only with a project open, because a pane
 runs in a project's folder.
 
-**The explorer draws the project's folder, one directory at a time.** Opening a project asks the host
-for its top level; expanding a folder asks for that folder's children, and only then. A repository's
-`node_modules` is therefore one row rather than a walk, and a tree the user never opens costs
-nothing. Clicking a folder expands it; clicking a file opens it; typing in the "Go to file…" field
-matches on the path.
+**The explorer draws the project's folder, one directory at a time, in the same two arrangements
+the file picker uses.** Opening a project asks the host for its top level; expanding a folder asks
+for that folder's children, and only then. A repository's `node_modules` is therefore one row
+rather than a walk, and a tree the user never opens costs nothing. The tree is the folders that
+have been opened, indented; the list is every match the host has already named, flat and sorted by
+name without case, each row saying which folder it came from. One filter field sits over both and
+what was typed survives the toggle. A filter finds rather than prunes: every folder already listed
+is walked while one is typed, and a folder with nothing matching under it drops out instead of
+drawing as empty. **The listings are cached in the window, filled in the background when the
+project opens**, so a search reads what is already named rather than waiting on the host. The walk's
+skip set is left alone — `node_modules` stays one row — and a cached listing does not expand the
+tree: collapsing is still not forgetting, and an unfiltered tree still shows only what the user
+opened. **A filter is debounced and walked off the frame, on a background thread.** Typing a letter does
+not clone or walk the cache on the keystroke: the field keeps the draft, the last result stays on
+screen, and after a short pause one snapshot — an `Arc` of the tree, not a copy — is walked on the
+background executor. Clearing the field is immediate. Clicking a folder in
+the tree expands it; clicking a file opens it; a folder in the list is only where the cursor lands.
+
+**The explorer is worked from the keyboard, and the field keeps it the whole time.** The keys that
+drive the rows are bound against the field as well as against the panel, so nothing has to be
+tabbed to. `up` and `down` move a cursor bar through the rows and stop at the ends; `right` opens
+the folder the cursor is on and then steps into it, `left` shuts it and then steps out to the
+folder holding it; `enter` opens a file and toggles a folder; `escape` closes the right-click menu,
+then clears the filter, then is handed back. What the panel has no answer for it hands back, which
+is how `left` and `right` are the field's own caret keys again in the flat list. The cursor is not
+the open file: the accent is the file that is open, the keyboard's bar is only where the next key
+lands.
+
+**A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD and
+Copy path, and prepares Rename and Delete; a folder offers Expand or Collapse, Copy path, and
+prepares New file, New folder, Rename and Delete; a click on the empty panel offers Collapse all
+and prepares New file and New folder. The four that create or remove a path are drawn and do
+nothing: nothing on the bus creates or removes a path yet, and a menu that hid those rows would
+have nowhere to put them when the host grows the family. The menu is the window's one open menu,
+dismissed by a click outside it or by escape.
 
 **A row the host will not follow is drawn and does nothing.** A symlink leading out of the project or
 nowhere, a socket, a device, a pipe: the row appears, faint, and takes no click. Drawing it is the
@@ -355,12 +385,14 @@ point — a tree with rows missing is a tree that lies about what is in the fold
 interface, for the same reason no file descriptor does: the folder the tree describes is the host's,
 and the two need not be on one machine.
 
-**The explorer states git position by colour and by badge — for the states something fills in.**
-Modified, untracked, conflicted, staged and ignored each take a colour from the status group and a
-single-letter badge, the colour so it reads at a glance and the badge so it does not rely on colour
-alone. Nothing reads version control, so every row draws unmarked and the status bar carries no
-branch. An unfilled mark is an absence, not a claim that a repository was consulted and answered
-clean.
+**The explorer states git position by colour and by badge.** Modified, untracked, conflicted, staged
+and ignored each take a colour from the status group and a single-letter badge, the colour so it
+reads at a glance and the badge so it does not rely on colour alone. The host's working-tree map
+fills those in: a path in the map gets a status, a path not in it is clean, and until a map has
+arrived every row is unmarked because nothing has been read. An untracked or ignored directory
+paints every child the same, because git does not look inside and a child not in the map is not
+clean. Clean and unread draw the same on the row; the status bar's branch is how a repository is
+known. A project that is not a repository draws no badges and no branch.
 
 **A tab exists from the click that asked for the file.** It appears at once, says it is reading, and
 fills when the bytes arrive — so a click has an effect, a second click cannot ask for the same file
@@ -451,10 +483,12 @@ back to its group to ask, because the dock takes a closed tab out before the win
 **The status bar reports facts, not intentions, and an absent fact is drawn as absent.** It reports
 on whatever is on screen, so the rail mode decides which set of facts it has. In IDE mode with a
 project open: the active file's project-relative path, what its save is doing when that is worth a
-word, the caret's real one-based line and column, the file's language, encoding and line ending, and
-the harness and mode the composer is set to. The caret and the language go with the file, so a window
-with no file open reports neither rather than a position in nothing. With no project open it says so
-and stops. On the agents screen there is no file and no caret to report, so it counts instead: how
+word, the project's branch (or detached short id, or unborn name) with ahead/behind and working-tree
+totals when those exist, the caret's real one-based line and column, the file's language, encoding
+and line ending, and the harness and mode the composer is set to. A project that is not a repository
+prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
+go with the file, so a window with no file open reports neither rather than a position in nothing.
+With no project open it says so and stops. On the agents screen there is no file and no caret to report, so it counts instead: how
 many sessions and agents there are, and how the agents are spread across the four states, each count
 in its state's colour. A count of zero is drawn as zero rather than dropped — "no agent is failing"
 is a fact, and it is the one the user is checking for. On the board it counts the work instead: how
@@ -803,7 +837,8 @@ primitives are in `ui/kit/`; the conventions behind that split are in
 
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
 project settings dialog and what was typed into the picker's and the explorer's filters;
-`explorer.rs` for the tree; `editor.rs`
+`explorer.rs` for the tree, the list, the keyboard and the right-click menu, drawing through the
+shared chrome in `ui/kit/files.rs`; `editor.rs`
 for the open files; `logs.rs` for the console's filter; `work.rs` for one project's work as the host
 describes it; `agents.rs` for the graph's view of that work; `board.rs` for the board's.
 
@@ -970,6 +1005,18 @@ makes an unsolicited listing harmless. `toggle()` answers whether flipping a fol
 host has to be asked. `expanded()` is what gets written down and `reopen()` is what reads it back,
 opening the folders a blob named as each of their parents arrives. The order the host sorted a
 listing in is kept rather than sorted again, so two windows on one project cannot disagree.
+`rows()` is the two arrangements — tree and list — and `press()` is every key, so the tests walk
+the cursor without a window. `unlisted_for_cache()` is the folders the background fill still cannot
+see into, skipping the walk's skip set so a cache does not list `node_modules`. `drawn_rows()` is
+what the panel paints: open folders when the field is empty, the last background hits when it is
+not, never a walk of the cache on the frame. `ExplorerMenu` is
+the right-click: `menu_entries()` is what it offers, and the four actions that wait on the host are
+present and not ready. `ui/explorer.rs` draws through `ui/kit/files.rs`, the same chrome the picker
+uses, and tints, badges and dots a row from `GitStatus`. `apply_git()` takes a `GitWorkingTree` and
+projects each pair onto that enum; `merge()` re-paints so an expand is not unmarked until the next
+refresh. A stale generation is discarded. An untracked or ignored directory in the map is inherited
+by every child `paint_git()` walks, which is what makes expanding a new folder mark the files
+inside it.
 
 `state/editor.rs` names the component library, unlike its neighbours, because a file's buffer *is*
 its state: `FileBody` is either `Loading`, the `Text` of a buffer with the bytes the host sent beside
@@ -1007,8 +1054,14 @@ never from inside one — and `diagram_drawn()` takes each answer back by its ke
 
 The file path through the two halves: `select_file()` opens a tab, queues its panel and sends
 `ReadProjectFile`; `open_diff()` opens a tab on a comparison and sends `DiffProjectFile`;
-`toggle_folder()` sends `ProjectTree` when a folder has never been listed; `save_active_file()` sends
-`WriteProjectFile` with the version the read came with. `activate_file()` and `closed_file_panel()`
+`toggle_folder()` sends `ProjectTree` when a folder has never been listed; `fill_explorer_cache()`
+sends the same message at `CACHE_DEPTH` for folders the background fill cannot see into yet, from
+project open, not from a keystroke; `schedule_explorer_filter()` debounces the field and
+`spawn_explorer_filter()` walks a snapshot on the background executor;
+`save_active_file()` sends
+`WriteProjectFile` with the version the read came with. Holding a project also sends `ProjectGit`
+and `RefreshProjectGit { full: true }`, a successful save and a pane exit send the full refresh
+again, and `ui/status_bar.rs` prints the overview's branch. `activate_file()` and `closed_file_panel()`
 are the other direction — the dock deciding which tab is in front and which has gone, which the
 editor learns from it rather than the other way round. Contents cannot become a buffer where they
 arrive, because a buffer needs a window and a message does not come with one, so they queue and
@@ -1018,8 +1071,9 @@ that reason and no other: `set_value` needs a window and a message does not come
 selection change, a project switch and a `TaskChanged` for the open task each leave a flag for the
 next frame to drain. Its guard is what stops it writing over what is being typed on every frame, and
 it fills from the record the host confirmed rather than from what was typed — never while a field is
-open. `install_key_bindings()` binds `⌘S` in the `Workbench` key context, and the binary
-calls it beside its own quit binding.
+open. `install_key_bindings()` binds `⌘S` in the `Workbench` key context, then the file picker's and
+the explorer's keys — each bound for the surface and for the field inside it, after the component
+library's own so they win — and the binary calls it beside its own quit binding.
 
 ## Failure
 
@@ -1029,7 +1083,7 @@ calls it beside its own quit binding.
 | A saved arrangement names a file | It is rebuilt from the payload beside it, at the tab and the layout it carried. A file panel with no payload names no tab and is dropped, like a terminal |
 | A saved arrangement's file panel names a tab the project no longer opens | The panel is hidden rather than drawn, so it keeps its place and comes back if the tab is opened again |
 | A file panel is dragged to a border region | It is moved back to the centre on the same edit. The open files are the centre in IDE mode, so a file on a border would leave nothing behind it |
-| A filter matches nothing | The tree renders empty; the filter field keeps what was typed |
+| A filter matches nothing | The panel says nothing matches; the filter field keeps what was typed. Hits still filling in the background appear as their listings land |
 | Every edge region is closed | The rail, titlebar and status bar remain; the centre region fills the dock |
 | A region is closed while it holds the console | The console goes with the region and comes back where it was left. Nothing leaves the tree |
 | The user empties a region by dragging its last panel out | The titlebar's switch for it reads as closed, because it reports the dock |
@@ -1071,6 +1125,10 @@ calls it beside its own quit binding.
 | A file is not text | The tab says so rather than drawing bytes as characters |
 | A file changed on disk since it was read | The save is refused, the file is left alone, and the tab and the status bar say so. Ubiq offers no merge |
 | A save fails for any other reason | The same report, cleared by the next edit |
+| The project is not a repository | The explorer's rows stay unmarked and the status bar prints no branch. That is an ordinary answer, not an error |
+| A repository exists and cannot be read | Badges clear rather than freeze at the last good answer. A corrupt object database is the case this exists for |
+| A working-tree reply is older than one already held | Discarded, so a slow walk cannot repaint what was true earlier |
+| A harness exits | The pane stays, and the window asks the host to refresh that project's version control |
 | A dirty tab is closed | The panel returns to its group with the tab turned into a question, and takes a second click. Bringing it forward withdraws it |
 | Contents arrive for a project the window no longer holds | Dropped. For one it holds but is not showing, they are put in their tab, which is there on the next switch |
 | Contents arrive for a tab that has been closed | Dropped, so nothing reopens under the user |
@@ -1089,7 +1147,7 @@ calls it beside its own quit binding.
 - [`chat.md`](./chat.md) — the panel that survives every mode switch
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the component conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — who owns which state, and why the interface asks
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the project, file and work families in full
+- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the project, file, git and work families in full
 - [`../backlog.md`](../backlog.md) — what the shell still lacks
 
 ## Next steps
@@ -1100,6 +1158,5 @@ calls it beside its own quit binding.
 - Write the graph's arrangement down, so a hand-placed card survives a restart.
 - Remember which of the board's columns were shut.
 - Reach a status change from the keyboard, so a card can move without a drag.
-- Keyboard navigation for the rail, the tabs and the explorer.
-- Give the explorer's git marks and the status bar a branch something to read.
+- Keyboard navigation for the rail and the tabs.
 - Make the titlebar's command field find a file in the project.

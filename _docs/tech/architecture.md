@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/projects.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs]
 review_cycle: quarterly
 ---
 
@@ -136,18 +136,22 @@ the transport beneath the contract.
 | The bus, and a pane's byte streams | `crates/ubiq-proto/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
 | Process and PTY lifecycle | `crates/ubiq-host/src/coordinator.rs` | Spawn, supervise, reap. One coordinator thread, started by the binary before the first window |
 | PTY streams and backpressure | `crates/ubiq-host/src/pty/` | `portable-pty` |
-| A project's folder, its files, a save and a diff | `crates/ubiq-host/src/files/` | The walk, the read, the atomic write and the comparison with version control, on a worker thread of their own so no listing blocks the coordinator |
+| A project's folder, its files, a save and a diff | `crates/ubiq-host/src/files/` | The walk, the read, the atomic write and one file's comparison with version control, on a worker thread of their own so no listing blocks the coordinator |
+| A project's repository | `crates/ubiq-host/src/git/` | The overview the status bar reads and the working-tree map the explorer's badges read, on a worker thread of their own so a cold status does not stall every pane |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
 | Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
 
-**Version control is read in `crates/ubiq-host/src/files/diff.rs`, and nowhere else.** A diff is
-not a file: its content is a comparison, so the host opens the repository, takes the blob at `HEAD`
-or the one staged in the index, works the hunks and their line numbers out, and sends them — which
-is what keeps a diff library out of the interface, on the discipline that keeps a VT parser out of
-the host. It rides the same single worker as the walk and the read, because inflating a blob from a
-cold `.git` is a syscall like any other.
+**Version control is read in two places, both in the host, both through `git2`.** A one-file diff
+lives in `crates/ubiq-host/src/files/diff.rs` and rides the files worker: the host opens the
+repository, takes the blob at `HEAD` or the one staged in the index, works the hunks and their line
+numbers out, and sends them — which is what keeps a diff library out of the interface, on the
+discipline that keeps a VT parser out of the host. The overview and the working-tree map live in
+`crates/ubiq-host/src/git/` on a worker of their own, because a cold status on a large repository is
+seconds and seconds on the files worker would stall every expand behind it. Neither half writes
+into a repository: status walks with the index-stat refresh turned off, and the git directory is
+inside the project's folder, so `D30` covers it.
 
 Four behaviours follow, and each is a thing the interface must not have to guess. The repository is
 looked for **upward from the project's root**, so a project that is a folder inside one is compared

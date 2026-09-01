@@ -118,6 +118,8 @@ pub enum MenuId {
     SinkPicker,
     /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
     SinkSettings,
+    /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.
+    Explorer,
 }
 
 pub struct WorkbenchState {

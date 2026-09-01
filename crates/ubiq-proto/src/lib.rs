@@ -13,12 +13,14 @@
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
+//! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
 //! - `work`: a task as it is written down, and the sessions and agents doing it
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
 
 pub mod bus;
 pub mod files;
+pub mod git;
 pub mod ids;
 pub mod log;
 pub mod messages;
