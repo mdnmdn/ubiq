@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::state::agents::{AgentId, AgentsState, Bucket, InspectorTab, Selection};
 use crate::state::{
     ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, RailMode, Toggle,
     WindowRegistry, WorkbenchState, prefs, sample,
@@ -194,6 +195,8 @@ pub struct AppState {
 
     pub workbench: WorkbenchState,
     pub chat: ChatState,
+    /// The agents screen: the orchestration graph, what is selected in it, and its tasks.
+    pub agents: AgentsState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
 
@@ -215,6 +218,9 @@ pub struct AppState {
     /// The component library's own state entities. Each open file owns its buffer, so none of
     /// them is the editor's.
     pub chat_input: Entity<TextareaState>,
+    /// The inspector's composer on the agents screen. A field of its own rather than the chat's,
+    /// because the two are two conversations and a shared draft would leak between them.
+    pub agent_input: Entity<TextareaState>,
     pub file_filter: Entity<InputState>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
     pub command_input: Entity<InputState>,
@@ -255,6 +261,13 @@ impl AppState {
                 .submit_on_enter(true)
         });
 
+        let agent_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Describe a task for this agent\u{2026}")
+                .auto_grow(1, 6)
+                .submit_on_enter(true)
+        });
+
         let file_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Go to file\u{2026}"));
 
@@ -290,6 +303,19 @@ impl AppState {
                 // The textarea submits on a bare Enter; Shift+Enter still inserts a newline and
                 // must not send.
                 InputEvent::PressEnter { shift: false, .. } => this.send_chat(window, cx),
+                _ => {}
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &agent_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    this.agents.draft = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.send_to_agent(window, cx),
                 _ => {}
             },
         ));
@@ -386,6 +412,7 @@ impl AppState {
             pending_focus: None,
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
+            agents: sample::agents(),
             logs: LogState::default(),
             adopt_on_list: false,
             adding: false,
@@ -394,6 +421,7 @@ impl AppState {
             columns,
             centre,
             chat_input,
+            agent_input,
             file_filter,
             command_input,
             project_search,
@@ -1782,6 +1810,117 @@ impl AppState {
         cx.notify();
     }
 
+    // ── The agents screen ───────────────────────────────────────────
+
+    /// Point the screen at a session or at one agent. Both are selections, and everything else on
+    /// the screen — the graph's session, the inspector, the tasks drawer — is a function of this
+    /// one field.
+    pub fn select_in_graph(&mut self, selection: Selection, cx: &mut Context<Self>) {
+        self.agents.selection = Some(selection);
+        cx.notify();
+    }
+
+    pub fn toggle_agent_bucket(&mut self, bucket: Bucket, cx: &mut Context<Self>) {
+        self.agents.toggle_bucket(bucket);
+        cx.notify();
+    }
+
+    pub fn zoom_graph(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.agents.zoom_by(delta);
+        cx.notify();
+    }
+
+    pub fn reset_graph_zoom(&mut self, cx: &mut Context<Self>) {
+        self.agents.zoom = 1.0;
+        cx.notify();
+    }
+
+    pub fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
+        self.agents.show_inspector = !self.agents.show_inspector;
+        cx.notify();
+    }
+
+    pub fn toggle_tasks_drawer(&mut self, cx: &mut Context<Self>) {
+        self.agents.tasks_open = !self.agents.tasks_open;
+        cx.notify();
+    }
+
+    /// Select one agent and put the inspector on its thread — what the `chat` affordance on a card
+    /// does, and the one place the screen changes two things at once, because a card asking for a
+    /// conversation with the panel shut has asked for nothing.
+    pub fn open_agent_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        self.agents.selection = Some(Selection::Agent(agent));
+        self.agents.tab = InspectorTab::Chat;
+        self.agents.show_inspector = true;
+        cx.notify();
+    }
+
+    pub fn select_inspector_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.agents.tab = if index == 0 {
+            InspectorTab::Chat
+        } else {
+            InspectorTab::Tasks
+        };
+        cx.notify();
+    }
+
+    /// Pick a card up. Selecting it too, because what is being moved is what the user is looking
+    /// at, and a drag that left the inspector on something else would be reporting on the wrong
+    /// agent.
+    pub fn start_agent_carry(&mut self, agent: AgentId, grab: (f32, f32), cx: &mut Context<Self>) {
+        self.agents.start_carry(agent, grab);
+        self.agents.selection = Some(Selection::Agent(agent));
+        cx.notify();
+    }
+
+    /// Move the carried card, and lay a grain of sand where the pointer passed.
+    ///
+    /// The trail is skipped when the system asks for reduced motion — it is the only motion on
+    /// this screen, and the card still follows the pointer without it.
+    pub fn carry_agent_to(&mut self, at: (f32, f32), pointer: (f32, f32), cx: &mut Context<Self>) {
+        if cx.reduce_motion() {
+            if let Some(carry) = self.agents.carry
+                && let Some(agent) = self.agents.agent_mut(carry.agent)
+            {
+                agent.at = at;
+            }
+        } else {
+            self.agents.carry_to(at, pointer, std::time::Instant::now());
+        }
+        cx.notify();
+    }
+
+    /// Put the carried card down, and move it into whatever container it landed in.
+    pub fn end_agent_carry(&mut self, cx: &mut Context<Self>) {
+        self.agents.end_carry();
+        cx.notify();
+    }
+
+    /// What the composer sends, into the selected agent's thread.
+    pub fn send_to_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.agents.send() {
+            return;
+        }
+        let input = self.agent_input.clone();
+        input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Age the drag trail by one frame, and answer whether it still owes the window another.
+    ///
+    /// A drag that ended outside the graph — on the inspector, or off the window — never reaches
+    /// the canvas's drop handler, so a carry with no live drag behind it is put down here. That is
+    /// what stops a card sticking to the pointer after the button came up somewhere else.
+    fn settle_graph(&mut self, cx: &mut Context<Self>) {
+        if self.agents.carry.is_some() && !cx.has_active_drag() {
+            self.agents.end_carry();
+        }
+        self.agents.settle_sand(std::time::Instant::now());
+    }
+
     // ── Chat ────────────────────────────────────────────────────────
 
     pub fn send_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1823,6 +1962,7 @@ impl Render for AppState {
         self.take_focus(window, cx);
         self.apply_pending_sizes(window, cx);
         self.attach_arrived_files(window, cx);
+        self.settle_graph(cx);
         ui::shell::render(self, window, cx)
     }
 }

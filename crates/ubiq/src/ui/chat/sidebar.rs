@@ -9,7 +9,9 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::app::AppState;
 use crate::state::RunState;
 use crate::theme;
-use crate::ui::kit::{ghost_button, icon_button, mono, pill, progress_ring, section_label};
+use crate::ui::kit::{
+    ghost_button, icon_button, mono, pill, progress_ring, section_label, state_chip,
+};
 
 pub fn header(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -112,9 +114,9 @@ pub fn chat_list(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement
 /// wording alone.
 pub fn status_strip(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let run = app.chat.run;
-    let (dot, label_colour) = match run {
-        RunState::Idle => (theme::text_faint(), theme::text_muted()),
-        RunState::Working => (theme::warning(), theme::text()),
+    let dot = match run {
+        RunState::Idle => theme::text_faint(),
+        RunState::Working => theme::warning(),
     };
     let pct = app.chat.context_pct();
 
@@ -128,11 +130,7 @@ pub fn status_strip(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElem
         .border_t_1()
         .border_b_1()
         .border_color(theme::border())
-        .child(
-            pill(dot)
-                .child(div().size(px(8.)).flex_none().rounded_full().bg(dot))
-                .child(mono(run.label(), label_colour).text_size(px(11.5))),
-        )
+        .child(state_chip(run.label(), dot, 1.0))
         .child(
             pill(theme::accent())
                 .child(progress_ring(pct, 13.0))

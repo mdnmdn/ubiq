@@ -37,6 +37,12 @@ pub const DOCK_HEIGHT: f32 = 300.0;
 pub const DOCK_MIN: f32 = 120.0;
 pub const DOCK_MAX: f32 = 600.0;
 
+/// The agents screen: the inspector beside the graph, the tasks drawer under it, and the pitch of
+/// the graph's dotted ground at 100% zoom.
+pub const INSPECTOR_WIDTH: f32 = 420.0;
+pub const TASKS_HEIGHT: f32 = 220.0;
+pub const GRAPH_DOT_PITCH: f32 = 28.0;
+
 // ── Palette groups ──────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]
@@ -373,6 +379,18 @@ pub fn palette_for(id: ThemeId) -> Theme {
     match id {
         ThemeId::Dark => dark(),
         ThemeId::Light => light(),
+    }
+}
+
+/// The same colour at another alpha.
+///
+/// Not a colour of its own: a token stays the token it was, and this is how something that has to
+/// sit under, over or beside a surface — a glow, a fading grain of sand, a connector — borrows one
+/// without inventing a shade.
+pub fn fade(colour: Rgba, alpha: f32) -> Rgba {
+    Rgba {
+        a: colour.a * alpha.clamp(0.0, 1.0),
+        ..colour
     }
 }
 

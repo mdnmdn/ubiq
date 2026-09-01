@@ -6,6 +6,7 @@
 //! Screen areas are free functions over the root view rather than views of their own, which keeps
 //! one place — `AppState` — responsible for state and redraws.
 
+pub mod agents;
 pub mod chat;
 pub mod editor;
 pub mod empty;
