@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion};
+use crate::git::{self, GitEntry, GitRollup, RepoOverview};
 use crate::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
@@ -225,6 +226,43 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         error: FileError,
+    },
+
+    // ── Git family: UI → host ───────────────────────────────────────
+    // Every variant names a project, because the interface holds no repository identity of its
+    // own — a repository is a fact about a project, discovered by the host. Nothing in this
+    // family is broadcast: a project is open in exactly one window, so the window that asked is
+    // the only one drawing it. Not a repository is [`Message::GitOverview`] with `overview`
+    // absent, not an error.
+    /// What the status bar reads. Cheap: refs and a handful of files in the git directory.
+    ProjectGit {
+        project_id: ProjectId,
+    },
+    /// Re-read the repository. `full` also walks the working tree for the explorer's badges.
+    RefreshProjectGit {
+        project_id: ProjectId,
+        full: bool,
+    },
+
+    // ── Git family: host → UI ───────────────────────────────────────
+    /// `overview` absent means the project is not in a repository. That is an ordinary answer.
+    GitOverview {
+        project_id: ProjectId,
+        overview: Option<RepoOverview>,
+    },
+    /// Paths that have something to say, plus a rollup for every ancestor directory of those
+    /// paths. A row not in the map is clean. `generation` is how a stale walk is discarded.
+    GitWorkingTree {
+        project_id: ProjectId,
+        generation: u64,
+        entries: Vec<GitEntry>,
+        rollups: Vec<GitRollup>,
+        truncated: bool,
+    },
+    /// A repository that exists and could not be read.
+    GitError {
+        project_id: ProjectId,
+        error: git::GitError,
     },
 
     // ── Work family: UI → host ──────────────────────────────────────

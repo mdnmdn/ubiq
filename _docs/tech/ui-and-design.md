@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -219,8 +219,8 @@ that wants those keys while the focus is in a field binds each of them twice: on
 context, and once for `ItsContext > Input`, which matches at the same depth as the library's and wins
 by being registered afterwards. `app::install_key_bindings` is called after `gpui_component::init` for
 exactly that reason. A handler that turns out to have no answer calls `cx.propagate()`, and the field
-gets its key back — which is how the picker's `left` and `right` are caret keys again in its flat
-list.
+gets its key back — which is how the picker's and the explorer's `left` and `right` are caret keys
+again in a flat list.
 
 **A row is one line, and a value that does not fit is elided.** `kit::elided` truncates with the
 system ellipsis and carries the whole string as its tooltip, which is why it takes an element id. A
@@ -238,8 +238,10 @@ state dot, the pill, the state chip, the toggle pill for an independent facet an
 for one value of a set, the tick box a row is chosen with where several may be, the elided run that
 says the whole of itself on hover, the filled button a screen's single obvious action is drawn as,
 the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared tab
-strip, the progress ring, the painted layers in `canvas.rs`, and the one dropdown mechanism every
-menu in the window uses.
+strip, the progress ring, the painted layers in `canvas.rs`, the file-list chrome the picker and the
+explorer share in `files.rs`, and the one dropdown mechanism every menu in the window uses — plus
+the context menu a right-click raises, which is that same panel opened at the pointer rather than
+from a trigger.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two

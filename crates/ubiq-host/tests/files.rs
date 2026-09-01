@@ -190,6 +190,28 @@ fn the_ignore_set_bounds_a_deep_walk_and_not_an_explicit_one() {
 }
 
 #[test]
+fn a_ds_store_is_omitted_from_every_listing() {
+    let dir = project();
+    fs::write(dir.path().join(".DS_Store"), b"junk").unwrap();
+    fs::write(dir.path().join("sub/.DS_Store"), b"junk").unwrap();
+
+    let root = &files::listing(dir.path(), "", 1).unwrap()[0];
+    assert!(
+        root.entries.iter().all(|e| e.name != ".DS_Store"),
+        "macOS junk was listed at the root: {:?}",
+        root.entries.iter().map(|e| &e.name).collect::<Vec<_>>()
+    );
+    assert!(root.entries.iter().any(|e| e.name == "top.txt"));
+
+    let sub = &files::listing(dir.path(), "sub", 1).unwrap()[0];
+    assert!(
+        sub.entries.iter().all(|e| e.name != ".DS_Store"),
+        "macOS junk was listed in a folder"
+    );
+    assert!(sub.entries.iter().any(|e| e.name == "inner.txt"));
+}
+
+#[test]
 fn a_directory_over_the_ceiling_is_truncated() {
     let dir = TempDir::new().unwrap();
     for n in 0..2_100 {

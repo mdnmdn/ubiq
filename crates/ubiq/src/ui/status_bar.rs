@@ -4,12 +4,13 @@
 //!
 //! It reports facts, never intentions, and an absent fact is drawn as absent. It reports on
 //! whatever is on screen, which is why the rail mode picks which set of facts it has: a caret in a
-//! screen with no buffer is not a fact. Nothing reads version control, so there is no branch and no
-//! working-tree count here — a readout nobody can answer for is worse than none.
+//! screen with no buffer is not a fact. A project in a repository prints its branch; a project
+//! that is not one prints nothing git-related.
 
-use gpui::{Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::{App, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitHead, GitOperation};
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
@@ -156,6 +157,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         // takes the danger colour, because it is the only thing here the user has to act on.
         .children(active.and_then(save_state))
         .child(div().flex_1().min_w(px(0.)))
+        .children(git_readout(app, cx))
         // A config root you cannot see is a foot-gun, so a run pointed anywhere but the usual
         // place says so.
         .children(config_root(app))
@@ -180,4 +182,71 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             )),
             theme::text_muted(),
         ))
+}
+
+/// Branch, tracking, working-tree totals — or nothing, when the project is not a repository.
+fn git_readout(app: &AppState, cx: &App) -> Option<impl IntoElement> {
+    let open = app.open_project(cx)?;
+    let overview = open.git.as_ref()?;
+    let mut parts = Vec::new();
+    if let Some(operation) = overview.operation {
+        parts.push(operation_label(operation).to_string());
+    }
+    parts.push(match &overview.head {
+        GitHead::Branch(name) => name.clone(),
+        GitHead::Detached { short_id } => format!("detached {short_id}"),
+        GitHead::Unborn(name) => name.clone(),
+    });
+    match (overview.ahead, overview.behind) {
+        (Some(ahead), Some(behind)) if ahead > 0 || behind > 0 => {
+            parts.push(format!("↑{} ↓{}", capped(ahead), capped(behind)));
+        }
+        _ => {}
+    }
+    if let Some(counts) = overview.counts {
+        let label = counts_label(counts);
+        if !label.is_empty() {
+            parts.push(label);
+        }
+    }
+    if open.git_truncated {
+        parts.push("…".to_string());
+    }
+    Some(mono(parts.join("  "), theme::text_muted()))
+}
+
+fn operation_label(operation: GitOperation) -> &'static str {
+    match operation {
+        GitOperation::Merge => "merge",
+        GitOperation::Rebase | GitOperation::RebaseInteractive => "rebase",
+        GitOperation::CherryPick => "cherry-pick",
+        GitOperation::Revert => "revert",
+        GitOperation::Bisect => "bisect",
+        GitOperation::ApplyMailbox => "am",
+    }
+}
+
+fn capped(n: u32) -> String {
+    if n >= AHEAD_BEHIND_CAP {
+        "99+".to_string()
+    } else {
+        n.to_string()
+    }
+}
+
+fn counts_label(counts: GitCounts) -> String {
+    let mut parts = Vec::new();
+    if counts.conflicted > 0 {
+        parts.push(format!("{}!", counts.conflicted));
+    }
+    if counts.modified > 0 {
+        parts.push(format!("{}M", counts.modified));
+    }
+    if counts.staged > 0 {
+        parts.push(format!("{}S", counts.staged));
+    }
+    if counts.untracked > 0 {
+        parts.push(format!("{}U", counts.untracked));
+    }
+    parts.join(" ")
 }

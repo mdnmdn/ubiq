@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file and work families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git and work families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/work.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -196,8 +196,12 @@ seam a remote drone slots into: a project id and a relative path do not say whic
 **A listing is one directory.** `depth` asks the host to descend, and it is clamped; the reply is a
 flat list of one-level listings whatever was asked for, so a depth change never changes a type. The
 interface asks for `depth: 1` when a folder is expanded, which is why a repository's `node_modules`
-costs one row rather than a walk. A directory over the host's entry ceiling comes back `truncated`
-rather than quietly short.
+costs one row rather than a walk, and for more than one in the background when a project opens, so
+the window's file cache is full enough to search without waiting. `WALK_SKIP` in `files.rs` is the
+names a depth walk does not descend into; an explicit listing of one of them is still answered in
+full. `LIST_HIDE` is the leaf names omitted from every listing, including an explicit one — junk
+files that are never user content, `.DS_Store` today. A directory over the host's entry ceiling
+comes back `truncated` rather than quietly short.
 
 **Contents cross as bytes**, on the same discipline that keeps terminal bytes uninterpreted: a read
 cut short at the ceiling can sever a multi-byte sequence, a binary file has no text at all, and which
@@ -231,9 +235,49 @@ each arm is a different thing for the interface to do rather than a sentence to 
 does not re-probe a project's health for a file failure**; a `Missing` or a `Denied` is the
 interface's cue to send `RefreshProject`, which is the project family's job.
 
+## The git family
+
+The fifth family. Every variant names a project, because the interface holds no repository identity
+of its own — a repository is a fact about a project, discovered by the host. Nothing in this family
+is broadcast: a project is open in exactly one window, so the window that asked is the only one
+drawing it. No absolute path crosses; a repository root above the project, or a prefix inside one,
+is a relative string.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ProjectGit` | UI → host | `project_id` | `GitOverview` or `GitError` |
+| `RefreshProjectGit` | UI → host | `project_id`, `full` | `GitOverview`, and `GitWorkingTree` when `full`; or `GitError` |
+| `GitOverview` | host → UI | `project_id`, `overview?` | — |
+| `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `truncated` | — |
+| `GitError` | host → UI | `project_id`, `error` | — |
+
+**`overview` absent is an ordinary answer**, not a failure: the project is not in a repository, and
+the interface draws no branch and no badges. `GitError` is for a repository that exists and could
+not be read — `NotFound`, `Corrupt`, `Denied`, `Interrupted` or `Failed`.
+
+**The overview is cheap.** It is refs and a handful of files in the git directory: `HEAD` as a
+branch name, a detached short id or an unborn name; the upstream and ahead/behind when there is
+one, capped at 99; an in-progress operation; whether the repository is bare. Working-tree counts
+ride with a full refresh, and are absent rather than zero on a bare or unborn repository, and
+absent until a walk has run.
+
+**The working-tree map carries only paths that have something to say.** A row not in the map is
+clean, once a map has arrived. An entry is a pair — how the index differs from HEAD, how the
+worktree differs from the index — plus whether the path is conflicted or ignored. The interface's
+single status is a projection of that pair, stated on `GitEntry::mark` so two windows cannot
+disagree: conflicted, else worktree untracked, else a worktree change, else an index change, else
+ignored. A file both staged and modified draws as modified. Directories get a rollup of the
+children's worst case, sent by the host because the explorer expands one level at a time and cannot
+derive a folder's badge from children it has not asked for. Past the entry ceiling the map is
+`truncated`. `.DS_Store` is omitted from the map the way it is omitted from a listing.
+
+**A reply carries a generation**, bumped when a full refresh starts. The interface discards an older
+one. A second full refresh for a project still walking replaces the queued one rather than lining
+up behind it.
+
 ## The work family
 
-The fifth family. **Every variant names a project by id**, because the work belongs to a project:
+The sixth family. **Every variant names a project by id**, because the work belongs to a project:
 its tasks are written down under that project's own directory in Ubiq's config root, and its
 sessions and agents are minted per project. A task id alone would not say which store to write.
 

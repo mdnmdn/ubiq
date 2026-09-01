@@ -769,6 +769,8 @@ pub struct SinkState {
     pub disclosed: bool,
     /// Which row of the demo menu was picked.
     pub picked: usize,
+    /// The style reference's file-list toggle: tree when true, list when false.
+    pub files_tree: bool,
     /// The file picker page: how the next dialog is asked for, and what the last one answered.
     pub picker: PickerDemo,
     /// Application settings: the nav, the rows, the harness accordion.
@@ -788,6 +790,7 @@ impl Default for SinkState {
             level: 60,
             disclosed: true,
             picked: 0,
+            files_tree: true,
             picker: PickerDemo::default(),
             settings: SettingsDemo::default(),
             project: ProjectDemo::default(),

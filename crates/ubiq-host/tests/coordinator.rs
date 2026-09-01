@@ -474,6 +474,53 @@ fn a_tree_request_is_answered_to_the_window_that_asked() {
 }
 
 #[test]
+fn a_git_request_is_answered_to_the_window_that_asked() {
+    let (hub, ui) = coordinator();
+    let other = hub.connect();
+    let (project_id, path) = a_project(&ui);
+    let output = std::process::Command::new("git")
+        .current_dir(&path)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Ubiq")
+        .env("GIT_AUTHOR_EMAIL", "ubiq@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Ubiq")
+        .env("GIT_COMMITTER_EMAIL", "ubiq@example.invalid")
+        .args(["init", "-q", "-b", "main"])
+        .output()
+        .expect("git");
+    assert!(output.status.success(), "git init failed");
+
+    ui.send(Message::ProjectGit { project_id });
+
+    let overview = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::GitOverview {
+                project_id: id,
+                overview,
+            }) => {
+                assert_eq!(id, project_id);
+                break overview;
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("git was never answered"),
+        }
+    };
+    let overview = overview.expect("the project is a repository");
+    assert_eq!(
+        overview.head,
+        ubiq_proto::git::GitHead::Unborn("main".into())
+    );
+
+    while let Ok(message) = other.from_host().recv_timeout(Duration::from_millis(200)) {
+        assert!(
+            !matches!(message, Message::GitOverview { .. }),
+            "an overview reached a window that did not ask for it"
+        );
+    }
+}
+
+#[test]
 fn a_file_request_for_an_unknown_project_is_refused() {
     let (_hub, ui) = coordinator();
     let project_id = ProjectId::generate();

@@ -10,6 +10,7 @@ path or a flag.
 |---|---|---|
 | `docs.py` | `just docs-lint`, `docs-index`, `docs-check`, `docs-drift`, `docs-touched`, `docs-graph` | Maintains `_docs/`: the mechanical checks, the generated catalogue and code map, the drift queue, and the map from a diff to the documents it obliges you to update |
 | `excalidraw.py` | `just diagram` | Converts, validates and renders the compact diagram format the wireframes are authored in |
+| `icns.py` | `just icns`, `just bundle` | Builds the macOS application icon from the logo in `assets/` — the ten representations an `.iconset` needs — through `iconutil` |
 
 What the check ids mean and what to do about each is in `_docs/_meta/librarian.md`. The diagram
 format is specified in `_docs/tech/diagram-format.md`.

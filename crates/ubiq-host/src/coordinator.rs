@@ -17,6 +17,7 @@ use ubiq_proto::projects::ProjectHealth;
 
 use crate::config::ConfigRoot;
 use crate::files::{self, Files};
+use crate::git::{self, Git};
 use crate::health;
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
@@ -51,6 +52,9 @@ struct Coordinator {
     /// The thread that reads and writes a project's files. Nothing in the file family touches disk
     /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
     files: Files,
+    /// The thread that reads a project's repository. A status walk is seconds on a large tree, and
+    /// seconds here would stall every pane behind it.
+    git: Git,
     /// Anything the catalogue wanted said before a window existed to hear it — a corrupt store,
     /// most usefully. Delivered to the first window that attaches.
     pending: Vec<Reply>,
@@ -80,6 +84,7 @@ impl Coordinator {
             projects,
             work,
             files: Files::start(),
+            git: Git::start(),
             pending,
             pane_projects: HashMap::new(),
             panes: HashMap::new(),
@@ -281,6 +286,7 @@ impl Coordinator {
                 // tasks on disk are already gone. This is the memory that was left, and this
                 // is the only place that knows both services.
                 self.work.forget(project_id);
+                self.git_forget(client, project_id);
                 self.answer(client, replies);
             }
             Message::UpdateProject {
@@ -293,6 +299,7 @@ impl Coordinator {
             }
             Message::LocateProject { project_id, path } => {
                 let replies = self.projects.locate(project_id, &path);
+                self.git_forget(client, project_id);
                 self.answer(client, replies);
             }
             Message::OpenedProject { project_id } => {
@@ -359,6 +366,22 @@ impl Coordinator {
                     base,
                 };
                 self.file_job(client, project_id, &rel_path, request);
+            }
+
+            // ── the git family ──────────────────────────────────────
+            // Two arms, no syscall: the record is a lookup in memory and the work goes to the
+            // worker with the root it resolved against. A status walk on this thread would stall
+            // every pane behind it.
+            Message::ProjectGit { project_id } => {
+                self.git_job(client, project_id, git::Request::Overview);
+            }
+            Message::RefreshProjectGit { project_id, full } => {
+                let request = if full {
+                    git::Request::Full
+                } else {
+                    git::Request::Overview
+                };
+                self.git_job(client, project_id, request);
             }
 
             // ── the work family ─────────────────────────────────────
@@ -541,6 +564,36 @@ impl Coordinator {
             project_id,
             root: PathBuf::from(&record.path),
             request,
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
+    /// Hand one git-family request to the worker.
+    ///
+    /// The only thing this decides is which folder the request is against; a project the catalogue
+    /// does not hold is refused here rather than reaching a thread that could not answer it.
+    fn git_job(&self, client: ClientId, project_id: ProjectId, request: git::Request) {
+        let Some(record) = self.projects.record(project_id) else {
+            self.host.send(
+                To::Client(client),
+                git::git_error(project_id, ubiq_proto::git::GitError::NotFound),
+            );
+            return;
+        };
+
+        self.git.submit(git::Job {
+            project_id,
+            root: PathBuf::from(&record.path),
+            request,
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
+    fn git_forget(&self, client: ClientId, project_id: ProjectId) {
+        self.git.submit(git::Job {
+            project_id,
+            root: PathBuf::new(),
+            request: git::Request::Forget,
             reply_to: self.host.mailbox(To::Client(client)),
         });
     }

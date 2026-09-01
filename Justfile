@@ -18,6 +18,20 @@ verbose:
 build:
     cargo build --workspace --release
 
+# Build the macOS application icon from the logo in assets/
+icns:
+    uv run _tools/icns.py
+
+# Assemble Ubiq.app in target/ — icon, binary, Info.plist
+bundle:
+    uv run _tools/icns.py
+    cargo build -p ubiq-app --release
+    rm -rf target/Ubiq.app
+    mkdir -p target/Ubiq.app/Contents/MacOS target/Ubiq.app/Contents/Resources
+    cp target/release/ubiq target/Ubiq.app/Contents/MacOS/ubiq
+    cp target/AppIcon.icns target/Ubiq.app/Contents/Resources/AppIcon.icns
+    cp _tools/Info.plist target/Ubiq.app/Contents/Info.plist
+
 # ── the harness library ────────────────────────────────────────────
 
 # Run the `am` CLI: `just am claude --print-config`

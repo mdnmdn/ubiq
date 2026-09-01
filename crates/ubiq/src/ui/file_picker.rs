@@ -31,12 +31,9 @@ use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
 use crate::ui::kit::{
-    check_box, elided, elided_with, ghost_button, icon_button, mono, primary_button,
+    check_box, elided, elided_with, file_row, filter_bar, ghost_button, icon_button, kind_icon,
+    mono, primary_button, twisty, view_switch,
 };
-
-/// How tall one row is, and how far each level of the tree indents it.
-const ROW_HEIGHT: f32 = 34.0;
-const INDENT: f32 = 16.0;
 
 /// The key context the dialog is answered in, and the one the component library gives the field
 /// inside it.
@@ -231,28 +228,13 @@ fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
         // .child(chip(picker.request.kind.label()))
         // .child(chip(count))
         .child(div().flex_1().min_w(px(0.)))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .border_1()
-                .border_color(theme::border())
-                .child(view_button(
-                    "file-picker-tree",
-                    IconName::PanelLeft,
-                    PickerView::Tree,
-                    picker.view,
-                    cx,
-                ))
-                .child(view_button(
-                    "file-picker-list",
-                    IconName::Menu,
-                    PickerView::List,
-                    picker.view,
-                    cx,
-                )),
-        )
+        .child(view_switch(
+            "file-picker-tree",
+            "file-picker-list",
+            picker.view == PickerView::Tree,
+            cx.listener(|this, _, _, cx| this.set_picker_view(PickerView::Tree, cx)),
+            cx.listener(|this, _, _, cx| this.set_picker_view(PickerView::List, cx)),
+        ))
         .child(icon_button(
             "file-picker-close",
             IconName::Close,
@@ -260,22 +242,6 @@ fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
             cx.listener(|this, _, _, cx| this.cancel_file_picker(cx)),
         ))
         .into_any_element()
-}
-
-/// One of the two arrangements, lit when it is the one on screen.
-fn view_button(
-    id: &'static str,
-    icon: IconName,
-    view: PickerView,
-    current: PickerView,
-    cx: &mut Context<AppState>,
-) -> impl IntoElement {
-    icon_button(
-        id,
-        icon,
-        view == current,
-        cx.listener(move |this, _, _, cx| this.set_picker_view(view, cx)),
-    )
 }
 
 /// A mono chip saying one word about the request. Not a control: nothing about the ask changes
@@ -295,29 +261,13 @@ fn chip(label: &str) -> impl IntoElement {
 /// One field over both views on purpose: what was typed survives the toggle, because a user who
 /// cannot find something in the tree switches to the list to look for the same thing.
 fn field(app: &AppState, picker: &FilePickerState) -> impl IntoElement {
-    div().px_3().pb_2().flex().flex_none().child(
+    filter_bar(
+        Input::new(&app.picker_filter).appearance(false),
         div()
-            .w_full()
-            .h(px(34.))
-            .px_2()
             .flex()
+            .flex_none()
             .items_center()
-            .gap_2()
-            .bg(theme::surface())
-            .border_l(px(theme::ACCENT_EDGE))
-            .border_color(theme::border())
-            .child(
-                Icon::new(IconName::Search)
-                    .with_size(Size::XSmall)
-                    .text_color(theme::text_faint()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_size(px(12.5))
-                    .child(Input::new(&app.picker_filter).appearance(false)),
-            )
+            .gap_1()
             .children(picker.request.pattern.clone().map(|pattern| {
                 mono(pattern, theme::text_faint())
                     .text_size(px(10.5))
@@ -349,42 +299,23 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
     let ticks = row.pickable && multiple;
     let selected = row.selected;
 
-    let mut line = div()
-        .id(eid("picker-row", &row.path))
-        .h(px(ROW_HEIGHT))
-        .pr_3()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
-        // The indent is drawn rather than padded, so a selected row's accent bar stays flush left.
-        .child(div().w(px(6.0 + row.depth as f32 * INDENT)).flex_none());
+    let mut line = file_row(
+        eid("picker-row", &row.path),
+        row.depth,
+        selected,
+        row.on_cursor,
+    );
 
     if tree && row.is_dir {
         let folder = row.path.clone();
-        line = line.child(
-            div()
-                .id(eid("picker-twisty", &row.path))
-                .size(px(16.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .child(
-                    Icon::new(match row.expanded {
-                        true => IconName::ChevronDown,
-                        false => IconName::ChevronRight,
-                    })
-                    .with_size(Size::XSmall)
-                    .text_color(theme::text_muted()),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.toggle_picker_folder(folder.clone(), cx);
-                })),
-        );
+        line = line.child(twisty(
+            eid("picker-twisty", &row.path),
+            row.expanded,
+            cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.toggle_picker_folder(folder.clone(), cx);
+            }),
+        ));
     }
 
     if ticks {
@@ -400,14 +331,7 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
     }
 
     line = line
-        .child(
-            Icon::new(match row.is_dir {
-                true => IconName::Folder,
-                false => IconName::File,
-            })
-            .with_size(Size::XSmall)
-            .text_color(theme::text_faint()),
-        )
+        .child(kind_icon(row.is_dir, theme::text_faint()))
         .child(elided_with(
             eid("picker-name", &row.path),
             row.name.clone(),
@@ -439,26 +363,6 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
                 )),
         );
     }
-
-    // Two marks, and they say different things: the accent is what will come back, and the
-    // keyboard's own bar is only where the next key lands. A row that is both keeps the accent —
-    // what a dialog hands over outranks where its cursor happens to be — and takes the focus
-    // colour's edge to say the keyboard is there too.
-    line = match (selected, row.on_cursor) {
-        (true, false) => line
-            .bg(theme::accent_soft())
-            .border_l_2()
-            .border_color(theme::accent()),
-        (true, true) => line
-            .bg(theme::accent_soft())
-            .border_l_2()
-            .border_color(theme::border_focus()),
-        (false, true) => line
-            .bg(theme::selected())
-            .border_l_2()
-            .border_color(theme::border_focus()),
-        (false, false) => line,
-    };
 
     line.on_click(cx.listener(move |this, _, _, cx| this.click_picker_row(path.clone(), cx)))
         .into_any_element()

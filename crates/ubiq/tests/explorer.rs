@@ -4,8 +4,12 @@
 //! All of it without a frame. The tree is pure state precisely so that these rules can be asserted
 //! rather than clicked through.
 
-use ubiq::state::explorer::{ExplorerState, NodeKind, Toggle};
+use ubiq::state::explorer::{
+    ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState, ExplorerView, GitStatus, NodeKind,
+    Toggle, menu_entries,
+};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind};
+use ubiq_proto::git::{GitEntry, GitMark, GitPathChange, GitRollup};
 
 fn rel(parent: &str, name: &str) -> String {
     if parent.is_empty() {
@@ -257,13 +261,13 @@ fn a_filter_finds_inside_shut_folders() {
     // `src` is shut, so an unfiltered tree shows only the folder itself.
     assert_eq!(names(&tree), ["src", "justfile"]);
 
-    // The match is reached even though its folder is shut, and nothing that did not match is drawn.
+    // The match is reached even though its folder is shut, and the folder is kept as the way in.
     let paths: Vec<String> = tree
         .rows("sessions")
         .into_iter()
         .map(|row| row.path)
         .collect();
-    assert_eq!(paths, ["src/sessions.ts"]);
+    assert_eq!(paths, ["src", "src/sessions.ts"]);
 
     // A folder that matches is drawn open, because its children are what the user is looking for.
     let rows = tree.rows("src");
@@ -357,4 +361,464 @@ fn a_folder_waiting_for_its_listing_says_so() {
         &tree.root[0].kind,
         NodeKind::Dir { listed: true, .. }
     ));
+}
+
+fn listed() -> ExplorerState {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "src"), file("", "justfile")]));
+    tree.merge(listing(
+        "src",
+        vec![file("src", "sessions.ts"), file("src", "main.rs")],
+    ));
+    tree
+}
+
+/// The list is every match the host has already named, flat, whatever is open — and each row says
+/// which folder it came from, because a flat list of names is ambiguous the moment two folders
+/// agree on one.
+#[test]
+fn the_list_is_flat_and_says_which_folder_each_row_came_from() {
+    let mut tree = listed();
+    tree.set_view(ExplorerView::List, "");
+    let rows = tree.rows("");
+
+    assert!(rows.iter().all(|row| row.depth == 0), "the list indented");
+
+    let deep = rows
+        .iter()
+        .find(|row| row.name == "sessions.ts")
+        .expect("a file nothing was opened to reach");
+    assert_eq!(deep.trailing, "src");
+
+    let top = rows
+        .iter()
+        .find(|row| row.name == "justfile")
+        .expect("the file at the top");
+    assert_eq!(top.trailing, ".", "a file at the root says so");
+
+    let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+    assert_eq!(names, ["justfile", "main.rs", "sessions.ts", "src"]);
+}
+
+/// Up and down walk the rows on screen and stop at the ends.
+#[test]
+fn the_arrows_walk_the_rows_and_stop_at_the_ends() {
+    let mut tree = listed();
+    tree.toggle("src");
+    let rows = tree.rows("");
+
+    assert_eq!(tree.press(ExplorerKey::Down, ""), ExplorerPressed::Moved);
+    assert_eq!(tree.cursor(), Some(rows[0].path.as_str()));
+
+    assert_eq!(tree.press(ExplorerKey::Down, ""), ExplorerPressed::Moved);
+    assert_eq!(tree.cursor(), Some(rows[1].path.as_str()));
+
+    tree.press(ExplorerKey::Up, "");
+    assert_eq!(tree.cursor(), Some(rows[0].path.as_str()));
+    tree.press(ExplorerKey::Up, "");
+    assert_eq!(tree.cursor_index(""), Some(0));
+}
+
+/// Right opens the folder the cursor is on, then steps into it; left shuts it, then steps out.
+#[test]
+fn left_and_right_walk_the_tree_in_and_out() {
+    let mut tree = listed();
+    tree.press(ExplorerKey::Down, "");
+    assert_eq!(tree.cursor(), Some("src"));
+
+    assert_eq!(tree.press(ExplorerKey::Right, ""), ExplorerPressed::Moved);
+    assert!(names(&tree).contains(&"src/main.rs".to_string()), "shut");
+    assert_eq!(tree.cursor(), Some("src"), "opening also moved");
+
+    tree.press(ExplorerKey::Right, "");
+    assert_eq!(tree.cursor(), Some("src/sessions.ts"));
+
+    assert_eq!(tree.press(ExplorerKey::Right, ""), ExplorerPressed::Ignored);
+
+    assert_eq!(tree.press(ExplorerKey::Left, ""), ExplorerPressed::Moved);
+    assert_eq!(tree.cursor(), Some("src"));
+    tree.press(ExplorerKey::Left, "");
+    assert!(!names(&tree).contains(&"src/main.rs".to_string()), "open");
+    assert_eq!(tree.cursor(), Some("src"), "shutting also moved");
+}
+
+/// The flat list has no depth to walk, so left and right mean nothing there — and saying so is
+/// what gives the filter field its caret keys back.
+#[test]
+fn left_and_right_are_handed_back_in_the_flat_list() {
+    let mut tree = listed();
+    tree.set_view(ExplorerView::List, "");
+    tree.press(ExplorerKey::Down, "");
+    assert_eq!(tree.press(ExplorerKey::Left, ""), ExplorerPressed::Ignored);
+    assert_eq!(tree.press(ExplorerKey::Right, ""), ExplorerPressed::Ignored);
+    assert_eq!(tree.press(ExplorerKey::Down, ""), ExplorerPressed::Moved);
+}
+
+/// Enter on a file is opening it; enter on a folder in the tree toggles it.
+#[test]
+fn enter_opens_a_file_and_toggles_a_folder() {
+    let mut tree = listed();
+    tree.press(ExplorerKey::Down, "");
+    assert_eq!(tree.cursor(), Some("src"));
+    assert_eq!(tree.press(ExplorerKey::Enter, ""), ExplorerPressed::Moved);
+    assert!(names(&tree).contains(&"src/main.rs".to_string()));
+
+    tree.press(ExplorerKey::Right, "");
+    assert_eq!(
+        tree.press(ExplorerKey::Enter, ""),
+        ExplorerPressed::Open {
+            path: "src/sessions.ts".to_string()
+        }
+    );
+}
+
+/// A cursor left on a row that has gone is a cursor pointing at nothing, so filtering and
+/// switching views both put it back on something that is there.
+#[test]
+fn the_cursor_is_put_back_on_a_row_that_is_still_drawn() {
+    let mut tree = listed();
+    tree.toggle("src");
+    tree.set_cursor("src/main.rs");
+    assert_eq!(tree.cursor(), Some("src/main.rs"));
+
+    tree.reanchor("main");
+    assert_eq!(tree.cursor(), Some("src/main.rs"));
+
+    tree.reanchor("justfile");
+    assert_eq!(tree.cursor(), Some("justfile"));
+}
+
+/// The right-click menu is prepared for git and for creating paths: the four that wait on the
+/// host are present and not ready, so a later message family has somewhere to land.
+#[test]
+fn a_right_click_prepares_the_actions_the_row_can_grow_into() {
+    let file = menu_entries(Some("src/main.rs"), false, true, false);
+    assert_eq!(
+        file.iter().map(|e| e.action).collect::<Vec<_>>(),
+        [
+            ExplorerAction::Open,
+            ExplorerAction::OpenDiff,
+            ExplorerAction::CopyPath,
+            ExplorerAction::Rename,
+            ExplorerAction::Delete,
+        ]
+    );
+    assert!(
+        file.iter()
+            .any(|e| e.action == ExplorerAction::Rename && !e.ready())
+    );
+
+    let folder = menu_entries(Some("src"), true, true, true);
+    assert_eq!(folder[0].label(), "Collapse");
+    assert!(
+        folder
+            .iter()
+            .any(|e| e.action == ExplorerAction::NewFile && !e.ready())
+    );
+
+    let empty = menu_entries(None, false, true, false);
+    assert_eq!(
+        empty.iter().map(|e| e.action).collect::<Vec<_>>(),
+        [
+            ExplorerAction::NewFile,
+            ExplorerAction::NewFolder,
+            ExplorerAction::CollapseAll,
+        ]
+    );
+    assert!(empty[2].ready());
+}
+
+/// Escape closes the menu first, then clears the filter, then is handed back.
+#[test]
+fn escape_dismisses_the_menu_then_the_filter() {
+    let mut tree = listed();
+    tree.open_menu(Some("justfile"), 10.0, 20.0);
+    assert!(tree.menu.is_some());
+    assert_eq!(
+        tree.press(ExplorerKey::Dismiss, "just"),
+        ExplorerPressed::Dismissed
+    );
+    assert!(tree.menu.is_none());
+
+    assert_eq!(
+        tree.press(ExplorerKey::Dismiss, "just"),
+        ExplorerPressed::ClearFilter
+    );
+    assert_eq!(
+        tree.press(ExplorerKey::Dismiss, ""),
+        ExplorerPressed::Ignored
+    );
+}
+
+/// The cache is filled in the background from project open: unopened folders are asked about,
+/// skip-set folders are not, and a folder already asked about is not asked twice. A filter then
+/// reads that cache rather than waiting on the host.
+#[test]
+fn the_cache_asks_for_unopened_folders_and_skips_the_walk_set() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing(
+        "",
+        vec![
+            dir("", "src"),
+            dir("", "node_modules"),
+            file("", "justfile"),
+        ],
+    ));
+
+    let asking = tree.unlisted_for_cache();
+    assert_eq!(asking, ["src"]);
+    assert!(
+        !asking.iter().any(|p| p == "node_modules"),
+        "the cache asked about the skip set"
+    );
+
+    tree.begin_cache(&asking);
+    assert!(
+        tree.unlisted_for_cache().is_empty(),
+        "asked again while in flight"
+    );
+
+    tree.merge(listing(
+        "src",
+        vec![dir("src", "ui"), file("src", "main.rs")],
+    ));
+    assert_eq!(tree.unlisted_for_cache(), ["src/ui"]);
+
+    // Once the files are named, a filter finds them even though nobody expanded the folder.
+    let paths: Vec<String> = tree.rows("main").into_iter().map(|row| row.path).collect();
+    assert!(paths.contains(&"src/main.rs".to_string()), "{paths:?}");
+    assert!(
+        !tree.rows("").iter().any(|row| row.path == "src/main.rs"),
+        "an unfiltered tree showed what the cache listed"
+    );
+}
+
+/// A background filter walk is keyed by a job, so a slow result cannot land on a query the user
+/// has already left. The panel draws those hits rather than walking the tree again.
+#[test]
+fn a_filter_walk_is_keyed_and_drawn_from_hits() {
+    let mut tree = listed();
+    tree.merge(listing("src", vec![file("src", "main.rs")]));
+
+    let job = tree.begin_filter();
+    let rows = tree.rows("main");
+    assert!(tree.apply_hits(job, "main".to_string(), tree.view, rows));
+    let drawn: Vec<String> = tree
+        .drawn_rows("main")
+        .iter()
+        .map(|row| row.path.clone())
+        .collect();
+    assert!(drawn.iter().any(|p| p == "src/main.rs"), "{drawn:?}");
+
+    // A stale job does not replace what is drawn.
+    let stale = job;
+    let later = tree.begin_filter();
+    assert_ne!(stale, later);
+    assert!(!tree.apply_hits(stale, "main".to_string(), tree.view, Vec::new()));
+    assert!(
+        tree.drawn_rows("main")
+            .iter()
+            .any(|row| row.path == "src/main.rs")
+    );
+
+    tree.clear_filter();
+    assert!(
+        tree.drawn_rows("main").is_empty(),
+        "cleared hits still drawn"
+    );
+}
+
+fn git_entry(
+    path: &str,
+    worktree: Option<GitPathChange>,
+    index: Option<GitPathChange>,
+) -> GitEntry {
+    GitEntry {
+        rel_path: path.to_string(),
+        index,
+        worktree,
+        conflicted: false,
+        ignored: false,
+    }
+}
+
+#[test]
+fn a_working_tree_map_marks_matching_rows_and_leaves_the_rest_clean() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "src"), file("", "README.md")]));
+    tree.toggle("src");
+    tree.merge(listing("src", vec![file("src", "main.rs")]));
+
+    assert!(tree.rows("").iter().all(|row| row.git.is_none()));
+
+    tree.apply_git(
+        1,
+        &[git_entry(
+            "src/main.rs",
+            Some(GitPathChange::Modified),
+            None,
+        )],
+        &[GitRollup {
+            rel_path: "src".to_string(),
+            mark: GitMark::Modified,
+        }],
+    );
+
+    let git_of = |tree: &ExplorerState, path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .map(|row| row.git)
+    };
+    assert_eq!(
+        git_of(&tree, "src/main.rs"),
+        Some(Some(GitStatus::Modified))
+    );
+    assert_eq!(git_of(&tree, "src"), Some(Some(GitStatus::Modified)));
+    assert_eq!(git_of(&tree, "README.md"), Some(None));
+}
+
+#[test]
+fn a_later_listing_keeps_the_marks() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "src")]));
+    tree.toggle("src");
+    tree.merge(listing("src", vec![file("src", "main.rs")]));
+    tree.apply_git(
+        1,
+        &[git_entry(
+            "src/main.rs",
+            Some(GitPathChange::Untracked),
+            None,
+        )],
+        &[GitRollup {
+            rel_path: "src".to_string(),
+            mark: GitMark::Untracked,
+        }],
+    );
+
+    tree.merge(listing(
+        "src",
+        vec![file("src", "main.rs"), file("src", "lib.rs")],
+    ));
+
+    let git_of = |path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .map(|row| row.git)
+    };
+    assert_eq!(git_of("src/main.rs"), Some(Some(GitStatus::Untracked)));
+    assert_eq!(git_of("src/lib.rs"), Some(None));
+    assert_eq!(git_of("src"), Some(Some(GitStatus::Untracked)));
+}
+
+#[test]
+fn an_untracked_folder_marks_every_child() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "fresh"), file("", "README.md")]));
+    tree.toggle("fresh");
+    tree.merge(listing(
+        "fresh",
+        vec![file("fresh", "a.rs"), dir("fresh", "nested")],
+    ));
+    tree.toggle("fresh/nested");
+    tree.merge(listing("fresh/nested", vec![file("fresh/nested", "b.rs")]));
+
+    // libgit2 names untracked directories with a trailing slash; the host strips it, and so
+    // does apply, so a mark named `fresh/` still lands on the `fresh` row.
+    tree.apply_git(
+        1,
+        &[git_entry("fresh/", Some(GitPathChange::Untracked), None)],
+        &[],
+    );
+
+    let git_of = |tree: &ExplorerState, path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .map(|row| row.git)
+    };
+    assert_eq!(git_of(&tree, "fresh"), Some(Some(GitStatus::Untracked)));
+    assert_eq!(
+        git_of(&tree, "fresh/a.rs"),
+        Some(Some(GitStatus::Untracked))
+    );
+    assert_eq!(
+        git_of(&tree, "fresh/nested"),
+        Some(Some(GitStatus::Untracked))
+    );
+    assert_eq!(
+        git_of(&tree, "fresh/nested/b.rs"),
+        Some(Some(GitStatus::Untracked))
+    );
+    assert_eq!(
+        git_of(&tree, "README.md"),
+        Some(None),
+        "a sibling of the new folder is not untracked"
+    );
+
+    tree.merge(listing(
+        "fresh",
+        vec![
+            file("fresh", "a.rs"),
+            dir("fresh", "nested"),
+            file("fresh", "c.rs"),
+        ],
+    ));
+    assert_eq!(
+        git_of(&tree, "fresh/c.rs"),
+        Some(Some(GitStatus::Untracked)),
+        "a listing after the map still inherits"
+    );
+}
+
+#[test]
+fn a_folder_that_only_contains_an_untracked_file_does_not_mark_its_other_children() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "src")]));
+    tree.toggle("src");
+    tree.merge(listing(
+        "src",
+        vec![file("src", "main.rs"), file("src", "lib.rs")],
+    ));
+    tree.apply_git(
+        1,
+        &[git_entry(
+            "src/main.rs",
+            Some(GitPathChange::Untracked),
+            None,
+        )],
+        &[GitRollup {
+            rel_path: "src".to_string(),
+            mark: GitMark::Untracked,
+        }],
+    );
+
+    let git_of = |path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .map(|row| row.git)
+    };
+    assert_eq!(git_of("src"), Some(Some(GitStatus::Untracked)));
+    assert_eq!(git_of("src/main.rs"), Some(Some(GitStatus::Untracked)));
+    assert_eq!(git_of("src/lib.rs"), Some(None));
+}
+
+#[test]
+fn a_stale_working_tree_is_discarded() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![file("", "a.txt")]));
+    assert!(tree.apply_git(
+        2,
+        &[git_entry("a.txt", Some(GitPathChange::Modified), None)],
+        &[],
+    ));
+    assert!(!tree.apply_git(
+        1,
+        &[git_entry("a.txt", Some(GitPathChange::Untracked), None)],
+        &[],
+    ));
+    assert_eq!(tree.rows("")[0].git, Some(GitStatus::Modified));
 }

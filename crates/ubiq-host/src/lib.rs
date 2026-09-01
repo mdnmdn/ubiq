@@ -14,6 +14,7 @@
 //! - `projects`: the catalogue as the host runs it
 //! - `gc`: collecting the directories of projects no record names
 //! - `files`: a project's tree and its files, read and written off the coordinator's thread
+//! - `git`: a project's repository, observed off the coordinator's thread
 //! - `work`: the tasks a project has written down, and the sessions and agents doing them
 //! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
@@ -27,6 +28,7 @@ pub mod config;
 pub mod coordinator;
 pub mod files;
 pub mod gc;
+pub mod git;
 pub mod health;
 pub mod mcp_server;
 pub mod projects;

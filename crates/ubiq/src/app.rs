@@ -30,9 +30,9 @@ use crate::state::sink::{
 use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, OpenFile, PanelKind,
-    ProjectSettings, ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState,
-    prefs, sample,
+    ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
+    ExplorerView, FileLanguage, LogState, MenuId, OpenFile, PanelKind, ProjectSettings,
+    ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -47,6 +47,7 @@ use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, Textar
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
 use ubiq_proto::files::{DiffBase, FileContents, FileError};
+use ubiq_proto::git::{GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
@@ -59,6 +60,14 @@ const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// One level of a folder is what an expand asks for. A deeper walk exists for revealing a path,
 /// which nothing does yet.
 const EXPAND_DEPTH: u8 = 1;
+
+/// How far the background cache walks into folders nobody has opened. The host clamps this; three
+/// is as far as one reply goes, and the next unlisted folders are asked for as that reply lands.
+const CACHE_DEPTH: u8 = 3;
+
+/// How long after the last keystroke a filter walk starts. Typing a letter must not walk the
+/// cache on the frame; waiting this long coalesces a burst into one background walk.
+const FILTER_DEBOUNCE: Duration = Duration::from_millis(100);
 
 gpui::actions!(ubiq, [SaveFile]);
 
@@ -181,6 +190,11 @@ pub struct OpenProject {
     /// Folders a blob said were open and that are still out of reach, because a deep folder cannot
     /// be opened before its parents have been listed.
     wanted: Vec<String>,
+    /// What version control last said about this project. Absent until the host answers, and
+    /// absent after an answer of "not a repository".
+    pub git: Option<RepoOverview>,
+    /// The working-tree map was cut at the ceiling, so the explorer is drawing a prefix.
+    pub git_truncated: bool,
 }
 
 impl OpenProject {
@@ -198,6 +212,8 @@ impl OpenProject {
             prefs,
             restored: false,
             wanted: Vec::new(),
+            git: None,
+            git_truncated: false,
         }
     }
 }
@@ -347,6 +363,11 @@ pub struct AppState {
     /// The file picker's rows. It is what a keyboard cursor moved past the last drawn row is
     /// brought back into view with.
     pub picker_scroll: ScrollHandle,
+    /// The explorer's rows, for the same reason.
+    pub explorer_scroll: ScrollHandle,
+    /// Incremented on every filter keystroke so a debounce that lost the race does not start a
+    /// walk for a query the user has already left.
+    explorer_filter_gen: u64,
     pub log_scroll: UniformListScrollHandle,
     /// Which task the panel's fields were last filled from, so a selection change refills them
     /// exactly once. Writing into the component library's state needs a window and a message does
@@ -598,8 +619,8 @@ impl AppState {
             window,
             |this, input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
-                    this.workbench.file_filter = input.read(cx).value().to_string();
-                    cx.notify();
+                    let draft = input.read(cx).value().to_string();
+                    this.schedule_explorer_filter(draft, cx);
                 }
             },
         ));
@@ -861,6 +882,8 @@ impl AppState {
             sink_project_hex,
             chat_scroll: ScrollHandle::new(),
             picker_scroll: ScrollHandle::new(),
+            explorer_scroll: ScrollHandle::new(),
+            explorer_filter_gen: 0,
             log_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,
@@ -928,6 +951,13 @@ impl AppState {
             // The work is the host's as well, and the graph and the board draw nothing until it
             // answers. Once per newly held project: the reply is the whole of it.
             self.bus.send(Message::ListWork { project_id: id });
+            // The overview is cheap and lands first; the working-tree walk follows on the same
+            // worker, behind it, so the branch name is not stuck waiting for badges.
+            self.bus.send(Message::ProjectGit { project_id: id });
+            self.bus.send(Message::RefreshProjectGit {
+                project_id: id,
+                full: true,
+            });
             if let Some(view) = restore {
                 self.restore_files(id, &view, cx);
             }
@@ -1240,11 +1270,23 @@ impl AppState {
             // An exited harness leaves its pane, showing its last screen. Closing the output
             // stream is what tells the emulator to stop reading.
             Message::PaneExited { pane_id, code } => {
+                let project = self.projects.iter().find_map(|(id, open)| {
+                    open.panes
+                        .iter()
+                        .any(|pane| pane.id == pane_id)
+                        .then_some(*id)
+                });
                 self.pane_stopped(pane_id);
                 if let Some(terminal) = self.terminals.get_mut(&pane_id) {
                     terminal.output = None;
                 }
                 tracing::info!("pane {pane_id} exited with {code}");
+                if let Some(project_id) = project {
+                    self.bus.send(Message::RefreshProjectGit {
+                        project_id,
+                        full: true,
+                    });
+                }
                 cx.notify();
             }
 
@@ -1308,12 +1350,21 @@ impl AppState {
                     return;
                 };
                 open.explorer.set_loading(&rel_path, false);
+                let filter = self.workbench.file_filter.clone();
                 for listing in listings {
                     open.explorer.merge(listing);
                 }
+                open.explorer.reanchor(&filter);
                 // A listing can put a remembered folder within reach, which is what makes
                 // restoring a deep one terminate: each answer either resolves one or drops it.
                 self.reach_wanted(project_id, cx);
+                // The cache fills in the background from project open: each reply names more
+                // folders, and those are asked about next, until the skip set is all that remains.
+                self.fill_explorer_cache(project_id);
+                if !self.workbench.file_filter.trim().is_empty() {
+                    let text = self.workbench.file_filter.clone();
+                    self.spawn_explorer_filter(text, cx);
+                }
                 cx.notify();
             }
 
@@ -1350,6 +1401,10 @@ impl AppState {
                 {
                     file.saved(version, &current);
                 }
+                self.bus.send(Message::RefreshProjectGit {
+                    project_id,
+                    full: true,
+                });
                 cx.notify();
             }
 
@@ -1374,6 +1429,73 @@ impl AppState {
                 rel_path,
                 error,
             } => self.file_failed(project_id, rel_path, error, cx),
+
+            // ── the git family ──────────────────────────────────────
+            Message::GitOverview {
+                project_id,
+                overview,
+            } => {
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                match overview {
+                    None => {
+                        open.git = None;
+                        open.git_truncated = false;
+                        open.explorer.clear_git();
+                    }
+                    Some(next) => {
+                        if let Some(held) = &open.git
+                            && next.generation < held.generation
+                        {
+                            return;
+                        }
+                        let counts = next
+                            .counts
+                            .or_else(|| open.git.as_ref().and_then(|g| g.counts));
+                        let mut next = next;
+                        if next.counts.is_none() {
+                            next.counts = counts;
+                        }
+                        open.git = Some(next);
+                    }
+                }
+                cx.notify();
+            }
+
+            Message::GitWorkingTree {
+                project_id,
+                generation,
+                entries,
+                rollups,
+                truncated,
+            } => {
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                if !open.explorer.apply_git(generation, &entries, &rollups) {
+                    return;
+                }
+                open.git_truncated = truncated;
+                cx.notify();
+            }
+
+            Message::GitError { project_id, error } => {
+                tracing::error!("git {project_id}: {error}");
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                match error {
+                    GitFailure::Corrupt | GitFailure::NotFound => {
+                        open.git = None;
+                        open.git_truncated = false;
+                        open.explorer.clear_git();
+                    }
+                    GitFailure::Interrupted => {}
+                    GitFailure::Denied | GitFailure::Failed(_) => {}
+                }
+                cx.notify();
+            }
 
             // ── the work family ─────────────────────────────────────
             // Every arm is guarded on the project still being held, because an answer can arrive
@@ -1682,6 +1804,9 @@ impl AppState {
     }
 
     pub fn open_menu(&mut self, menu: MenuId, cx: &mut Context<Self>) {
+        if menu != MenuId::Explorer {
+            self.drop_explorer_menu(cx);
+        }
         self.workbench.open_menu = Some(menu);
         cx.notify();
     }
@@ -1690,6 +1815,19 @@ impl AppState {
         self.workbench.open_menu = None;
         self.workbench.pending_close = None;
         self.sink.settings.menu = None;
+        self.drop_explorer_menu(cx);
+        cx.notify();
+    }
+
+    /// The explorer menu's own outside click. Honours the click that opened it, so that click
+    /// cannot close the menu before it has been drawn.
+    pub fn dismiss_explorer_menu(&mut self, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.close_menu();
+            if open.explorer.menu.is_none() && self.workbench.open_menu == Some(MenuId::Explorer) {
+                self.workbench.open_menu = None;
+            }
+        }
         cx.notify();
     }
 
@@ -1726,6 +1864,11 @@ impl AppState {
         if let Some(facet) = self.sink.facets.get_mut(index) {
             *facet = !*facet;
         }
+        cx.notify();
+    }
+
+    pub fn set_sink_files_tree(&mut self, tree: bool, cx: &mut Context<Self>) {
+        self.sink.files_tree = tree;
         cx.notify();
     }
 
@@ -2937,18 +3080,334 @@ impl AppState {
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
+        open.explorer.set_cursor(&path);
         // A folder opened for the first time knows nothing about what is inside it, and says so
         // on the row until the host answers.
         if open.explorer.toggle(&path) == Toggle::Listing {
             open.explorer.set_loading(&path, true);
             self.bus.send(Message::ProjectTree {
                 project_id: project,
-                rel_path: path,
+                rel_path: path.clone(),
                 depth: EXPAND_DEPTH,
             });
         }
         self.remember(project, cx);
         cx.notify();
+    }
+
+    /// Fill the explorer's file cache in the background.
+    ///
+    /// The tree stays shut: a listing is cached so a filter can match, it does not expand.
+    /// Skip-set folders are never asked about, which is how `node_modules` stays one row.
+    /// Coalesce keystrokes, then walk the cache off the frame.
+    ///
+    /// An empty field is applied immediately: that walk is only open folders and must feel
+    /// instant. Anything else waits [`FILTER_DEBOUNCE`] so a burst of letters is one job, and the
+    /// walk itself runs on the background executor so the window keeps taking keystrokes.
+    fn schedule_explorer_filter(&mut self, draft: String, cx: &mut Context<Self>) {
+        if draft.trim().is_empty() {
+            self.explorer_filter_gen = self.explorer_filter_gen.wrapping_add(1);
+            self.workbench.file_filter.clear();
+            if let Some(open) = self.open_project_mut(cx) {
+                open.explorer.clear_filter();
+                open.explorer.reanchor("");
+            }
+            cx.notify();
+            return;
+        }
+
+        self.explorer_filter_gen = self.explorer_filter_gen.wrapping_add(1);
+        let token = self.explorer_filter_gen;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(FILTER_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                if token != this.explorer_filter_gen {
+                    return;
+                }
+                let text = this.file_filter.read(cx).value().to_string();
+                this.spawn_explorer_filter(text, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn spawn_explorer_filter(&mut self, text: String, cx: &mut Context<Self>) {
+        if text.trim().is_empty() {
+            self.workbench.file_filter.clear();
+            if let Some(open) = self.open_project_mut(cx) {
+                open.explorer.clear_filter();
+                open.explorer.reanchor("");
+            }
+            cx.notify();
+            return;
+        }
+
+        let Some(open) = self.open_project_mut(cx) else {
+            return;
+        };
+        // The snap is an `Arc` of the tree, not a copy of it. The walk runs on the background
+        // executor — a separate thread — so the frame that started the job can keep taking keys.
+        let snap = open.explorer.filter_snap();
+        let job = open.explorer.begin_filter();
+        let view = snap.view;
+        let needle = text.clone();
+        let drawing =
+            cx.background_spawn(async move { ExplorerState::rows_from_snap(snap, &needle) });
+        cx.spawn(async move |this, cx| {
+            let rows = drawing.await;
+            let _ = this.update(cx, |this, cx| {
+                this.explorer_filter_ready(job, text, view, rows, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn explorer_filter_ready(
+        &mut self,
+        job: u64,
+        text: String,
+        view: ExplorerView,
+        rows: Vec<crate::state::Row>,
+        cx: &mut Context<Self>,
+    ) {
+        let at = {
+            let Some(open) = self.open_project_mut(cx) else {
+                return;
+            };
+            if !open.explorer.apply_hits(job, text.clone(), view, rows) {
+                return;
+            }
+            open.explorer.cursor_index(&text)
+        };
+        self.workbench.file_filter = text;
+        if let Some(at) = at {
+            self.explorer_scroll.scroll_to_item(at);
+        }
+        cx.notify();
+    }
+
+    fn fill_explorer_cache(&mut self, project: ProjectId) {
+        let asking = {
+            let Some(open) = self.projects.get_mut(&project) else {
+                return;
+            };
+            let asking = open.explorer.unlisted_for_cache();
+            open.explorer.begin_cache(&asking);
+            asking
+        };
+        for path in asking {
+            self.bus.send(Message::ProjectTree {
+                project_id: project,
+                rel_path: path,
+                depth: CACHE_DEPTH,
+            });
+        }
+    }
+
+    fn ask_listing(&mut self, project: ProjectId, path: String, cx: &mut Context<Self>) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        open.explorer.set_loading(&path, true);
+        self.bus.send(Message::ProjectTree {
+            project_id: project,
+            rel_path: path,
+            depth: EXPAND_DEPTH,
+        });
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    pub fn set_explorer_view(&mut self, view: ExplorerView, cx: &mut Context<Self>) {
+        let filter = self.workbench.file_filter.clone();
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.set_view(view, &filter);
+        }
+        if !filter.trim().is_empty() {
+            self.spawn_explorer_filter(filter, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn collapse_explorer(&mut self, cx: &mut Context<Self>) {
+        let filter = self.workbench.file_filter.clone();
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.collapse_all();
+            open.explorer.reanchor(&filter);
+        }
+        if let Some(project) = self.project(cx) {
+            self.remember(project, cx);
+        }
+        cx.notify();
+    }
+
+    /// A key the explorer answered, or did not.
+    ///
+    /// Answering `false` is what hands the key back: `left` and `right` mean nothing in the flat
+    /// list, and the caller propagates so the filter field gets its caret keys back.
+    pub fn press_explorer_key(
+        &mut self,
+        key: ExplorerKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let filter = self.workbench.file_filter.clone();
+        let (pressed, at) = {
+            let Some(open) = self.open_project_mut(cx) else {
+                return false;
+            };
+            let pressed = open.explorer.press(key, &filter);
+            let at = open.explorer.cursor_index(&filter);
+            (pressed, at)
+        };
+
+        match pressed {
+            ExplorerPressed::Ignored => false,
+            ExplorerPressed::Moved => {
+                if let Some(at) = at {
+                    self.explorer_scroll.scroll_to_item(at);
+                }
+                cx.notify();
+                true
+            }
+            ExplorerPressed::Open { path } => {
+                self.select_file(path, cx);
+                true
+            }
+            ExplorerPressed::Listing { path } => {
+                let Some(project) = self.project(cx) else {
+                    return true;
+                };
+                self.ask_listing(project, path, cx);
+                true
+            }
+            ExplorerPressed::Dismissed => {
+                cx.notify();
+                true
+            }
+            ExplorerPressed::ClearFilter => {
+                self.explorer_filter_gen = self.explorer_filter_gen.wrapping_add(1);
+                self.file_filter.update(cx, |state, cx| {
+                    state.set_value("", window, cx);
+                });
+                self.workbench.file_filter.clear();
+                if let Some(open) = self.open_project_mut(cx) {
+                    open.explorer.clear_filter();
+                    open.explorer.reanchor("");
+                }
+                cx.notify();
+                true
+            }
+        }
+    }
+
+    pub fn click_explorer_row(
+        &mut self,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pressed = {
+            let Some(open) = self.open_project_mut(cx) else {
+                return;
+            };
+            open.explorer.click(&path)
+        };
+        match pressed {
+            ExplorerPressed::Open { path } => self.select_file(path, cx),
+            ExplorerPressed::Listing { path } => {
+                let Some(project) = self.project(cx) else {
+                    return;
+                };
+                self.focus_explorer_filter(window, cx);
+                self.ask_listing(project, path, cx);
+            }
+            ExplorerPressed::Moved => {
+                self.focus_explorer_filter(window, cx);
+                cx.notify();
+            }
+            ExplorerPressed::Ignored
+            | ExplorerPressed::Dismissed
+            | ExplorerPressed::ClearFilter => {}
+        }
+    }
+
+    fn focus_explorer_filter(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let field = self.file_filter.read(cx).focus_handle(cx);
+        window.focus(&field, cx);
+    }
+
+    pub fn open_explorer_menu(
+        &mut self,
+        path: Option<String>,
+        at: (f32, f32),
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.open_menu = Some(MenuId::Explorer);
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.open_menu(path.as_deref(), at.0, at.1);
+        }
+        cx.notify();
+    }
+
+    fn drop_explorer_menu(&mut self, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.menu = None;
+            open.explorer.menu_held = false;
+        }
+    }
+
+    pub fn pick_explorer_action(&mut self, index: usize, cx: &mut Context<Self>) {
+        let picked = {
+            let Some(open) = self.open_project_mut(cx) else {
+                return;
+            };
+            let Some(menu) = open.explorer.menu.clone() else {
+                return;
+            };
+            let Some(entry) = menu.entries().get(index).copied() else {
+                return;
+            };
+            open.explorer.menu = None;
+            open.explorer.menu_held = false;
+            self.workbench.open_menu = None;
+            (entry, menu.path)
+        };
+
+        let (entry, path) = picked;
+        if !entry.ready() {
+            cx.notify();
+            return;
+        }
+
+        match entry.action {
+            ExplorerAction::Open => {
+                if let Some(path) = path {
+                    self.select_file(path, cx);
+                }
+            }
+            ExplorerAction::OpenDiff => {
+                if let Some(path) = path {
+                    self.open_diff(path, DiffBase::Head, cx);
+                }
+            }
+            ExplorerAction::CopyPath => {
+                if let Some(path) = path {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(path));
+                }
+                cx.notify();
+            }
+            ExplorerAction::Toggle => {
+                if let Some(path) = path {
+                    self.toggle_folder(path, cx);
+                }
+            }
+            ExplorerAction::CollapseAll => self.collapse_explorer(cx),
+            ExplorerAction::NewFile
+            | ExplorerAction::NewFolder
+            | ExplorerAction::Rename
+            | ExplorerAction::Delete => cx.notify(),
+        }
     }
 
     /// Select a row, and open it if it is a file.
@@ -4353,9 +4812,11 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
     ]);
-    // The file picker's, which are the field's as well as the dialog's and have to be registered
-    // after the component library's own — `ui::file_picker::key_bindings` says why.
+    // The file picker's and the explorer's, which are the field's as well as the surface's and
+    // have to be registered after the component library's own — `ui::file_picker::key_bindings`
+    // says why.
     cx.bind_keys(crate::ui::file_picker::key_bindings());
+    cx.bind_keys(crate::ui::explorer::key_bindings());
 }
 
 /// What a pane calls itself before its harness says otherwise: the program, without its path.

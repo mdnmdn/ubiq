@@ -50,6 +50,34 @@ pub struct DirEntry {
     pub symlink: bool,
 }
 
+/// Folder names a depth walk does not descend into.
+///
+/// It bounds a walk the interface asked for; it does **not** hide a row, because a tree with rows
+/// missing is a tree that lies. An explicit `ProjectTree` aimed at one of these is answered in
+/// full. The explorer's background cache uses the same set so it does not walk `node_modules`
+/// either.
+pub const WALK_SKIP: &[&str] = &[
+    ".git",
+    ".hg",
+    ".svn",
+    ".jj",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+    ".direnv",
+    ".cache",
+];
+
+/// Leaf names the host omits from every listing, including an explicit one.
+///
+/// Unlike [`WALK_SKIP`], these are not folders a walk might descend into: they are junk files that
+/// are never user content. A tree with a real file missing is a tree that lies; a tree without
+/// `.DS_Store` is a tree that is usable on macOS.
+pub const LIST_HIDE: &[&str] = &[".DS_Store"];
+
 /// One directory, listed.
 ///
 /// A listing is always exactly one level, so the reply's shape does not depend on the depth that

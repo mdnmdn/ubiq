@@ -16,6 +16,7 @@ pub type IndexedAction = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
 pub mod canvas;
 pub mod controls;
+pub mod files;
 pub mod menu;
 pub mod overlay;
 pub mod panel;
@@ -25,6 +26,7 @@ pub use controls::{
     icon_button, meter, mono, pill, primary_button, progress_ring, section_label, slab, state_chip,
     status_dot, stepper, toggle_pill,
 };
-pub use menu::{Picker, PickerStyle};
+pub use files::{INDENT, ROW_HEIGHT, file_row, filter_bar, kind_icon, twisty, view_switch};
+pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};
 pub use overlay::{modal, modal_note};
 pub use panel::{Tab, panel, panel_header, tab_strip};

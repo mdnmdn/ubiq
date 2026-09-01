@@ -7,8 +7,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, px,
+    Anchor, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
+    deferred, div, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -255,4 +256,114 @@ fn menu_panel(
             ),
     )
     .priority(1)
+}
+
+/// One row in a context menu. `enabled` is what a prepared action that has nothing behind it yet
+/// looks like: the wording is there, the click is not.
+#[derive(Clone)]
+pub struct ContextItem {
+    pub label: SharedString,
+    pub enabled: bool,
+}
+
+impl ContextItem {
+    pub fn new(label: impl Into<SharedString>) -> Self {
+        Self {
+            label: label.into(),
+            enabled: true,
+        }
+    }
+
+    /// Drawn, and does nothing: the predisposition for an action the host does not answer yet.
+    pub fn disabled(mut self) -> Self {
+        self.enabled = false;
+        self
+    }
+}
+
+/// A menu that opens where the pointer went down, not from a trigger.
+///
+/// Painted through `deferred` and `anchored` so a right-click inside a dock panel covers the window
+/// rather than being clipped to the panel. Dismissal is an outside click, the same as the
+/// dropdown: the two behave the same way and neither uses a scrim.
+pub fn context_menu(
+    id: impl Into<ElementId>,
+    at: Point<Pixels>,
+    items: Vec<ContextItem>,
+    on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let id = id.into();
+    deferred(
+        anchored()
+            .position(at)
+            .snap_to_window_with_margin(px(8.))
+            .child(context_panel(
+                id,
+                items,
+                Some(Rc::new(on_pick)),
+                Some(Rc::new(on_dismiss)),
+            )),
+    )
+    .priority(1)
+}
+
+/// The panel a context menu is. Exported so the style reference can draw one in place, without
+/// the deferred layer a real right-click needs.
+pub fn context_panel(
+    id: impl Into<ElementId>,
+    items: Vec<ContextItem>,
+    on_pick: Option<IndexedAction>,
+    on_dismiss: Option<Action>,
+) -> impl IntoElement {
+    let rows: Vec<_> = items
+        .into_iter()
+        .enumerate()
+        .map(|(ix, item)| {
+            let pick = on_pick.clone();
+            let enabled = item.enabled;
+            let mut row = div()
+                .id(("menu-row", ix))
+                .h(px(28.))
+                .px_2()
+                .flex()
+                .items_center()
+                .text_size(px(12.5))
+                .text_color(if enabled {
+                    theme::text()
+                } else {
+                    theme::text_faint()
+                })
+                .child(item.label);
+
+            if enabled {
+                row = row
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme::hover()).text_color(theme::text()));
+                if let Some(pick) = pick {
+                    row = row.on_click(move |_, window, cx| pick(ix, window, cx));
+                }
+            }
+
+            row
+        })
+        .collect();
+
+    div()
+        .id(id)
+        .min_w(px(180.))
+        .p_1()
+        .flex()
+        .flex_col()
+        .bg(theme::surface_raised())
+        .border_l(px(theme::ACCENT_EDGE))
+        .border_color(theme::accent())
+        .shadow_lg()
+        .font_weight(FontWeight::NORMAL)
+        .children(rows)
+        .on_mouse_down_out(move |_, window, cx| {
+            if let Some(dismiss) = on_dismiss.clone() {
+                dismiss(window, cx);
+            }
+        })
 }
