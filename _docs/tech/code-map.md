@@ -135,7 +135,9 @@ crates/ubiq/src/
 │   │   ├── docs.rs
 │   │   ├── mod.rs
 │   │   ├── style.rs
-│   │   └── files.rs
+│   │   ├── files.rs
+│   │   ├── project.rs
+│   │   └── settings.rs
 │   └── file_picker.rs
 ├── app.rs
 ├── lib.rs
@@ -235,6 +237,8 @@ the documents in its row.
 | `crates/ubiq/src/ui/sink/docs.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/files.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/sink/project.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/sink/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/style.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/status_bar.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/terminal.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |

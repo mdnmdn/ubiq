@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, or the status bar
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -491,9 +491,9 @@ chrome around them.
 
 **The kitchen sink is the application's own test bench, and the one screen with nothing behind it.**
 It is under `APP` because it is about Ubiq rather than about a folder: it opens on a first run with an
-empty catalogue, it asks the host for nothing, and it looks the same in every window. Six pages,
+empty catalogue, it asks the host for nothing, and it looks the same in every window. Eight pages,
 selected by a strip along the top — the plain buffer, one per special viewer, the style reference,
-then the file picker.
+the file picker, then the two settings layouts composed from the kit.
 
 **Its documents are fixtures, drawn by the viewer their name implies, and a fixture is not a file.**
 A page's document is a name and a constant, and the name carries an extension, so the viewer and the
@@ -517,6 +517,17 @@ question, a form, and something irreversible — told apart by what their edge s
 of the confirming button. Both buttons dismiss and neither claims anything: a fixture that pretended
 to close a pane would be the one thing a screen with nothing behind it must not draw. The shape a
 modal is drawn in belongs to the UI-and-design document, linked below, with every other surface's.
+
+**The settings pages are layouts, not a settings screen.** Application settings is a left nav of
+kit rows — Appearance, Harnesses, Agent defaults, and the three quieter destinations — and a body
+of the same controls the style reference already draws: `choice_pill` for a pinned theme or a
+density, `check_box` for a boolean, `stepper` and `meter` for a number, `card` for a permission
+mode, `Picker` for a dropdown, `slab` for a harness that opens. Project settings is that same
+furniture in the shape of a dialog: a coloured left edge, a nav, a form, Cancel putting the
+fixture back. Its colour row is a strip of swatches plus a picker — saturation/value, a hue bar,
+and a `#RRGGBB` field — so a custom colour is chosen rather than only indexed. A field that holds
+the keyboard is underlined on its bottom edge as well as marked on the left. Neither page writes
+anything; both are what a real settings surface will be built out of, looked at here first.
 
 **The picker page raises the file picker in each of the shapes a screen can ask for one.** The picker
 takes a request — files or folders, one answer or several, the folder it is rooted at, a prefilter
@@ -622,9 +633,11 @@ saying no file is open, because the files are panels of their own:
 | Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; its columns scroll sideways | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
-| Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its six pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
+| Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its eight pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
 | Style reference | `ui/sink/style.rs` | The kitchen sink, on its fifth page | Fills it; scrolls | `SinkState`, and the theme itself |
 | Picker page | `ui/sink/files.rs` | The kitchen sink, on its sixth page | Fills it; scrolls | `SinkState::picker`, and the fixture tree in `state/sink.rs` |
+| Settings | `ui/sink/settings.rs` | The kitchen sink, on its seventh page | Fills it; nav plus a scrolling body | `SinkState::settings`, and the window's settings fields |
+| Project settings | `ui/sink/project.rs` | The kitchen sink, on its eighth page | A dialog-shaped panel in the page | `SinkState::project`, and the window's project-name fields |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Empty page | `ui/empty.rs` | The centre panel in `Control` and `KB` mode, and with no project open | Fills it | `RailMode`, or nothing at all |
 
@@ -879,22 +892,28 @@ other place a constant stands in for what the host would send — deliberately, 
 reason `sample.rs` does. The chat's fixture is a screen waiting for a transport family; the sink's is
 a screen that will never have one, because a test bench with a project behind it would be testing the
 project. It holds four documents as `&'static str`, each under the name that picks its viewer,
-`SinkSection` for the page strip, `SinkState` for the layouts and the style reference's controls, and
-`SinkModal` for which of the three shapes is up. Nothing in it draws and nothing in it holds a
+`SinkSection` for the page strip, `SinkState` for the layouts and the style reference's controls,
+`SinkModal` for which of the three shapes is up, `SettingsDemo` for the application settings page
+and `ProjectDemo` for the project settings dialog — its swatch, its custom `0xRRGGBB`, and the
+HSV the picker is holding. Nothing in it draws and nothing in it holds a
 buffer, which is what lets `crates/ubiq/tests/sink.rs` hand every fixture to the parser or the
 renderer that will draw it with no frame — so a fixture that stopped parsing fails the build instead
 of drawing an error nobody looks at.
 
 The buffers are the window's: `AppState` builds one `EditorState` per fixture in its constructor,
 where there is a window to build one with, keyed by the document's key, plus `sink_input`,
-`sink_textarea` and `sink_modal_input`. A fixture is a constant, so that is the whole of their
-lifecycle — nothing arrives late, nothing is saved, and no change subscription is needed because
-there is no baseline to compare against. `ui/sink/` is the screen: `mod.rs` draws the page strip
-through `kit::tab_strip` and dispatches on the page, `docs.rs` draws one fixture through
-`ui/viewer/` — every viewer reached rather than copied, which is the whole point of the page — and
-`style.rs` is the reference and `files.rs` is the picker page. The modal is raised from `mod.rs` rather than from `style.rs`, because
-exactly one may be up and where it is asked for is not where it is painted; the primitive is
-`kit::modal`, whose shape and dismissal rules are the UI-and-design document's.
+`sink_textarea` and `sink_modal_input`, and the settings pages' own fields (`sink_search`, the
+harness name, executable, prompt and env, the project name, description and colour hex). A fixture is a
+constant, so that is the whole of their lifecycle — nothing arrives late, nothing is saved, and no
+change subscription is needed because there is no baseline to compare against. `ui/sink/` is the
+screen: `mod.rs` draws the page strip through `kit::tab_strip` and dispatches on the page,
+`docs.rs` draws one fixture through `ui/viewer/` — every viewer reached rather than copied, which
+is the whole point of the page — `style.rs` is the reference, `files.rs` is the picker page,
+`settings.rs` is the application settings layout and `project.rs` is the project settings dialog.
+The modal is raised from `mod.rs` rather than from `style.rs`, because exactly one may be up and
+where it is asked for is not where it is painted; the primitive is `kit::modal`, whose shape and
+dismissal rules are the UI-and-design document's. The project settings page is not that modal: it
+is a wider form, drawn on the page so the whole of it can be looked at.
 
 `state/file_picker.rs` is the picker itself, and nothing in it reads a disk. `PickerRequest` is the
 whole of what a caller says — owner, title, root, prefilter, kind, count, commit and modality — and

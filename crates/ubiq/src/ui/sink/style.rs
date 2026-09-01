@@ -15,10 +15,11 @@
 //! this is the sink.
 
 use gpui::{
-    AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, div, px, relative,
+    AnyElement, App, Context, ElementId, Entity, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    relative,
 };
-use gpui_component::input::{Input, Textarea};
+use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_component::kbd::Kbd;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -33,7 +34,7 @@ use crate::ui::kit::{
 };
 use crate::ui::{handler, indexed};
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .id("sink-style")
         .flex()
@@ -47,7 +48,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .child(typography())
         .child(surfaces(cx))
         .child(controls(app, cx))
-        .child(fields(app))
+        .child(fields(app, window, cx))
         .child(modals(cx))
         .into_any_element()
 }
@@ -509,15 +510,15 @@ fn bucket_colour(index: usize) -> Rgba {
 ///
 /// A field is a library widget in a Ubiq container: the widget draws no border of its own —
 /// `appearance(false)` — and the container is the surface, with the coloured edge on its boundary.
-fn fields(app: &AppState) -> AnyElement {
+fn fields(app: &AppState, window: &Window, cx: &App) -> AnyElement {
     group(
         "Fields",
         "The library's Input and Textarea, drawn with their own appearance off so the container is \
-         the surface.",
+         the surface. The active one is underlined.",
         vec![
             labelled(
                 "Input",
-                framed(theme::border())
+                framed_active(theme::border(), input_on(&app.sink_input, window, cx))
                     .h(px(30.))
                     .items_center()
                     .child(Input::new(&app.sink_input).appearance(false))
@@ -525,7 +526,7 @@ fn fields(app: &AppState) -> AnyElement {
             ),
             labelled(
                 "Input · focused edge",
-                framed(theme::border_focus())
+                framed_active(theme::border_focus(), true)
                     .h(px(30.))
                     .items_center()
                     .child(mono(
@@ -536,7 +537,7 @@ fn fields(app: &AppState) -> AnyElement {
             ),
             labelled(
                 "Textarea",
-                framed(theme::accent())
+                framed_active(theme::accent(), textarea_on(&app.sink_textarea, window, cx))
                     .p_2()
                     .child(
                         Textarea::new(&app.sink_textarea)
@@ -552,14 +553,35 @@ fn fields(app: &AppState) -> AnyElement {
 }
 
 /// The container a field sits in: a surface with its edge on the boundary and nothing rounded.
-fn framed(edge: Rgba) -> gpui::Div {
-    div()
+pub fn framed(edge: Rgba) -> gpui::Div {
+    framed_active(edge, false)
+}
+
+/// The same container, with the focused field's underline.
+///
+/// A field is identified on the left like every other surface; when it holds the keyboard the
+/// bottom edge lights as well, so the active box is the one that is underlined.
+pub fn framed_active(edge: Rgba, focused: bool) -> gpui::Div {
+    let colour = if focused { theme::border_focus() } else { edge };
+    let mut root = div()
         .w(relative(1.))
         .px_2()
         .flex()
         .bg(theme::surface())
         .border_l(px(theme::ACCENT_EDGE))
-        .border_color(edge)
+        .border_color(colour);
+    if focused {
+        root = root.border_b(px(theme::ACCENT_EDGE));
+    }
+    root
+}
+
+pub fn input_on(state: &Entity<InputState>, window: &Window, cx: &App) -> bool {
+    state.read(cx).focus_handle(cx).is_focused(window)
+}
+
+pub fn textarea_on(state: &Entity<TextareaState>, window: &Window, cx: &App) -> bool {
+    state.read(cx).focus_handle(cx).is_focused(window)
 }
 
 // ── Modals ──────────────────────────────────────────────────────────
