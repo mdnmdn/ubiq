@@ -166,15 +166,22 @@ divergence — `D15` exempts that folder from every check.
 
 `gpui-component` is used directly wherever it has a widget. `crates/ubiq/src/ui/kit/` holds only
 what it lacks, is generic over no view, and never names `AppState`. Each screen area is a free
-function over the root view rather than a view of its own, so `AppState` is the only `Render` in the
-application.
+function over the root view rather than a view of its own.
 
-**Why:** one view means one owner of state and one place that requests redraws, which is the whole
-of the "mutation ends in a redraw request" rule. A window of independent panel views would mean
-reconciling several projections of the same coordinator state.
+**Why:** one owner of state and one place that requests redraws is the whole of the "mutation ends
+in a redraw request" rule. A window of independent panel views, each with its own projection of the
+same coordinator state, would mean reconciling several of them.
 
-**Cost:** the root view grows as the shell does, and a panel cannot hold private state without going
-through it. If a panel ever needs its own focus and key handling, that is the point to reverse this.
+**Cost:** the root view grows as the shell does, and an area cannot hold private state without going
+through it.
+
+**Half reversed by `D42`.** This entry named its own reversal trigger — *if a panel ever needs its
+own focus and key handling* — and a dock of independently focusable panels is that trigger arriving.
+What reversed is the "one `Render`" half: a panel is a view, because the library requires one. What
+stands is the half that mattered, and the half every sentence above is really about: **`AppState` is
+the only owner of state.** A panel is an adapter holding a weak `AppState` handle and a panel kind,
+and its render delegates to the same free functions this entry describes. The area modules were not
+touched by the reversal, which is the evidence that the two halves were separable.
 
 ### D18 — Surfaces are square, and a coloured left edge identifies them
 
@@ -276,23 +283,20 @@ part of the system a detached coordinator does not carry across for free: its re
 transport, which is filed in [`../backlog.md`](../backlog.md). And a ring in memory means diagnostics
 die with the process.
 
-### D25 — The log console is a dock tab, not a panel of its own
+### D25 — The log console borrows the pane strip rather than taking a panel of its own
 
-The dock's tab strip lists the panes and then the console, and selecting it draws it where a pane's
-terminal would be. The alternative, built first, was a fourth resizable panel under the dock with
-its own titlebar switch and its own three size constants.
+**Superseded by `D42`.** The console was a tab in the terminal dock's strip, beside the panes,
+because the alternative it was weighed against was a fourth resizable panel with its own titlebar
+switch and its own three size constants — permanent height taken from the editor and the dock, for
+a surface that is read in bursts.
 
-**Why:** the console answers a question about what an agent just did, and the dock is where the user
-looks to ask it. A fourth row also took height from the editor and the dock permanently, for a
-surface that is read in bursts. Reusing the dock means one strip, one size, one
-hide button, and no new panel constants — and the tab's dot gives the console the one notification
-surface it needs without stealing the view.
-
-**Cost:** the dock's tab strip is not purely the pane list, so it carries one tab with no pane ID
-behind it, and the strip's `+`, its close buttons and its dots mean one thing for panes and another
-for the console. It also means the console and a pane cannot be read
-at once, and the focus rule gains a case: the console holds the keyboard while it is shown, so a
-pane that is off screen cannot be typed into.
+**Why it was superseded:** that trade only existed because the window's arrangement was fixed in
+code, so a fourth area cost three constants and a switch. Under a dock a panel costs a `PanelKind`
+variant and an arm of a `match`, and the console gets everything the strip was standing in for —
+its own tab, its own dot, its own toolbar — while the strip stops carrying one tab with no pane ID
+behind it. The cost this entry accepted is paid off with it: a pane and the console can be read at
+once, and the focus rule loses its special case, because "no pane holds the keyboard while a
+non-terminal panel is focused" is one rule about panels rather than one about the console.
 
 ### D26 — Every id in the contract is a ULID behind a per-kind newtype
 
@@ -577,6 +581,89 @@ versions, so `Layout` staying in `crates/ubiq` is the same choice made twice rat
 **Cost:** an agent whose record arrives after the screen was arranged has no offset of its own, so
 the interface owes it a placement rule; and an arrangement a user made is thrown away when the
 project closes until it goes into that blob. Both are filed.
+
+### D42 — The window's arrangement is a dock the user rearranges, and it is the component library's
+
+Every area of the workbench — the terminals, the log console, the explorer, the chat, the centre —
+is a **panel** in a tree of tabbed groups the user drags, splits, tabs and zooms. The tree, the
+drag, the drop geometry and the serialisation are `gpui-component`'s `DockArea`; Ubiq supplies the
+panels and a skin over the library's three renderer traits, and writes no drag, no drop indicator
+and no layout serialisation of its own. That is `D17`'s "gpui-component first" applied to the
+largest widget in the library — and the same entry's other half is what it costs.
+
+The frame it replaces was three resizable slots around a centre, the centre a stack of two, written
+in `shell.rs` and varying only by a `visible` flag and a size within a constant range.
+
+**Why:** the alternative is not "keep the frame" — it is "write a second dock". Four facts the frame
+could not carry are each one line under this one. Only the focused pane was ever drawn, so the
+domain rule that unfocused panes keep drawing had nowhere to be true. The console had to borrow the
+pane strip, which is `D25`. `LayoutMode`'s four values were stored, returned by an accessor with no
+caller, and drawn by nothing. And the whole arrangement died with the process.
+
+Three things make the adoption a fit rather than a compromise. **A dropped tab is re-parented by
+panel id**, so the entity is never rebuilt — a dragged terminal is the same emulator, on the same
+stream, under the same harness, which is exactly what the pane rules demand. **Appearance is a
+seam**: the engine owns the tree and the drag, and a renderer trait owns every pixel, so `D18`
+holds inside a group exactly as it does outside one. And **where a panel may sit is a table**, not a
+special case — one function from panel kind to a set of regions, consulted in one place, which is
+what keeps the explorer and the chat on a border.
+
+**Cost:** four, and each is real. `D17` is half reversed — a panel is a view, with the entity, the
+focus handle and the event emitter that go with it. The library's dock has no top region, so
+"docked on top" is a split at the top of the centre and takes its width from the centre rather than
+spanning under the explorer. The library's drop is region-blind — a group offers a drop or it does
+not — so a panel dropped where its class forbids is moved back on the same edit rather than
+refused under the pointer, and the drag shows no indicator saying so. And a panel cannot read
+`AppState` to answer whether it is visible, because the dock asks that while the window is mid-update
+and the entity is under a lease; the window pushes the answer instead, which is one fact kept in
+step by hand.
+
+### D43 — The host links libgit2 and computes hunks itself, rather than driving `git`
+
+`crates/ubiq-host` reads version control through `git2` and builds the hunks with `similar`. Both
+are the host's alone: the interface gains no dependency, because a `FileDiff` crosses the bus as
+rows with their line numbers on them.
+
+**Why:** the alternative is spawning `git diff` and parsing its output, which puts a text format
+between the host and the answer — the parser then owns every corner case the format has, and a
+`git` that is missing, old, or configured with a pager or a diff driver changes what Ubiq shows. A
+library also answers the two bases directly, as a blob from a tree and a blob from the index, so
+`DiffBase` maps onto two calls rather than onto two command lines. And it keeps the whole thing
+testable in-process, which is what the rest of the file family's tests are written against.
+
+**Cost:** three. `libgit2` is a C library built from source, so the host's first build is longer and
+a platform is one more thing that has to compile. Its behaviour is libgit2's rather than `git`'s,
+which is why the clean and smudge filters are not run and `G61` records the difference. And the tree
+holds a second comparison engine — the chat transcript's `EDIT` block draws a diff it was handed —
+so a change to what a row means has two places to land until the viewer draws both.
+
+### D44 — Mermaid is rendered in the interface, and the interface gets a workarea the host reserves
+
+A diagram's source reaches the interface as a file's bytes, on the file family, like any other text.
+The interface renders it — on a thread of its own, into a cache of its own — and the contract has no
+diagram family at all. What the host gives it instead is one field: every `ProjectSnapshot` carries
+a `workarea`, an absolute path to a directory under that project's own folder in the config root
+that the host creates, reserves, and never reads inside.
+
+**Why:** a Mermaid document is text, and the bus carries a file's bytes. A transport family for it
+would have made the host answer a question that is not about the machine — what a picture looks
+like — when drawing is the whole of what the interface is for. Rendering where the picture is drawn
+also puts the palette on the side that owns it: the renderer bakes colours in, so a theme
+switch is a re-render, and a re-render on the far side of a round trip is a round trip about
+nothing. The workarea is the other half of the same move. A renderer needs somewhere to put what it
+it has drawn, and the interface has nowhere: the project's folder is the user's and must stay
+untouched, and the host's own files are the host's. Drawing that seam ahead of a remote
+host arrives is what keeps it a value the interface is told rather than a path it composes.
+
+**Cost:** four. The interface takes a heavy dependency — `merman`, and the transitive layout engine
+under it — into the half that has to hit a frame budget, so the render must stay off the frame
+thread and a diagram that is slow to lay out must show as pending rather than as a stall. The
+workarea is a path in the interface, which is a real dent in rule 2 of
+[`architecture.md`](./architecture.md); it is bounded by the interface never composing it, but a
+second interface that is not on the host's machine has to earn that path some other way. A second
+interface — a web one — gets no diagrams for free: it renders them itself or shows none, where a
+host-side family would have served both. And the cache is the interface's to bound and to
+invalidate, on a directory the host will delete without asking the moment its project is forgotten.
 
 ## Related docs
 

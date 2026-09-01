@@ -11,7 +11,7 @@
 
 use gpui::{Entity, Subscription};
 use gpui_component::input::EditorState;
-use ubiq_proto::files::FileVersion;
+use ubiq_proto::files::{DiffBase, FileDiff, FileVersion};
 
 /// The languages the editor highlights. Anything else opens as plain text, which is the general
 /// case rather than a fallback.
@@ -53,6 +53,138 @@ impl FileLanguage {
     }
 }
 
+/// What draws a file, once its bytes are here.
+///
+/// The path's extension picks one, and anything unrecognised is the editor — the general case
+/// rather than a fallback. A viewer is a pure function of bytes and a kind: it opens no file and
+/// resolves no path, and where the bytes came from is not its business.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ViewerKind {
+    /// The text, highlighted. Every extension with no viewer of its own lands here.
+    Editor,
+    /// The source, the rendered document, or both.
+    Markdown,
+    /// A diagram the host rendered, drawn from the image it sent back.
+    Mermaid,
+    /// A scene drawn natively from its own JSON.
+    Excalidraw,
+    /// The image itself.
+    Image,
+}
+
+impl ViewerKind {
+    /// The viewer a path's extension names.
+    pub fn of(path: &str) -> Self {
+        match extension(path).as_str() {
+            "md" | "markdown" => ViewerKind::Markdown,
+            "mmd" | "mermaid" => ViewerKind::Mermaid,
+            "excalidraw" => ViewerKind::Excalidraw,
+            "png" | "jpg" | "jpeg" | "gif" | "webp" => ViewerKind::Image,
+            _ => ViewerKind::Editor,
+        }
+    }
+
+    /// Whether the viewer has a source to show beside what it drew. The editor is only ever
+    /// source, and an image has none at all.
+    pub fn has_preview(self) -> bool {
+        matches!(
+            self,
+            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Excalidraw
+        )
+    }
+}
+
+/// Which of a viewer's layouts is on screen. The one piece of per-tab state a viewer keeps, and
+/// what it writes into the dock's saved layout so a document reopens as it was left.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewLayout {
+    /// The bytes, in the editor.
+    Source,
+    /// What the viewer drew, alone.
+    #[default]
+    Preview,
+    /// Both, side by side.
+    Split,
+}
+
+impl ViewLayout {
+    /// What the header's toggle calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewLayout::Source => "Source",
+            ViewLayout::Preview => "Preview",
+            ViewLayout::Split => "Split",
+        }
+    }
+
+    /// The three, in the order the toggle draws them.
+    pub fn all() -> [ViewLayout; 3] {
+        [ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split]
+    }
+
+    /// Whether the source half is drawn in this layout.
+    pub fn shows_source(self) -> bool {
+        matches!(self, ViewLayout::Source | ViewLayout::Split)
+    }
+
+    /// Whether the drawn half is drawn in this layout.
+    pub fn shows_preview(self) -> bool {
+        matches!(self, ViewLayout::Preview | ViewLayout::Split)
+    }
+}
+
+/// What a tab is looking at: the file itself, or a comparison the host computed from it.
+///
+/// A diff is not a file, which is what makes it a subject rather than a viewer kind. Its content
+/// is not on disk anywhere, so it is asked for with its own message and arrives as rows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Subject {
+    File,
+    Diff(DiffBase),
+}
+
+impl Subject {
+    /// The prefix that keeps a file and its diff two tabs rather than one.
+    fn tag(self) -> &'static str {
+        match self {
+            Subject::File => "",
+            Subject::Diff(DiffBase::Head) => "diff:head:",
+            Subject::Diff(DiffBase::Index) => "diff:index:",
+        }
+    }
+
+    /// What the tab says after the file's name.
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Subject::File => "",
+            Subject::Diff(DiffBase::Head) => " · diff",
+            Subject::Diff(DiffBase::Index) => " · staged",
+        }
+    }
+}
+
+/// The key that identifies one tab, and the key a saved layout and the view prefs name it by.
+///
+/// It is the path for a file and the path behind a prefix for a diff, so that opening a file's
+/// diff never takes over the tab holding the file.
+pub fn tab_key(path: &str, subject: Subject) -> String {
+    format!("{}{path}", subject.tag())
+}
+
+/// Split a key back into what it names. An unprefixed key is the file itself.
+pub fn from_tab_key(key: &str) -> (String, Subject) {
+    for subject in [
+        Subject::Diff(DiffBase::Head),
+        Subject::Diff(DiffBase::Index),
+    ] {
+        if let Some(path) = key.strip_prefix(subject.tag()) {
+            return (path.to_string(), subject);
+        }
+    }
+    (key.to_string(), Subject::File)
+}
+
 /// What a tab is showing, which is not always a buffer.
 ///
 /// A tab exists from the click that asked for the file, so that a click has an effect, a second
@@ -72,6 +204,14 @@ pub enum FileBody {
         /// when the read was truncated, which is what makes such a buffer unsavable mechanically.
         version: Option<FileVersion>,
     },
+    /// The hunks the host computed. A diff has no buffer, because there is nothing to edit: the
+    /// comparison is not a file, and no diff library entered the interface to make it.
+    Diff(Box<FileDiff>),
+    /// Bytes a viewer draws rather than a buffer edits — an image, and nothing else today.
+    ///
+    /// Kept whole and undecoded, because the thing that draws them is a decoder: turning them into
+    /// text first would be lossy in exactly the way that matters.
+    Bytes(Vec<u8>),
     /// Bytes the editor will not show.
     Binary,
     /// Why there are none.
@@ -90,7 +230,14 @@ pub struct OpenFile {
     pub name: String,
     /// Project-relative, as every path the interface holds is.
     pub path: String,
+    /// The file itself, or a comparison the host made from it.
+    pub subject: Subject,
     pub language: FileLanguage,
+    /// What draws it. Chosen from the extension once, when the tab opens.
+    pub viewer: ViewerKind,
+    /// Which of the viewer's layouts is on screen. Meaningless for a viewer with no preview, and
+    /// harmless there.
+    pub layout: ViewLayout,
     pub body: FileBody,
     pub save: SaveState,
     /// Cached rather than compared every frame: a per-frame comparison is the file's length times
@@ -104,14 +251,47 @@ pub struct OpenFile {
 impl OpenFile {
     /// A tab with no bytes yet: what a click on the explorer produces before the host has answered.
     pub fn pending(path: &str) -> Self {
+        Self::pending_on(path, Subject::File)
+    }
+
+    /// The same, for a tab looking at something the host will make from the file.
+    pub fn pending_on(path: &str, subject: Subject) -> Self {
+        let viewer = ViewerKind::of(path);
         Self {
             name: leaf(path).to_string(),
             path: path.to_string(),
+            subject,
             language: FileLanguage::of(path),
+            viewer,
+            layout: if viewer.has_preview() {
+                ViewLayout::default()
+            } else {
+                ViewLayout::Source
+            },
             body: FileBody::Loading,
             save: SaveState::Idle,
             dirty: false,
             _change: None,
+        }
+    }
+
+    /// The key this tab is known by, in the dock's saved layout and in the view prefs.
+    pub fn key(&self) -> String {
+        tab_key(&self.path, self.subject)
+    }
+
+    /// Give the tab the hunks the host computed. A diff replaces nothing and is never edited.
+    pub fn attach_diff(&mut self, diff: FileDiff) {
+        self.body = FileBody::Diff(Box::new(diff));
+        self.save = SaveState::Idle;
+        self.dirty = false;
+        self._change = None;
+    }
+
+    /// Put the viewer into one of its layouts. A viewer with no preview has only its source.
+    pub fn set_layout(&mut self, layout: ViewLayout) {
+        if self.viewer.has_preview() {
+            self.layout = layout;
         }
     }
 
@@ -140,6 +320,23 @@ impl OpenFile {
         self.body = FileBody::Binary;
         self.dirty = false;
         self._change = None;
+    }
+
+    /// Give the tab bytes to draw rather than a buffer to edit.
+    ///
+    /// This is what a file whose viewer is a decoder gets instead of [`OpenFile::set_binary`]: an
+    /// image is not text and is not nothing, and the difference is which of the two it is handed.
+    pub fn set_bytes(&mut self, bytes: Vec<u8>) {
+        self.body = FileBody::Bytes(bytes);
+        self.save = SaveState::Idle;
+        self.dirty = false;
+        self._change = None;
+    }
+
+    /// Whether the tab's bytes go to a viewer rather than into a buffer. A read still has to
+    /// happen; what changes is what is done with the answer.
+    pub fn draws_bytes(&self) -> bool {
+        matches!(self.viewer, ViewerKind::Image)
     }
 
     /// The read failed, and the tab says why rather than sitting empty.
@@ -259,21 +456,38 @@ impl EditorPaneState {
         self.open.get_mut(self.active)
     }
 
+    /// Where the tab looking at the file itself is.
     pub fn index_of(&self, path: &str) -> Option<usize> {
-        self.open.iter().position(|file| file.path == path)
+        self.index_of_key(&tab_key(path, Subject::File))
     }
 
+    /// Where the tab with this key is, whatever it is looking at.
+    pub fn index_of_key(&self, key: &str) -> Option<usize> {
+        self.open.iter().position(|file| file.key() == key)
+    }
+
+    /// The tab looking at the file itself. Bytes arrive for a path, and a diff of the same path is
+    /// a different tab that must not be filled with them.
     pub fn find_mut(&mut self, path: &str) -> Option<&mut OpenFile> {
-        self.open.iter_mut().find(|file| file.path == path)
+        self.find_key_mut(&tab_key(path, Subject::File))
+    }
+
+    pub fn find_key_mut(&mut self, key: &str) -> Option<&mut OpenFile> {
+        self.open.iter_mut().find(|file| file.key() == key)
     }
 
     /// Put a tab in front of the user before its bytes exist, answering the index it took. A path
     /// already open answers where it is instead, so a second click cannot open it twice.
     pub fn open_pending(&mut self, path: &str) -> usize {
-        match self.index_of(path) {
+        self.open_pending_on(path, Subject::File)
+    }
+
+    /// The same, for a tab looking at something the host will make from the file.
+    pub fn open_pending_on(&mut self, path: &str, subject: Subject) -> usize {
+        match self.index_of_key(&tab_key(path, subject)) {
             Some(at) => at,
             None => {
-                self.open.push(OpenFile::pending(path));
+                self.open.push(OpenFile::pending_on(path, subject));
                 self.open.len() - 1
             }
         }

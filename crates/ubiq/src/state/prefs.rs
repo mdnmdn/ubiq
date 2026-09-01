@@ -11,7 +11,13 @@ use crate::state::RailMode;
 use crate::theme::ThemeId;
 
 /// The shape this build writes and understands. Bump it and older blobs are discarded.
-pub const SCHEMA: u32 = 1;
+///
+/// It moved to `2` when the files a project remembers became **tab keys** rather than paths, and
+/// the dock's saved arrangement gained one panel per open file. Neither is a field a default could
+/// rescue: a path read as a key opens the wrong tab, and an arrangement written before file panels
+/// existed has a centre panel where the files belong. `LAYOUT_VERSION` follows this number, so the
+/// blob and the arrangement inside it are discarded together rather than one half at a time.
+pub const SCHEMA: u32 = 2;
 
 /// What belongs to the whole interface rather than to any one project.
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
@@ -29,29 +35,37 @@ impl Default for InterfacePrefs {
     }
 }
 
-/// What belongs to one project: where its furniture was left, and what it was looking at.
+/// What belongs to one project: how its window was arranged, and what it was looking at.
 ///
 /// Every field added after the first release is `#[serde(default)]`, so a blob written by an
-/// older build opens with the new fields empty rather than being discarded. That is why the
-/// schema has not had to move.
+/// older build at the same schema opens with the new fields empty rather than being discarded.
+/// That is what keeps the schema still: it moves only when a field a build already writes changes
+/// meaning, which a default cannot rescue.
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct ViewPrefs {
     pub schema: u32,
     pub rail_mode: RailMode,
+    /// Whether each of the dock's three edge regions was on screen. Written from the dock's own
+    /// state; the arrangement in `layout` carries the same fact, and is what a restore reads.
     pub show_left: bool,
     pub show_bottom: bool,
     pub show_right: bool,
-    /// The three panels' widths and the dock's height, as they were last dragged.
+    /// The window's whole arrangement, as the dock serialises it: the tree, the axes, the sizes,
+    /// and which tab of each group was displayed.
+    ///
+    /// **The host stores it as an opaque value it never parses**, like everything else here, so
+    /// the schema stays the interface's own. It carries a version of its own inside, and one
+    /// written for another is discarded for the default arrangement rather than half-applied.
+    /// Terminal panels are in it and are dropped on load: layout persists, harnesses do not.
     #[serde(default)]
-    pub explorer_width: Option<f32>,
-    #[serde(default)]
-    pub chat_width: Option<f32>,
-    #[serde(default)]
-    pub dock_height: Option<f32>,
-    /// The files open in the centre, in tab order. Project-relative, like every path here.
+    pub layout: Option<serde_json::Value>,
+    /// The tabs open in the centre, in tab order, as `state/editor.rs`'s tab keys.
+    ///
+    /// A key rather than a path, because a file and its diff are two tabs on one path and a path
+    /// names both. An unprefixed key *is* the path, which is what the file itself opens under.
     #[serde(default)]
     pub open_files: Vec<String>,
-    /// Which of `open_files` was in front. A path rather than an index, because a file that fails
+    /// Which of `open_files` was in front. A key rather than an index, because a file that fails
     /// to open must not shift what "active" meant.
     #[serde(default)]
     pub active_file: Option<String>,
@@ -71,9 +85,7 @@ impl Default for ViewPrefs {
             show_left: true,
             show_bottom: true,
             show_right: true,
-            explorer_width: None,
-            chat_width: None,
-            dock_height: None,
+            layout: None,
             open_files: Vec::new(),
             active_file: None,
             expanded: Vec::new(),

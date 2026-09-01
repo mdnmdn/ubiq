@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::files::{DirListing, FileContents, FileError, FileVersion};
+use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion};
 use crate::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
@@ -182,6 +182,13 @@ pub enum Message {
         bytes: Vec<u8>,
         expected: Option<FileVersion>,
     },
+    /// Compare a file against a version-control base. The host computes the hunks; the interface
+    /// draws rows and holds no diff library.
+    DiffProjectFile {
+        project_id: ProjectId,
+        rel_path: String,
+        base: DiffBase,
+    },
 
     // ── File family: host → UI ──────────────────────────────────────
     /// `rel_path` first, then every directory listed below it. Both paths are echoed, because an
@@ -202,6 +209,12 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         version: FileVersion,
+    },
+    /// The file's change against the base it was asked for, hunk by hunk.
+    ProjectFileDiffed {
+        project_id: ProjectId,
+        rel_path: String,
+        diff: FileDiff,
     },
     /// Something went wrong for one path in one project.
     ///

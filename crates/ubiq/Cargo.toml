@@ -42,6 +42,18 @@ tracing = "0.1"
 # Wall-clock timestamps for the log console, in the reader's own zone
 chrono = "0.4"
 
+# Mermaid, drawn here. A pure-Rust renderer with no browser and no system library behind it, which
+# is what lets a diagram be drawn on a background thread of the interface's own. **Pinned with `=`**:
+# it is an alpha, its API moved between 0.7 and 0.8, and the pin is half of the diagram cache's
+# version marker — the two move together or the cache serves yesterday's picture forever.
+merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
+    "layout-cytoscape",
+    "svg",
+] }
+# The content address a cached diagram is filed under. A stable hash, because the name has to mean
+# the same thing after a restart and after a toolchain upgrade.
+sha2 = "0.10"
+
 # Utilities
 flume = "0.12"
 parking_lot = "0.12"
@@ -49,3 +61,8 @@ parking_lot = "0.12"
 [dev-dependencies]
 # The console's state is asserted against the sink's own types
 ubiq-proto = { path = "../ubiq-proto" }
+# A window with no graphics device behind it. Same revision as the dependency above — this only
+# turns on the test platform, and never becomes a dependency of the binary.
+gpui = { git = "https://github.com/zed-industries/zed", features = ["test-support"] }
+# A throwaway workarea for the diagram cache's disk tier
+tempfile = "3"

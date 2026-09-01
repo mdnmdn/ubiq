@@ -17,6 +17,7 @@ pub type IndexedAction = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 pub mod canvas;
 pub mod controls;
 pub mod menu;
+pub mod overlay;
 pub mod panel;
 
 pub use controls::{
@@ -25,4 +26,5 @@ pub use controls::{
     toggle_pill,
 };
 pub use menu::{Picker, PickerStyle};
+pub use overlay::{modal, modal_note};
 pub use panel::{Tab, panel, panel_header, tab_strip};

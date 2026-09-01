@@ -1,5 +1,5 @@
-//! What a project's files are on the wire: one level of a tree, one file's bytes, and the failures
-//! a single path can have.
+//! What a project's files are on the wire: one level of a tree, one file's bytes, one file's
+//! change against a version-control base, and the failures a single path can have.
 //!
 //! **The interface holds project-relative paths only.** A `rel_path` is forward-slashed, has no
 //! leading slash and no `..`, and is empty for the project's root. It is resolved against the
@@ -94,6 +94,84 @@ pub struct FileContents {
     /// naming no version is refused on a file that already exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<FileVersion>,
+}
+
+/// What a diff is taken against.
+///
+/// The two the working tree can be compared with, and nothing else: a diff the interface draws is
+/// always about what is on disk right now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiffBase {
+    /// The working tree against the commit that is checked out — every unstaged and staged change
+    /// together, which is what an editor's gutter shows.
+    Head,
+    /// The working tree against the index, so only what has not been staged yet.
+    Index,
+}
+
+/// What one row of a hunk is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiffRowKind {
+    /// Unchanged, and present on both sides. It carries both line numbers.
+    Context,
+    /// Only on the new side.
+    Added,
+    /// Only on the old side.
+    Removed,
+}
+
+/// One line of a hunk, as the interface draws it.
+///
+/// Line numbers are one-based, and each is absent on the side the row is not on: `old_line` is
+/// `None` on an [`DiffRowKind::Added`] row, `new_line` is `None` on a [`DiffRowKind::Removed`] one.
+/// The host works them out while it walks the hunk, because a gutter that counts rows itself gets
+/// it wrong the first time a hunk is truncated.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffRow {
+    pub kind: DiffRowKind,
+    /// The line's number on the old side, one-based.
+    pub old_line: Option<u32>,
+    /// The line's number on the new side, one-based.
+    pub new_line: Option<u32>,
+    /// The line itself, without its trailing newline and without the leading marker a textual diff
+    /// would carry — the marker is [`DiffRow::kind`], which is a thing to draw rather than a
+    /// character to strip.
+    pub text: String,
+}
+
+/// One run of changed lines and the context around it.
+///
+/// The four counts are the unified-diff header's, kept as numbers rather than as the `@@` line so
+/// nothing has to parse them back out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffHunk {
+    /// First line of the hunk on the old side, one-based.
+    pub old_start: u32,
+    /// How many lines the hunk covers on the old side.
+    pub old_lines: u32,
+    /// First line of the hunk on the new side, one-based.
+    pub new_start: u32,
+    /// How many lines the hunk covers on the new side.
+    pub new_lines: u32,
+    pub rows: Vec<DiffRow>,
+}
+
+/// One file, compared with a version-control base.
+///
+/// The host computes the hunks and the interface draws rows: no diff library reaches the interface,
+/// on the discipline that keeps a VT parser out of the host. A file with no change against the base
+/// answers with no hunks rather than with an error.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiff {
+    /// Echoed, because the interface may have switched base since it asked.
+    pub base: DiffBase,
+    pub hunks: Vec<DiffHunk>,
+    /// The host would not diff it — the same judgement [`FileContents::is_binary`] reports, and
+    /// there are no hunks when it is set.
+    pub binary: bool,
+    /// The host stopped at a ceiling, so the hunks are a prefix of the change rather than all of
+    /// it. The interface says so rather than drawing a file as smaller than its change.
+    pub truncated: bool,
 }
 
 /// What went wrong for one path.

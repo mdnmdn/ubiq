@@ -45,6 +45,31 @@ Two conventions in that tree are worth stating outright. A leading underscore me
 build. And `refs/` is **read-only** — it holds other projects checked out for comparison, and
 nothing in it is ever edited, imported, or treated as a claim about this tree.
 
+## The config root
+
+The tree above is the source. The other tree Ubiq owns is the **config root** it writes at runtime —
+`~/.config/ubiq` unless a flag, `UBIQ_CONFIG_DIR` or a `ubiq.toml` moves it, and this repository's
+`ubiq.toml` points it at `_data/config` so a checkout never touches the catalogue a user works with
+([`operations.md`](./operations.md) owns the resolution order). Nothing Ubiq remembers goes inside a
+project's own folder — `D30`.
+
+```
+<config root>/
+├── projects.toml            the catalogue: one record per project
+├── preferences.toml         the interface's own view blob, opaque to the host
+└── projects/
+    └── <project ulid>/
+        ├── tasks.toml       that project's tasks, the user's data
+        ├── view.toml        that project's view blob, opaque to the host
+        └── ui/              the interface's workarea — the host makes it and never looks in
+```
+
+A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
+is what makes forgetting a project complete even after a crash halfway through it. The `ui/`
+directory goes with it, and that is the only thing the host ever does to it: everything under `ui/`
+is the interface's, is disposable, and is reached by the path on `ProjectSnapshot` rather than over
+the bus — rule 6 in [`architecture.md`](./architecture.md).
+
 ## `vendor/`
 
 Third-party crates the workspace compiles from source because depending on them as published is not
@@ -98,15 +123,16 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
 | `ubiq-host/src/store/` | The catalogue, a project's tasks and the view state, behind three traits | Any opinion about what a view blob means |
-| `ubiq-host/src/projects.rs` | The catalogue as the host runs it | An opinion about colour or layout |
+| `ubiq-host/src/projects.rs` | The catalogue as the host runs it, and the reservation of each project's `ui/` workarea | An opinion about colour or layout, or a read of anything inside a workarea |
 | `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |
 | `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
 | `ubiq-host/src/mcp_server.rs` | The MCP surface Ubiq exposes to the agents it hosts | Anything the hosted agent should not reach |
-| `ubiq/src/app.rs` | `AppState`: the panes, the focused pane, the layout mode, the workbench state, and window creation | Process handles, PTY handles, disk |
-| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, status bar, empty page, `chat/` | Anything that names the host |
+| `ubiq/src/app.rs` | `AppState`: the panes, the focused pane, the dock and its panels, the workbench state, and window creation | Process handles, PTY handles, disk |
+| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, `chat/`, `agents/`, `board/` | Anything that names the host |
+| `ubiq/src/ui/dock/` | The window's arrangement: the panel adapter over those areas, and Ubiq's skin over the component library's dock | State of its own — a panel holds what identifies it and reads the rest |
 | `ubiq/src/ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
 | `ubiq/src/theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
-| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, the projections of the host's catalogue and of a project's work, and the fixture that still seeds the chat | Rendering, or any component-library type |
+| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, what a panel is and where it may sit, the projections of the host's catalogue and of a project's work, and the fixture that still seeds the chat | Rendering, or any component-library type |
 | `ubiq-app/src/main.rs` | Application start: the config root, the host, the theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
 
 The "never holds" column is the enforcement of the architecture's rules in file terms. A

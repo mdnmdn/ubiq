@@ -1,73 +1,23 @@
-//! The window's skeleton: titlebar, rail, the three resizable panels, and the status bar.
+//! The window's skeleton: titlebar, rail, the dock, and the status bar.
 //!
-//! Only IDE mode fills the middle. The chat panel is the one piece of furniture that survives a
-//! rail-mode switch, so it sits outside the mode branch.
+//! Everything between the chrome is the **dock** — a tree of tabbed groups the user rearranges by
+//! dragging. The window no longer fixes an arrangement: which panels exist is `AppState`'s answer,
+//! where each sits is the user's, and what any of it looks like is `ui::dock::skin`'s.
 //!
-//! A window holding no project keeps its frame and empties what a project would have filled. The
-//! dock stays, because the log console is a tab in it and a window with nothing open is exactly
-//! when the console is worth reaching.
+//! The chrome does not move. The titlebar, the rail and the status bar are the frame the dock is
+//! drawn inside, and `D18`'s window edge is theirs rather than the dock's.
 
 use gpui::{Context, IntoElement, ParentElement, Styled, Window, div, px};
-use gpui_component::resizable::{h_resizable, resizable_panel, v_resizable};
 
 use crate::app::AppState;
 use crate::theme;
-use crate::ui::{
-    agents, board, chat, editor, empty, explorer, rail, status_bar, terminal, titlebar,
-};
+use crate::ui::{rail, status_bar, titlebar};
 
-pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
-    let wb = &app.workbench;
-    let ide = wb.is_ide();
-    let has_project = app.project(cx).is_some();
-
-    let centre = if ide {
-        // With no project there is nothing to edit, and the empty page says so where the editor
-        // would have been. The dock below it is unchanged: the console is reachable either way.
-        let above = if has_project {
-            editor::render(app, cx).into_any_element()
-        } else {
-            empty::no_project(cx)
-        };
-
-        // The group's state is the window's, not the frame's, so a dragged size can be read back
-        // and remembered.
-        v_resizable("workbench-v")
-            .with_state(&app.centre)
-            // A drag is remembered. The host debounces, so this may fire as freely as it likes.
-            .on_resize(cx.listener(|this, _, _, cx| this.remember_view(cx)))
-            .child(resizable_panel().child(above))
-            .child(
-                resizable_panel()
-                    .size(px(theme::DOCK_HEIGHT))
-                    .size_range(px(theme::DOCK_MIN)..px(theme::DOCK_MAX))
-                    .visible(wb.show_bottom)
-                    .child(terminal::render(app, cx).into_any_element()),
-            )
-            .into_any_element()
-    } else if wb.rail_mode == crate::state::RailMode::Agents && has_project {
-        // A built screen outside IDE mode. It brings its own panels — the inspector and the tasks
-        // drawer are the agents screen's, not the window's — so it fills the centre whole.
-        agents::render(app, window, cx).into_any_element()
-    } else if wb.rail_mode == crate::state::RailMode::Tasks && has_project {
-        // The other one, and the other view of the same work: the board draws the tasks the graph
-        // hangs off, at the scale of the project. Its panel is its own too.
-        board::render(app, cx).into_any_element()
-    } else if !has_project && wb.rail_mode != crate::state::RailMode::Control {
-        // Both screens over the work are a project's, as the rail says by putting them under
-        // `PROJECT`. With none open there is no work to draw, so they say what the editor says
-        // rather than leaving the centre blank.
-        empty::no_project(cx)
-    } else {
-        empty::empty_page(
-            wb.rail_mode.label(),
-            wb.rail_mode.note(),
-            rail::mode_icon(wb.rail_mode),
-            Some(empty::not_built()),
-        )
-        .into_any_element()
-    };
-
+pub fn render(
+    app: &AppState,
+    _window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
@@ -97,29 +47,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .min_h(px(0.))
                 .child(rail::render(app, cx))
                 .child(
-                    div().flex_1().min_w(px(0.)).child(
-                        h_resizable("workbench-h")
-                            .with_state(&app.columns)
-                            .on_resize(cx.listener(|this, _, _, cx| this.remember_view(cx)))
-                            .child(
-                                resizable_panel()
-                                    .size(px(theme::EXPLORER_WIDTH))
-                                    .size_range(px(theme::EXPLORER_MIN)..px(theme::EXPLORER_MAX))
-                                    .visible(ide && wb.show_left)
-                                    .child(explorer::render(app, cx).into_any_element()),
-                            )
-                            .child(resizable_panel().child(centre))
-                            .child(
-                                resizable_panel()
-                                    .size(px(theme::CHAT_WIDTH))
-                                    .size_range(px(theme::CHAT_MIN)..px(theme::CHAT_MAX))
-                                    // The chat is a conversation about a project. With none open
-                                    // it has nothing to be about, so it goes rather than sitting
-                                    // there as the one populated panel on an empty screen.
-                                    .visible(ide && wb.show_right && has_project)
-                                    .child(chat::render(app, cx).into_any_element()),
-                            ),
-                    ),
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .min_h(px(0.))
+                        .child(app.dock().clone()),
                 ),
         )
         .child(status_bar::render(app, cx))

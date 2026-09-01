@@ -44,6 +44,8 @@ fn snapshot(id: ProjectId, name: &str, path: &str, opened: Option<u32>) -> Proje
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
+        // Told rather than composed, as the interface always has it. Nothing here reaches disk.
+        workarea: format!("/tmp/ubiq-test/projects/{id}/ui"),
     }
 }
 

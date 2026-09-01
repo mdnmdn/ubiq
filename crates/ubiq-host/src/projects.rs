@@ -17,6 +17,12 @@ use crate::health::probe;
 use crate::reply::Reply;
 use crate::store::{PreferenceStore, ProjectStore, StoreError};
 
+/// The directory inside a project's own that belongs to the interface.
+///
+/// The host reserves the name and creates it, and never reads or writes inside it — see
+/// [`ubiq_proto::projects::ProjectSnapshot::workarea`].
+pub const WORKAREA: &str = "ui";
+
 /// How long a preference sits before it is written.
 ///
 /// A panel drag fires continuously, so the writes are coalesced per scope. Long enough that a drag
@@ -87,8 +93,39 @@ impl Projects {
         ProjectSnapshot {
             health: probe(Path::new(&record.path)),
             open_panes: self.open_panes.get(&record.id).copied().unwrap_or(0),
+            workarea: self.reserve_workarea(record.id),
             record: record.clone(),
         }
+    }
+
+    /// Where this project's interface keeps its own files.
+    ///
+    /// One directory per project, beside the `tasks.toml` and `view.toml` that project already
+    /// owns, so Forget and the orphan collector cover it without knowing it is there.
+    pub fn workarea(&self, id: ProjectId) -> PathBuf {
+        self.root
+            .join("projects")
+            .join(id.to_string())
+            .join(WORKAREA)
+    }
+
+    /// Reserve it, and answer the path the interface is told.
+    ///
+    /// Made here rather than by whoever writes the first file, because the interface is told the
+    /// path and is not told whether it exists — and this is the last moment the host has any
+    /// business with the directory at all. **Nothing after this reads inside it.**
+    ///
+    /// A directory that will not be made is still named: what is kept there is disposable by
+    /// design, so an interface that cannot cache is an interface that redraws, not one that fails.
+    fn reserve_workarea(&self, id: ProjectId) -> String {
+        let path = self.workarea(id);
+        if let Err(error) = std::fs::create_dir_all(&path) {
+            tracing::warn!(
+                "could not reserve the interface's workarea at {}: {error}",
+                path.display()
+            );
+        }
+        path.to_string_lossy().into_owned()
     }
 
     fn find(&self, id: ProjectId) -> Option<&ProjectRecord> {

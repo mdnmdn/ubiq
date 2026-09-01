@@ -147,6 +147,26 @@ already in the catalogue answers with the project that is there, so no duplicate
 **`ForgetProject` is not deleting.** It removes the record and the project's own directory in
 Ubiq's config, and touches nothing inside the project's folder.
 
+**Every `ProjectSnapshot` carries a `workarea`** — an absolute path to the directory that project's
+*interface* may keep its own files in. It travels on the snapshot, so it arrives on `ProjectList`,
+`ProjectAdded` and `ProjectChanged` with everything else about a project, and four things hold of
+it.
+
+- **The host reserves the name and creates it, and never reads or writes inside it.** What is in
+  there is the interface's business alone. The host makes the directory before it names it, so the
+  interface is told a path rather than a maybe.
+- **It is disposable.** Deleting it loses a cache and nothing else. Nothing the user would miss goes
+  there — that is what a `Scope::Project` preference blob is for, and that still crosses the bus.
+- **It is not the project's folder.** Nothing the interface writes there lands in the user's
+  repository, which is the whole reason it sits under Ubiq's config root rather than beside the
+  user's code.
+- **The interface never composes it.** It uses the string it was handed and never builds one out of
+  `HostInfo.config_root`, which is what makes a host on another machine a change of value rather
+  than a change of code.
+
+This is the one path in the contract the interface acts on directly rather than over the bus, and
+`architecture.md` states the rule that keeps it honest.
+
 ## The file family
 
 The fourth family. Every variant names a project by id **and a path by `rel_path`**, because an
@@ -157,9 +177,11 @@ answer arrives after the click that asked for it and the window may have changed
 | `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth` | `ProjectTreeListing` or `ProjectFileError` |
 | `ReadProjectFile` | UI → host | `project_id`, `rel_path`, `max_bytes?` | `ProjectFileContents` or `ProjectFileError` |
 | `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?` | `ProjectFileWritten` or `ProjectFileError` |
+| `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` | `ProjectFileDiffed` or `ProjectFileError` |
 | `ProjectTreeListing` | host → UI | `project_id`, `rel_path`, `listings[]` | — |
 | `ProjectFileContents` | host → UI | `project_id`, `rel_path`, `contents` | — |
 | `ProjectFileWritten` | host → UI | `project_id`, `rel_path`, `version` | — |
+| `ProjectFileDiffed` | host → UI | `project_id`, `rel_path`, `diff` | — |
 | `ProjectFileError` | host → UI | `project_id`, `rel_path`, `error` | — |
 
 Every one of these answers only the window that asked. Nothing in this family is broadcast: what one
@@ -191,6 +213,16 @@ creating one, and the write is atomic and keeps the file's permissions.
 **A truncated read cannot be saved**, and mechanically rather than by the interface remembering:
 `FileContents.version` is absent when `truncated`, so there is no version to name, and a write naming
 none is refused on a file that exists.
+
+**A diff is the file family's because it names a path.** `DiffProjectFile` compares the working
+tree with a base — `Head` for the commit that is checked out, `Index` for what has not been staged
+— and the host computes the hunks, so no diff library reaches the interface, on the discipline that
+keeps a VT parser out of the host. A `FileDiff` carries rows with the line numbers already worked
+out, because a gutter that counts them itself gets it wrong the first time a hunk is cut short. A
+file with no change against its base answers with no hunks; one the host would not diff comes back
+`binary`, and one it stopped at a ceiling comes back `truncated`, the way a listing and a read do.
+There is no new error variant: a failure is a `ProjectFileError`, and **a project with no version
+control in it is `Refused`** rather than a missing file or an empty diff.
 
 **`ProjectFileError` is per path**, not per project, for the reason `PaneError` is per pane: the
 interface can only mark the row or the tab the user is looking at if the message says which one. Its
@@ -293,7 +325,7 @@ either way, because a `Box` serialises as what is inside it.
 
 ## The payload records
 
-Fourteen records travel inside payloads.
+Seventeen records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -301,11 +333,14 @@ Fourteen records travel inside payloads.
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `AgentTypeInfo` | `name`, `command`, `description`, `default_args` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `created_at`, `last_opened_at?` |
-| `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health` and `open_panes` |
+| `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes` and `workarea` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |
 | `FileContents` | `bytes`, `len`, `truncated`, `is_binary`, `version?` |
 | `FileVersion` | `len`, `modified?` |
+| `DiffRow` | `kind`, `old_line?`, `new_line?`, `text` |
+| `DiffHunk` | `old_start`, `old_lines`, `new_start`, `new_lines`, `rows[]` |
+| `FileDiff` | `base`, `hunks[]`, `binary`, `truncated` |
 | `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
@@ -322,7 +357,7 @@ field on a task is like `health` or `open_panes`, which can only be known at the
 asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round — per-request payloads
 with no store behind them, in the class `DirEntry` and `DirListing` are in.
 
-Ten enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
+Twelve enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
 or `Failed`, and the file family's section says what each one asks the interface to do.
 
@@ -337,7 +372,10 @@ A `Scope` — `Interface` or `Project(ProjectId)` — says what a stored prefere
 discipline that keeps terminal bytes uninterpreted. The interface owns that schema and versions
 it.
 
-Six of the ten are the work's, and all but `Speaker` carry the words they answer to — a `label()`,
+`DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
+textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.
+
+Six of the twelve are the work's, and all but `Speaker` carry the words they answer to — a `label()`,
 plus a `note()`, an `all()` or a `bucket()` where there is one — because the host needs those as much
 as the interface does: it seeds the columns, it writes a `Status` down, and it classifies its own
 agents. `Status` is

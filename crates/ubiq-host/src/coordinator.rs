@@ -312,7 +312,7 @@ impl Coordinator {
             }
 
             // ── the file family ─────────────────────────────────────
-            // Three arms, no syscall: the record is a lookup in memory and the work goes to the
+            // Four arms, no syscall: the record is a lookup in memory and the work goes to the
             // worker with the root it resolved against.
             Message::ProjectTree {
                 project_id,
@@ -346,6 +346,17 @@ impl Coordinator {
                     rel_path: rel_path.clone(),
                     bytes,
                     expected,
+                };
+                self.file_job(client, project_id, &rel_path, request);
+            }
+            Message::DiffProjectFile {
+                project_id,
+                rel_path,
+                base,
+            } => {
+                let request = files::Request::Diff {
+                    rel_path: rel_path.clone(),
+                    base,
                 };
                 self.file_job(client, project_id, &rel_path, request);
             }

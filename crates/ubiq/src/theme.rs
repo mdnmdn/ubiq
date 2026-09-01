@@ -26,22 +26,23 @@ pub const TITLEBAR_HEIGHT: f32 = 44.0;
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 pub const RAIL_WIDTH: f32 = 72.0;
 
-/// Default and permitted sizes for the three resizable panels, in pixels.
+/// The size each of the dock's three edge regions opens at, in pixels. What a drag will not pass
+/// is the dock's own, so a region is one number rather than a triple; what the user drags one to
+/// is remembered inside the arrangement blob and is what a restored window opens on.
 pub const EXPLORER_WIDTH: f32 = 300.0;
-pub const EXPLORER_MIN: f32 = 200.0;
-pub const EXPLORER_MAX: f32 = 480.0;
 pub const CHAT_WIDTH: f32 = 420.0;
-pub const CHAT_MIN: f32 = 320.0;
-pub const CHAT_MAX: f32 = 640.0;
 pub const DOCK_HEIGHT: f32 = 300.0;
-pub const DOCK_MIN: f32 = 120.0;
-pub const DOCK_MAX: f32 = 600.0;
 
 /// The agents screen: the inspector beside the graph, the tasks drawer under it, and the pitch of
 /// the graph's dotted ground at 100% zoom.
 pub const INSPECTOR_WIDTH: f32 = 420.0;
 pub const TASKS_HEIGHT: f32 = 220.0;
 pub const GRAPH_DOT_PITCH: f32 = 28.0;
+
+/// A modal: how wide it is drawn, and the most of the window's height it may take before its body
+/// scrolls inside it. A modal is one question, so it is one width rather than a per-caller size.
+pub const MODAL_WIDTH: f32 = 460.0;
+pub const MODAL_MAX_HEIGHT: f32 = 0.8;
 
 /// The tasks board: a column's width open and shut, and the panel the selected task opens in.
 pub const COLUMN_WIDTH: f32 = 320.0;
@@ -58,6 +59,9 @@ pub struct SurfaceColors {
     pub raised: Rgba,
     pub hover: Rgba,
     pub selected: Rgba,
+    /// What a modal lays over the window it took the keyboard from. Its own token rather than a
+    /// `fade` at the call site, because the amount a palette has to dim by is not the same in both.
+    pub scrim: Rgba,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -197,6 +201,10 @@ pub fn selected() -> Rgba {
     Theme::current().palette.surface.selected
 }
 
+pub fn scrim() -> Rgba {
+    Theme::current().palette.surface.scrim
+}
+
 pub fn text() -> Rgba {
     Theme::current().palette.text.primary
 }
@@ -289,6 +297,7 @@ pub fn dark() -> Theme {
                 raised: rgba_hex(0x25252c),
                 hover: rgba_hex(0x2a2a33),
                 selected: rgba_hex(0x1c2a44),
+                scrim: rgba_hex_a(0x05050a, 0.62),
             },
             text: TextColors {
                 primary: rgba_hex(0xe8e8ed),
@@ -340,6 +349,7 @@ pub fn light() -> Theme {
                 raised: rgba_hex(0xf0f0f4),
                 hover: rgba_hex(0xe8e8ec),
                 selected: rgba_hex(0xd4e4ff),
+                scrim: rgba_hex_a(0x1a1a2e, 0.38),
             },
             text: TextColors {
                 primary: rgba_hex(0x1a1a2e),

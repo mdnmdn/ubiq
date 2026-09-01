@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/projects.rs]
 review_cycle: quarterly
 ---
 
@@ -69,7 +69,7 @@ behind must never stall the reader that is draining a harness.
 
 ## The rules
 
-Five, in descending order of how expensive they are to break.
+Six, in descending order of how expensive they are to break.
 
 **1. Neither half may reach around the bus.** Not a direct call, not a shared mutable handle, not a
 callback that skips the message set. The two halves share a process, which makes cheating easy and
@@ -77,7 +77,8 @@ invisible; the rule is what keeps the split real.
 
 **2. The UI never assumes the pseudo-terminal is local.** No path, no process handle, no file
 descriptor crosses into UI code. A pane is an ID plus a byte stream, and where the other end of that
-stream lives is not the UI's business.
+stream lives is not the UI's business. The workarea in rule 6 is the one path the interface is
+given, and it is given rather than composed for exactly this reason.
 
 **3. The coordinator renders nothing.** It has no opinion about layout, colour, or what the bytes it
 forwards mean. Terminal *emulation* — parsing those bytes into a screen — belongs to the UI's
@@ -89,6 +90,18 @@ name its pane is a message that will need reworking the moment a second pane exi
 **5. Terminal bytes stay opaque.** Only control messages are structured. Ubiq writes no VT parser
 and no terminal state engine; it shuttles bytes between a pseudo-terminal and an emulator built for
 exactly that problem.
+
+**6. The host reserves the interface's workarea and never reads inside it.** Every project's
+`ProjectSnapshot` carries a `workarea` — one directory, under that project's own folder in the
+config root, that belongs to the interface. The host makes it and names it, and that is the end of
+the host's interest: nothing on this side lists it, reads it or writes to it. The interface uses it
+directly, off the bus, for caches and for anything else that is its business and not the project's,
+and what it keeps there is **disposable** — deleting the directory loses a cache and nothing else,
+because anything worth keeping goes over the bus as a preference blob. It is **not the project's
+folder**, so nothing the interface writes lands in the user's repository. And the interface **never
+composes the path** out of `HostInfo.config_root`; it uses the string it was handed, which is what
+makes a host on another machine a change of value rather than a change of code. `projects.rs` is
+where it is reserved; [`transport-contract.md`](./transport-contract.md) owns the field.
 
 ## Why the split is drawn before it is needed
 
@@ -123,11 +136,30 @@ the transport beneath the contract.
 | The bus, and a pane's byte streams | `crates/ubiq-proto/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
 | Process and PTY lifecycle | `crates/ubiq-host/src/coordinator.rs` | Spawn, supervise, reap. One coordinator thread, started by the binary before the first window |
 | PTY streams and backpressure | `crates/ubiq-host/src/pty/` | `portable-pty` |
-| A project's folder, its files and a save | `crates/ubiq-host/src/files/` | The walk, the read and the atomic write, on a worker thread of their own so no listing blocks the coordinator |
+| A project's folder, its files, a save and a diff | `crates/ubiq-host/src/files/` | The walk, the read, the atomic write and the comparison with version control, on a worker thread of their own so no listing blocks the coordinator |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
 | Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
+
+**Version control is read in `crates/ubiq-host/src/files/diff.rs`, and nowhere else.** A diff is
+not a file: its content is a comparison, so the host opens the repository, takes the blob at `HEAD`
+or the one staged in the index, works the hunks and their line numbers out, and sends them — which
+is what keeps a diff library out of the interface, on the discipline that keeps a VT parser out of
+the host. It rides the same single worker as the walk and the read, because inflating a blob from a
+cold `.git` is a syscall like any other.
+
+Four behaviours follow, and each is a thing the interface must not have to guess. The repository is
+looked for **upward from the project's root**, so a project that is a folder inside one is compared
+against that repository; a project with none above it is `Refused` in the words the transport
+contract fixes, rather than answered with an empty diff that would draw as a file with no changes. A
+file version control has never seen — untracked, ignored, or any file in a repository whose first
+commit has not been made — has no blob on either base and comes back **wholly added**, which is what
+the working tree actually adds. Both sides are compared **as they are stored**, without git's clean
+and smudge filters, because running those means running programs configured by a folder the user
+merely opened. And the comparison carries the family's ceilings — two megabytes a side, four hundred
+hunks, ten thousand rows — past which it comes back `truncated` rather than as a change smaller than
+the one on disk.
 
 `crates/ubiq-app/src/main.rs` does nothing but start the application: resolve the config root, start
 the one host, install the GPUI component library, set the palette, bind the quit action and the
@@ -155,7 +187,10 @@ pseudo-terminals deliberately — without that, every closed window would leave 
 ## Diagnostics
 
 One thing crosses the line without the bus: the log sink in `crates/ubiq-proto/src/log.rs`. Both halves
-write to it, the window's console reads it, and it is process-wide rather than per window.
+write to it, the window's console reads it, and it is process-wide rather than per window. The
+workarea of rule 6 is the other, and neither weakens rule 1: the sink is written by both halves and
+read by both, and the workarea is written by neither half but one — the host says the name once and
+looks no further.
 
 It is not an exception to rule 1, because nothing about it is communication. Records travel one way,
 a producer never reads, and no record carries a pane's state, a path or a handle — neither half
@@ -171,8 +206,8 @@ The coordinator is the single source of truth. The UI holds a projection of it �
 and never a fact the coordinator does not also hold. When the two disagree, the coordinator is
 right, and the repair is a message, not a reach-around.
 
-Inside the UI, `AppState` owns the panes, the focused pane, and the layout mode, and mutates them
-only through methods that end in a redraw request: `spawn_pane()`, `close_pane()`, `resize_pane()`,
+Inside the UI, `AppState` owns the panes, the focused pane, and the dock they are panels in, and
+mutates them only through methods that end in a redraw request: `spawn_pane()`, `close_pane()`, `resize_pane()`,
 `focus_pane()`. It owns the workbench's own state on the same terms. A pane is drawn when the
 coordinator answers with the workspace it started, not when the UI asked for one — asking is
 `spawn_pane()`, and the answer arrives, with everything else the coordinator says, at `receive()`,

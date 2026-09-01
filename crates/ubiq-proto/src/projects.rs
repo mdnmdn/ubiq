@@ -63,6 +63,21 @@ pub struct ProjectSnapshot {
     /// How many panes the host has running in this project. Only the half that owns the panes can
     /// know this, which is why it is not a field on the record.
     pub open_panes: usize,
+    /// The directory this project's interface may keep its own files in — caches, and anything
+    /// else that is the interface's business and not the project's.
+    ///
+    /// The host reserves the name and creates it; **it never reads inside.** What is in there is
+    /// the interface's alone, and it is disposable: deleting it loses a cache and nothing else.
+    /// Nothing the user would miss goes here — that is what the view blob and the preference blob
+    /// are for, and those still cross the bus.
+    ///
+    /// It is **not the project's folder**: nothing the interface writes here lands in the user's
+    /// repository, which is the whole reason it sits under Ubiq's own config root.
+    ///
+    /// An absolute path, told rather than composed. The interface never builds it out of
+    /// `config_root` itself — using what it was handed is what makes a host on another machine a
+    /// change of value rather than a change of code.
+    pub workarea: String,
 }
 
 impl ProjectSnapshot {
