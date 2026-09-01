@@ -7,6 +7,7 @@
 //! one place — `AppState` — responsible for state and redraws.
 
 pub mod agents;
+pub mod board;
 pub mod chat;
 pub mod editor;
 pub mod empty;

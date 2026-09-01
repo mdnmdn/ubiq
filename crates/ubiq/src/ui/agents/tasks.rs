@@ -116,13 +116,13 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         .gap_2()
                         .py_1()
                         .child(
-                            Icon::new(if step.done {
+                            Icon::new(if step.done() {
                                 IconName::CircleCheck
                             } else {
                                 IconName::Dash
                             })
                             .with_size(Size::XSmall)
-                            .text_color(if step.done {
+                            .text_color(if step.done() {
                                 theme::success()
                             } else {
                                 theme::text_faint()
@@ -133,7 +133,7 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                                 .flex_1()
                                 .min_w(px(0.))
                                 .text_size(px(12.5))
-                                .text_color(if step.done {
+                                .text_color(if step.done() {
                                     theme::text_muted()
                                 } else {
                                     theme::text()

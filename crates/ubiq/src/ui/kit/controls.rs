@@ -6,7 +6,7 @@
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     PathBuilder, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, canvas,
-    div, point, px,
+    div, point, px, relative,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -214,6 +214,75 @@ pub fn state_chip(label: impl Into<SharedString>, colour: Rgba, scale: f32) -> i
                 .bg(colour),
         )
         .child(mono(label, theme::text()).text_size(px(11. * scale)))
+}
+
+/// A flat meter: how far along something is, as a bar rather than a number.
+///
+/// It sits beside the count rather than replacing it — a bar answers "nearly there?" at a glance
+/// and a fraction answers "how many?", and a card is read at both distances.
+pub fn meter(fraction: f32, colour: Rgba) -> impl IntoElement {
+    let fraction = fraction.clamp(0.0, 1.0);
+    div()
+        .h(px(3.))
+        .w_full()
+        .flex()
+        .flex_none()
+        .bg(theme::fade(theme::text_faint(), 0.35))
+        .child(div().h_full().w(relative(fraction)).bg(colour))
+}
+
+/// A chip that is also a choice: one of a row of values, exactly one of them lit.
+///
+/// The switch-shaped `toggle_pill` above it is for independent facets. This one is for a set the
+/// user picks from, which is why the off state keeps its outline instead of draining to nothing.
+pub fn choice_pill(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    active: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let (text, edge) = if active {
+        (theme::text(), theme::accent())
+    } else {
+        (theme::text_muted(), theme::border())
+    };
+
+    let mut root = pill(edge).h(px(24.)).px_2p5().id(id).cursor_pointer();
+    if active {
+        root = root.bg(theme::accent_soft());
+    }
+
+    root.hover(|this| this.bg(theme::hover()))
+        .child(mono(label, text).text_size(px(11.5)))
+        .on_click(on_click)
+}
+
+/// The one filled button in the window: what a screen's single obvious action is drawn as.
+pub fn primary_button(
+    id: impl Into<ElementId>,
+    icon: Option<IconName>,
+    label: impl Into<SharedString>,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let mut root = div()
+        .id(id)
+        .h(px(26.))
+        .px_2p5()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .bg(theme::accent())
+        .text_size(px(12.5))
+        .text_color(theme::on_accent())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::accent_muted()));
+
+    if let Some(icon) = icon {
+        root = root.child(Icon::new(icon).with_size(Size::XSmall));
+    }
+
+    root.child(label.into()).on_click(on_click)
 }
 
 /// A chip that is also a switch: the filter pills over the graph, and anything else that is a set

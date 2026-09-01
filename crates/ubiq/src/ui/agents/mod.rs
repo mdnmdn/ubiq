@@ -11,6 +11,11 @@
 //! Picking a session points the graph at it and lists its tasks; picking a card narrows both to
 //! that agent.
 //!
+//! Nothing on the graph carries its own position. What an agent or a task *is* lives in
+//! [`crate::state::agents`]; where it is drawn lives in [`crate::state::layout`], which arranges
+//! the whole graph on its own and hands a card its point. The toolbar's tidy control throws every
+//! hand-placed position away and asks for that arrangement again.
+//!
 //! Three files: the graph is [`graph`], the panel beside it is [`inspector`], the drawer under it
 //! is [`tasks`]. This module is the frame and the one place an activity is turned into a colour.
 
@@ -163,6 +168,12 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             format!("{}%", agents.zoom_pct()),
             cx.listener(|this, _, _, cx| this.zoom_graph(-crate::state::agents::ZOOM_STEP, cx)),
             cx.listener(|this, _, _, cx| this.zoom_graph(crate::state::agents::ZOOM_STEP, cx)),
+        ))
+        .child(icon_button(
+            "agents-tidy",
+            IconName::LayoutDashboard,
+            false,
+            cx.listener(|this, _, _, cx| this.tidy_graph(cx)),
         ))
         .child(icon_button(
             "agents-fit",

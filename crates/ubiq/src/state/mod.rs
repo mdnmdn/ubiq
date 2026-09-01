@@ -5,9 +5,11 @@
 //! is still seeded from `sample.rs`.
 
 pub mod agents;
+pub mod board;
 pub mod chat;
 pub mod editor;
 pub mod explorer;
+pub mod layout;
 pub mod logs;
 pub mod prefs;
 pub mod sample;
@@ -16,15 +18,17 @@ pub mod windows;
 pub mod workbench;
 
 pub use agents::{
-    Activity, Agent, AgentId, AgentsState, Bucket, Carry, Grain, InspectorTab, Selection, Session,
-    SessionId, Shape, Step, Task, TaskId,
+    Activity, Agent, AgentId, AgentsState, Bucket, Carry, Grain, Held, InspectorTab, Priority,
+    Selection, Session, SessionId, Shape, Status, Step, StepState, Task, TaskId,
 };
+pub use board::BoardState;
 pub use chat::{
     Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
     THINKING, ToolCall, ToolKind,
 };
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
 pub use explorer::{ExplorerState, FileNode, GitStatus, NodeKind, Row, Toggle};
+pub use layout::Layout;
 pub use logs::LogState;
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use workbench::{MenuId, RailMode, RowAction, WorkbenchState};

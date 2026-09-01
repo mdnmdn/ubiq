@@ -178,9 +178,11 @@ Circles survive in exactly one place: state dots, which are dots.
 **`gpui-component` first.** Its `Icon`, `Kbd`, `Badge`, `Editor`, `Textarea`, `Scrollbar`, markdown
 view and resizable group are used directly. `crates/ubiq/src/ui/kit/` holds only what the library
 does not give us — the slab every surface is drawn in and the card that is a slab you can pick, the
-state dot, the pill, the state chip and the toggle pill, the stepper, the disclosure bar, the
-section label, the panel header, the shared tab strip, the progress ring, the painted layers in
-`canvas.rs`, and the one dropdown mechanism every menu in the window uses.
+state dot, the pill, the state chip, the toggle pill for an independent facet and the choice pill
+for one value of a set, the filled button a screen's single obvious action is drawn as, the stepper,
+the flat meter, the disclosure bar, the section label, the panel header, the shared tab strip, the
+progress ring, the painted layers in `canvas.rs`, and the one dropdown mechanism every menu in the
+window uses.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two

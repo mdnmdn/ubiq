@@ -12,7 +12,9 @@ use gpui_component::resizable::{h_resizable, resizable_panel, v_resizable};
 
 use crate::app::AppState;
 use crate::theme;
-use crate::ui::{agents, chat, editor, empty, explorer, rail, status_bar, terminal, titlebar};
+use crate::ui::{
+    agents, board, chat, editor, empty, explorer, rail, status_bar, terminal, titlebar,
+};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let wb = &app.workbench;
@@ -44,9 +46,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             )
             .into_any_element()
     } else if wb.rail_mode == crate::state::RailMode::Agents {
-        // The one built screen outside IDE mode. It brings its own panels — the inspector and the
-        // tasks drawer are the agents screen's, not the window's — so it fills the centre whole.
+        // A built screen outside IDE mode. It brings its own panels — the inspector and the tasks
+        // drawer are the agents screen's, not the window's — so it fills the centre whole.
         agents::render(app, window, cx).into_any_element()
+    } else if wb.rail_mode == crate::state::RailMode::Tasks {
+        // The other one, and the other view of the same work: the board draws the tasks the graph
+        // hangs off, at the scale of the project. Its panel is its own too.
+        board::render(app, cx).into_any_element()
     } else {
         empty::empty_page(
             wb.rail_mode.label(),

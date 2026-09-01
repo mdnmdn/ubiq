@@ -43,6 +43,11 @@ pub const INSPECTOR_WIDTH: f32 = 420.0;
 pub const TASKS_HEIGHT: f32 = 220.0;
 pub const GRAPH_DOT_PITCH: f32 = 28.0;
 
+/// The tasks board: a column's width open and shut, and the panel the selected task opens in.
+pub const COLUMN_WIDTH: f32 = 320.0;
+pub const COLUMN_SHUT: f32 = 44.0;
+pub const TASK_PANEL_WIDTH: f32 = 420.0;
+
 // ── Palette groups ──────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]

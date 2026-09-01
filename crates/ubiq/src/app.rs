@@ -14,7 +14,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::state::agents::{AgentId, AgentsState, Bucket, InspectorTab, Selection};
+use crate::state::agents::{
+    AgentId, AgentsState, Bucket, Held, InspectorTab, Selection, SessionId as GraphSessionId,
+    Status, TaskId,
+};
+use crate::state::board::BoardState;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, RailMode, Toggle,
     WindowRegistry, WorkbenchState, prefs, sample,
@@ -197,6 +201,8 @@ pub struct AppState {
     pub chat: ChatState,
     /// The agents screen: the orchestration graph, what is selected in it, and its tasks.
     pub agents: AgentsState,
+    /// The tasks board's view of those same tasks: what is filtered, what is open, what is shut.
+    pub board: BoardState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
 
@@ -222,6 +228,8 @@ pub struct AppState {
     /// because the two are two conversations and a shared draft would leak between them.
     pub agent_input: Entity<TextareaState>,
     pub file_filter: Entity<InputState>,
+    /// The board's one field: what filters the cards, and what names the next one.
+    pub task_filter: Entity<InputState>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
@@ -270,6 +278,9 @@ impl AppState {
 
         let file_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Go to file\u{2026}"));
+
+        let task_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter tasks\u{2026}"));
 
         let command_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search files, or run a command\u{2026}")
@@ -326,6 +337,17 @@ impl AppState {
             |this, input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.workbench.file_filter = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &task_filter,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.board.filter = input.read(cx).value().to_string();
                     cx.notify();
                 }
             },
@@ -413,6 +435,7 @@ impl AppState {
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
             agents: sample::agents(),
+            board: BoardState::default(),
             logs: LogState::default(),
             adopt_on_list: false,
             adding: false,
@@ -423,6 +446,7 @@ impl AppState {
             chat_input,
             agent_input,
             file_filter,
+            task_filter,
             command_input,
             project_search,
             rename_input,
@@ -1835,6 +1859,15 @@ impl AppState {
         cx.notify();
     }
 
+    /// Throw the arrangement away and lay the graph out again from what the agents and tasks say.
+    ///
+    /// Every hand-placed card is lost, which is the point: it is the way back from a canvas the
+    /// user has pulled apart, and there is nothing else on the screen that undoes a drag.
+    pub fn tidy_graph(&mut self, cx: &mut Context<Self>) {
+        self.agents.relayout();
+        cx.notify();
+    }
+
     pub fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
         self.agents.show_inspector = !self.agents.show_inspector;
         cx.notify();
@@ -1864,34 +1897,37 @@ impl AppState {
         cx.notify();
     }
 
-    /// Pick a card up. Selecting it too, because what is being moved is what the user is looking
-    /// at, and a drag that left the inspector on something else would be reporting on the wrong
-    /// agent.
-    pub fn start_agent_carry(&mut self, agent: AgentId, grab: (f32, f32), cx: &mut Context<Self>) {
-        self.agents.start_carry(agent, grab);
-        self.agents.selection = Some(Selection::Agent(agent));
-        cx.notify();
-    }
-
-    /// Move the carried card, and lay a grain of sand where the pointer passed.
+    /// Pick a card or a container up.
     ///
-    /// The trail is skipped when the system asks for reduced motion — it is the only motion on
-    /// this screen, and the card still follows the pointer without it.
-    pub fn carry_agent_to(&mut self, at: (f32, f32), pointer: (f32, f32), cx: &mut Context<Self>) {
-        if cx.reduce_motion() {
-            if let Some(carry) = self.agents.carry
-                && let Some(agent) = self.agents.agent_mut(carry.agent)
-            {
-                agent.at = at;
-            }
-        } else {
-            self.agents.carry_to(at, pointer, std::time::Instant::now());
+    /// A card selects itself on the way up, because what is being moved is what the user is
+    /// looking at, and a drag that left the inspector on something else would be reporting on the
+    /// wrong agent. A container does not: dragging a box to make room is not a claim about what
+    /// the user wants to read.
+    pub fn start_graph_carry(&mut self, held: Held, grab: (f32, f32), cx: &mut Context<Self>) {
+        self.agents.start_carry(held, grab);
+        if let Held::Agent(agent) = held {
+            self.agents.selection = Some(Selection::Agent(agent));
         }
         cx.notify();
     }
 
-    /// Put the carried card down, and move it into whatever container it landed in.
-    pub fn end_agent_carry(&mut self, cx: &mut Context<Self>) {
+    /// Move whatever is being carried, and lay a grain of sand where the pointer passed.
+    ///
+    /// The trail is skipped when the system asks for reduced motion — it is the only motion on
+    /// this screen, and what is held still follows the pointer without it.
+    pub fn move_graph_carry(
+        &mut self,
+        at: (f32, f32),
+        pointer: (f32, f32),
+        cx: &mut Context<Self>,
+    ) {
+        let trail = (!cx.reduce_motion()).then_some(pointer);
+        self.agents.carry_to(at, trail, std::time::Instant::now());
+        cx.notify();
+    }
+
+    /// Put it down, and move a card into whatever container it landed in.
+    pub fn end_graph_carry(&mut self, cx: &mut Context<Self>) {
         self.agents.end_carry();
         cx.notify();
     }
@@ -1919,6 +1955,120 @@ impl AppState {
             self.agents.end_carry();
         }
         self.agents.settle_sand(std::time::Instant::now());
+    }
+
+    // ── The tasks board ─────────────────────────────────────────────
+
+    /// Point the panel at a task. Picking a card always opens the panel, because a selection
+    /// nothing reports on is not a selection.
+    pub fn select_task(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        self.board.select(task);
+        cx.notify();
+    }
+
+    pub fn close_task_detail(&mut self, cx: &mut Context<Self>) {
+        self.board.show_detail = false;
+        cx.notify();
+    }
+
+    /// Which session the board is showing. `None` is every session, including the tasks that
+    /// belong to none.
+    pub fn pick_board_session(&mut self, session: Option<GraphSessionId>, cx: &mut Context<Self>) {
+        self.board.session = session;
+        cx.notify();
+    }
+
+    /// Add a task to the backlog, named by whatever is in the filter field.
+    ///
+    /// One field finds work and names it: what you typed to look for a card is what you meant to
+    /// call it when there was none. The field is cleared, so the board is not left filtered down to
+    /// the one card that was just made.
+    pub fn new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.board.filter.trim().to_string();
+        let title = if typed.is_empty() {
+            "New task".to_string()
+        } else {
+            typed
+        };
+        let session = self.board.session;
+        let id = self.agents.add_task(title, session);
+        self.board.filter.clear();
+        let input = self.task_filter.clone();
+        input.update(cx, |state, cx| state.set_value("", window, cx));
+        self.board.select(id);
+        cx.notify();
+    }
+
+    pub fn toggle_board_column(&mut self, status: Status, cx: &mut Context<Self>) {
+        self.board.toggle_column(status);
+        cx.notify();
+    }
+
+    pub fn toggle_task_fold(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        self.board.toggle_fold(task);
+        cx.notify();
+    }
+
+    /// Tick or untick one sub-task. It is the one thing on this screen that changes the work
+    /// rather than the view of it.
+    pub fn toggle_task_step(&mut self, task: TaskId, step: usize, cx: &mut Context<Self>) {
+        if self.agents.toggle_step(task, step) {
+            cx.notify();
+        }
+    }
+
+    /// Pick a card up. It selects itself on the way, for the reason a dragged agent card does:
+    /// what is being moved is what the user is looking at.
+    pub fn start_task_carry(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        self.board.start_carry(task);
+        self.board.select(task);
+        cx.notify();
+    }
+
+    /// The column under the pointer, which is what a drop would file the card into.
+    pub fn drag_task_over(&mut self, status: Status, cx: &mut Context<Self>) {
+        if self.board.carry_over(status) {
+            cx.notify();
+        }
+    }
+
+    /// Put it down. Unlike the graph's canvas, the column *is* the drop target: a card is filed
+    /// somewhere rather than placed anywhere, so where it landed is what took the drop.
+    pub fn drop_task(&mut self, status: Status, cx: &mut Context<Self>) {
+        self.board.carry_over(status);
+        if let Some((task, status)) = self.board.end_carry() {
+            self.agents.move_task(task, status);
+        }
+        cx.notify();
+    }
+
+    /// Take a task to the agents screen: the graph, pointed at whoever is doing it.
+    pub fn show_task_in_graph(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        let selection = self.agents.task(task).and_then(|task| {
+            self.agents
+                .now(task)
+                .map(|agent| Selection::Agent(agent.id))
+                .or_else(|| task.session.map(Selection::Session))
+        });
+        if let Some(selection) = selection {
+            self.agents.selection = Some(selection);
+        }
+        self.set_rail_mode(RailMode::Agents, cx);
+    }
+
+    /// The way from a card to the conversation with the agent holding it: the agents screen, that
+    /// agent selected, the inspector on its thread.
+    pub fn open_task_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        self.open_agent_chat(agent, cx);
+        self.set_rail_mode(RailMode::Agents, cx);
+    }
+
+    /// A drag that ended anywhere but a column never reaches a drop handler, so a carry with no
+    /// live drag behind it is put down here — and the card stays in the column it came from.
+    fn settle_board(&mut self, cx: &mut Context<Self>) {
+        if self.board.carry.is_some() && !cx.has_active_drag() {
+            self.board.carry = None;
+        }
     }
 
     // ── Chat ────────────────────────────────────────────────────────
@@ -1963,6 +2113,7 @@ impl Render for AppState {
         self.apply_pending_sizes(window, cx);
         self.attach_arrived_files(window, cx);
         self.settle_graph(cx);
+        self.settle_board(cx);
         ui::shell::render(self, window, cx)
     }
 }

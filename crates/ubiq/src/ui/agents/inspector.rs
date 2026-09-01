@@ -173,7 +173,7 @@ fn agent_view(
         .tasks
         .iter()
         .flat_map(|t| t.steps.iter())
-        .filter(|s| s.owner == Some(id) && !s.done)
+        .filter(|s| s.owner == Some(id) && !s.done())
         .count();
 
     let tabs = vec![

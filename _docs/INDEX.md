@@ -78,9 +78,9 @@ states the boundary once.
 |---|---|---|
 | [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-09-01 |
 | [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the dock tab that reads it back with a subsystem selector and a level floor. | 2026-09-01 |
-| [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in. | 2026-08-31 |
+| [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and the layout modes panes are arranged in. | 2026-09-01 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-01 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer and editor a project owns, the agents screen the rail's other built mode holds, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-01 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the three panels around the centre, the file explorer and editor a project owns, the agents screen and the tasks board the rail's other built modes hold, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-01 |
 
 ### Tech
 
@@ -130,6 +130,7 @@ a link.
 | The window's areas, their sizes, and what owns each | `features/workbench.md` |
 | Rail modes, panel visibility, projects, what a window owns | `features/workbench.md` |
 | The agents screen: the graph, its selection model, the inspector and the tasks drawer | `features/workbench.md` |
+| The tasks board: its columns, its cards, what a drag means and the task panel | `features/workbench.md` |
 | Commands, prerequisites, environment variables | `tech/operations.md` |
 | Structural decisions and their cost (`Dnn`) | `tech/decisions.md` |
 | The harness library's boundary and the rules across it | `tech/agent-manager.md` |
@@ -161,6 +162,7 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Building or restyling a screen, adding a colour or a size | `tech/ui-and-design.md` |
 | Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the agents screen — its graph, inspector or tasks drawer | `features/workbench.md`, then `tech/ui-and-design.md` |
+| Changing the tasks board — its columns, cards or task panel | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the window layout, or what a window owns | `features/workbench.md`, then `tech/architecture.md` |
 | Changing the chat panel or a message renderer | `features/chat.md` |
 | Adding a log event, a subsystem, or changing the log console | `features/logs.md` |

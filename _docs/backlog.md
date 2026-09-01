@@ -33,7 +33,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G7 | The MCP surface Ubiq exposes to hosted agents is a module header. What tools it offers is undecided | [`tech/architecture.md`](./tech/architecture.md) |
 | G9 | Nothing reads version control. The explorer's status marks draw unfilled, the working-tree counts and the branch readout are absent from the status bar, and the branch picker is gone rather than empty. The tree, a file's bytes and a save are the host's | [`features/workbench.md`](./features/workbench.md) |
 | G10 | The chat has no transport family, so its composer sends to nothing and its reply is canned | [`features/chat.md`](./features/chat.md) |
-| G11 | Three of the five rail modes — Control, KB, Tasks — render an empty page, and the window's three panels including the chat leave with IDE mode | [`features/workbench.md`](./features/workbench.md) |
+| G11 | Two of the five rail modes — Control and KB — render an empty page, and the window's three panels including the chat leave with IDE mode | [`features/workbench.md`](./features/workbench.md) |
 | G12 | Ubiq ships no icon set, so the history and status glyphs borrow the nearest icon from the component library's bundle | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G14 | `just verify` is red on three clippy lints in `crates/agent-manager`, so the project gate cannot pass from a clean checkout | [`tech/operations.md`](./tech/operations.md) |
 | G24 | `just test` is red on `codex_bridge_round_trips_events_and_terminates`: under the workspace run its `initialize` handshake times out after 10s, while the test passes on its own | [`tech/operations.md`](./tech/operations.md) |
@@ -60,8 +60,10 @@ change what Ubiq does (here), or where a document lives (there)?
 | G39 | The chat belongs to the window rather than to a project, so switching projects keeps the conversation. It moves when the chat gets a transport family and a conversation is about something | [`features/chat.md`](./features/chat.md) |
 | G40 | `FileLanguage` has no JavaScript arm, so a `.js` or `.mjs` file opens unhighlighted. It needs a variant and the matching arm in `ui/editor.rs`'s highlighter mapping | [`features/workbench.md`](./features/workbench.md) |
 | G41 | `crates/ubiq-host/src/files/` is named in no document's `code_anchors`, so a change to the walk, the read or the save is told it owes no document an update | [`tech/transport-contract.md`](./tech/transport-contract.md) |
-| G42 | `just docs-lint` is red on nine failures in `_docs/inbox/`, so the project gate cannot pass from a clean checkout for a third reason beyond `G14` and `G24`. Eight are proposals no `INDEX.md` entry links, and one has no frontmatter | [`INDEX.md`](./INDEX.md) |
-| G43 | The agents screen's orchestration graph has no transport family, so its sessions, agents and tasks are a fixture and what its composer sends is kept rather than answered | [`features/workbench.md`](./features/workbench.md) |
+| G42 | `just docs-lint` is red on ten failures in `_docs/inbox/`, so the project gate cannot pass from a clean checkout for a third reason beyond `G14` and `G24`. Nine are proposals no `INDEX.md` entry links, and one has no frontmatter | [`INDEX.md`](./INDEX.md) |
+| G43 | Neither of the two screens over the work has a transport family: the graph's and the board's sessions, agents and tasks are one fixture, what the inspector's composer sends is kept rather than answered, and a task made or moved on the board is lost with the window | [`features/workbench.md`](./features/workbench.md) |
+| G45 | The board makes a task and moves it between columns, and changes nothing else about one: a title is set once from the filter field, and nothing renames a task, gives it a priority or a shape, adds a sub-task or hands one to an agent | [`features/workbench.md`](./features/workbench.md) |
+| G44 | `state/layout.rs` arranges the graph once, when the screen is built. An agent that arrives afterwards has no offset of its own and is drawn at its container's origin, over whatever sits there, until the toolbar's tidy control is pressed. It needs a place for one new card that does not move the others | [`features/workbench.md`](./features/workbench.md) |
 
 ## Open questions — a decision nobody has made
 
