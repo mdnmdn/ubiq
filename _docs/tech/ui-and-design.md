@@ -83,7 +83,7 @@ The project group is the one group whose members carry no role. A swatch means *
 nothing else, and a project keeps the same one everywhere it is drawn: its dot in the picker, the
 fill behind its name in the titlebar, the mark above the rail, and the window's whole left edge.
 `project_colour` wraps, so the number of projects is not bounded by the number of swatches, and
-`project_colour_count` is what the picker offers when a project is recoloured. All four places go
+`project_colour_count` is what project settings offers when a project is recoloured. All four places go
 through `AppState::project_tint`, so a window holding no project — which happens when the catalogue
 is empty — has one neutral appearance decided in a single place rather than four call sites each
 falling back to swatch zero.

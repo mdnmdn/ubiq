@@ -171,13 +171,12 @@ that list is as long as the project has sessions and it grows. Handing a task to
 is a row in that picker rather than an absence the user has to find the way back to.
 
 **One field is open at a time.** The panel is a report first, and a panel where every field is a
-text box has stopped reporting. A field opens on a click and closes on a commit, exactly as a
-picker's row expands into a rename and folds back.
+text box has stopped reporting. A field opens on a click and closes on a commit.
 
 **Enter or the ✓ commits, the ✕ discards, and losing focus does neither** — the field stays open.
-That is the picker's rename rule, for the picker's reason: a blur fires before the click that caused
-it, so a field that committed on blur could not be cancelled by the button beside it. Selecting
-another card discards as well, because the field was about the card it was typed on.
+A blur fires before the click that caused it, so a field that committed on blur could not be
+cancelled by the button beside it. Selecting another card discards as well, because the field was
+about the card it was typed on.
 
 **An empty title is refused where it was typed and never sent.** It is a slip rather than an
 intention — the posture Send takes on an empty draft. A description may be emptied, because clearing
@@ -270,23 +269,32 @@ the letter of the window holding each, and **history** — everything open nowhe
 it was. A group with no rows is not drawn. A project's row moves between the groups as the project
 moves between windows, in every window's picker at once.
 
-**A project's folder can go away, and the picker says so rather than repairing it.** A row whose
-folder is missing, is not a directory, or cannot be read prints its path in the warning colour with
-a mark beside it, and offers **Locate** — which re-points the record through the system folder
-chooser and keeps the id, the colour and the history. A record is never removed because its folder
-went: an unplugged drive and a worktree mid-rebase are both temporary, and forgetting is always the
-user's action.
+**Every row is one line.** The name takes the space it can; the path, when it has a parent, is the
+last component with a leading `.../`. Hovering the path shows the full path as a tooltip. A row
+whose folder is missing, is not a directory, or cannot be read prints that path in the warning
+colour with a mark beside it, and offers **Locate** — which re-points the record through the system
+folder chooser and keeps the id, the colour and the history. A record is never removed because its
+folder went: an unplugged drive and a worktree mid-rebase are both temporary, and forgetting is
+always the user's action.
 
-**Every row can be renamed, recoloured and forgotten.** Renaming expands the row into a field;
-recolouring expands it into the palette's swatches; forgetting asks first and says what it will do.
-Forgetting drops the record and everything Ubiq remembers about the project, and touches nothing
-inside the project's own folder — which is why the word is "Forget".
+**Forgetting asks first and says what it will do.** It drops the record and everything Ubiq
+remembers about the project, and touches nothing inside the project's own folder — which is why the
+word is "Forget". Rename and recolour are not on the row: they live in project settings.
 
 **Choosing a project's folder is the operating system's dialog**, both for Add and for Locate — the
 chooser the user already knows, with their bookmarks, their network volumes and a path field. Ubiq
 draws no folder browser of its own for this. Opening a file or a folder *inside* a project stays in
 the interface, where the explorer is. Adding a folder already in the catalogue points at the project
 that is there rather than making a second.
+
+**Add does not create the project on the spot.** The chooser returns a folder; project settings
+opens over the window with only General enabled, the path filled and immutable, and the name
+prefilled from the folder's last component. Create sends `AddProject`. Cancel leaves the catalogue
+untouched.
+
+**A 3-dot next to the title chip opens project settings for the project this window is showing.**
+The path stays as it is. Documentation and Integrations are drawn and disabled. Save writes the
+name and colour through `UpdateProject`.
 
 **Each group's rows carry the actions that group needs.** In this window: click to point the window
 at it, `Close` to close it, `ExternalLink` to send it to a window of its own. In another window:
@@ -523,11 +531,13 @@ kit rows — Appearance, Harnesses, Agent defaults, and the three quieter destin
 of the same controls the style reference already draws: `choice_pill` for a pinned theme or a
 density, `check_box` for a boolean, `stepper` and `meter` for a number, `card` for a permission
 mode, `Picker` for a dropdown, `slab` for a harness that opens. Project settings is that same
-furniture in the shape of a dialog: a coloured left edge, a nav, a form, Cancel putting the
-fixture back. Its colour row is a strip of swatches plus a picker — saturation/value, a hue bar,
-and a `#RRGGBB` field — so a custom colour is chosen rather than only indexed. A field that holds
-the keyboard is underlined on its bottom edge as well as marked on the left. Neither page writes
-anything; both are what a real settings surface will be built out of, looked at here first.
+furniture in the shape of a dialog: a coloured left edge, a nav, a form. On the sink, Cancel puts
+the fixture back and Save writes nothing, because the sink has no project behind it. Over the
+workbench the same dialog is the create and edit surface: only General is enabled, the path is
+immutable, Create sends `AddProject`, and Save sends `UpdateProject`. Its colour row is a strip of
+swatches plus a picker — saturation/value, a hue bar, and a `#RRGGBB` field — so a custom colour is
+chosen rather than only indexed. A field that holds the keyboard is underlined on its bottom edge
+as well as marked on the left.
 
 **The picker page raises the file picker in each of the shapes a screen can ask for one.** The picker
 takes a request — files or folders, one answer or several, the folder it is rooted at, a prefilter
@@ -572,8 +582,9 @@ of it: `ListProjects`, `AddProject`, `ForgetProject`, `UpdateProject`, `LocatePr
 `OpenedProject` and `RefreshProject` going out, `ProjectList`, `ProjectAdded`, `ProjectChanged`,
 `ProjectForgotten` and `ProjectError` coming back, and `GetPreferences`/`SetPreferences` behind
 everything the window remembers. A chosen folder reaches the host as a path in `AddProject` or
-`LocateProject`; the choosing itself is the platform's, and crosses nothing. The
-full family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
+`LocateProject`; Add also carries the name and colour from project settings. The choosing itself is
+the platform's, and crosses nothing. The full family is
+[`../tech/transport-contract.md`](../tech/transport-contract.md).
 
 **Files cross the bus too.** The explorer and the editor are projections of the host's answers, not
 state of their own: `ProjectTree`, `ReadProjectFile` and `WriteProjectFile` going out, and
@@ -785,11 +796,14 @@ what is on screen; `layout_blob()` is what it writes.
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
 `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/` and `board/`. The project picker is
 its own module rather than a `Picker`, because a project row carries actions and a confirmation and
-is not just a value. Shared primitives are in `ui/kit/`; the conventions behind that split are in
+is not just a value. Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
+shell paints the same dialog over the window when a project is being created or edited. Shared
+primitives are in `ui/kit/`; the conventions behind that split are in
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
-State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu and
-what was typed into the picker's and the explorer's filters; `explorer.rs` for the tree; `editor.rs`
+State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
+project settings dialog and what was typed into the picker's and the explorer's filters;
+`explorer.rs` for the tree; `editor.rs`
 for the open files; `logs.rs` for the console's filter; `work.rs` for one project's work as the host
 describes it; `agents.rs` for the graph's view of that work; `board.rs` for the board's.
 
@@ -913,7 +927,8 @@ is the whole point of the page — `style.rs` is the reference, `files.rs` is th
 The modal is raised from `mod.rs` rather than from `style.rs`, because exactly one may be up and
 where it is asked for is not where it is painted; the primitive is `kit::modal`, whose shape and
 dismissal rules are the UI-and-design document's. The project settings page is not that modal: it
-is a wider form, drawn on the page so the whole of it can be looked at.
+is a wider form. The sink draws it on the page so the whole of it can be looked at; the workbench
+raises the same form over the window to create a project or edit the one on screen.
 
 `state/file_picker.rs` is the picker itself, and nothing in it reads a disk. `PickerRequest` is the
 whole of what a caller says — owner, title, root, prefilter, kind, count, commit and modality — and

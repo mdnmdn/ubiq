@@ -1,8 +1,8 @@
 //! The project picker.
 //!
 //! Richer than the shared `Picker`, because a project is not just a value: it is open in some
-//! window or only remembered, it can be closed, renamed, recoloured, forgotten, and — when its
-//! folder has gone — pointed somewhere else.
+//! window or only remembered, it can be closed, forgotten, and — when its folder has gone —
+//! pointed somewhere else. Rename and recolour live in project settings, next to the title chip.
 //!
 //! Three groups, top to bottom — open in this window, open in another window, history — so the
 //! picker is the one place that answers "where is everything I have open?". A row moves between
@@ -185,18 +185,12 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     let colour = theme::project_colour(entry.record.colour);
     let is_current = group == Group::Here && app.project(cx) == Some(project);
 
-    // One row at a time expands into an editor, and it takes the row's place while it is open.
-    match app.workbench.row_action {
-        Some((id, RowAction::Rename)) if id == project => {
-            return rename_row(app, project, cx);
-        }
-        Some((id, RowAction::Recolour)) if id == project => {
-            return recolour_row(&entry, project, cx);
-        }
-        Some((id, RowAction::ConfirmForget)) if id == project => {
-            return forget_row(&entry, project, cx);
-        }
-        _ => {}
+    // One row at a time expands into a Forget confirmation, and it takes the row's place while
+    // it is open. Rename and recolour live in project settings, not on the row.
+    if let Some((id, RowAction::ConfirmForget)) = app.workbench.row_action
+        && id == project
+    {
+        return forget_row(&entry, project, cx);
     }
 
     if app.workbench.pending_close == Some(project) && group == Group::Here {
@@ -204,10 +198,16 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     }
 
     let healthy = entry.health.is_ok();
+    let full_path = entry.record.path.clone();
+    let path_colour = if healthy {
+        theme::text_faint()
+    } else {
+        theme::warning()
+    };
 
     let mut line = div()
         .id(ElementId::Name(format!("project-{project}").into()))
-        .h(px(38.))
+        .h(px(30.))
         .px_2()
         .flex()
         .flex_none()
@@ -218,31 +218,25 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         .child(div().size(px(8.)).flex_none().rounded_full().bg(colour))
         .child(
             div()
-                .flex()
-                .flex_col()
                 .flex_1()
                 .min_w(px(0.))
-                .child(
-                    div()
-                        .text_size(px(12.5))
-                        .text_color(if is_current {
-                            theme::text()
-                        } else {
-                            theme::text_muted()
-                        })
-                        .child(entry.record.name.clone()),
-                )
-                .child(
-                    mono(
-                        entry.record.path.clone(),
-                        if healthy {
-                            theme::text_faint()
-                        } else {
-                            theme::warning()
-                        },
-                    )
-                    .text_size(px(10.5)),
-                ),
+                .text_size(px(12.5))
+                .text_color(if is_current {
+                    theme::text()
+                } else {
+                    theme::text_muted()
+                })
+                .truncate()
+                .child(entry.record.name.clone()),
+        )
+        .child(
+            div()
+                .id(ElementId::Name(format!("project-path-{project}").into()))
+                .flex_none()
+                .child(mono(path_tail(&full_path), path_colour).text_size(px(10.5)))
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(full_path.clone()).build(window, cx)
+                }),
         );
 
     // A folder that is not there is marked, never quietly repaired and never removed.
@@ -300,24 +294,6 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         ));
     }
 
-    line = line.child(action(
-        format!("project-rename-{project}"),
-        IconName::Replace,
-        "Rename",
-        cx.listener(move |this, _, _, cx| {
-            this.set_row_action(Some((project, RowAction::Rename)), cx)
-        }),
-    ));
-
-    line = line.child(action(
-        format!("project-colour-{project}"),
-        IconName::Palette,
-        "Recolour",
-        cx.listener(move |this, _, _, cx| {
-            this.set_row_action(Some((project, RowAction::Recolour)), cx)
-        }),
-    ));
-
     if group == Group::Here {
         line = line.child(action(
             format!("project-close-{project}"),
@@ -350,80 +326,14 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     line.on_click(click).into_any_element()
 }
 
-/// The row, become a text field. Enter commits; the field is the picker's own, reused.
-fn rename_row(app: &AppState, project: ProjectId, cx: &mut Context<AppState>) -> AnyElement {
-    div()
-        .px_2()
-        .py_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .bg(theme::hover())
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(12.5))
-                .child(Input::new(&app.rename_input)),
-        )
-        .child(small_button(
-            "rename-cancel",
-            "Cancel",
-            theme::text_muted(),
-            cx.listener(|this, _, _, cx| this.set_row_action(None, cx)),
-        ))
-        .child(small_button(
-            "rename-save",
-            "Rename",
-            theme::accent(),
-            cx.listener(move |this, _, _, cx| this.commit_rename(project, cx)),
-        ))
-        .into_any_element()
-}
-
-/// The row, become a strip of swatches. The first consumer of the palette's own count.
-fn recolour_row(
-    entry: &ProjectSnapshot,
-    project: ProjectId,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let current = entry.record.colour;
-    let swatches: Vec<AnyElement> = (0..theme::project_colour_count())
-        .map(|index| {
-            let mut dot = div()
-                .id(ElementId::Name(format!("swatch-{project}-{index}").into()))
-                .size(px(20.))
-                .flex_none()
-                .cursor_pointer()
-                .bg(theme::project_colour(index));
-            if index == current {
-                dot = dot.border_2().border_color(theme::text());
-            }
-            dot.on_click(cx.listener(move |this, _, _, cx| {
-                this.update_project(project, None, Some(index), cx)
-            }))
-            .into_any_element()
-        })
-        .collect();
-
-    div()
-        .px_2()
-        .py_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .bg(theme::hover())
-        .children(swatches)
-        .child(div().flex_1())
-        .child(small_button(
-            "recolour-cancel",
-            "Cancel",
-            theme::text_muted(),
-            cx.listener(|this, _, _, cx| this.set_row_action(None, cx)),
-        ))
-        .into_any_element()
+/// The last component of a path, with a leading `.../` when the path has a parent. A picker row
+/// is one line; the full path is the tooltip.
+pub(crate) fn path_tail(path: &str) -> String {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    match trimmed.rsplit_once(['/', '\\']) {
+        Some((_, leaf)) if !leaf.is_empty() => format!(".../{leaf}"),
+        _ => path.to_string(),
+    }
 }
 
 /// Forgetting is not deleting, and the confirmation says so.
@@ -469,8 +379,7 @@ fn forget_row(
 }
 
 /// The always-present way in for a project Ubiq has never seen. It opens the platform's own folder
-/// dialog rather than a browser of Ubiq's; the panel stays up behind it, so the new row is visible
-/// where it lands.
+/// dialog rather than a browser of Ubiq's; the folder is not added until project settings confirms.
 fn add_row(cx: &mut Context<AppState>) -> impl IntoElement {
     div()
         .id("project-add")
@@ -628,4 +537,24 @@ fn small_button(
         .hover(|this| this.bg(theme::hover()))
         .child(label)
         .on_click(on_click)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_tail;
+
+    #[test]
+    fn a_nested_path_shows_the_leaf_with_a_leading_ellipsis() {
+        assert_eq!(path_tail("/Users/mdn/works/ubiq"), ".../ubiq");
+    }
+
+    #[test]
+    fn a_leaf_is_shown_whole() {
+        assert_eq!(path_tail("ubiq"), "ubiq");
+    }
+
+    #[test]
+    fn a_trailing_separator_does_not_invent_an_empty_leaf() {
+        assert_eq!(path_tail("/Users/mdn/works/ubiq/"), ".../ubiq");
+    }
 }

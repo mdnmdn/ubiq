@@ -31,7 +31,8 @@ use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, OpenFile, PanelKind,
-    RailMode, Region, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
+    ProjectSettings, ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState,
+    prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -312,8 +313,13 @@ pub struct AppState {
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
     pub project_search: Entity<InputState>,
-    /// The field a picker row becomes while a project is being renamed.
+    /// The project settings dialog's name field. Also what a picker row used to become while
+    /// renaming; that editor now lives in the dialog.
     pub rename_input: Entity<InputState>,
+    /// The project settings dialog's description and custom-colour hex. Separate from the sink's
+    /// fixtures, because the dialog can be up over the sink's own project page.
+    pub project_form_about: Entity<TextareaState>,
+    pub project_form_hex: Entity<InputState>,
     /// One buffer per kitchen-sink fixture, by the document's key. The sink's documents are the
     /// window's own rather than a project's files — nothing reads them from disk and nothing writes
     /// them back — so their buffers sit here beside the window's other component-library state
@@ -348,6 +354,9 @@ pub struct AppState {
     form_filled: Option<TaskId>,
     /// A project switch owes the window's own fields the entered project's text.
     refill_fields: bool,
+    /// The project settings dialog owes its fields the path, name and colour it was opened with.
+    /// Drained in `render` for the same reason as `refill_fields`: `set_value` needs a window.
+    fill_project_form: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -418,6 +427,12 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
 
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
+        let project_form_about = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Two lines about this codebase\u{2026}")
+                .auto_grow(3, 6)
+        });
+        let project_form_hex = cx.new(|cx| InputState::new(window, cx).placeholder("#RRGGBB"));
 
         // The kitchen sink's fixtures become buffers here, where there is a window to build one
         // with. They are constants, so this is the whole of their lifecycle: nothing arrives late,
@@ -704,6 +719,16 @@ impl AppState {
             },
         ));
 
+        subscriptions.push(cx.subscribe_in(
+            &project_form_hex,
+            window,
+            |this, _, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.apply_project_form_hex(cx);
+                }
+            },
+        ));
+
         // A field's underline is drawn by the parent, so a focus change has to redraw the window
         // rather than only the library widget.
         for handle in [
@@ -718,6 +743,9 @@ impl AppState {
             sink_project_name.read(cx).focus_handle(cx),
             sink_project_about.read(cx).focus_handle(cx),
             sink_project_hex.read(cx).focus_handle(cx),
+            rename_input.read(cx).focus_handle(cx),
+            project_form_about.read(cx).focus_handle(cx),
+            project_form_hex.read(cx).focus_handle(cx),
         ] {
             subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
             subscriptions.push(cx.on_focus_out(&handle, window, |_, _, _, cx| cx.notify()));
@@ -817,6 +845,8 @@ impl AppState {
             command_input,
             project_search,
             rename_input,
+            project_form_about,
+            project_form_hex,
             sink_buffers,
             sink_input,
             sink_textarea,
@@ -834,6 +864,7 @@ impl AppState {
             log_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,
+            fill_project_form: false,
             _subscriptions: subscriptions,
         };
 
@@ -1259,6 +1290,7 @@ impl AppState {
                 tracing::error!("project {project_id:?}: {error}");
                 self.workbench.project_error = Some(error);
                 self.adding = false;
+                self.workbench.open_menu = Some(MenuId::Project);
                 cx.notify();
             }
 
@@ -1831,6 +1863,9 @@ impl AppState {
     }
 
     pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
+        if self.workbench.project_settings.is_some() {
+            return;
+        }
         self.sink.project.nav = nav;
         cx.notify();
     }
@@ -1841,22 +1876,44 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.sink.project.set_swatch(colour);
-        self.sync_sink_project_hex(window, cx);
+        if let Some(settings) = self.workbench.project_settings.as_mut() {
+            settings.colour = colour;
+            settings.custom = None;
+            settings.picker_open = false;
+            self.sync_project_form_hex(window, cx);
+        } else {
+            self.sink.project.set_swatch(colour);
+            self.sync_sink_project_hex(window, cx);
+        }
         cx.notify();
     }
 
     pub fn toggle_sink_colour_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let open = !self.sink.project.picker_open;
-        if open {
-            let rgb = self.sink_project_rgb();
-            let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
-            self.sink.project.hue = hue;
-            self.sink.project.sat = sat;
-            self.sink.project.val = val;
+        if let Some(settings) = self.workbench.project_settings.as_mut() {
+            let open = !settings.picker_open;
+            if open {
+                let rgb = settings
+                    .custom
+                    .unwrap_or_else(|| project_swatch_rgb(settings.colour));
+                let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
+                settings.hue = hue;
+                settings.sat = sat;
+                settings.val = val;
+            }
+            settings.picker_open = open;
+            self.sync_project_form_hex(window, cx);
+        } else {
+            let open = !self.sink.project.picker_open;
+            if open {
+                let rgb = self.sink_project_rgb();
+                let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
+                self.sink.project.hue = hue;
+                self.sink.project.sat = sat;
+                self.sink.project.val = val;
+            }
+            self.sink.project.picker_open = open;
+            self.sync_sink_project_hex(window, cx);
         }
-        self.sink.project.picker_open = open;
-        self.sync_sink_project_hex(window, cx);
         cx.notify();
     }
 
@@ -1868,8 +1925,20 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.sink.project.set_hsv(hue, sat, val);
-        self.sync_sink_project_hex(window, cx);
+        if let Some(settings) = self.workbench.project_settings.as_mut() {
+            settings.hue = hue.clamp(0.0, 1.0);
+            settings.sat = sat.clamp(0.0, 1.0);
+            settings.val = val.clamp(0.0, 1.0);
+            settings.custom = Some(crate::state::sink::hsv_to_rgb(
+                settings.hue,
+                settings.sat,
+                settings.val,
+            ));
+            self.sync_project_form_hex(window, cx);
+        } else {
+            self.sink.project.set_hsv(hue, sat, val);
+            self.sync_sink_project_hex(window, cx);
+        }
         cx.notify();
     }
 
@@ -1918,6 +1987,40 @@ impl AppState {
         });
         self.sync_sink_project_hex(window, cx);
         cx.notify();
+    }
+
+    fn apply_project_form_hex(&mut self, cx: &mut Context<Self>) {
+        let text = self.project_form_hex.read(cx).value();
+        let Some(rgb) = crate::state::sink::parse_hex(text.as_ref()) else {
+            return;
+        };
+        let Some(settings) = self.workbench.project_settings.as_mut() else {
+            return;
+        };
+        if settings.custom == Some(rgb) {
+            return;
+        }
+        if settings.custom.is_none() && rgb == project_swatch_rgb(settings.colour) {
+            return;
+        }
+        let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
+        settings.hue = hue;
+        settings.sat = sat;
+        settings.val = val;
+        settings.custom = Some(rgb & 0x00ff_ffff);
+        cx.notify();
+    }
+
+    fn sync_project_form_hex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(settings) = self.workbench.project_settings.as_ref() else {
+            return;
+        };
+        let rgb = settings
+            .custom
+            .unwrap_or_else(|| project_swatch_rgb(settings.colour));
+        let hex = crate::state::sink::hex_string(rgb);
+        let input = self.project_form_hex.clone();
+        input.update(cx, |input, cx| input.set_value(&hex, window, cx));
     }
 
     // The picker page's controls. Each sets one field of the request the next dialog is raised
@@ -2312,14 +2415,16 @@ impl AppState {
         cx.notify();
     }
 
-    /// Take a folder into the catalogue.
-    pub fn add_project(&mut self, path: String, cx: &mut Context<Self>) {
-        let colour = self.next_colour(cx);
-        self.bus.send(Message::AddProject {
-            path,
-            name: None,
-            colour: Some(colour),
-        });
+    /// Take a folder into the catalogue. This window opens whatever the host answers with.
+    pub fn add_project(
+        &mut self,
+        path: String,
+        name: Option<String>,
+        colour: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.adding = true;
+        self.bus.send(Message::AddProject { path, name, colour });
         cx.notify();
     }
 
@@ -2355,7 +2460,7 @@ impl AppState {
                     let path = path.to_string_lossy().into_owned();
                     match locating {
                         Some(project) => this.locate_project(project, path, cx),
-                        None => this.add_project(path, cx),
+                        None => this.open_create_project(path, cx),
                     }
                 }
                 Ok(None) => {}
@@ -2370,7 +2475,7 @@ impl AppState {
         .detach();
     }
 
-    /// Expand one picker row into a rename, a recolour or a Forget confirmation.
+    /// Expand one picker row into a Forget confirmation.
     pub fn set_row_action(
         &mut self,
         action: Option<(ProjectId, crate::state::RowAction)>,
@@ -2380,15 +2485,103 @@ impl AppState {
         cx.notify();
     }
 
-    /// Commit whatever the rename field holds. An empty name is ignored rather than applied: a
-    /// project with no name is not something the picker can draw.
-    pub fn commit_rename(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+    /// Name and colour a folder before it enters the catalogue. The fields are filled on the next
+    /// frame, because `set_value` needs a window and the chooser does not come with one.
+    pub fn open_create_project(&mut self, path: String, cx: &mut Context<Self>) {
+        let colour = self.next_colour(cx);
+        self.workbench.open_menu = None;
+        self.workbench.project_settings = Some(ProjectSettings {
+            mode: ProjectSettingsMode::Create { path },
+            colour,
+            custom: None,
+            picker_open: false,
+            hue: 0.6,
+            sat: 0.6,
+            val: 0.95,
+        });
+        self.fill_project_form = true;
+        cx.notify();
+    }
+
+    /// Open project settings for the project this window is showing. Path stays as it is.
+    pub fn open_edit_project(&mut self, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.project_snapshot(cx) else {
+            return;
+        };
+        let project = snapshot.record.id;
+        let colour = snapshot.record.colour;
+        self.workbench.open_menu = None;
+        self.workbench.project_settings = Some(ProjectSettings {
+            mode: ProjectSettingsMode::Edit { project },
+            colour,
+            custom: None,
+            picker_open: false,
+            hue: 0.6,
+            sat: 0.6,
+            val: 0.95,
+        });
+        self.fill_project_form = true;
+        cx.notify();
+    }
+
+    pub fn close_project_settings(&mut self, cx: &mut Context<Self>) {
+        self.workbench.project_settings = None;
+        cx.notify();
+    }
+
+    /// Create the project, or write the name and colour back. An empty name is ignored rather than
+    /// applied: a project with no name is not something the picker can draw.
+    pub fn commit_project_settings(&mut self, cx: &mut Context<Self>) {
+        let Some(settings) = self.workbench.project_settings.take() else {
+            return;
+        };
         let name = self.rename_input.read(cx).value().trim().to_string();
         if name.is_empty() {
-            self.set_row_action(None, cx);
+            self.workbench.project_settings = Some(settings);
             return;
         }
-        self.update_project(project, Some(name), None, cx);
+        let colour = settings.colour;
+        match settings.mode {
+            ProjectSettingsMode::Create { path } => {
+                self.add_project(path, Some(name), Some(colour), cx);
+            }
+            ProjectSettingsMode::Edit { project } => {
+                self.update_project(project, Some(name), Some(colour), cx);
+            }
+        }
+    }
+
+    fn fill_project_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.fill_project_form {
+            return;
+        }
+        self.fill_project_form = false;
+        let Some(settings) = self.workbench.project_settings.as_ref() else {
+            return;
+        };
+        let name = match &settings.mode {
+            ProjectSettingsMode::Create { path } => leaf_name(path).to_string(),
+            ProjectSettingsMode::Edit { project } => WindowRegistry::read(cx)
+                .project(*project)
+                .map(|entry| entry.record.name.clone())
+                .unwrap_or_default(),
+        };
+        let colour = settings.colour;
+        let rgb = project_swatch_rgb(colour);
+        let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
+        if let Some(settings) = self.workbench.project_settings.as_mut() {
+            settings.hue = hue;
+            settings.sat = sat;
+            settings.val = val;
+        }
+        let name_input = self.rename_input.clone();
+        name_input.update(cx, |input, cx| {
+            input.set_value(&name, window, cx);
+            input.focus(window, cx);
+        });
+        let about = self.project_form_about.clone();
+        about.update(cx, |input, cx| input.set_value("", window, cx));
+        self.sync_project_form_hex(window, cx);
     }
 
     pub fn dismiss_project_error(&mut self, cx: &mut Context<Self>) {
@@ -4109,6 +4302,7 @@ impl Render for AppState {
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
         self.fill_task_form(window, cx);
+        self.fill_project_form(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
         // Made anonymous straight away so the frame stops borrowing the window: the queue below
@@ -4126,6 +4320,19 @@ impl Render for AppState {
 ///
 /// Each arm is a different thing for the user to do about it, which is why the contract carries an
 /// enum rather than a sentence.
+fn leaf_name(path: &str) -> &str {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(path)
+}
+
+fn project_swatch_rgb(index: usize) -> u32 {
+    let colour = theme::project_colour(index);
+    crate::state::sink::rgb_from_channels(colour.r, colour.g, colour.b)
+}
+
 fn describe(error: &FileError) -> String {
     match error {
         FileError::Refused(reason) => format!("refused: {reason}"),
