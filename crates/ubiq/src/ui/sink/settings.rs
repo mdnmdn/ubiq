@@ -60,6 +60,7 @@ fn nav(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElemen
                 item.label(),
                 count,
                 item == current,
+                true,
                 cx.listener(move |this, _, _, cx| this.set_sink_settings_nav(item, cx)),
             )
         })
@@ -897,14 +898,19 @@ pub(super) fn nav_item(
     label: &str,
     count: Option<usize>,
     selected: bool,
+    enabled: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
-    let fg = if selected {
+    let fg = if !enabled {
+        theme::text_faint()
+    } else if selected {
         theme::text()
     } else {
         theme::text_muted()
     };
-    let icon_fg = if selected {
+    let icon_fg = if !enabled {
+        theme::text_faint()
+    } else if selected {
         theme::accent()
     } else {
         theme::text_muted()
@@ -918,8 +924,6 @@ pub(super) fn nav_item(
         .flex_none()
         .items_center()
         .gap_2()
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
         .child(Icon::new(icon).with_size(Size::Small).text_color(icon_fg))
         .child(
             div()
@@ -933,14 +937,21 @@ pub(super) fn nav_item(
     if let Some(count) = count {
         row = row.child(mono(format!("{count}"), theme::text_faint()).text_size(px(11.)));
     }
-    if selected {
+    if selected && enabled {
         row = row
             .bg(theme::accent_soft())
             .border_l(px(theme::ACCENT_EDGE))
             .border_color(theme::accent());
     }
 
-    row.on_click(on_click).into_any_element()
+    if enabled {
+        row = row
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .on_click(on_click);
+    }
+
+    row.into_any_element()
 }
 
 fn column(children: Vec<AnyElement>) -> AnyElement {

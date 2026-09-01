@@ -74,9 +74,30 @@ impl RailMode {
 /// What one picker row has expanded into. Only one row at a time.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RowAction {
-    Rename,
-    Recolour,
     ConfirmForget,
+}
+
+/// Why the project settings dialog is up.
+#[derive(Clone, Debug)]
+pub enum ProjectSettingsMode {
+    /// A folder has been chosen and is not in the catalogue yet.
+    Create { path: String },
+    /// The project this window is showing.
+    Edit { project: ProjectId },
+}
+
+/// The project settings dialog, when it is up over the workbench.
+///
+/// Name, description and hex live in the window's input entities and are filled on the next
+/// frame — `set_value` needs a window, and the folder chooser does not come with one.
+pub struct ProjectSettings {
+    pub mode: ProjectSettingsMode,
+    pub colour: usize,
+    pub custom: Option<u32>,
+    pub picker_open: bool,
+    pub hue: f32,
+    pub sat: f32,
+    pub val: f32,
 }
 
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
@@ -113,8 +134,10 @@ pub struct WorkbenchState {
     pub project_filter: String,
     /// A project whose close is waiting on an answer, because it still has terminals open.
     pub pending_close: Option<ProjectId>,
-    /// A row expanded into one editor: renaming it, recolouring it, or confirming a Forget.
+    /// A row expanded into a Forget confirmation.
     pub row_action: Option<(ProjectId, RowAction)>,
+    /// Project settings, raised over the window to create a project or edit the one on screen.
+    pub project_settings: Option<ProjectSettings>,
     /// The last thing the host refused to do, shown at the top of the picker until dismissed.
     pub project_error: Option<String>,
     /// The last thing the host refused to do to the work, drawn at the top of the task panel by
@@ -140,6 +163,7 @@ impl Default for WorkbenchState {
             project_filter: String::new(),
             pending_close: None,
             row_action: None,
+            project_settings: None,
             project_error: None,
             work_error: None,
             file_filter: String::new(),

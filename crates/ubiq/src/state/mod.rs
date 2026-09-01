@@ -48,4 +48,6 @@ pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
 pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
-pub use workbench::{MenuId, RailMode, RowAction, WorkbenchState};
+pub use workbench::{
+    MenuId, ProjectSettings, ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
+};

@@ -208,8 +208,8 @@ pub fn render(
 /// in.
 fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
     // let count = match picker.request.count {
-        // PickerCount::Single => "single",
-        // PickerCount::Multiple => "multi",
+    // PickerCount::Single => "single",
+    // PickerCount::Multiple => "multi",
     // };
 
     div()

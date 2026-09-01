@@ -76,7 +76,8 @@ pub fn empty_panel(note: &str) -> impl IntoElement {
 /// The centre of a window holding no project: what the window is for, and the one way out of it.
 ///
 /// The way out is the same platform folder chooser the picker's "Add a project…" row opens, so
-/// there is one path into the catalogue rather than two.
+/// there is one path into the catalogue rather than two. The chooser is followed by project
+/// settings, which is where the name is set before the host is asked.
 pub fn no_project(cx: &mut Context<AppState>) -> AnyElement {
     empty_page(
         "No project open",

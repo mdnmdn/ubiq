@@ -11,13 +11,10 @@ use gpui::{Context, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::AppState;
 use crate::theme;
+use crate::ui::sink::project as project_settings;
 use crate::ui::{rail, status_bar, titlebar};
 
-pub fn render(
-    app: &AppState,
-    _window: &mut Window,
-    cx: &mut Context<AppState>,
-) -> impl IntoElement {
+pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
@@ -56,4 +53,12 @@ pub fn render(
                 ),
         )
         .child(status_bar::render(app, cx))
+        // Project settings is a form with a nav, not the kit's one-question modal, so it is
+        // painted here — over the window — rather than from the picker that asked for it.
+        .children(
+            app.workbench
+                .project_settings
+                .as_ref()
+                .map(|_| project_settings::overlay(app, window, cx)),
+        )
 }

@@ -1,7 +1,7 @@
 //! The top row: what is open, where it lives, and the switches for the dock's three edge regions.
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{Context, IntoElement, ParentElement, Styled, div, px};
+use gpui::{Context, IntoElement, ParentElement, StatefulInteractiveElement as _, Styled, div, px};
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -29,6 +29,19 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .border_b_1()
         .border_color(theme::border())
         .child(project_menu::render(app, cx))
+        .when(has_project, |this| {
+            this.child(
+                icon_button(
+                    "project-settings",
+                    IconName::EllipsisVertical,
+                    app.workbench.project_settings.is_some(),
+                    cx.listener(|this, _, _, cx| this.open_edit_project(cx)),
+                )
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new("Project settings").build(window, cx)
+                }),
+            )
+        })
         .child(div().flex_1().min_w(px(0.)))
         .child(command_field(app))
         .child(div().flex_1().min_w(px(0.)))
