@@ -103,11 +103,27 @@ ulid_id! {
 }
 
 ulid_id! {
-    /// One running workspace. A workspace is its pane today, so [`WorkspaceInfo`] carries a
-    /// [`PaneId`]; this exists for the moment the two come apart.
+    /// One running workspace, which is also one agent: the work family calls it
+    /// [`AgentId`](crate::work::AgentId), an alias of this.
+    ///
+    /// A workspace is its pane where the host started one, so [`WorkspaceInfo`] carries a
+    /// [`PaneId`] instead; the two ids come apart the day a workspace outlives its terminal.
     ///
     /// [`WorkspaceInfo`]: crate::messages::WorkspaceInfo
     WorkspaceId
+}
+
+ulid_id! {
+    /// One task on the board, and one outline in the graph. Minted by the host and written down,
+    /// so it survives a restart — which is why it is a ULID and not a counter over a vector.
+    TaskId
+}
+
+ulid_id! {
+    /// One step of a task. A step is addressed by this rather than by its place in the list: two
+    /// clicks in one frame — a remove and a tick — would otherwise arrive as two indices into two
+    /// different lists, and the second would land on the wrong step.
+    StepId
 }
 
 ulid_id! {

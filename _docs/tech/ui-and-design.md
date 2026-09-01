@@ -213,6 +213,13 @@ is the standard way a GPUI flex child refuses to shrink.
 an id. A scrollbar is a sibling of the scroll area, absolutely positioned over it, so it stays put
 while the content moves under it — not a child, which would scroll with the content.
 
+**A row keyed by a ULID takes its id through `ui::eid`.** `ElementId`'s tuple form carries a `u64`
+and a ULID is twice that, so a row that names a task, a step or a project is built by `eid` and
+`eid2` in `crates/ubiq/src/ui/mod.rs` — one place, rather than the same `format!` at every call
+site. Hashing the id into a `u64` instead would collide silently, and an id that is not the id is a
+trap rather than a shortcut. A row keyed by an *enum discriminant* keeps the tuple form: a column
+and a filter pill are one of a fixed few, and nothing is gained by naming them in words.
+
 To add an area to the window:
 
 1. Put its state in `crates/ubiq/src/state/`, as data plus small mutators. Nothing that draws, and no

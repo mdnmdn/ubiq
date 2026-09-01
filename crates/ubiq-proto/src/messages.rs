@@ -10,8 +10,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::files::{DirListing, FileContents, FileError, FileVersion};
-use crate::ids::{PaneId, ProjectId, SessionId};
+use crate::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
+use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -211,6 +212,155 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         error: FileError,
+    },
+
+    // ── Work family: UI → host ──────────────────────────────────────
+    // Every variant here is addressed by `project_id`, because the work belongs to a project: its
+    // tasks are written down under that project's own directory, and its sessions and agents are
+    // minted per project. A task id alone would not say which store to write.
+    //
+    // Nothing in this family is broadcast. A project is open in exactly one window at a time, so
+    // the window that asked is the only one drawing that project's work — the file family's rule,
+    // for the file family's reason.
+    /// Every session, agent and task the host holds for one project. Answered with
+    /// [`Message::WorkList`], which carries all three at once: two round trips would let the board
+    /// draw a card naming a session it has not heard of.
+    ListWork {
+        project_id: ProjectId,
+    },
+    /// Name a task. It lands in the backlog, unprioritised, direct and with no steps, because that
+    /// is everything known at the moment it is named.
+    CreateTask {
+        project_id: ProjectId,
+        title: String,
+        session: Option<SessionId>,
+    },
+    /// Change what a task *is*. Display only, like [`Message::UpdateProject`]: it touches nothing
+    /// outside the record and cannot be refused for anything but a task that is not there.
+    UpdateTask {
+        project_id: ProjectId,
+        task_id: TaskId,
+        title: Option<String>,
+        description: Option<String>,
+        priority: Option<Priority>,
+        shape: Option<Shape>,
+    },
+    /// Move a task to another column.
+    ///
+    /// Its own variant rather than a field on [`Message::UpdateTask`], because a column is a stage:
+    /// moving a card changes where the work has got to and nothing else about it.
+    MoveTask {
+        project_id: ProjectId,
+        task_id: TaskId,
+        status: Status,
+    },
+    /// Hand a task to a session, or take it back. Absent is a task nobody has started.
+    ///
+    /// Its own variant because it names another entity, will be fallible the day sessions are real,
+    /// and because `Option<Option<SessionId>>` inside an update is a wire type nobody should have
+    /// to read.
+    AssignTask {
+        project_id: ProjectId,
+        task_id: TaskId,
+        session: Option<SessionId>,
+    },
+    /// Drop a task. Unlike [`Message::ForgetProject`] this really deletes: there is nothing left
+    /// behind for it to point at.
+    DeleteTask {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    AddStep {
+        project_id: ProjectId,
+        task_id: TaskId,
+        title: String,
+    },
+    RenameStep {
+        project_id: ProjectId,
+        task_id: TaskId,
+        step_id: StepId,
+        title: String,
+    },
+    RemoveStep {
+        project_id: ProjectId,
+        task_id: TaskId,
+        step_id: StepId,
+    },
+    /// Reorder one step. `to` is the place it should end up in, clamped by the host.
+    MoveStep {
+        project_id: ProjectId,
+        task_id: TaskId,
+        step_id: StepId,
+        to: usize,
+    },
+    /// Tick or untick a step.
+    ///
+    /// A toggle rather than a target state, because "unticking lands on idle, because nothing here
+    /// can know what its owner would go back to doing" is a rule about the work and so is the
+    /// host's to keep.
+    ToggleStep {
+        project_id: ProjectId,
+        task_id: TaskId,
+        step_id: StepId,
+    },
+    /// Move an agent's card into another task's outline, or out of every one.
+    ///
+    /// Where a card *sits* is the interface's own fact and never crosses; which task it *serves* is
+    /// the host's, even while the agent is a mock.
+    AssignAgent {
+        project_id: ProjectId,
+        agent_id: AgentId,
+        task_id: Option<TaskId>,
+    },
+    /// Put a line in an agent's thread. Nothing answers it, and the reply is the agent record with
+    /// one more turn on it — inventing a response is the one thing a screen with no live agent must
+    /// not draw.
+    SendToAgent {
+        project_id: ProjectId,
+        agent_id: AgentId,
+        text: String,
+    },
+
+    // ── Work family: host → UI ──────────────────────────────────────
+    /// One project's work, whole. The graph needs all three lists in the same frame.
+    WorkList {
+        project_id: ProjectId,
+        sessions: Vec<WorkSession>,
+        agents: Vec<WorkAgent>,
+        tasks: Vec<TaskRecord>,
+    },
+    /// The task that was just made, carrying the id the interface could not have known.
+    TaskCreated {
+        project_id: ProjectId,
+        task: TaskRecord,
+    },
+    /// The task as it now is, whole rather than as a diff — [`Message::ProjectChanged`]'s
+    /// discipline, which is what makes the interface's projection idempotent by replacing on id.
+    TaskChanged {
+        project_id: ProjectId,
+        task: TaskRecord,
+    },
+    TaskDeleted {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Boxed, and it is the one payload in the set that is: a [`WorkAgent`] is the widest record
+    /// here by some way, and an unboxed one makes every message on the bus as wide as it —
+    /// including the terminal chunks on the hot path. Nothing about the wire form changes.
+    AgentChanged {
+        project_id: ProjectId,
+        agent: Box<WorkAgent>,
+    },
+    /// Something went wrong for one task, or for a project's work as a whole when the id is absent.
+    ///
+    /// The error is a sentence rather than an enum, unlike [`FileError`]: an enum earns its keep
+    /// when each arm is a different thing for the interface to do, and every failure here — no such
+    /// project, no such task, no such step, a store that will not write — comes down to saying so
+    /// once, where the user is looking.
+    WorkError {
+        project_id: ProjectId,
+        task_id: Option<TaskId>,
+        error: String,
     },
 }
 

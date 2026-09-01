@@ -12,7 +12,8 @@ use ubiq::app;
 use ubiq_host::config::{self, ConfigRoot};
 use ubiq_host::coordinator;
 use ubiq_host::projects::Projects;
-use ubiq_host::store::file::{FilePreferenceStore, FileProjectStore};
+use ubiq_host::store::file::{FilePreferenceStore, FileProjectStore, FileTaskStore};
+use ubiq_host::work::Work;
 use ubiq_proto::bus;
 use ubiq_proto::log;
 
@@ -56,8 +57,12 @@ fn main() {
     // One host, started before the first window and outliving every one of them. The catalogue it
     // owns is process-wide, so a host per window would race the store and disagree about what
     // exists.
+    // Nothing is read here: a project's tasks are opened the first time a window asks for
+    // them, unlike the catalogue, which every window needs to draw a picker at boot.
+    let work = Work::open(Box::new(FileTaskStore::new(root.path.clone())));
+
     let (hub, host) = bus::hub();
-    coordinator::start(host, root, projects, pending);
+    coordinator::start(host, root, projects, work, pending);
 
     application()
         .with_assets(gpui_component_assets::Assets)

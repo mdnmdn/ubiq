@@ -37,7 +37,8 @@ crates/ubiq-proto/src/
 ├── log.rs
 ├── messages.rs
 ├── projects.rs
-└── files.rs
+├── files.rs
+└── work.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -55,9 +56,13 @@ crates/ubiq-host/src/
 ├── gc.rs
 ├── health.rs
 ├── projects.rs
-└── files/
-    ├── mod.rs
-    └── path.rs
+├── files/
+│   ├── mod.rs
+│   └── path.rs
+├── work/
+│   ├── mock.rs
+│   └── mod.rs
+└── reply.rs
 
 crates/ubiq/src/
 ├── state/
@@ -73,7 +78,8 @@ crates/ubiq/src/
 │   ├── when.rs
 │   ├── agents.rs
 │   ├── layout.rs
-│   └── board.rs
+│   ├── board.rs
+│   └── work.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -104,7 +110,8 @@ crates/ubiq/src/
 │   │   └── tasks.rs
 │   └── board/
 │       ├── detail.rs
-│       └── mod.rs
+│       ├── mod.rs
+│       └── form.rs
 ├── app.rs
 ├── lib.rs
 └── theme.rs
@@ -138,6 +145,7 @@ the documents in its row.
 | `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/projects.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
+| `crates/ubiq-host/src/work/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-proto/src/bus.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/files.rs` | [`transport-contract.md`](./transport-contract.md) |
@@ -146,6 +154,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/log.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/messages.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/projects.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
@@ -161,6 +170,7 @@ the documents in its row.
 | `crates/ubiq/src/state/sample.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/when.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/windows.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/work.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/workbench.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/agents/graph.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -168,6 +178,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/agents/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/tasks.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/board/detail.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/board/form.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/board/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/chat/composer.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/chat/mod.rs` | [`features/chat.md`](../features/chat.md) |
@@ -204,9 +215,11 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/gc.rs` |
 | `crates/ubiq-host/src/health.rs` |
 | `crates/ubiq-host/src/mcp_server.rs` |
+| `crates/ubiq-host/src/reply.rs` |
 | `crates/ubiq-host/src/store/file.rs` |
 | `crates/ubiq-host/src/store/memory.rs` |
 | `crates/ubiq-host/src/store/mod.rs` |
+| `crates/ubiq-host/src/work/mock.rs` |
 | `crates/ubiq/src/ui/kit/menu.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
 

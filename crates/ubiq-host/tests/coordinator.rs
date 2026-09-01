@@ -6,7 +6,8 @@ use std::time::Duration;
 use ubiq_host::config::{ConfigRoot, RootSource};
 use ubiq_host::coordinator;
 use ubiq_host::projects::Projects;
-use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore};
+use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore, MemoryTaskStore};
+use ubiq_host::work::Work;
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
 use ubiq_proto::files::{FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
@@ -31,9 +32,38 @@ fn coordinator() -> (Hub, Client) {
     );
     // The directory has to outlive the thread that is writing into it.
     std::mem::forget(root);
-    coordinator::start(host, config, projects, pending);
+    let work = Work::open(Box::new(MemoryTaskStore::new()));
+    coordinator::start(host, config, projects, work, pending);
     let client = hub.connect();
     (hub, client)
+}
+
+/// The same, with the real stores under a directory the test can read back.
+///
+/// Every other test here runs on the memory stores, which is right: what they assert is what the
+/// coordinator says, not what it wrote. This one exists because nothing else proves the two halves
+/// meet — that a `ListWork` over the bus ends in bytes on disk, in the place the layout says, in a
+/// format that reads back.
+fn coordinator_on_disk() -> (Hub, Client, std::path::PathBuf) {
+    let (hub, host) = bus::hub();
+    let root = tempfile::TempDir::new().unwrap();
+    let path = root.path().to_path_buf();
+    let config = ConfigRoot {
+        path: path.clone(),
+        source: RootSource::Flag,
+    };
+    let (projects, pending) = Projects::open(
+        config.path.clone(),
+        Box::new(MemoryProjectStore::new()),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    std::mem::forget(root);
+    let work = Work::open(Box::new(ubiq_host::store::file::FileTaskStore::new(
+        path.clone(),
+    )));
+    coordinator::start(host, config, projects, work, pending);
+    let client = hub.connect();
+    (hub, client, path)
 }
 
 /// Take a folder into the catalogue and answer its id.
@@ -552,6 +582,255 @@ fn expect_written(ui: &Client) -> FileVersion {
             Ok(Message::ProjectFileError { error, .. }) => panic!("the save failed: {error:?}"),
             Ok(_) => continue,
             Err(_) => panic!("the save was never answered"),
+        }
+    }
+}
+
+// ── the work family over the bus ────────────────────────────────────
+
+#[test]
+fn a_work_listing_answers_the_fixture_for_the_project_that_asked() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    ui.send(Message::ListWork { project_id });
+
+    let (sessions, agents, tasks) = expect_work_list(&ui, project_id);
+    // The seed a project that never wrote a `tasks.toml` starts with, whole and in one reply: the
+    // graph draws a card and the session it names in the same frame.
+    assert_eq!(sessions.len(), 5);
+    assert_eq!(agents.len(), 11);
+    assert_eq!(tasks.len(), 10);
+}
+
+#[test]
+fn a_task_is_created_and_then_changed_over_the_bus() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    ui.send(Message::CreateTask {
+        project_id,
+        title: "Name the events the host already knows".to_string(),
+        session: None,
+    });
+    let created = expect_task_created(&ui);
+    assert_eq!(created.title, "Name the events the host already knows");
+
+    ui.send(Message::UpdateTask {
+        project_id,
+        task_id: created.id,
+        title: Some("Name the events".to_string()),
+        description: Some("## Why\n\nthe poll is the wrong shape".to_string()),
+        priority: None,
+        shape: None,
+    });
+
+    let changed = expect_task_changed(&ui);
+    assert_eq!(
+        changed.id, created.id,
+        "the same card, whole rather than a diff"
+    );
+    assert_eq!(changed.title, "Name the events");
+    assert_eq!(changed.description, "## Why\n\nthe poll is the wrong shape");
+}
+
+/// Work for a project the catalogue does not hold is refused before the store is touched.
+///
+/// Not a formality: a `tasks.toml` written under an id no record names would be collected as an
+/// orphan at the next boot, so the write must never happen at all.
+#[test]
+fn work_for_a_project_the_catalogue_does_not_hold_is_refused() {
+    let (_hub, ui) = coordinator();
+    let project_id = ProjectId::generate();
+
+    ui.send(Message::ListWork { project_id });
+
+    let (id, error) = expect_work_error(&ui);
+    assert_eq!(id, project_id);
+    assert!(error.contains("no such project"), "said {error:?}");
+}
+
+#[test]
+fn work_for_a_forgotten_project_is_refused_the_same_way() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+    ui.send(Message::ListWork { project_id });
+    expect_work_list(&ui, project_id);
+
+    ui.send(Message::ForgetProject { project_id });
+    ui.send(Message::ListWork { project_id });
+
+    let (id, _error) = expect_work_error(&ui);
+    assert_eq!(id, project_id);
+}
+
+#[test]
+fn a_task_change_reaches_only_the_window_that_asked() {
+    let (hub, ui) = coordinator();
+    let other = hub.connect();
+    let (project_id, _path) = a_project(&ui);
+
+    ui.send(Message::CreateTask {
+        project_id,
+        title: "one for the asker".to_string(),
+        session: None,
+    });
+    let created = expect_task_created(&ui);
+    ui.send(Message::UpdateTask {
+        project_id,
+        task_id: created.id,
+        title: Some("still for the asker".to_string()),
+        description: None,
+        priority: None,
+        shape: None,
+    });
+    assert_eq!(expect_task_changed(&ui).title, "still for the asker");
+
+    // A project is open in exactly one window at a time, so the window that asked is the only one
+    // drawing that project's work. Nothing in the family is broadcast.
+    while let Ok(message) = other.from_host().recv_timeout(Duration::from_millis(200)) {
+        assert!(
+            !matches!(
+                message,
+                Message::WorkList { .. }
+                    | Message::TaskCreated { .. }
+                    | Message::TaskChanged { .. }
+                    | Message::TaskDeleted { .. }
+                    | Message::AgentChanged { .. }
+                    | Message::WorkError { .. }
+            ),
+            "work reached a window that did not ask for it: {message:?}"
+        );
+    }
+}
+
+/// A project's first look at the board writes its tasks down, and an edit lands in the same file.
+///
+/// The whole path in one test: a window asks over the bus, the host seeds the fixture, the file
+/// store writes it to `projects/<ulid>/tasks.toml`, and a later `UpdateTask` is in those bytes
+/// afterwards. Everything else here runs on the memory stores, so this is the only thing that
+/// proves the layout and the format are what the documentation says.
+#[test]
+fn a_first_listing_writes_the_project_tasks_where_the_layout_says() {
+    let (_hub, ui, root) = coordinator_on_disk();
+    let folder = tempfile::TempDir::new().unwrap();
+    let project = add_project(&ui, folder.path());
+
+    ui.send(Message::ListWork {
+        project_id: project,
+    });
+    let (_, _, tasks) = expect_work_list(&ui, project);
+    assert_eq!(
+        tasks.len(),
+        10,
+        "the fixture is what a new project starts on"
+    );
+
+    let path = root
+        .join("projects")
+        .join(project.to_string())
+        .join("tasks.toml");
+    let body = wait_for_body(&path, "[[task]]");
+    assert!(
+        body.contains("version = 1"),
+        "the envelope carries the version a migration would read: {body}"
+    );
+    assert_eq!(
+        body.matches("[[task]]").count(),
+        10,
+        "one array entry per task"
+    );
+    assert!(
+        body.contains("## Why"),
+        "and the seeded markdown is in the file as it was written: {body}"
+    );
+
+    ui.send(Message::UpdateTask {
+        project_id: project,
+        task_id: tasks[0].id,
+        title: Some("Renamed over the bus".to_string()),
+        description: None,
+        priority: None,
+        shape: None,
+    });
+    let changed = expect_task_changed(&ui);
+    assert_eq!(changed.title, "Renamed over the bus");
+
+    // Durable, not merely answered — the difference this whole half of the change is about.
+    wait_for_body(&path, "Renamed over the bus");
+}
+
+/// Wait for bytes the coordinator writes on its own thread, after answering on the bus.
+fn wait_for_body(path: &std::path::Path, needle: &str) -> String {
+    let deadline = std::time::Instant::now() + PATIENCE;
+    let mut last = String::new();
+    while std::time::Instant::now() < deadline {
+        last = std::fs::read_to_string(path).unwrap_or_default();
+        if last.contains(needle) {
+            return last;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{needle} never reached {}: {last}", path.display());
+}
+
+fn expect_work_list(
+    ui: &Client,
+    project_id: ProjectId,
+) -> (
+    Vec<ubiq_proto::work::WorkSession>,
+    Vec<ubiq_proto::work::WorkAgent>,
+    Vec<ubiq_proto::work::TaskRecord>,
+) {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::WorkList {
+                project_id: id,
+                sessions,
+                agents,
+                tasks,
+            }) => {
+                assert_eq!(id, project_id);
+                return (sessions, agents, tasks);
+            }
+            Ok(Message::WorkError { error, .. }) => panic!("the listing failed: {error}"),
+            Ok(_) => continue,
+            Err(_) => panic!("the work was never listed"),
+        }
+    }
+}
+
+fn expect_task_created(ui: &Client) -> ubiq_proto::work::TaskRecord {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::TaskCreated { task, .. }) => return task,
+            Ok(Message::WorkError { error, .. }) => panic!("the task was refused: {error}"),
+            Ok(_) => continue,
+            Err(_) => panic!("the task was never created"),
+        }
+    }
+}
+
+fn expect_task_changed(ui: &Client) -> ubiq_proto::work::TaskRecord {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::TaskChanged { task, .. }) => return task,
+            Ok(Message::WorkError { error, .. }) => panic!("the change was refused: {error}"),
+            Ok(_) => continue,
+            Err(_) => panic!("the task was never changed"),
+        }
+    }
+}
+
+fn expect_work_error(ui: &Client) -> (ProjectId, String) {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::WorkError {
+                project_id, error, ..
+            }) => return (project_id, error),
+            Ok(Message::WorkList { .. }) => panic!("the work was answered rather than refused"),
+            Ok(_) => continue,
+            Err(_) => panic!("the request was neither answered nor refused"),
         }
     }
 }

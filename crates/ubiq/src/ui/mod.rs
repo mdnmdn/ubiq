@@ -21,7 +21,7 @@ pub mod status_bar;
 pub mod terminal;
 pub mod titlebar;
 
-use gpui::{App, Context, Entity, Window};
+use gpui::{App, Context, ElementId, Entity, Window};
 
 use crate::app::AppState;
 
@@ -48,4 +48,15 @@ pub fn indexed(
     move |index, window, cx| {
         view.update(cx, |this, cx| f(this, index, window, cx));
     }
+}
+
+/// An element id for a row keyed by a ULID. A ULID is not a `u64`, so the tuple form the rest of
+/// the window uses cannot carry one.
+pub fn eid(prefix: &str, id: impl std::fmt::Display) -> ElementId {
+    ElementId::Name(format!("{prefix}-{id}").into())
+}
+
+/// The same for a row two ids deep — a step, which is one id inside another.
+pub fn eid2(prefix: &str, a: impl std::fmt::Display, b: impl std::fmt::Display) -> ElementId {
+    ElementId::Name(format!("{prefix}-{a}-{b}").into())
 }

@@ -18,13 +18,16 @@ Your change updates the documents it touched, in the same commit — `_docs/_met
 which ones and how. `just docs-touched` names them from your diff. Never create, move or split a
 document; file it instead.
 
-## Directives
+## IMPORTANT Directives
 
 - Agressively use subagents, including cheaper models, for all the grunt work, delegate in every
   occasion it makes sense, do not burn the main context on it.
 - Keep it simple.
 - Say what the tree actually does. A `status: draft` document describes a settled design; the gaps
   between it and the code are rows in `_docs/backlog.md`, not hedges in prose.
+- Use tools and scripts in a smart way: always use the most efficient way to do the operation: if it's cheper using 
+  default tools, use them, if it's better or safer using bash or script use them, if an operation is batched or complex
+  evaulate to create a new `_tools`
 
 ## Architecture rules
 

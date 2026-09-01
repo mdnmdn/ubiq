@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -16,8 +16,8 @@ review_cycle: quarterly
 
 ## The workspace
 
-One Cargo workspace, two crates of Ubiq's own, one vendored third-party crate, and everything else
-is documentation or tooling.
+One Cargo workspace, four crates of Ubiq's own, the harness-management library they embed, one
+vendored third-party crate, and everything else is documentation or tooling.
 
 ```
 ubiq/
@@ -27,7 +27,10 @@ ubiq/
 ├── Cargo.toml           workspace manifest and the release profile
 ├── Justfile             every command anyone runs — see operations.md
 ├── crates/
-│   ├── ubiq/            the desktop application (GPUI)
+│   ├── ubiq-proto/      the contract, the bus, the log sink
+│   ├── ubiq-host/       the headless host: processes, pseudo-terminals, projects, the work
+│   ├── ubiq/            the desktop interface (GPUI)
+│   ├── ubiq-app/        the binary, the only thing that names both halves
 │   └── agent-manager/   the harness-management library and its `am` CLI
 ├── vendor/
 │   └── gpui-terminal/   the terminal emulator component, vendored
@@ -94,15 +97,16 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
-| `ubiq-host/src/store/` | The catalogue and the view state, behind two traits | Any opinion about what a view blob means |
+| `ubiq-host/src/store/` | The catalogue, a project's tasks and the view state, behind three traits | Any opinion about what a view blob means |
 | `ubiq-host/src/projects.rs` | The catalogue as the host runs it | An opinion about colour or layout |
+| `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |
 | `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
 | `ubiq-host/src/mcp_server.rs` | The MCP surface Ubiq exposes to the agents it hosts | Anything the hosted agent should not reach |
 | `ubiq/src/app.rs` | `AppState`: the panes, the focused pane, the layout mode, the workbench state, and window creation | Process handles, PTY handles, disk |
 | `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, status bar, empty page, `chat/` | Anything that names the host |
 | `ubiq/src/ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
 | `ubiq/src/theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
-| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, the projection of the host's catalogue, and the fixtures that still seed the rest | Rendering, or any component-library type |
+| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, the projections of the host's catalogue and of a project's work, and the fixture that still seeds the chat | Rendering, or any component-library type |
 | `ubiq-app/src/main.rs` | Application start: the config root, the host, the theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
 
 The "never holds" column is the enforcement of the architecture's rules in file terms. A

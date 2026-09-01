@@ -1,13 +1,15 @@
-//! The panel beside the columns: one task, reported whole.
+//! The panel beside the columns: one task, reported whole and edited in place.
 //!
 //! The card says what is read from across a column — the shape, the state, how far along. This
 //! says the rest: whose session it is, what its shape means, who is holding it now, and every
 //! sub-task with the agent that has it and where that has got to.
 //!
-//! Two things on it act. A checkbox ticks a sub-task, which is the one place the board changes the
-//! work rather than the view of it; and the two buttons at the bottom leave for the agents screen,
-//! because a task the user wants to intervene in is a conversation with an agent, and that lives
-//! there.
+//! This is the report; the controls that change a task are [`super::form`], drawn into the same
+//! column. Everything either of them does asks the host and waits, so what is on screen is always
+//! the task the host last confirmed.
+//!
+//! The two buttons at the bottom leave for the agents screen, because a task the user wants to
+//! intervene in is a conversation with an agent, and that lives there.
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -15,16 +17,22 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::work::TaskRecord;
+
 use crate::app::AppState;
-use crate::state::agents::Task;
+use crate::state::board::Field;
+use crate::state::work;
 use crate::theme;
 use crate::ui::agents::{activity_colour, bucket_colour};
-use crate::ui::board::status_colour;
+use crate::ui::board::{form, status_colour};
+use crate::ui::eid2;
 use crate::ui::kit::{ghost_button, icon_button, meter, mono, panel, pill, section_label};
 
-pub fn render(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> impl IntoElement {
-    let agents = &app.agents;
-    let colour = bucket_colour(agents.pulse(task));
+pub fn render(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl IntoElement {
+    let colour = app
+        .work(cx)
+        .map(|work| bucket_colour(work.pulse(task)))
+        .unwrap_or_else(theme::text_faint);
 
     panel()
         .child(
@@ -52,30 +60,22 @@ pub fn render(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> impl I
         .child(footer(app, task, cx))
 }
 
-fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
-    let agents = &app.agents;
-    let colour = bucket_colour(agents.pulse(task));
+fn body(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let colour = bucket_colour(work.pulse(task));
     let done = task.done();
     let total = task.steps.len();
 
-    let session = match task.session.and_then(|id| agents.session(id)) {
-        Some(session) => div()
-            .flex()
-            .items_center()
-            .gap_1p5()
-            .child(mono(session.name.clone(), theme::text()).text_size(px(12.)))
-            .children(
-                session
-                    .worktree
-                    .then(|| mono("(worktree)", theme::text_faint()).text_size(px(11.))),
-            )
-            .into_any_element(),
-        None => mono("no session yet", theme::warning())
-            .text_size(px(12.))
-            .into_any_element(),
-    };
+    // Which session is a picker; whether that session is a worktree is a fact about it, and stays a
+    // fact — the panel reports it beside the control rather than offering it as a choice.
+    let worktree = task
+        .session
+        .and_then(|id| work.session(id))
+        .is_some_and(|session| session.worktree);
 
-    let now = match agents.now(task) {
+    let now = match work.now(task) {
         Some(agent) => {
             let agent_colour = activity_colour(agent.activity);
             div()
@@ -108,13 +108,15 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
     let steps: Vec<AnyElement> = task
         .steps
         .iter()
-        .enumerate()
-        .map(|(ix, step)| {
-            let owner = step.owner.and_then(|id| agents.agent(id));
+        .map(|step| {
+            let owner = step.owner.and_then(|id| work.agent(id));
             let state = bucket_colour(step.state.bucket());
             let done = step.done();
             let task_id = task.id;
-            let key = (task_id as u64) << 32 | ix as u64;
+            let step_id = step.id;
+            let renaming = app
+                .board(cx)
+                .is_some_and(|board| board.is_editing(Field::Step(step_id)));
 
             div()
                 .flex()
@@ -123,7 +125,7 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                 .py_1()
                 .child(
                     div()
-                        .id(("board-step", key))
+                        .id(eid2("board-step", task_id, step_id))
                         .size(px(16.))
                         .mt(px(2.))
                         .flex()
@@ -141,7 +143,7 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                                 .text_color(theme::on_accent())
                         }))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.toggle_task_step(task_id, ix, cx)
+                            this.toggle_task_step(task_id, step_id, cx)
                         })),
                 )
                 .child(
@@ -150,8 +152,11 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                         .flex_col()
                         .flex_1()
                         .min_w(px(0.))
-                        .child(
+                        .child(if renaming {
+                            form::step_field(app)
+                        } else {
                             div()
+                                .id(eid2("board-step-title", task_id, step_id))
                                 .text_size(px(13.))
                                 .text_color(if done {
                                     theme::text_muted()
@@ -161,8 +166,14 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                                 // A ticked sub-task is struck through as well as greyed: the list
                                 // is read at a glance, and one signal is not enough for "over".
                                 .when(done, |this| this.line_through())
-                                .child(SharedString::from(step.title.clone())),
-                        )
+                                .cursor_text()
+                                .hover(|this| this.text_color(theme::accent()))
+                                .child(SharedString::from(step.title.clone()))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.begin_task_edit(Field::Step(step_id), window, cx)
+                                }))
+                                .into_any_element()
+                        })
                         .child(
                             div()
                                 .flex()
@@ -178,6 +189,7 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                                 .child(mono(step.state.label(), state).text_size(px(11.))),
                         ),
                 )
+                .child(form::step_controls(app, task, step_id, cx))
                 .into_any_element()
         })
         .collect();
@@ -192,51 +204,46 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
         .py_3()
         .gap_3()
         .overflow_y_scroll()
-        .child(
-            div()
-                .text_size(px(17.))
-                .text_color(theme::text())
-                .child(SharedString::from(task.title.clone())),
-        )
+        .children(form::refusal(app))
+        .child(form::title(app, task, cx))
         .child(
             div()
                 .flex()
                 .flex_wrap()
                 .items_center()
                 .gap_1p5()
-                .child(tag(task.shape.label(), theme::text_muted()))
+                // The status is drawn and not offered: a column is a stage, and a card only ever
+                // changes column by being moved. `BLOCKED` is derived from the steps, so there is
+                // nothing to offer there either.
                 .child(tag(
                     task.status.label().to_uppercase(),
                     status_colour(task.status),
                 ))
-                .children(task.priority.label().map(|label| {
-                    tag(
-                        label.to_uppercase(),
-                        if label == "high" {
-                            theme::danger()
-                        } else {
-                            theme::text_faint()
-                        },
-                    )
-                }))
                 .children(task.blocked().then(|| tag("BLOCKED", theme::danger()))),
         )
+        .child(form::pills(task, cx))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(fact("Session", session))
                 .child(fact(
-                    "Shape",
+                    "Session",
                     div()
-                        .text_size(px(12.5))
-                        .text_color(theme::text_muted())
-                        .child(task.shape.note())
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .child(form::session(app, task, cx))
+                        .children(
+                            worktree.then(|| {
+                                mono("(worktree)", theme::text_faint()).text_size(px(11.))
+                            }),
+                        )
                         .into_any_element(),
                 ))
                 .child(fact("Now", now)),
         )
+        .child(form::description(app, task, cx))
         .children((total > 0).then(|| {
             div()
                 .flex()
@@ -246,10 +253,21 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .child(meter(task.fraction(), colour)),
+                        .child(meter(work::fraction(task), colour)),
                 )
                 .child(mono(format!("{done}/{total}"), theme::text_muted()).text_size(px(11.5)))
         }))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(section_label("Sub-tasks"))
+                .child(div().flex_1().min_w(px(0.)))
+                .children((total > 0).then(|| {
+                    mono(format!("{done}/{total}"), theme::text_faint()).text_size(px(11.))
+                })),
+        )
         .children((total == 0).then(|| {
             div()
                 .text_size(px(12.5))
@@ -257,6 +275,7 @@ fn body(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> AnyElement {
                 .child("No sub-tasks yet.")
         }))
         .children(steps)
+        .child(form::new_step(app))
         .into_any_element()
 }
 
@@ -287,11 +306,11 @@ fn tag(label: impl Into<SharedString>, colour: gpui::Rgba) -> impl IntoElement {
 
 /// The two ways out of a task, both of them onto the agents screen: the graph pointed at whoever
 /// is doing it, or that agent's thread.
-fn footer(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> impl IntoElement {
+fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl IntoElement {
     let id = task.id;
     let now = app
-        .agents
-        .now(task)
+        .work(cx)
+        .and_then(|work| work.now(task))
         .map(|agent| (agent.id, agent.name.clone()));
 
     div()
@@ -318,4 +337,6 @@ fn footer(app: &AppState, task: &Task, cx: &mut Context<AppState>) -> impl IntoE
                 cx.listener(move |this, _, _, cx| this.open_task_chat(agent, cx)),
             )
         }))
+        .child(div().flex_1().min_w(px(0.)))
+        .child(form::delete(app, cx))
 }

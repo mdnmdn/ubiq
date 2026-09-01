@@ -1,320 +1,33 @@
-//! The agents screen's state: the orchestration graph, what is selected in it, and the tasks
-//! hanging off that selection.
+//! The agents screen's own view of the work: what is selected in the orchestration graph, which
+//! session and which states it is showing, how far in it is zoomed, and what the pointer has hold
+//! of.
+//!
+//! **Every filter can be cleared, and cleared means everything.** A graph showing one session and
+//! four states is the useful default and not the only view: the session row has an "all" and no
+//! bucket lit is no bucket filter, so the whole of a project's work is always one click away. An
+//! empty canvas therefore means an empty project rather than a filter nobody can see.
+//!
+//! **The work itself is not here.** Sessions, agents and tasks arrive from the host and live in
+//! [`super::work`]; this is the view over them, which is why every reader takes a
+//! [`WorkProjection`] as its first parameter rather than holding one. The split is what keeps both
+//! halves testable without a frame, and it is the same shape `BoardState`'s readers have.
 //!
 //! Nothing here draws and nothing here names a colour — an activity says what it *is*, and
 //! `ui::agents` decides which token that reads in. Nothing here says where anything sits either:
-//! a definition and its position are separate, and [`super::layout`] owns the second half.
+//! a record and its position are separate, and [`super::layout`] owns the second half.
 //!
-//! This is a fixture screen. Sessions, agents and tasks are invented in [`super::sample`] because
-//! the orchestration graph has no transport family yet; it goes the same way the chat does when it
-//! gets one.
+//! **Position is the interface's own fact, membership is the host's.** A drag moves a card on the
+//! canvas, which nothing outside this window has an opinion about; which task that card *serves* is
+//! written down, so a drop answers the pair and the caller sends `AssignAgent`.
 
 use std::time::{Duration, Instant};
 
+use ubiq_proto::ids::{SessionId, TaskId};
+use ubiq_proto::work::{AgentId, Bucket, TaskRecord, WorkAgent};
+
+use super::work::WorkProjection;
+
 pub use super::layout::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout};
-
-/// A card in the graph. One card is one workspace — a single running agent — which is why it
-/// carries a harness, a model and a context percentage rather than a process of any kind.
-pub type AgentId = u32;
-
-/// A named piece of work grouping the agents serving it.
-pub type SessionId = u32;
-
-pub type TaskId = u32;
-
-/// What an agent is doing right now. The badge on its card, and what the filter buckets sort on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Activity {
-    Thinking,
-    Writing,
-    Tools,
-    NeedsYou,
-    Ended,
-    Failed,
-}
-
-impl Activity {
-    pub fn label(self) -> &'static str {
-        match self {
-            Activity::Thinking => "Thinking",
-            Activity::Writing => "Writing",
-            Activity::Tools => "Tools",
-            Activity::NeedsYou => "Needs you",
-            Activity::Ended => "Ended",
-            Activity::Failed => "Error",
-        }
-    }
-
-    /// Which filter pill covers this activity. Three ways of working are one bucket, because the
-    /// question the filter answers is "is it moving", not "what is it doing".
-    pub fn bucket(self) -> Bucket {
-        match self {
-            Activity::Thinking | Activity::Writing | Activity::Tools => Bucket::Running,
-            Activity::NeedsYou => Bucket::Waiting,
-            Activity::Ended => Bucket::Ended,
-            Activity::Failed => Bucket::Error,
-        }
-    }
-}
-
-/// The four coarse states the toolbar filters on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Bucket {
-    Running,
-    Waiting,
-    Ended,
-    Error,
-}
-
-impl Bucket {
-    pub fn label(self) -> &'static str {
-        match self {
-            Bucket::Running => "running",
-            Bucket::Waiting => "waiting",
-            Bucket::Ended => "ended",
-            Bucket::Error => "error",
-        }
-    }
-
-    pub fn all() -> [Bucket; 4] {
-        [
-            Bucket::Running,
-            Bucket::Waiting,
-            Bucket::Ended,
-            Bucket::Error,
-        ]
-    }
-}
-
-/// How the agents on a task are arranged. The shape is a fact about the task, printed on its
-/// container, because it is what tells the user whether the cards inside it run in order.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Shape {
-    /// One agent, asked directly.
-    Direct,
-    /// A hand-off: each agent starts where the last one stopped.
-    Chain,
-    /// A coordinator splitting the work across workers that run at once.
-    Coordinated,
-}
-
-impl Shape {
-    pub fn label(self) -> &'static str {
-        match self {
-            Shape::Direct => "DIRECT",
-            Shape::Chain => "CHAIN",
-            Shape::Coordinated => "COORDINATED",
-        }
-    }
-
-    /// The shape in a sentence, for the panel that has room for one. The word alone says how the
-    /// agents are arranged only to somebody who already knows.
-    pub fn note(self) -> &'static str {
-        match self {
-            Shape::Direct => "one agent, asked directly",
-            Shape::Chain => "each agent starts where the last one stopped",
-            Shape::Coordinated => "a lead spawns and coordinates workers",
-        }
-    }
-}
-
-/// Which column of the board a task sits in. The order is the order the board draws them in, and
-/// the order work moves along: a task only ever changes column, never what it is.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Status {
-    Backlog,
-    Ready,
-    InProgress,
-    InReview,
-    Done,
-}
-
-impl Status {
-    pub fn label(self) -> &'static str {
-        match self {
-            Status::Backlog => "backlog",
-            Status::Ready => "ready",
-            Status::InProgress => "in progress",
-            Status::InReview => "in review",
-            Status::Done => "done",
-        }
-    }
-
-    pub fn all() -> [Status; 5] {
-        [
-            Status::Backlog,
-            Status::Ready,
-            Status::InProgress,
-            Status::InReview,
-            Status::Done,
-        ]
-    }
-}
-
-/// How much a task matters. `Normal` is the absence of a claim rather than a middle value, which
-/// is why it has no word: a board where every card shouts says nothing.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Priority {
-    Low,
-    Normal,
-    High,
-}
-
-impl Priority {
-    pub fn label(self) -> Option<&'static str> {
-        match self {
-            Priority::Low => Some("low"),
-            Priority::Normal => None,
-            Priority::High => Some("high"),
-        }
-    }
-}
-
-/// Where one step has got to. The checkbox reads `Done`; every other variant is a reason it is not
-/// ticked, and each is a state its owner can actually be in.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StepState {
-    Idle,
-    Working,
-    NeedsYou,
-    Failed,
-    Done,
-}
-
-impl StepState {
-    pub fn label(self) -> &'static str {
-        match self {
-            StepState::Idle => "idle",
-            StepState::Working => "working",
-            StepState::NeedsYou => "needs you",
-            StepState::Failed => "error",
-            StepState::Done => "done",
-        }
-    }
-
-    /// Which bucket a step reads in, so a step takes the same four colours as everything else on
-    /// the screen rather than a palette of its own.
-    pub fn bucket(self) -> Bucket {
-        match self {
-            StepState::Idle | StepState::Done => Bucket::Ended,
-            StepState::Working => Bucket::Running,
-            StepState::NeedsYou => Bucket::Waiting,
-            StepState::Failed => Bucket::Error,
-        }
-    }
-}
-
-/// One step of a task, and which agent has it.
-#[derive(Clone, Debug)]
-pub struct Step {
-    pub title: String,
-    pub state: StepState,
-    pub owner: Option<AgentId>,
-}
-
-impl Step {
-    pub fn done(&self) -> bool {
-        self.state == StepState::Done
-    }
-
-    /// Tick and untick. Unticking lands on `Idle` rather than on whatever the step was before:
-    /// nothing here can know what its owner would go back to doing.
-    pub fn toggle(&mut self) {
-        self.state = if self.done() {
-            StepState::Idle
-        } else {
-            StepState::Done
-        };
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Task {
-    pub id: TaskId,
-    /// The session doing the work. `None` is a task nobody has started — the board says so, and
-    /// the graph has nothing to draw for it.
-    pub session: Option<SessionId>,
-    pub status: Status,
-    pub priority: Priority,
-    pub shape: Shape,
-    pub title: String,
-    pub steps: Vec<Step>,
-}
-
-impl Task {
-    pub fn done(&self) -> usize {
-        self.steps.iter().filter(|s| s.done()).count()
-    }
-
-    /// A task nobody can finish without the user: a step failed under whoever had it.
-    pub fn blocked(&self) -> bool {
-        self.steps.iter().any(|s| s.state == StepState::Failed)
-    }
-
-    /// How far along, as the meter draws it.
-    ///
-    /// A task with no steps answers zero, which is not the same claim as "none of them done" — it
-    /// has nothing to be a fraction of. Callers that would be saying the second thing check
-    /// `steps` first and draw no meter at all, which is what the board and the panel both do.
-    pub fn fraction(&self) -> f32 {
-        if self.steps.is_empty() {
-            return 0.0;
-        }
-        self.done() as f32 / self.steps.len() as f32
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Session {
-    pub id: SessionId,
-    pub name: String,
-    pub branch: String,
-    /// Whether the session works in a worktree of its own rather than in the project's folder.
-    pub worktree: bool,
-}
-
-/// Who said a line in an agent's thread.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Speaker {
-    You,
-    Agent,
-}
-
-#[derive(Clone, Debug)]
-pub struct Turn {
-    pub from: Speaker,
-    pub text: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct Agent {
-    pub id: AgentId,
-    pub session: SessionId,
-    /// The task whose container the card sits in. `None` is an agent nobody has given work to.
-    pub task: Option<TaskId>,
-    /// Who spawned it. The connector is drawn from the parent's card to this one.
-    pub parent: Option<AgentId>,
-    pub name: String,
-    pub role: String,
-    pub activity: Activity,
-    /// The one line the card says about what it is doing.
-    pub note: String,
-    pub branch: String,
-    pub tokens: f32,
-    pub harness: String,
-    pub model: String,
-    pub context_pct: u8,
-    /// What has been said to and by this agent. Seeded from the fixture; what the composer sends
-    /// is appended to it, and nothing answers, because there is nothing behind it to answer.
-    pub thread: Vec<Turn>,
-}
-
-impl Agent {
-    /// The token count as the card prints it.
-    pub fn tokens_label(&self) -> String {
-        format!("{:.1}K", self.tokens / 1000.0)
-    }
-}
 
 /// What the inspector and the tasks strip are about. A session and an agent are both selectable,
 /// and the two answer the same questions at different scales.
@@ -383,17 +96,19 @@ pub struct Carry {
     pub over: Option<TaskId>,
 }
 
-pub struct AgentsState {
-    pub sessions: Vec<Session>,
-    pub agents: Vec<Agent>,
-    pub tasks: Vec<Task>,
-
-    /// Where all of the above is drawn. Separate from the definitions above it, and thrown away
-    /// and recomputed whole by `relayout`.
+pub struct GraphView {
+    /// Where the work is drawn. Thrown away and recomputed whole by `relayout`, and topped up one
+    /// arriving card at a time by `Layout::place_new`.
     pub layout: Layout,
 
-    /// Which buckets the graph is showing. A card in a hidden bucket is not drawn, and neither are
-    /// the connectors into it.
+    /// Which session the graph is drawing, or every one of them. Its own field rather than a
+    /// reading of `selection`, because which session is *shown* and which is *selected* are two
+    /// questions: the inspector and the drawer report on the second, and clearing the first must
+    /// not throw the second away.
+    pub session: Option<SessionId>,
+    /// Which buckets the graph is showing. **Empty is no filter, not nothing** — a card in a hidden
+    /// bucket is not drawn, and neither are the connectors into it, so a row with every pill off
+    /// would otherwise be an empty screen with no way back.
     pub buckets: Vec<Bucket>,
     pub zoom: f32,
     pub selection: Option<Selection>,
@@ -408,23 +123,19 @@ pub struct AgentsState {
     pub sand: Vec<Grain>,
 }
 
-/// The zoom range and the step the toolbar's `−` and `+` move in.
-pub const ZOOM_MIN: f32 = 0.5;
-pub const ZOOM_MAX: f32 = 1.6;
-pub const ZOOM_STEP: f32 = 0.1;
-
-impl AgentsState {
-    pub fn new(sessions: Vec<Session>, agents: Vec<Agent>, tasks: Vec<Task>) -> Self {
-        let selection = agents.first().map(|a| Selection::Agent(a.id));
-        let layout = Layout::auto(&agents, &tasks);
+/// The screen as it opens: every session and every state showing, zoomed out far enough to see the
+/// work whole, the inspector up on the thread and the tasks drawer shut. Written out rather than
+/// derived, because the derived zero of a zoom is a graph nobody can see.
+impl Default for GraphView {
+    fn default() -> Self {
         Self {
-            sessions,
-            agents,
-            tasks,
-            layout,
+            layout: Layout::default(),
+            session: None,
             buckets: Bucket::all().to_vec(),
             zoom: 0.8,
-            selection,
+            // Nothing is selected until there is something to select; the window points the
+            // selection at the first agent the moment the work arrives.
+            selection: None,
             tab: InspectorTab::Chat,
             show_inspector: true,
             tasks_open: false,
@@ -433,35 +144,27 @@ impl AgentsState {
             sand: Vec::new(),
         }
     }
+}
 
-    pub fn agent(&self, id: AgentId) -> Option<&Agent> {
-        self.agents.iter().find(|a| a.id == id)
-    }
+/// The zoom range and the step the toolbar's `−` and `+` move in.
+pub const ZOOM_MIN: f32 = 0.5;
+pub const ZOOM_MAX: f32 = 1.6;
+pub const ZOOM_STEP: f32 = 0.1;
 
-    pub fn agent_mut(&mut self, id: AgentId) -> Option<&mut Agent> {
-        self.agents.iter_mut().find(|a| a.id == id)
-    }
-
-    pub fn task(&self, id: TaskId) -> Option<&Task> {
-        self.tasks.iter().find(|t| t.id == id)
-    }
-
-    pub fn session(&self, id: SessionId) -> Option<&Session> {
-        self.sessions.iter().find(|s| s.id == id)
-    }
-
-    /// Where a card is drawn, on the canvas at 100% zoom.
-    pub fn at(&self, agent: &Agent) -> (f32, f32) {
+impl GraphView {
+    /// Where a card is drawn, on the canvas at 100% zoom. The layout alone answers this, which is
+    /// why it is the one reader that needs no projection.
+    pub fn at(&self, agent: &WorkAgent) -> (f32, f32) {
         self.layout.at(agent)
     }
 
-    pub fn at_id(&self, id: AgentId) -> Option<(f32, f32)> {
-        self.agent(id).map(|agent| self.layout.at(agent))
+    pub fn at_id(&self, work: &WorkProjection, id: AgentId) -> Option<(f32, f32)> {
+        work.agent(id).map(|agent| self.layout.at(agent))
     }
 
     /// Put a card at a point on the canvas, whatever frame it hangs off.
-    pub fn place(&mut self, id: AgentId, at: (f32, f32)) {
-        let origin = self
+    pub fn place(&mut self, work: &WorkProjection, id: AgentId, at: (f32, f32)) {
+        let origin = work
             .agent(id)
             .and_then(|agent| agent.task)
             .map(|task| self.layout.task_origin(task))
@@ -470,54 +173,58 @@ impl AgentsState {
             .place_agent(id, (at.0 - origin.0, at.1 - origin.1));
     }
 
-    /// Throw the arrangement away and compute it again from the definitions.
-    pub fn relayout(&mut self) {
-        self.layout = Layout::auto(&self.agents, &self.tasks);
+    /// Throw the arrangement away and compute it again from the records.
+    pub fn relayout(&mut self, work: &WorkProjection) {
+        self.layout = Layout::auto(&work.agents, &work.tasks);
     }
 
     /// The selected agent, when an agent is what is selected.
-    pub fn selected_agent(&self) -> Option<&Agent> {
+    pub fn selected_agent<'a>(&self, work: &'a WorkProjection) -> Option<&'a WorkAgent> {
         match self.selection {
-            Some(Selection::Agent(id)) => self.agent(id),
+            Some(Selection::Agent(id)) => work.agent(id),
             _ => None,
         }
     }
 
-    /// Which session the screen is about: the selected one, the selected agent's, or the first.
-    pub fn active_session(&self) -> Option<SessionId> {
+    /// Which session the screen is *about*: the one selected, or the one the selected agent runs
+    /// in, falling back to the first so the inspector and the drawer always have something to
+    /// report. What the canvas *draws* is `session`, which is a separate question.
+    pub fn active_session(&self, work: &WorkProjection) -> Option<SessionId> {
         match self.selection {
             Some(Selection::Session(id)) => Some(id),
-            Some(Selection::Agent(id)) => self.agent(id).map(|a| a.session),
-            None => self.sessions.first().map(|s| s.id),
+            Some(Selection::Agent(id)) => work.agent(id).map(|a| a.session),
+            None => work.sessions.first().map(|s| s.id),
         }
     }
 
+    /// Whether one bucket is drawn. **No pill lit is no filter**: the row means "narrow it to
+    /// these", and narrowing to nothing is what an untouched row already does.
     pub fn showing(&self, bucket: Bucket) -> bool {
-        self.buckets.contains(&bucket)
+        self.buckets.is_empty() || self.buckets.contains(&bucket)
     }
 
-    /// Whether a card is drawn at all, given the filters and which session the screen is on.
-    pub fn visible(&self, agent: &Agent) -> bool {
-        self.showing(agent.activity.bucket()) && Some(agent.session) == self.active_session()
+    /// Whether a card is drawn at all, given the two filters. `session` absent is every session.
+    pub fn visible(&self, agent: &WorkAgent) -> bool {
+        self.showing(agent.activity.bucket()) && self.session.is_none_or(|id| agent.session == id)
     }
 
     /// The tasks the strip lists: every task in the session, or the ones the selected agent has a
     /// step in.
-    pub fn listed_tasks(&self) -> Vec<&Task> {
+    pub fn listed_tasks<'a>(&self, work: &'a WorkProjection) -> Vec<&'a TaskRecord> {
         match self.selection {
-            Some(Selection::Agent(id)) => self
+            Some(Selection::Agent(id)) => work
                 .tasks
                 .iter()
                 .filter(|t| {
                     t.steps.iter().any(|s| s.owner == Some(id))
-                        || self.agent(id).and_then(|a| a.task) == Some(t.id)
+                        || work.agent(id).and_then(|a| a.task) == Some(t.id)
                 })
                 .collect(),
             _ => {
-                let session = self.active_session();
+                let session = self.active_session(work);
                 // A task nobody has started belongs to no session, and the graph is a screen about
                 // sessions: it is the board that has somewhere to draw it.
-                self.tasks
+                work.tasks
                     .iter()
                     .filter(|t| t.session.is_some() && t.session == session)
                     .collect()
@@ -525,139 +232,36 @@ impl AgentsState {
         }
     }
 
-    /// The agents serving one task.
-    pub fn members(&self, task: TaskId) -> impl Iterator<Item = &Agent> {
-        self.agents.iter().filter(move |a| a.task == Some(task))
-    }
-
-    /// Who the task speaks through: a coordinated task answers through its coordinator — the
-    /// member the others were spawned by — and any other shape answers through whoever is holding
-    /// it now, which is the first member that has not finished.
-    pub fn now(&self, task: &Task) -> Option<&Agent> {
-        if task.shape == Shape::Coordinated {
-            let lead = self.members(task.id).find(|a| {
-                self.members(task.id)
-                    .any(|other| other.parent == Some(a.id))
-            });
-            if lead.is_some() {
-                return lead;
-            }
-        }
-        self.members(task.id)
-            .find(|a| a.activity != Activity::Ended)
-            .or_else(|| self.members(task.id).next())
-    }
-
-    /// The state a task's card carries: the worst thing happening anywhere in it. A card is read at
-    /// a glance and from across a column, so it reports what the user would want to be told first.
-    pub fn pulse(&self, task: &Task) -> Bucket {
-        let mut worst = Bucket::Ended;
-        if task.blocked() {
-            return Bucket::Error;
-        }
-        for bucket in self
-            .members(task.id)
-            .map(|a| a.activity.bucket())
-            .chain(task.steps.iter().map(|s| s.state.bucket()))
-        {
-            match bucket {
-                Bucket::Error => return Bucket::Error,
-                Bucket::Waiting => worst = Bucket::Waiting,
-                Bucket::Running if worst != Bucket::Waiting => worst = Bucket::Running,
-                _ => {}
-            }
-        }
-        worst
-    }
-
-    /// Put a new task in the backlog, and answer its id.
-    ///
-    /// It starts direct, unprioritised and with no steps, because that is all the board knows when
-    /// it is asked for one. Everything else about a task is learnt later.
-    pub fn add_task(&mut self, title: String, session: Option<SessionId>) -> TaskId {
-        let id = self.tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
-        self.tasks.push(Task {
-            id,
-            session,
-            status: Status::Backlog,
-            priority: Priority::Normal,
-            shape: Shape::Direct,
-            title,
-            steps: Vec::new(),
-        });
-        id
-    }
-
-    /// Move a task to another column. Answers whether anything changed, so a drop that landed
-    /// where the card already was costs no redraw.
-    pub fn move_task(&mut self, id: TaskId, status: Status) -> bool {
-        let Some(task) = self.tasks.iter_mut().find(|t| t.id == id) else {
-            return false;
-        };
-        if task.status == status {
-            return false;
-        }
-        task.status = status;
-        true
-    }
-
-    /// Tick or untick one step of a task.
-    pub fn toggle_step(&mut self, task: TaskId, step: usize) -> bool {
-        let Some(task) = self.tasks.iter_mut().find(|t| t.id == task) else {
-            return false;
-        };
-        let Some(step) = task.steps.get_mut(step) else {
-            return false;
-        };
-        step.toggle();
-        true
-    }
-
-    /// How many agents the status line counts, by bucket.
-    pub fn count(&self, bucket: Bucket) -> usize {
-        self.agents
-            .iter()
-            .filter(|a| a.activity.bucket() == bucket)
-            .count()
-    }
-
-    /// Put what was typed into the selected agent's thread.
-    ///
-    /// Nothing replies. The composer is real — what is typed lands where it was sent — and the
-    /// answer is the one thing a screen with no transport family cannot honestly invent.
-    pub fn send(&mut self) -> bool {
-        let text = self.draft.trim().to_string();
-        if text.is_empty() {
-            return false;
-        }
-        let Some(Selection::Agent(id)) = self.selection else {
-            return false;
-        };
-        let Some(agent) = self.agent_mut(id) else {
-            return false;
-        };
-        agent.thread.push(Turn {
-            from: Speaker::You,
-            text,
-        });
-        self.draft.clear();
-        true
-    }
-
     // ── Mutators ────────────────────────────────────────────────────
     //
     // None of them notifies: they are called from `AppState`, which is what owns the redraw.
 
+    /// Turn one bucket's pill on or off. Any of them may be the last: with none lit the row is not
+    /// filtering, which is the way back from having turned them all off.
     pub fn toggle_bucket(&mut self, bucket: Bucket) {
         if let Some(ix) = self.buckets.iter().position(|b| *b == bucket) {
-            // The last pill cannot be turned off — an empty graph is a filter bug that looks like
-            // an empty session.
-            if self.buckets.len() > 1 {
-                self.buckets.remove(ix);
-            }
+            self.buckets.remove(ix);
         } else {
             self.buckets.push(bucket);
         }
+    }
+
+    /// Show one session, or every one. It leaves the selection alone: "show me all of it" is not
+    /// "stop looking at this".
+    pub fn show_session(&mut self, session: Option<SessionId>) {
+        self.session = session;
+    }
+
+    /// Put every filter back, which is the toolbar's one control for "show everything".
+    pub fn clear_filters(&mut self) {
+        self.session = None;
+        self.buckets = Bucket::all().to_vec();
+    }
+
+    /// Whether anything is being hidden, so the control that clears the filters can say whether it
+    /// has anything to do.
+    pub fn filtered(&self) -> bool {
+        self.session.is_some() || self.buckets.len() < Bucket::all().len()
     }
 
     pub fn zoom_by(&mut self, delta: f32) {
@@ -682,14 +286,20 @@ impl AgentsState {
     /// `at` is in graph coordinates — the top-left of the card, or of the container's box.
     /// `pointer` is where the pointer is in the window, which is the frame the sand is painted in;
     /// `None` lays no trail, which is what reduced motion asks for.
-    pub fn carry_to(&mut self, at: (f32, f32), pointer: Option<(f32, f32)>, now: Instant) {
+    pub fn carry_to(
+        &mut self,
+        work: &WorkProjection,
+        at: (f32, f32),
+        pointer: Option<(f32, f32)>,
+        now: Instant,
+    ) {
         let Some(carry) = self.carry else { return };
         match carry.held {
             Held::Agent(id) => {
-                self.place(id, at);
+                self.place(work, id, at);
                 // Which container the pointer is over decides what a drop means, and is what the
                 // canvas lights up while the card is in the air.
-                let over = self.task_at(id, at);
+                let over = self.task_at(work, id, at);
                 if let Some(carry) = self.carry.as_mut() {
                     carry.over = over;
                 }
@@ -698,7 +308,7 @@ impl AgentsState {
             // is moved by the difference between where the box is and where the pointer wants it,
             // and every card in it comes along because none of them was ever placed absolutely.
             Held::Task(id) => {
-                if let Some((x, y, _, _)) = self.bounds_of(id) {
+                if let Some((x, y, _, _)) = self.bounds_of(work, id) {
                     let origin = self.layout.task_origin(id);
                     self.layout
                         .place_task(id, (origin.0 + at.0 - x, origin.1 + at.1 - y));
@@ -710,25 +320,35 @@ impl AgentsState {
         }
     }
 
-    /// Put it down. Answers the task a card landed in, if that changed.
-    pub fn end_carry(&mut self) -> Option<TaskId> {
+    /// Put it down, and answer the card and the container it landed in — for the caller to send as
+    /// an `AssignAgent`.
+    ///
+    /// **Position is the interface's own fact, membership is the host's.** The offset is written
+    /// here, because where a card sits on this canvas is nothing anybody outside the window has an
+    /// opinion about; which task the card *serves* is written down, so this touches none of it and
+    /// the answer is a request rather than a result. The offset is taken against the container the
+    /// card landed in rather than the one it is still recorded in, so the card is where it was let
+    /// go of the moment the host confirms — the one frame in between draws it against its old
+    /// origin, which is the cost of not writing the answer down before it is given.
+    ///
+    /// `None` is a card put down on open ground, a card put back where it came from, or a container
+    /// that was carried — none of them a hand-over.
+    pub fn end_carry(&mut self, work: &WorkProjection) -> Option<(AgentId, TaskId)> {
         let carry = self.carry.take()?;
         let Held::Agent(id) = carry.held else {
             return None;
         };
         let task = carry.over?;
-        if self.agent(id)?.task == Some(task) {
+        if work.agent(id)?.task == Some(task) {
             return None;
         }
         // Where it was let go of, so re-anchoring it to the new container's origin leaves it under
         // the pointer rather than jumping it to the same offset in a different frame.
-        let at = self.at_id(id)?;
-        let agent = self.agent_mut(id)?;
-        agent.task = Some(task);
-        // A card that moved to another task no longer answers to whoever spawned it there.
-        agent.parent = None;
-        self.place(id, at);
-        Some(task)
+        let at = self.at_id(work, id)?;
+        let origin = self.layout.task_origin(task);
+        self.layout
+            .place_agent(id, (at.0 - origin.0, at.1 - origin.1));
+        Some((id, task))
     }
 
     /// Which task's container the carried card is over. Containers do not overlap, so the first
@@ -738,12 +358,12 @@ impl AgentsState {
     /// card is always inside its own task's box — the box is computed from where its cards are, and
     /// it is one of them — so dragging it anywhere would read as dropping it back where it came
     /// from.
-    fn task_at(&self, carried: AgentId, at: (f32, f32)) -> Option<TaskId> {
+    fn task_at(&self, work: &WorkProjection, carried: AgentId, at: (f32, f32)) -> Option<TaskId> {
         let centre = (at.0 + CARD_WIDTH / 2.0, at.1 + CARD_HEIGHT / 2.0);
-        self.tasks
+        work.tasks
             .iter()
             .find(|task| {
-                self.bounds_excluding(task.id, Some(carried))
+                self.bounds_excluding(work, task.id, Some(carried))
                     .is_some_and(|(x, y, w, h)| {
                         centre.0 >= x && centre.0 <= x + w && centre.1 >= y && centre.1 <= y + h
                     })
@@ -752,16 +372,17 @@ impl AgentsState {
     }
 
     /// The container a task is drawn in: the box round its cards, with room for the label.
-    pub fn bounds_of(&self, task: TaskId) -> Option<(f32, f32, f32, f32)> {
-        self.bounds_excluding(task, None)
+    pub fn bounds_of(&self, work: &WorkProjection, task: TaskId) -> Option<(f32, f32, f32, f32)> {
+        self.bounds_excluding(work, task, None)
     }
 
     fn bounds_excluding(
         &self,
+        work: &WorkProjection,
         task: TaskId,
         skip: Option<AgentId>,
     ) -> Option<(f32, f32, f32, f32)> {
-        let mut members = self
+        let mut members = work
             .agents
             .iter()
             .filter(|a| a.task == Some(task) && Some(a.id) != skip && self.visible(a))

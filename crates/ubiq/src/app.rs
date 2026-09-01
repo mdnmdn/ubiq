@@ -14,11 +14,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::state::agents::{
-    AgentId, AgentsState, Bucket, Held, InspectorTab, Selection, SessionId as GraphSessionId,
-    Status, TaskId,
-};
-use crate::state::board::BoardState;
+use crate::state::agents::{GraphView, Held, InspectorTab, Selection};
+use crate::state::board::{BoardState, Field};
+use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerState, FileLanguage, LogState, MenuId, RailMode, Toggle,
     WindowRegistry, WorkbenchState, prefs, sample,
@@ -35,9 +33,10 @@ use gpui_component::resizable::ResizableState;
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
 use ubiq_proto::files::{FileContents, FileError};
-use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
+use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
+use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
 /// How much of a file the interface asks for. The host has a ceiling of its own and this never
 /// widens it; what it does is keep a buffer the user cannot read to the end of off the bus.
@@ -132,6 +131,17 @@ pub struct OpenProject {
     seeded: bool,
     pub explorer: ExplorerState,
     pub editor: EditorPaneState,
+    /// The host's work for this project, as this window last heard it. Empty rather than absent
+    /// until the `ListWork` is answered, so a project whose work has never arrived draws as empty
+    /// rather than as a project with no work.
+    pub work: WorkProjection,
+    /// The graph's view of that work: what is selected in it, which states it is showing, and where
+    /// its cards sit. Per project, because a selection and an arrangement are about one project's
+    /// agents and switching away must not lose either.
+    pub graph: GraphView,
+    /// The board's view of the same work: what is filtered, which task is open, which columns and
+    /// cards are shut.
+    pub board: BoardState,
     /// The furniture this project was last left in, kept current so a background project is never
     /// written down wearing the active one's.
     prefs: prefs::ViewPrefs,
@@ -152,6 +162,9 @@ impl OpenProject {
             seeded: false,
             explorer: ExplorerState::empty(),
             editor: EditorPaneState::empty(),
+            work: WorkProjection::empty(),
+            graph: GraphView::default(),
+            board: BoardState::default(),
             prefs,
             restored: false,
             wanted: Vec::new(),
@@ -199,10 +212,6 @@ pub struct AppState {
 
     pub workbench: WorkbenchState,
     pub chat: ChatState,
-    /// The agents screen: the orchestration graph, what is selected in it, and its tasks.
-    pub agents: AgentsState,
-    /// The tasks board's view of those same tasks: what is filtered, what is open, what is shut.
-    pub board: BoardState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
 
@@ -230,6 +239,12 @@ pub struct AppState {
     pub file_filter: Entity<InputState>,
     /// The board's one field: what filters the cards, and what names the next one.
     pub task_filter: Entity<InputState>,
+    /// The task panel's four fields. They belong to the window because there is one of each per
+    /// window, and what is typed into them belongs to the project — see `BoardState::form`.
+    pub task_title_input: Entity<InputState>,
+    pub task_description_input: Entity<TextareaState>,
+    pub step_title_input: Entity<InputState>,
+    pub new_step_input: Entity<InputState>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
@@ -240,6 +255,12 @@ pub struct AppState {
     pub log_scroll: UniformListScrollHandle,
     /// The console's own focus, so selecting its tab takes the keyboard off the pane behind it.
     log_focus: FocusHandle,
+    /// Which task the panel's fields were last filled from, so a selection change refills them
+    /// exactly once. Writing into the component library's state needs a window and a message does
+    /// not come with one, which is why this is drained in `render` beside the arrived files.
+    form_filled: Option<TaskId>,
+    /// A project switch owes the window's own fields the entered project's text.
+    refill_fields: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -282,6 +303,23 @@ impl AppState {
         let task_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter tasks\u{2026}"));
 
+        let task_title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Task title"));
+
+        // The one field in the window that must not submit on Enter: a newline is a paragraph
+        // break in Markdown, so Save is a button rather than a key.
+        let task_description_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Describe the task in Markdown\u{2026}")
+                .auto_grow(3, 14)
+        });
+
+        // One field for renaming whichever sub-task is open, because only one ever is.
+        let step_title_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Rename this sub-task"));
+
+        let new_step_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Add a sub-task\u{2026}"));
+
         let command_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search files, or run a command\u{2026}")
         });
@@ -323,7 +361,12 @@ impl AppState {
             window,
             |this, input, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => {
-                    this.agents.draft = input.read(cx).value().to_string();
+                    let draft = input.read(cx).value().to_string();
+                    // A window with no project has no composer on screen to have typed into, so
+                    // there is nothing to mirror it onto.
+                    if let Some(graph) = this.graph_mut(cx) {
+                        graph.draft = draft;
+                    }
                     cx.notify();
                 }
                 InputEvent::PressEnter { shift: false, .. } => this.send_to_agent(window, cx),
@@ -347,9 +390,78 @@ impl AppState {
             window,
             |this, input, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
-                    this.board.filter = input.read(cx).value().to_string();
+                    let filter = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.filter = filter;
+                    }
                     cx.notify();
                 }
+            },
+        ));
+
+        // The panel's four fields mirror into the project's own form and commit on Enter or on the
+        // control beside them — never on losing focus, which is the project picker's rename rule
+        // and for its reason: a blur fires before the click that caused it, so a field that
+        // committed on blur could not be cancelled by the button next to it. A commit is an act
+        // rather than a keystroke, which is also what keeps the host's writes un-debounced.
+        subscriptions.push(cx.subscribe_in(
+            &task_title_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.title = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.commit_task_title(window, cx),
+                _ => {}
+            },
+        ));
+
+        // No `PressEnter` arm, and no `Blur` arm: Enter is a newline here, and a blur would commit
+        // on the very click that asks for the preview.
+        subscriptions.push(cx.subscribe_in(
+            &task_description_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.description = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &step_title_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.step_title = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.commit_step_title(window, cx),
+                _ => {}
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &new_step_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.new_step = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.add_task_step(window, cx),
+                _ => {}
             },
         ));
 
@@ -434,8 +546,6 @@ impl AppState {
             pending_focus: None,
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
-            agents: sample::agents(),
-            board: BoardState::default(),
             logs: LogState::default(),
             adopt_on_list: false,
             adding: false,
@@ -447,12 +557,18 @@ impl AppState {
             agent_input,
             file_filter,
             task_filter,
+            task_title_input,
+            task_description_input,
+            step_title_input,
+            new_step_input,
             command_input,
             project_search,
             rename_input,
             chat_scroll: ScrollHandle::new(),
             log_scroll: UniformListScrollHandle::new(),
             log_focus: cx.focus_handle(),
+            form_filled: None,
+            refill_fields: false,
             _subscriptions: subscriptions,
         };
 
@@ -513,6 +629,9 @@ impl AppState {
             self.bus.send(Message::GetPreferences {
                 scope: Scope::Project(id),
             });
+            // The work is the host's as well, and the graph and the board draw nothing until it
+            // answers. Once per newly held project: the reply is the whole of it.
+            self.bus.send(Message::ListWork { project_id: id });
             if let Some(view) = restore {
                 self.restore_files(id, &view, cx);
             }
@@ -561,7 +680,10 @@ impl AppState {
         open.seeded = true;
 
         // A background project keeps its own furniture, so entering one is where it reaches the
-        // window rather than the other way round.
+        // window rather than the other way round. The window's own fields are part of that: the
+        // entities are the window's, but the text in them is about the project on screen.
+        self.form_filled = None;
+        self.refill_fields = true;
         self.workbench.rail_mode = view.rail_mode;
         self.workbench.show_left = view.show_left;
         self.workbench.show_bottom = view.show_bottom;
@@ -602,6 +724,47 @@ impl AppState {
     /// The files open in the project on screen.
     pub fn editor(&self, cx: &App) -> Option<&EditorPaneState> {
         self.open_project(cx).map(|open| &open.editor)
+    }
+
+    /// The work the two screens over it draw, which belongs to the project on screen.
+    pub fn work(&self, cx: &App) -> Option<&WorkProjection> {
+        self.open_project(cx).map(|open| &open.work)
+    }
+
+    /// The graph's view of that work.
+    pub fn graph(&self, cx: &App) -> Option<&GraphView> {
+        self.open_project(cx).map(|open| &open.graph)
+    }
+
+    /// The board's view of the same work.
+    pub fn board(&self, cx: &App) -> Option<&BoardState> {
+        self.open_project(cx).map(|open| &open.board)
+    }
+
+    pub fn work_mut(&mut self, cx: &App) -> Option<&mut WorkProjection> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.work)
+    }
+
+    pub fn graph_mut(&mut self, cx: &App) -> Option<&mut GraphView> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.graph)
+    }
+
+    pub fn board_mut(&mut self, cx: &App) -> Option<&mut BoardState> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.board)
+    }
+
+    /// The graph and the work behind it, together.
+    ///
+    /// A drag reads the records while it writes the arrangement, and the two live in the same
+    /// [`OpenProject`] — so the pair is handed out once rather than borrowed twice, which nothing
+    /// would let a caller do.
+    fn graph_over_work(&mut self, cx: &App) -> Option<(&mut GraphView, &WorkProjection)> {
+        let id = self.project(cx)?;
+        let open = self.projects.get_mut(&id)?;
+        Some((&mut open.graph, &open.work))
     }
 
     /// Which project a pane belongs to. A pane is only ever in one, so the first answer is the
@@ -905,6 +1068,135 @@ impl AppState {
                 rel_path,
                 error,
             } => self.file_failed(project_id, rel_path, error, cx),
+
+            // ── the work family ─────────────────────────────────────
+            // Every arm is guarded on the project still being held, because an answer can arrive
+            // after the window has stopped holding it — the file family's rule, for the file
+            // family's reason. The work belongs to the project, so an answer for one nobody here
+            // has open has nowhere to be drawn.
+            //
+            // Anything the host confirms clears the last refusal: a sentence about a change that
+            // did not happen is stale the moment one does.
+            Message::WorkList {
+                project_id,
+                sessions,
+                agents,
+                tasks,
+            } => {
+                self.workbench.work_error = None;
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                open.work.replace_all(sessions, agents, tasks);
+                open.graph.relayout(&open.work);
+                // Pointing the screen at the first agent was the fixture constructor's job. It
+                // belongs to whoever first learns there is one to point at, and only then: a
+                // second `ListWork` must not move a selection the user has since made.
+                if open.graph.selection.is_none() {
+                    open.graph.selection = open.work.agents.first().map(|a| Selection::Agent(a.id));
+                }
+                cx.notify();
+            }
+
+            Message::TaskCreated { project_id, task } => {
+                self.workbench.work_error = None;
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                let id = task.id;
+                open.work.apply_task(task);
+                open.graph
+                    .layout
+                    .place_new(&open.work.agents, &open.work.tasks);
+                // The task that arrives is the one to select, because the interface could not know
+                // the id it was going to be given — the same mechanism `AppState::adding` uses to
+                // open the project an `AddProject` answers with.
+                if open.board.awaiting_new {
+                    open.board.awaiting_new = false;
+                    open.board.select(id);
+                }
+                cx.notify();
+            }
+
+            Message::TaskChanged { project_id, task } => {
+                self.workbench.work_error = None;
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                // The mark goes on whatever column the answer reports, the old one included: a
+                // refusal that left the card where it was must not leave it saying it is still on
+                // its way.
+                if open.board.is_moving(task.id) {
+                    open.board.moving = None;
+                }
+                let selected = open.board.selected == Some(task.id);
+                let editing = open.board.editing.is_some();
+                open.work.apply_task(task);
+                open.graph
+                    .layout
+                    .place_new(&open.work.agents, &open.work.tasks);
+                // Refill the panel from what the host actually stored — it trims a title, and a
+                // field showing what was typed rather than what was kept would be a small lie. Not
+                // while a field is open: the user's text wins until they commit or discard it.
+                if selected && !editing {
+                    self.form_filled = None;
+                }
+                cx.notify();
+            }
+
+            Message::TaskDeleted {
+                project_id,
+                task_id,
+            } => {
+                self.workbench.work_error = None;
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                open.work.forget_task(task_id);
+                // A panel pointed at a task that has gone reports on nothing, and a mark for a
+                // move that can never be answered would never come off.
+                if open.board.selected == Some(task_id) {
+                    open.board.selected = None;
+                    // A field open on a task that has gone has nowhere to commit to.
+                    open.board.stop_editing();
+                    open.board.confirm_delete = false;
+                }
+                if open.board.is_moving(task_id) {
+                    open.board.moving = None;
+                }
+                cx.notify();
+            }
+
+            Message::AgentChanged { project_id, agent } => {
+                self.workbench.work_error = None;
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                open.work.apply_agent(*agent);
+                open.graph
+                    .layout
+                    .place_new(&open.work.agents, &open.work.tasks);
+                cx.notify();
+            }
+
+            Message::WorkError {
+                project_id,
+                task_id,
+                error,
+            } => {
+                tracing::error!("work {project_id} {task_id:?}: {error}");
+                self.workbench.work_error = Some(error);
+                // A refusal ends whatever asked for it, so the panel goes back to reporting the
+                // task the host still holds rather than sitting in a field that will not commit.
+                if let Some(board) = self.board_mut(cx) {
+                    board.stop_editing();
+                    board.moving = None;
+                    board.awaiting_new = false;
+                    board.confirm_delete = false;
+                }
+                self.form_filled = None;
+                cx.notify();
+            }
 
             // What the host is. The status bar says so when the root is not the usual one.
             Message::HostInfo {
@@ -1835,46 +2127,81 @@ impl AppState {
     }
 
     // ── The agents screen ───────────────────────────────────────────
+    //
+    // Every handler here is guarded on the window holding a project: the screen is a view of one
+    // project's work, and a window with none open has nothing for it to act on.
 
     /// Point the screen at a session or at one agent. Both are selections, and everything else on
     /// the screen — the graph's session, the inspector, the tasks drawer — is a function of this
     /// one field.
     pub fn select_in_graph(&mut self, selection: Selection, cx: &mut Context<Self>) {
-        self.agents.selection = Some(selection);
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.selection = Some(selection);
+        }
+        cx.notify();
+    }
+
+    /// Draw one session's agents, or every session's. It does not move the selection: what the
+    /// inspector and the drawer report on is a separate question from what the canvas draws.
+    pub fn show_graph_session(&mut self, session: Option<SessionId>, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.show_session(session);
+        }
+        cx.notify();
+    }
+
+    /// Put every filter on the agents screen back. The one control for "show me all of it".
+    pub fn clear_graph_filters(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.clear_filters();
+        }
         cx.notify();
     }
 
     pub fn toggle_agent_bucket(&mut self, bucket: Bucket, cx: &mut Context<Self>) {
-        self.agents.toggle_bucket(bucket);
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.toggle_bucket(bucket);
+        }
         cx.notify();
     }
 
     pub fn zoom_graph(&mut self, delta: f32, cx: &mut Context<Self>) {
-        self.agents.zoom_by(delta);
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.zoom_by(delta);
+        }
         cx.notify();
     }
 
     pub fn reset_graph_zoom(&mut self, cx: &mut Context<Self>) {
-        self.agents.zoom = 1.0;
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.zoom = 1.0;
+        }
         cx.notify();
     }
 
     /// Throw the arrangement away and lay the graph out again from what the agents and tasks say.
     ///
     /// Every hand-placed card is lost, which is the point: it is the way back from a canvas the
-    /// user has pulled apart, and there is nothing else on the screen that undoes a drag.
+    /// user has pulled apart, and there is nothing else on the screen that undoes a drag. The full
+    /// `relayout` rather than `place_new`, which is the one that leaves placed cards alone.
     pub fn tidy_graph(&mut self, cx: &mut Context<Self>) {
-        self.agents.relayout();
+        if let Some((graph, work)) = self.graph_over_work(cx) {
+            graph.relayout(work);
+        }
         cx.notify();
     }
 
     pub fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
-        self.agents.show_inspector = !self.agents.show_inspector;
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.show_inspector = !graph.show_inspector;
+        }
         cx.notify();
     }
 
     pub fn toggle_tasks_drawer(&mut self, cx: &mut Context<Self>) {
-        self.agents.tasks_open = !self.agents.tasks_open;
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.tasks_open = !graph.tasks_open;
+        }
         cx.notify();
     }
 
@@ -1882,18 +2209,22 @@ impl AppState {
     /// does, and the one place the screen changes two things at once, because a card asking for a
     /// conversation with the panel shut has asked for nothing.
     pub fn open_agent_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        self.agents.selection = Some(Selection::Agent(agent));
-        self.agents.tab = InspectorTab::Chat;
-        self.agents.show_inspector = true;
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.selection = Some(Selection::Agent(agent));
+            graph.tab = InspectorTab::Chat;
+            graph.show_inspector = true;
+        }
         cx.notify();
     }
 
     pub fn select_inspector_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.agents.tab = if index == 0 {
-            InspectorTab::Chat
-        } else {
-            InspectorTab::Tasks
-        };
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.tab = if index == 0 {
+                InspectorTab::Chat
+            } else {
+                InspectorTab::Tasks
+            };
+        }
         cx.notify();
     }
 
@@ -1904,9 +2235,11 @@ impl AppState {
     /// wrong agent. A container does not: dragging a box to make room is not a claim about what
     /// the user wants to read.
     pub fn start_graph_carry(&mut self, held: Held, grab: (f32, f32), cx: &mut Context<Self>) {
-        self.agents.start_carry(held, grab);
-        if let Held::Agent(agent) = held {
-            self.agents.selection = Some(Selection::Agent(agent));
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.start_carry(held, grab);
+            if let Held::Agent(agent) = held {
+                graph.selection = Some(Selection::Agent(agent));
+            }
         }
         cx.notify();
     }
@@ -1922,20 +2255,60 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let trail = (!cx.reduce_motion()).then_some(pointer);
-        self.agents.carry_to(at, trail, std::time::Instant::now());
+        if let Some((graph, work)) = self.graph_over_work(cx) {
+            graph.carry_to(work, at, trail, std::time::Instant::now());
+        }
         cx.notify();
     }
 
-    /// Put it down, and move a card into whatever container it landed in.
+    /// Put it down, and ask for the card to be moved into whatever container it landed in.
+    ///
+    /// **Position is the interface's own fact, membership is the host's.** The drop writes the
+    /// card's new offset and nothing else; which task it serves is written down, so the answer is
+    /// an `AssignAgent` and the card only changes hands when the host says it has.
     pub fn end_graph_carry(&mut self, cx: &mut Context<Self>) {
-        self.agents.end_carry();
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let landed = self
+            .graph_over_work(cx)
+            .and_then(|(graph, work)| graph.end_carry(work));
+        if let Some((agent_id, task_id)) = landed {
+            self.bus.send(Message::AssignAgent {
+                project_id,
+                agent_id,
+                task_id: Some(task_id),
+            });
+        }
         cx.notify();
     }
 
-    /// What the composer sends, into the selected agent's thread.
+    /// What the composer sends, to the selected agent.
+    ///
+    /// Nothing is appended here. The line lands in the thread when the host answers with the agent
+    /// carrying it — an interface that writes its own message into a transcript is inventing half
+    /// of a conversation.
     pub fn send_to_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.agents.send() {
+        let Some(project_id) = self.project(cx) else {
             return;
+        };
+        let Some(graph) = self.graph(cx) else {
+            return;
+        };
+        let text = graph.draft.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let Some(Selection::Agent(agent_id)) = graph.selection else {
+            return;
+        };
+        self.bus.send(Message::SendToAgent {
+            project_id,
+            agent_id,
+            text,
+        });
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.draft.clear();
         }
         let input = self.agent_input.clone();
         input.update(cx, |state, cx| {
@@ -1951,107 +2324,495 @@ impl AppState {
     /// the canvas's drop handler, so a carry with no live drag behind it is put down here. That is
     /// what stops a card sticking to the pointer after the button came up somewhere else.
     fn settle_graph(&mut self, cx: &mut Context<Self>) {
-        if self.agents.carry.is_some() && !cx.has_active_drag() {
-            self.agents.end_carry();
+        let stranded = self
+            .graph(cx)
+            .is_some_and(|graph| graph.carry.is_some() && !cx.has_active_drag());
+        if stranded {
+            self.end_graph_carry(cx);
         }
-        self.agents.settle_sand(std::time::Instant::now());
+        if let Some(graph) = self.graph_mut(cx) {
+            graph.settle_sand(std::time::Instant::now());
+        }
     }
 
     // ── The tasks board ─────────────────────────────────────────────
 
+    // ── the task panel's own edits ──────────────────────────────────
+    // Every one of these asks and waits. The panel goes on reporting the task the host last
+    // confirmed, so a refusal leaves nothing to unwind — which is the same reason a pane is drawn
+    // when the coordinator answers rather than when the interface asked.
+
+    /// Open one of the panel's fields.
+    pub fn begin_task_edit(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+        // A step's field starts from what the step says now, because it is one field shared by
+        // however many steps the task has.
+        if let Field::Step(step_id) = field {
+            let title = self
+                .open_task_form(cx)
+                .and_then(|(_, task_id, _)| self.work(cx)?.task(task_id))
+                .and_then(|task| task.step(step_id))
+                .map(|step| step.title.clone())
+                .unwrap_or_default();
+            if let Some(board) = self.board_mut(cx) {
+                board.form.step_title = title.clone();
+            }
+            let input = self.step_title_input.clone();
+            input.update(cx, |state, cx| state.set_value(&title, window, cx));
+        }
+        if let Some(board) = self.board_mut(cx) {
+            board.edit(field);
+        }
+        // The field takes the keyboard from the click that opened it, so one click starts typing.
+        match field {
+            Field::Title => {
+                let input = self.task_title_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+            Field::Description => {
+                let input = self.task_description_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+            Field::Step(_) => {
+                let input = self.step_title_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+            Field::NewStep => {
+                let input = self.new_step_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Put the open field away and keep the task as the host last reported it.
+    pub fn cancel_task_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.stop_editing();
+        }
+        // Refill from the record, so what was typed and thrown away is gone rather than waiting to
+        // be committed by the next click.
+        self.form_filled = None;
+        self.fill_task_form(window, cx);
+        cx.notify();
+    }
+
+    pub fn toggle_description_preview(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.preview = !board.preview;
+        }
+        cx.notify();
+    }
+
+    /// The project, the open task and the panel's form, or nothing if there is no task open.
+    fn open_task_form(&self, cx: &App) -> Option<(ProjectId, TaskId, &BoardState)> {
+        let project = self.project(cx)?;
+        let board = self.board(cx)?;
+        Some((project, board.selected?, board))
+    }
+
+    /// Send one `UpdateTask`, and put the field away.
+    ///
+    /// A value equal to the one the host already holds sends nothing: the message set is for acts,
+    /// and re-asserting a title is not one.
+    fn update_task(
+        &mut self,
+        title: Option<String>,
+        description: Option<String>,
+        priority: Option<Priority>,
+        shape: Option<Shape>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        self.bus.send(Message::UpdateTask {
+            project_id,
+            task_id,
+            title,
+            description,
+            priority,
+            shape,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.stop_editing();
+        }
+        cx.notify();
+    }
+
+    pub fn commit_task_title(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        if !board.is_editing(Field::Title) {
+            return;
+        }
+        let typed = board.form.title.trim().to_string();
+        // An empty title is a slip rather than an intention, so it is refused here and never sent —
+        // the same posture as Send reading as disabled on an empty draft.
+        let unchanged = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .is_some_and(|task| task.title == typed);
+        if typed.is_empty() || unchanged {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
+        self.update_task(Some(typed), None, None, None, cx);
+    }
+
+    /// A description, unlike a title, may be emptied: clearing one is a thing to mean.
+    pub fn commit_task_description(&mut self, cx: &mut Context<Self>) {
+        let Some((_, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let typed = board.form.description.clone();
+        let unchanged = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .is_some_and(|task| task.description == typed);
+        if unchanged {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
+        self.update_task(None, Some(typed), None, None, cx);
+    }
+
+    pub fn set_task_priority(&mut self, priority: Priority, cx: &mut Context<Self>) {
+        self.update_task(None, None, Some(priority), None, cx);
+    }
+
+    pub fn set_task_shape(&mut self, shape: Shape, cx: &mut Context<Self>) {
+        self.update_task(None, None, None, Some(shape), cx);
+    }
+
+    /// Hand the open task to a session, or take it back. `None` is a task nobody has started.
+    pub fn set_task_session(&mut self, session: Option<SessionId>, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        self.close_menu(cx);
+        self.bus.send(Message::AssignTask {
+            project_id,
+            task_id,
+            session,
+        });
+        cx.notify();
+    }
+
+    /// Add a sub-task and keep the field, so several can be typed in a row.
+    pub fn add_task_step(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let title = board.form.new_step.trim().to_string();
+        if title.is_empty() {
+            return;
+        }
+        self.bus.send(Message::AddStep {
+            project_id,
+            task_id,
+            title,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.form.new_step.clear();
+        }
+        let input = self.new_step_input.clone();
+        input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    pub fn commit_step_title(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(Field::Step(step_id)) = board.editing else {
+            return;
+        };
+        let title = board.form.step_title.trim().to_string();
+        let unchanged = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .and_then(|task| task.step(step_id))
+            .is_some_and(|step| step.title == title);
+        if title.is_empty() || unchanged {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
+        self.bus.send(Message::RenameStep {
+            project_id,
+            task_id,
+            step_id,
+            title,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.stop_editing();
+        }
+        cx.notify();
+    }
+
+    /// Drop a sub-task. No confirmation: the two-click question is for what cannot be retyped, and
+    /// a sub-task's title is one line.
+    pub fn remove_task_step(&mut self, step_id: StepId, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        self.bus.send(Message::RemoveStep {
+            project_id,
+            task_id,
+            step_id,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.stop_editing();
+        }
+        cx.notify();
+    }
+
+    /// Delete the open task. The first click asks; only the second sends.
+    ///
+    /// A task is the one thing on this panel that cannot be retyped, which is why it takes the
+    /// question the picker's Forget takes and a sub-task's × does not.
+    pub fn delete_task(&mut self, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        if !board.confirm_delete {
+            if let Some(board) = self.board_mut(cx) {
+                board.confirm_delete = true;
+            }
+            cx.notify();
+            return;
+        }
+        self.bus.send(Message::DeleteTask {
+            project_id,
+            task_id,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.confirm_delete = false;
+        }
+        cx.notify();
+    }
+
+    /// Withdraw the delete question, which any other click on the panel does.
+    pub fn withdraw_task_delete(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            if !board.confirm_delete {
+                return;
+            }
+            board.confirm_delete = false;
+        }
+        cx.notify();
+    }
+
+    /// Fill the panel's fields from the task that is open, once per selection.
+    ///
+    /// Drained in `render` rather than done where the selection changes, because `set_value` needs a
+    /// window and three of the callers have none: a message that arrives, a project switch, and the
+    /// board's own jump to the graph. The guard is what stops it writing over what the user is
+    /// typing on every frame.
+    fn fill_task_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refill_fields {
+            self.refill_fields = false;
+            let (filter, draft) = self
+                .open_project(cx)
+                .map(|open| (open.board.filter.clone(), open.graph.draft.clone()))
+                .unwrap_or_default();
+            let task_filter = self.task_filter.clone();
+            task_filter.update(cx, |state, cx| state.set_value(&filter, window, cx));
+            let agent_input = self.agent_input.clone();
+            agent_input.update(cx, |state, cx| state.set_value(&draft, window, cx));
+        }
+
+        let Some(board) = self.board(cx) else {
+            return;
+        };
+        if !board.needs_fill(self.form_filled) {
+            return;
+        }
+        let selected = board.selected;
+        let (title, description) = selected
+            .and_then(|id| self.work(cx).and_then(|work| work.task(id)))
+            .map(|task| (task.title.clone(), task.description.clone()))
+            .unwrap_or_default();
+
+        self.form_filled = selected;
+        if let Some(board) = self.board_mut(cx) {
+            board.form.title = title.clone();
+            board.form.description = description.clone();
+            board.form.step_title.clear();
+            board.form.new_step.clear();
+        }
+        for (input, value) in [
+            (self.task_title_input.clone(), title),
+            (self.step_title_input.clone(), String::new()),
+            (self.new_step_input.clone(), String::new()),
+        ] {
+            input.update(cx, |state, cx| state.set_value(&value, window, cx));
+        }
+        let description_input = self.task_description_input.clone();
+        description_input.update(cx, |state, cx| state.set_value(&description, window, cx));
+    }
+
     /// Point the panel at a task. Picking a card always opens the panel, because a selection
     /// nothing reports on is not a selection.
     pub fn select_task(&mut self, task: TaskId, cx: &mut Context<Self>) {
-        self.board.select(task);
+        if let Some(board) = self.board_mut(cx) {
+            board.select(task);
+        }
         cx.notify();
     }
 
     pub fn close_task_detail(&mut self, cx: &mut Context<Self>) {
-        self.board.show_detail = false;
+        if let Some(board) = self.board_mut(cx) {
+            board.show_detail = false;
+        }
         cx.notify();
     }
 
     /// Which session the board is showing. `None` is every session, including the tasks that
     /// belong to none.
-    pub fn pick_board_session(&mut self, session: Option<GraphSessionId>, cx: &mut Context<Self>) {
-        self.board.session = session;
+    pub fn pick_board_session(&mut self, session: Option<SessionId>, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.session = session;
+        }
         cx.notify();
     }
 
-    /// Add a task to the backlog, named by whatever is in the filter field.
+    /// Ask for a task in the backlog, named by whatever is in the filter field.
     ///
     /// One field finds work and names it: what you typed to look for a card is what you meant to
     /// call it when there was none. The field is cleared, so the board is not left filtered down to
     /// the one card that was just made.
+    ///
+    /// It cannot select what it asked for, because the id is the host's to mint. `awaiting_new` is
+    /// what selects the task that arrives — the same mechanism `AppState::adding` uses to open the
+    /// project an `AddProject` answers with.
     pub fn new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let typed = self.board.filter.trim().to_string();
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(board) = self.board(cx) else {
+            return;
+        };
+        let typed = board.filter.trim().to_string();
         let title = if typed.is_empty() {
             "New task".to_string()
         } else {
             typed
         };
-        let session = self.board.session;
-        let id = self.agents.add_task(title, session);
-        self.board.filter.clear();
+        let session = board.session;
+        self.bus.send(Message::CreateTask {
+            project_id,
+            title,
+            session,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.filter.clear();
+            board.awaiting_new = true;
+        }
         let input = self.task_filter.clone();
         input.update(cx, |state, cx| state.set_value("", window, cx));
-        self.board.select(id);
         cx.notify();
     }
 
     pub fn toggle_board_column(&mut self, status: Status, cx: &mut Context<Self>) {
-        self.board.toggle_column(status);
+        if let Some(board) = self.board_mut(cx) {
+            board.toggle_column(status);
+        }
         cx.notify();
     }
 
     pub fn toggle_task_fold(&mut self, task: TaskId, cx: &mut Context<Self>) {
-        self.board.toggle_fold(task);
+        if let Some(board) = self.board_mut(cx) {
+            board.toggle_fold(task);
+        }
         cx.notify();
     }
 
-    /// Tick or untick one sub-task. It is the one thing on this screen that changes the work
-    /// rather than the view of it.
-    pub fn toggle_task_step(&mut self, task: TaskId, step: usize, cx: &mut Context<Self>) {
-        if self.agents.toggle_step(task, step) {
-            cx.notify();
-        }
+    /// Tick or untick one sub-task.
+    ///
+    /// A toggle rather than a target state: what unticking lands on is a rule about the work, and
+    /// the work is the host's. The checkbox changes when the task comes back.
+    pub fn toggle_task_step(&mut self, task_id: TaskId, step_id: StepId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::ToggleStep {
+            project_id,
+            task_id,
+            step_id,
+        });
+        cx.notify();
     }
 
     /// Pick a card up. It selects itself on the way, for the reason a dragged agent card does:
     /// what is being moved is what the user is looking at.
     pub fn start_task_carry(&mut self, task: TaskId, cx: &mut Context<Self>) {
-        self.board.start_carry(task);
-        self.board.select(task);
+        if let Some(board) = self.board_mut(cx) {
+            board.start_carry(task);
+            board.select(task);
+        }
         cx.notify();
     }
 
     /// The column under the pointer, which is what a drop would file the card into.
     pub fn drag_task_over(&mut self, status: Status, cx: &mut Context<Self>) {
-        if self.board.carry_over(status) {
+        if self
+            .board_mut(cx)
+            .is_some_and(|board| board.carry_over(status))
+        {
             cx.notify();
         }
     }
 
     /// Put it down. Unlike the graph's canvas, the column *is* the drop target: a card is filed
     /// somewhere rather than placed anywhere, so where it landed is what took the drop.
+    ///
+    /// Which column a task is in is written down, so the drop asks rather than moves. The card
+    /// says it is waiting until the answer comes back, which is what keeps a slow host from
+    /// reading as a drag that failed.
     pub fn drop_task(&mut self, status: Status, cx: &mut Context<Self>) {
-        self.board.carry_over(status);
-        if let Some((task, status)) = self.board.end_carry() {
-            self.agents.move_task(task, status);
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(board) = self.board_mut(cx) else {
+            return;
+        };
+        board.carry_over(status);
+        if let Some((task_id, status)) = board.end_carry() {
+            board.moving = Some((task_id, status));
+            self.bus.send(Message::MoveTask {
+                project_id,
+                task_id,
+                status,
+            });
         }
         cx.notify();
     }
 
     /// Take a task to the agents screen: the graph, pointed at whoever is doing it.
     pub fn show_task_in_graph(&mut self, task: TaskId, cx: &mut Context<Self>) {
-        let selection = self.agents.task(task).and_then(|task| {
-            self.agents
-                .now(task)
+        let selection = self.work(cx).and_then(|work| {
+            let task = work.task(task)?;
+            work.now(task)
                 .map(|agent| Selection::Agent(agent.id))
                 .or_else(|| task.session.map(Selection::Session))
         });
-        if let Some(selection) = selection {
-            self.agents.selection = Some(selection);
+        if let Some(selection) = selection
+            && let Some(graph) = self.graph_mut(cx)
+        {
+            graph.selection = Some(selection);
         }
         self.set_rail_mode(RailMode::Agents, cx);
     }
@@ -2066,8 +2827,11 @@ impl AppState {
     /// A drag that ended anywhere but a column never reaches a drop handler, so a carry with no
     /// live drag behind it is put down here — and the card stays in the column it came from.
     fn settle_board(&mut self, cx: &mut Context<Self>) {
-        if self.board.carry.is_some() && !cx.has_active_drag() {
-            self.board.carry = None;
+        let stranded = self
+            .board(cx)
+            .is_some_and(|board| board.carry.is_some() && !cx.has_active_drag());
+        if stranded && let Some(board) = self.board_mut(cx) {
+            board.carry = None;
         }
     }
 
@@ -2112,6 +2876,7 @@ impl Render for AppState {
         self.take_focus(window, cx);
         self.apply_pending_sizes(window, cx);
         self.attach_arrived_files(window, cx);
+        self.fill_task_form(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
         ui::shell::render(self, window, cx)

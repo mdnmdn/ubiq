@@ -16,5 +16,5 @@ format is specified in `_docs/tech/diagram-format.md`.
 
 ## Adding a script
 
-Give it inline `uv` script metadata, add a `just` recipe with a one-line comment above it — that
+Give it inline `uv` script metadata (PEP 723), add a `just` recipe with a one-line comment above it — that
 comment is what `just --list` prints — and add its row to the table above.

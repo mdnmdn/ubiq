@@ -6,7 +6,7 @@
 
 use std::str::FromStr;
 
-use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
+use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 
 #[test]
 fn ids_minted_together_still_sort_in_the_order_they_were_minted() {
@@ -47,6 +47,28 @@ fn an_id_prints_as_twenty_six_characters_and_reads_back() {
         "no hyphens, nothing to escape in a directory name: {text}"
     );
     assert_eq!(ProjectId::from_str(&text).unwrap(), id);
+
+    // A task id and a step id are written into `tasks.toml` as bare keys, so the same two
+    // properties — the length and the alphabet — are part of what makes that file readable.
+    let id = TaskId::generate();
+    let text = id.to_string();
+    assert_eq!(
+        text.len(),
+        26,
+        "the canonical form is 26 characters: {text}"
+    );
+    assert!(text.chars().all(|c| c.is_ascii_alphanumeric()));
+    assert_eq!(TaskId::from_str(&text).unwrap(), id);
+
+    let id = StepId::generate();
+    let text = id.to_string();
+    assert_eq!(
+        text.len(),
+        26,
+        "the canonical form is 26 characters: {text}"
+    );
+    assert!(text.chars().all(|c| c.is_ascii_alphanumeric()));
+    assert_eq!(StepId::from_str(&text).unwrap(), id);
 }
 
 #[test]
@@ -57,12 +79,28 @@ fn the_wire_form_is_that_same_bare_string() {
     let json = serde_json::to_string(&id).unwrap();
     assert_eq!(json, format!("\"{id}\""));
     assert_eq!(serde_json::from_str::<SessionId>(&json).unwrap(), id);
+
+    let id = TaskId::generate();
+    let json = serde_json::to_string(&id).unwrap();
+    assert_eq!(json, format!("\"{id}\""));
+    assert_eq!(serde_json::from_str::<TaskId>(&json).unwrap(), id);
+
+    let id = StepId::generate();
+    let json = serde_json::to_string(&id).unwrap();
+    assert_eq!(json, format!("\"{id}\""));
+    assert_eq!(serde_json::from_str::<StepId>(&json).unwrap(), id);
 }
 
 #[test]
 fn debug_says_which_kind_of_id_it_is() {
     let id = PaneId::generate();
     assert_eq!(format!("{id:?}"), format!("PaneId({id})"));
+
+    let id = TaskId::generate();
+    assert_eq!(format!("{id:?}"), format!("TaskId({id})"));
+
+    let id = StepId::generate();
+    assert_eq!(format!("{id:?}"), format!("StepId({id})"));
 }
 
 #[test]

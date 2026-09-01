@@ -80,6 +80,9 @@ pub enum MenuId {
     Mode,
     LogSubsystem,
     LogLevel,
+    /// The task panel's session picker. Priority and shape are pill rows rather than menus, because
+    /// three fixed values read better as the report and the control at once.
+    TaskSession,
 }
 
 pub struct WorkbenchState {
@@ -103,6 +106,12 @@ pub struct WorkbenchState {
     pub row_action: Option<(ProjectId, RowAction)>,
     /// The last thing the host refused to do, shown at the top of the picker until dismissed.
     pub project_error: Option<String>,
+    /// The last thing the host refused to do to the work, drawn at the top of the task panel by
+    /// `ui::board::form::refusal`. Its own field rather than `project_error`, because that one is
+    /// drawn at the top of the project picker and a task that would not move is not a fact about
+    /// the catalogue — it has to be said where the user is looking. Cleared by the next thing the
+    /// host confirms.
+    pub work_error: Option<String>,
 
     /// What was typed into the explorer's "Go to file…" field. It belongs to the window rather than
     /// to a tree, because one field filters whichever project is on screen.
@@ -124,6 +133,7 @@ impl Default for WorkbenchState {
             pending_close: None,
             row_action: None,
             project_error: None,
+            work_error: None,
             file_filter: String::new(),
         }
     }

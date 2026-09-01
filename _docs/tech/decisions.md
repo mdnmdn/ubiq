@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-09-01
+verified: 2026-09-01
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -488,6 +488,95 @@ the same promise the panes make.
 **Cost:** N editor entities and N change subscriptions per window, each carrying a highlighter and an
 undo stack — what every editor in this class carries. `state/editor.rs` names the component library,
 which it was written not to.
+
+### D39 — The work is the host's, tasks are written down per project, and sessions and agents stay its mocks
+
+The board and the graph draw one project's work, and the host owns all of it: a fifth message family
+in `crates/ubiq-proto/src/messages.rs`, a service in `crates/ubiq-host/src/work/`, and a `tasks.toml`
+per project beside the view state under Ubiq's own config root. That is the state-ownership rule
+applied to the last part of the tree that was inventing its own truth — with a fixture per window,
+two windows disagreed about the same work and a task made or dragged went with the window that made
+it.
+
+Half of the domain is durable and half is not, and the naming carries the split: a `TaskRecord` is
+the user's data, while a `WorkSession` and a `WorkAgent` are per-request payloads the host mints per
+project and never writes down. Tasks were made real first because nothing about a task waits on a
+live agent, so that half is finished rather than staged.
+
+**Every reply goes to the window that asked**, unlike the catalogue's. A project is open in exactly
+one window at a time, so the window that asked is the only one drawing that project's work and a
+broadcast would buy nothing. The service still answers in `Reply`, so a broadcast is one word away
+the day that changes; `Reply` lives in `crates/ubiq-host/src/reply.rs` rather than in `projects.rs`
+because two services answer in those terms and `projects::Reply` would be a lie about ownership.
+
+**The seeding rule turns on the presence of the file, not on its emptiness.** `TaskStore::load`
+answers an `Option`, and `Work::ensure` mints the fixture, writes it and answers it only for a
+project with no `tasks.toml`; from then on the file is the truth, including when it holds no tasks at
+all. A user who deletes every task gets an empty board at the next boot, because an absent file and
+an empty list are different things — the distinction `Preferences` draws between a blob never set
+and an empty one. A load that *failed* never seeds either, on the reasoning that stops
+`gc::collect` running after one: putting the fixture on top of a file you could not read is how you
+overwrite the thing preserving it was meant to save. A project whose file came back
+`UnknownVersion` is sealed and never written to at all, for the same reason one order further out.
+
+Writing the seed immediately rather than at the first edit is what makes the fixture the user's data
+on first sight: what they see is renamable, movable and deletable, and still there after a restart.
+
+**A mock agent is linked to the task its session has in flight, or to no task at all.** The fixture
+cannot name a task id, because the ids belong to whatever `tasks.toml` holds, so `Work::link` makes
+the link where both lists are in hand — once per project, so a card the user has dragged into
+another outline keeps where they put it. It reaches only for work that is `InProgress` or `InReview`:
+an agent whose session has nothing in flight is left unlinked, which is not a gap but the shape the
+graph draws above the containers, and it is where an agent coordinating everything belongs. Falling
+back to the session's first task instead buries the project manager inside a container for work
+nobody is doing.
+
+**Cost:** the mock's session and agent ids are the same literals in every project, because a seeded
+task's `session` is durable and freshly minted ids would leave every one of them naming a session
+that no longer exists. `Step.owner` is durable on the same terms and can name no live agent, which
+draws as unowned rather than being written out of the record. And the fixture is only ever seen once
+per project, so editing it changes what a *new* project starts with and nothing an existing one
+holds. All three are rows in the backlog.
+
+### D40 — A task's edits are one infallible `UpdateTask`; a move and an assignment are their own messages
+
+`UpdateTask` carries the title, the description, the priority and the shape, each optional, and
+touches nothing outside the record: like `UpdateProject` it is display only and can be refused for
+nothing but a task that is not there. `MoveTask` and `AssignTask` are separate variants, which is
+`D31`'s test applied a second time.
+
+The move is the sharper of the two, because what forbids folding it in is a rule rather than a
+preference: the board prescribes that a column is a stage and a card only ever changes column, so a
+`status` field on an update would be a second way to do the one thing the drag exists for, and a
+status picker in a form would contradict a *Behaviour* section. The assignment names another entity,
+is refused for a session the host does not hold — fallible where an update is not — and would
+otherwise need an `Option<Option<SessionId>>` on the wire to tell "leave it alone" apart from "take
+it back".
+
+`UpdateTask` is an act rather than a keystroke: the interface commits on Enter, on a tick, or on
+blur. That is what lets the host write on every one of them with no debounce, unlike the view state's
+400ms.
+
+**Cost:** three messages where one field would have done, and a form that cannot offer the one
+control a user might go looking for in it. Driving a status from the keyboard then needs something
+the drag does not provide, which is filed rather than built.
+
+### D41 — Position is the interface's, membership is the host's
+
+Where a card sits on the orchestration canvas never crosses the bus. `crates/ubiq/src/state/layout.rs`
+owns every offset, a drag moves one, and nothing outside that window has an opinion about it. Which
+task an agent *serves* does cross, as `AssignAgent`, because that is a fact about the work rather
+than about the drawing — so a card dropped into another task's outline answers the pair: the
+interface keeps the new offset and sends the new membership.
+
+The test is whether a second window looking at the same project would have to agree. It would about
+membership, and it could not about position, having its own canvas, its own zoom and its own
+arrangement. An arrangement is view state, which `D29` makes an opaque blob the interface owns and
+versions, so `Layout` staying in `crates/ubiq` is the same choice made twice rather than a new one.
+
+**Cost:** an agent whose record arrives after the screen was arranged has no offset of its own, so
+the interface owes it a placement rule; and an arrangement a user made is thrown away when the
+project closes until it goes into that blob. Both are filed.
 
 ## Related docs
 
