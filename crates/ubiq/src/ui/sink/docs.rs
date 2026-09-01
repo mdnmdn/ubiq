@@ -74,7 +74,7 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
 
     // The buffer rather than the constant: an edit in the source half has to reach the preview.
     let source = state.read(cx).value().to_string();
-    let drawn = || match doc.viewer() {
+    let mut drawn = || match doc.viewer() {
         ViewerKind::Markdown => viewer::markdown::render(app, doc.key, &source),
         ViewerKind::Mermaid => viewer::diagram::render(app, doc.key, &source, cx),
         ViewerKind::Excalidraw => viewer::scene::live(app, doc.key, &source, cx),

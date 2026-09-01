@@ -3,6 +3,7 @@
 //! Everything here is view-agnostic: interactive helpers take a plain click handler, so a call site
 //! passes `cx.listener(...)` and the kit never learns which view it is drawing for.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     PathBuilder, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, canvas,
@@ -313,6 +314,83 @@ pub fn toggle_pill(
         .child(div().size(px(7.)).flex_none().rounded_full().bg(dot))
         .child(mono(label, text).text_size(px(11.5)))
         .on_click(on_click)
+}
+
+/// A tick box: what a row is chosen with when several may be.
+///
+/// Square like everything else, and the one place a small block fills with the accent — a tick is
+/// read at a glance across a column, and an outline that only changed colour is not.
+pub fn check_box(
+    id: impl Into<ElementId>,
+    checked: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let mut root = div()
+        .id(id)
+        .size(px(18.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .border_1()
+        .cursor_pointer();
+
+    root = match checked {
+        true => root.bg(theme::accent()).border_color(theme::accent()),
+        false => root.bg(theme::surface()).border_color(theme::border()),
+    };
+
+    root.hover(|this| this.border_color(theme::accent()))
+        .when(checked, |this| {
+            this.child(
+                Icon::new(IconName::Check)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::on_accent()),
+            )
+        })
+        .on_click(on_click)
+}
+
+/// A run of text that gives up rather than wrapping, and says the whole of itself on hover.
+///
+/// **A name that does not fit is elided, never folded onto a second line.** A row in this interface
+/// is one line high — a picker's rows, a path in a footer, a title in a card — so a long value that
+/// wrapped would push everything under it down. What is cut off is not lost: the full string is the
+/// element's tooltip, which is why this takes an id.
+pub fn elided(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    colour: Rgba,
+    size: f32,
+) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    let full = text.clone();
+    elided_with(id, text, full, colour, size)
+}
+
+/// The same, where what is worth reading in full is not the run itself: a file's name is elided but
+/// the whole **path** is what answers "which one is this", and the row already says the name.
+pub fn elided_with(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    tooltip: impl Into<SharedString>,
+    colour: Rgba,
+    size: f32,
+) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    let full: SharedString = tooltip.into();
+
+    div()
+        .id(id)
+        .flex_1()
+        .min_w(px(0.))
+        .text_size(px(size))
+        .text_color(colour)
+        .truncate()
+        .child(text)
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(full.clone()).build(window, cx)
+        })
 }
 
 /// A value between two nudges: `−`, what it currently reads, `+`.

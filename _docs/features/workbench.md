@@ -3,11 +3,11 @@ id: feat-workbench
 title: The workbench
 kind: feature
 status: draft
-summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the empty state a window with no project shows, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, or the status bar
+summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
+read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, or the status bar
 updated: 2026-09-01
 verified: 2026-09-01
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -408,6 +408,18 @@ and it arrives on every project message as an absolute path rather than being co
 config root, which is what makes a host on another machine a change of value rather than of code.
 **The cache is disposable**: deleting the workarea costs re-renders and loses nothing.
 
+**A diagram or a scene in a panel can be panned and zoomed.** It opens fitted to the panel, aspect
+ratio preserved, with a margin. The wheel zooms about the pointer, a drag pans, a double-click or a
+pinch-out to the floor restores the fit. The camera belongs to the tab, not the file, and is not
+written down. A fence inside a Markdown document is not a panel: it is drawn at the picture's own
+size and the document is what scrolls.
+
+**An Excalidraw scene sits on Excalidraw's own white canvas.** A file that names a canvas colour
+keeps it; a file that names none — `transparent`, an absent key — gets the format's default white
+rather than the window's ground, so a diagram drawn on paper stays on paper in a dark window. The
+scene is painted into a canvas that fills the panel; a canvas that only laid out to its content
+would draw the whole scene into a few pixels at the top of the pane.
+
 **A fenced diagram in a Markdown document goes through the same renderer.** A ```` ```mermaid ````
 fence is drawn by the diagram viewer and a ```` ```excalidraw ```` one by the scene viewer — one
 renderer per format, two call sites for each. A Mermaid fence resolves against the same cache the
@@ -479,9 +491,9 @@ chrome around them.
 
 **The kitchen sink is the application's own test bench, and the one screen with nothing behind it.**
 It is under `APP` because it is about Ubiq rather than about a folder: it opens on a first run with an
-empty catalogue, it asks the host for nothing, and it looks the same in every window. Five pages,
-selected by a strip along the top — the plain buffer, one per special viewer, then the style
-reference.
+empty catalogue, it asks the host for nothing, and it looks the same in every window. Six pages,
+selected by a strip along the top — the plain buffer, one per special viewer, the style reference,
+then the file picker.
 
 **Its documents are fixtures, drawn by the viewer their name implies, and a fixture is not a file.**
 A page's document is a name and a constant, and the name carries an extension, so the viewer and the
@@ -505,6 +517,42 @@ question, a form, and something irreversible — told apart by what their edge s
 of the confirming button. Both buttons dismiss and neither claims anything: a fixture that pretended
 to close a pane would be the one thing a screen with nothing behind it must not draw. The shape a
 modal is drawn in belongs to the UI-and-design document, linked below, with every other surface's.
+
+**The picker page raises the file picker in each of the shapes a screen can ask for one.** The picker
+takes a request — files or folders, one answer or several, the folder it is rooted at, a prefilter
+like `*.md`, whether a single pick is final on the click or on the button, and whether it holds the
+window or goes away on an outside click — and the page draws those seven fields as pill rows over a
+button that raises the dialog out of them. The tree it opens over is a fixture like every other page's,
+because the sink has no project behind it, and what the dialog handed back is printed under the
+button: a cancelled dialog and one that answered with nothing are different answers, and the readout
+says which it was. The dialog itself belongs to the window rather than to the page — exactly one may
+be up, whichever screen asked — so the answer is routed back to whoever raised it rather than
+returned.
+
+**The dialog is worked from the keyboard, and the field keeps it the whole time.** It opens with the
+focus in the filter — typing a name is the first thing a picker is for — and the keys that drive the
+rows are bound against the field as well as against the dialog, so nothing has to be tabbed to.
+`up` and `down` move a cursor bar through the rows and stop at the ends; `right` opens the folder the
+cursor is on and then steps into it, `left` shuts it and then steps out to the folder holding it;
+`enter` ticks the row where several may be chosen and *is the answer* where one was asked for;
+`secondary-enter` — cmd on macOS, ctrl elsewhere — hands back what has been ticked; `escape` closes
+the dialog with nothing. What the dialog has no answer for it hands back, which is how `left` and
+`right` are the field's own caret keys again in the flat list.
+
+**The cursor is not the selection, and the two are drawn apart.** The accent is what will come back;
+the keyboard's bar is only where the next key lands, in `selected` with a `border_focus` edge. A row
+that is both keeps the accent fill and takes the focus edge — what a dialog hands over outranks where
+its cursor happens to be. The cursor follows the mouse too, so an arrow after a click carries on from
+the row that was clicked, and a row it is moved onto is scrolled into view.
+
+**Both arrangements are the same set, and which one is on screen is the user's.** The tree is the
+folders that have been opened, indented, each file reporting its size; the list is every match under
+the root, flat and sorted by name without case, each row saying which folder it came from. One filter
+field sits over both and what was typed survives the toggle, because a user who cannot find something
+in the tree switches to the list to look for the same thing. A filter finds rather than prunes: every
+folder is walked while one is typed, and a folder with nothing matching under it drops out instead of
+drawing as an empty row. A folders-only picker draws no files at all, and the prefilter never hides a
+folder — a folder it hid would take the files under it with it.
 
 ## Contract
 
@@ -574,8 +622,10 @@ saying no file is open, because the files are panels of their own:
 | Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; its columns scroll sideways | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
-| Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its five pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
+| Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its six pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
 | Style reference | `ui/sink/style.rs` | The kitchen sink, on its fifth page | Fills it; scrolls | `SinkState`, and the theme itself |
+| Picker page | `ui/sink/files.rs` | The kitchen sink, on its sixth page | Fills it; scrolls | `SinkState::picker`, and the fixture tree in `state/sink.rs` |
+| File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Empty page | `ui/empty.rs` | The centre panel in `Control` and `KB` mode, and with no project open | Fills it | `RailMode`, or nothing at all |
 
 Two rules hold across the three tables. **The chrome does not move and the panels do** — the
@@ -842,9 +892,36 @@ lifecycle — nothing arrives late, nothing is saved, and no change subscription
 there is no baseline to compare against. `ui/sink/` is the screen: `mod.rs` draws the page strip
 through `kit::tab_strip` and dispatches on the page, `docs.rs` draws one fixture through
 `ui/viewer/` — every viewer reached rather than copied, which is the whole point of the page — and
-`style.rs` is the reference. The modal is raised from `mod.rs` rather than from `style.rs`, because
+`style.rs` is the reference and `files.rs` is the picker page. The modal is raised from `mod.rs` rather than from `style.rs`, because
 exactly one may be up and where it is asked for is not where it is painted; the primitive is
 `kit::modal`, whose shape and dismissal rules are the UI-and-design document's.
+
+`state/file_picker.rs` is the picker itself, and nothing in it reads a disk. `PickerRequest` is the
+whole of what a caller says — owner, title, root, prefilter, kind, count, commit and modality — and
+`FilePickerState::open` roots the forest it was handed at the requested folder, opens the top of it
+and holds the rest: the view, the filter, which folders are open, what has been picked in pick order,
+and the size the corner drag has put it at. `rows()` is the only thing the screen reads, and it
+arranges the same set two ways. The forest is handed in rather than fetched, which is what lets the
+sink raise a picker with no project open and what will let the host's listings fill the same dialog
+when a screen needs one over a real project — `PickerNode` is the shape a `DirListing` becomes.
+
+`AppState` holds `file_picker: Option<FilePickerState>`, `picker_filter` and `picker_scroll`, because
+exactly one dialog may be up per window and the field above its rows is one of the window's like every
+other. `open_file_picker` empties that field, raises the dialog and gives the field the keyboard;
+`press_picker_key` hands one key to `FilePickerState::press` and acts on the `Pressed` that comes
+back — scrolling the cursor into view, committing, dismissing, or answering false so the key goes on
+to whoever else wants it. `ui::file_picker::key_bindings` is where the keystrokes are named, and it
+is called from `install_key_bindings` **after** `gpui_component::init`: the library's input binds the
+arrows, `enter` and `escape` for itself at the deepest node in the tree, so each key is bound twice —
+once for the dialog, once for the field inside it — and the second predicate wins the tie by being
+registered later.
+
+`click_picker_row` asks the picker what the click meant and commits on the spot when the request said
+a single pick is final on it; `commit_file_picker` and `cancel_file_picker` take the dialog down and
+route the answer by `PickerRequest::owner` — one variant today, the sink's page. `ui/file_picker.rs` draws it, painted
+from `ui/sink/mod.rs` for the same reason the modal is: where a dialog is asked for is not where it
+is painted. `crates/ubiq/tests/file_picker.rs` asserts every rule above with no frame at all, over
+the sink's own fixture tree.
 
 A row keyed by a ULID takes its element id from `ui::eid`, or `ui::eid2` for a row two ids deep like
 a step inside a task, because a ULID is not a `u64` and the tuple form the rest of the window uses
@@ -878,8 +955,11 @@ and `render()` is what is left of the centre panel in IDE mode: the page saying 
 There is no tab strip here — the dock's groups draw those. A body that is not a buffer goes to
 `ui/viewer/`, whose `mod.rs` holds the layout toggle and the frame every viewer's body is drawn in
 and dispatches on `ViewerKind`: `diff.rs`, `markdown.rs`, `diagram.rs`, `scene.rs` and `image.rs`.
-None of them reaches a path, a handle or the window's mutable state — each is handed content and
-draws it.
+A diagram or a scene in a panel is wrapped by `viewer/viewport.rs`, which is the hits and the
+wheel; `state/viewport.rs` is the camera they share — fit, zoom about a point, pan, reset — and
+is what `tests/viewport.rs` asserts, because none of it needs a frame. A fence still draws
+through `diagram.rs` and `scene.rs` directly, at the picture's own size. None of them reaches a
+path or a handle; the camera is keyed by the tab and lives on the window.
 
 `state/diagrams.rs` is the Mermaid renderer and its disk tier, and it is the only place in the
 interface that names `merman`. `render()` is one source in and one picture out, sized by `view_box()`

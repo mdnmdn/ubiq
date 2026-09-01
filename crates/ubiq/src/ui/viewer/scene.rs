@@ -63,12 +63,7 @@ pub fn render(source: &str) -> AnyElement {
 }
 
 /// The same scene, in a panel the user can pan and zoom.
-pub fn live(
-    app: &AppState,
-    key: &str,
-    source: &str,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+pub fn live(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState>) -> AnyElement {
     match parsed(source) {
         Ok(scene) => draw_live(app, key, scene, cx),
         Err(note) => note,
@@ -83,9 +78,7 @@ fn parsed(source: &str) -> Result<Scene, AnyElement> {
         Ok(scene) => Ok(scene),
         // Every failure says why in the reader's own words, including the compressed case — which
         // is a scene that exists and cannot be unpacked, not a file that went wrong.
-        Err(why @ SceneError::Compressed) => {
-            Err(super::note(why.to_string(), theme::text_muted()))
-        }
+        Err(why @ SceneError::Compressed) => Err(super::note(why.to_string(), theme::text_muted())),
         Err(why) => Err(super::note(why.to_string(), theme::danger())),
     }
 }
@@ -101,10 +94,7 @@ fn content_of(scene: &Scene) -> Content {
 
 /// The file's canvas colour, or Excalidraw's white when it named none.
 fn ground_of(scene: &Scene) -> Rgba {
-    tint(
-        scene.background.unwrap_or(Rgba8::DEFAULT_BACKGROUND),
-        1.0,
-    )
+    tint(scene.background.unwrap_or(Rgba8::DEFAULT_BACKGROUND), 1.0)
 }
 
 /// A scene in a Markdown fence: drawn at its own size, no camera of its own, because a fence is a
@@ -137,35 +127,33 @@ fn draw_static(scene: Scene) -> AnyElement {
         .into_any_element()
 }
 
-fn draw_live(
-    app: &AppState,
-    key: &str,
-    scene: Scene,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+fn draw_live(app: &AppState, key: &str, scene: Scene, cx: &mut Context<AppState>) -> AnyElement {
     let content = content_of(&scene);
     let camera_at = app.viewport(key);
-    super::viewport::surface(app, key, ground_of(&scene), content, cx)
-        .child(
-            canvas(
-                |_, _, _| {},
-                move |bounds, _, window, cx| {
-                    let camera = camera_at.camera(
-                        content,
-                        f32::from(bounds.size.width),
-                        f32::from(bounds.size.height),
-                    );
-                    let view = View::from_camera(camera, bounds.origin);
-                    for element in &scene.elements {
-                        paint(element, &view, window, cx);
-                    }
-                },
-            )
-            .absolute()
-            .inset_0()
-            .size_full(),
+    super::viewport::surface(
+        app,
+        key,
+        ground_of(&scene),
+        content,
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, cx| {
+                let camera = camera_at.camera(
+                    content,
+                    f32::from(bounds.size.width),
+                    f32::from(bounds.size.height),
+                );
+                let view = View::from_camera(camera, bounds.origin);
+                for element in &scene.elements {
+                    paint(element, &view, window, cx);
+                }
+            },
         )
-        .into_any_element()
+        .absolute()
+        .inset_0()
+        .size_full(),
+        cx,
+    )
 }
 
 // ------------------------------------------------------------------------------------------- //

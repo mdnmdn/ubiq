@@ -89,16 +89,24 @@ fn the_defaults_apply_to_an_absent_key_and_never_to_a_present_one() {
     assert_eq!(scene.elements[1].fill, Some(Rgba8::opaque(0, 255, 0)));
 }
 
-/// The canvas colour comes off `appState`, and is transparent when the file names none — the
-/// panel's own ground shows through rather than a guess.
+/// The canvas colour comes off `appState`. An absent key is `None` — "the file named none" —
+/// and the painter then uses Excalidraw's white rather than guessing a theme colour.
 #[test]
 fn the_canvas_colour_comes_off_app_state() {
     let with =
         Scene::parse(br##"{"elements":[],"appState":{"viewBackgroundColor":"#ffffff"}}"##).unwrap();
     assert_eq!(with.background, Some(Rgba8::opaque(255, 255, 255)));
+    assert_eq!(
+        with.background.unwrap_or(Rgba8::DEFAULT_BACKGROUND),
+        Rgba8::DEFAULT_BACKGROUND
+    );
 
     let without = Scene::parse(br#"{"elements":[]}"#).unwrap();
     assert_eq!(without.background, None);
+    assert_eq!(
+        without.background.unwrap_or(Rgba8::DEFAULT_BACKGROUND),
+        Rgba8::opaque(255, 255, 255)
+    );
 }
 
 // --------------------------------------------------------------------------------------------

@@ -594,7 +594,7 @@ fn modals(cx: &mut Context<AppState>) -> AnyElement {
 // ── The page's own furniture ─────────────────────────────────────────
 
 /// One group of the reference: what it is called, what its rule is, and the specimens.
-fn group(title: &str, note: &str, children: Vec<AnyElement>) -> AnyElement {
+pub fn group(title: &str, note: &str, children: Vec<AnyElement>) -> AnyElement {
     div()
         .flex()
         .flex_none()
@@ -623,7 +623,10 @@ fn group(title: &str, note: &str, children: Vec<AnyElement>) -> AnyElement {
 }
 
 /// A row of specimens that wraps rather than pushing the page sideways.
-fn row(children: Vec<AnyElement>) -> AnyElement {
+///
+/// Public for the same reason [`labelled`] is: the picker page is another page of the sink, and one
+/// page shape is what makes the sink readable as one bench.
+pub fn row(children: Vec<AnyElement>) -> AnyElement {
     div()
         .flex()
         .flex_wrap()

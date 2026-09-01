@@ -21,9 +21,9 @@ pub mod overlay;
 pub mod panel;
 
 pub use controls::{
-    badge, card, choice_pill, disclosure, ghost_button, icon_button, meter, mono, pill,
-    primary_button, progress_ring, section_label, slab, state_chip, status_dot, stepper,
-    toggle_pill,
+    badge, card, check_box, choice_pill, disclosure, elided, elided_with, ghost_button,
+    icon_button, meter, mono, pill, primary_button, progress_ring, section_label, slab, state_chip,
+    status_dot, stepper, toggle_pill,
 };
 pub use menu::{Picker, PickerStyle};
 pub use overlay::{modal, modal_note};
