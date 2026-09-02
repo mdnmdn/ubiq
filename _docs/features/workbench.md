@@ -253,8 +253,7 @@ window holding nothing is a window waiting for a project, not an error to be tid
 add one; the explorer keeps its place in the arrangement and its size, with one muted line in it
 rather than a tree; the chat is hidden, because a conversation about nothing is a fiction. The log
 console keeps its place too — the one panel a window with no project has a reason to show — and the
-`+` at the end of the bottom region's tab strip is not offered, because there is no folder to start
-a harness in.
+`+` at the end of the bottom region's tab strip is not offered, because there is no folder to starta harness in.
 
 **The explorer, the open files and the terminals belong to a project, not to the window.** A window
 holds one set of each per project open in it, and switching between them is a lookup: the tree, the
@@ -371,19 +370,22 @@ the tree expands it; clicking a file opens it; a folder in the list is only wher
 drive the rows are bound against the field as well as against the panel, so nothing has to be
 tabbed to. `up` and `down` move a cursor bar through the rows and stop at the ends; `right` opens
 the folder the cursor is on and then steps into it, `left` shuts it and then steps out to the
-folder holding it; `enter` opens a file and toggles a folder; `escape` closes the right-click menu,
+folder holding it; `enter` opens a file in a temporary preview and toggles a folder, `shift-enter`
+opens the file permanently; `escape` closes the right-click menu,
 then clears the filter, then is handed back. What the panel has no answer for it hands back, which
 is how `left` and `right` are the field's own caret keys again in the flat list. The cursor is not
 the open file: the accent is the file that is open, the keyboard's bar is only where the next key
 lands.
 
-**A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD and
-Copy path, and prepares Rename and Delete; a folder offers Expand or Collapse, Copy path, and
-prepares New file, New folder, Rename and Delete; a click on the empty panel offers Collapse all
-and prepares New file and New folder. The four that create or remove a path are drawn and do
-nothing: nothing on the bus creates or removes a path yet, and a menu that hid those rows would
-have nowhere to put them when the host grows the family. The menu is the window's one open menu,
-dismissed by a click outside it or by escape.
+**A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
+path, Copy full path, Open in Finder and prepares Rename and Delete; a folder offers Expand or
+Collapse, Copy path, Copy full path, Open in Finder, Refresh and prepares New file, New folder, Rename
+and Delete; a click on the empty panel offers Collapse all and prepares New file and New folder. The
+four that create or remove a path are drawn and do nothing: nothing on the bus creates or removes a
+path yet, and a menu that hid those rows would have nowhere to put them when the host grows the
+family. `Open in Finder` — Explorer or File Manager on other platforms — reveals the file or its
+folder in the system's file manager, and `Refresh` asks the host to list that folder again. The menu
+is the window's one open menu, dismissed by a click outside it or by escape.
 
 **A row the host will not follow is drawn and does nothing.** A symlink leading out of the project or
 nowhere, a socket, a device, a pipe: the row appears, faint, and takes no click. Drawing it is the
@@ -395,7 +397,9 @@ and the two need not be on one machine.
 
 **The explorer states git position by colour and by badge.** Modified, untracked, conflicted, staged
 and ignored each take a colour from the status group and a single-letter badge, the colour so it
-reads at a glance and the badge so it does not rely on colour alone. The host's working-tree map
+reads at a glance and the badge so it does not rely on colour alone. The badge sits at the row's
+right edge, aligned under its fellows by a spacer after the name, with no separate status dot — the
+badge already says with colour whatever a dot would. The host's working-tree map
 fills those in: a path in the map gets a status, a path not in it is clean, and until a map has
 arrived every row is unmarked because nothing has been read. An untracked or ignored directory
 paints every child the same, because git does not look inside and a child not in the map is not
@@ -410,8 +414,17 @@ dropped.
 
 **Each open file owns its buffer.** Switching tabs and switching projects both leave a buffer exactly
 as it was, with its undo history, its selection and its scroll — nothing is copied in or out. The
-active tab is marked on its bottom edge, and the tab's dot reports the *file*: reading, saving, a
-failed save, or an unsaved edit.
+active tab is marked on its bottom edge. The tab's title takes its colour from the repository, the
+same map the explorer draws on, and a small dot at the tab's right edge reports the *file*: reading,
+saving, a failed save, or an unsaved edit. A clean, idle tab draws no dot.
+
+**A file opens in a temporary preview on a single click, permanently on a double-click.** `enter`
+opens a temporary preview too, where `shift-enter` opens permanently; `shift` or `cmd` with a click,
+and a double-click — on the explorer row *or on the tab itself* — open permanently. Only one preview
+tab exists at a time — opening another preview replaces it and closes its panel. A preview is
+promoted to permanent by its first edit, or by the explicit gesture that opens it permanently; a
+single click that merely brings the tab to the front does not promote it. A preview tab is drawn in
+italics with a faint background so it reads as tentative at a glance.
 
 **Every open file in a project wraps together.** Whether the file editors soft-wrap long lines is a
 project's preference, written into the same view prefs as its font size, and one flip brings every
@@ -427,7 +440,15 @@ dark one, exactly as the rail's mark is on its swatch.
 a file's tab belongs to the group it sits in, which is what lets a file be dragged beside another
 into a row, a column or another group — two files side by side is a drag rather than a mode. Making
 a file's tab the displayed one is what makes it the active file, and closing it is what closes the
-tab.
+tab — and the keyboard moves with it, so clicking a file in the explorer or on a tab puts the caret
+in that file's buffer.
+
+**A row of tabs scrolls when it runs out of room.** Too many tabs for the strip squeeze into a
+scrollable band rather than shrinking the tabs past readability; the active tab scrolls into view,
+and chevrons at the strip's ends nudge the band by a step — always present, so an overflowed strip
+can be told to be pushable, and a no-op when the strip has nothing more to show. The scroll offsets
+only the tabs, so the strip's chrome — the active tab's underline, the `+` that opens a terminal —
+stays put.
 
 **A tab says what it is looking at.** A file's change against a version-control base is a tab of its
 own beside the file rather than something the file's tab switches into, so opening a comparison
@@ -499,8 +520,10 @@ second one discards the edit. Bringing the tab forward again withdraws the quest
 back to its group to ask, because the dock takes a closed tab out before the window hears about it.
 
 **A right-click on a file tab raises a menu over the window.** Close, Close Others, Close Left, Close
-Right, Close All, Save and Word Wrap — the two *closes* and the surround closes anchoring on the tab
-that was clicked, Save writing the file behind one tab rather than only the active one, and a dirty
+Right, Close All, Copy Full Path, Open in Finder, Save and Word Wrap — the two *closes* and the
+surround closes anchoring on the tab that was clicked, Copy Full Path copying the file's project
+path to the clipboard, Open in Finder revealing it (or its folder) in the system's file manager,
+Save writing the file behind one tab rather than only the active one, and a dirty
 tab in a bulk close still asked for rather than silently closed. The menu is the window's one open
 menu, painted at the window root because the dock's skin cannot name `AppState`, and it is dismissed
 by a click outside it or by escape.

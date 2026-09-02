@@ -251,6 +251,12 @@ pub struct AppState {
     geometry: flume::Sender<(PaneId, u16, u16)>,
     /// Whoever the keyboard is owed to, once there is a window to give it with.
     pending_focus: Option<PaneId>,
+    /// The tab key of the file editor the keyboard is owed to, once it has a window and a buffer.
+    ///
+    /// A file panel becoming the displayed tab is where this is asked for — `activate_file` — but
+    /// the focus needs a `Window`, and the buffer may still be arriving, so it waits for the frame
+    /// that can do both. See [`Self::take_editor_focus`].
+    pending_editor_focus: Option<String>,
 
     /// The window's whole arrangement: a tree of tabbed groups the user rearranges by dragging.
     /// Every area of the workbench is a panel in it, and nothing outside it decides where anything
@@ -560,17 +566,26 @@ impl AppState {
             },
         };
         let dock = cx.new(|cx| {
-            let app = app.clone();
+            let menu_app = app.clone();
             let file_tab_menu: crate::ui::dock::skin::FileTabMenuRun =
                 Rc::new(move |key, x, y, _window, cx| {
-                    if let Some(this) = app.upgrade() {
+                    if let Some(this) = menu_app.upgrade() {
                         this.update(cx, |this, cx| this.open_file_tab_menu(key, (x, y), cx));
+                    }
+                });
+            let promote_app = app.clone();
+            let file_tab_promote: crate::ui::dock::skin::FileTabPromoteRun =
+                Rc::new(move |key, _window, cx| {
+                    if let Some(this) = promote_app.upgrade() {
+                        let path = crate::state::editor::from_tab_key(key).0;
+                        this.update(cx, |this, cx| this.select_file(path, cx));
                     }
                 });
             DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx).with_renderer(
                 crate::ui::dock::skin::Skin::new()
                     .with_new_pane(new_pane)
-                    .with_file_tab_menu(file_tab_menu),
+                    .with_file_tab_menu(file_tab_menu)
+                    .with_file_tab_promote(file_tab_promote),
             )
         });
         let mut panels: HashMap<PanelKind, Entity<WorkbenchPanel>> = HashMap::new();
@@ -865,6 +880,7 @@ impl AppState {
             terminals: HashMap::new(),
             geometry,
             pending_focus: None,
+            pending_editor_focus: None,
             dock,
             panels,
             pending_panels: Vec::new(),
@@ -1274,6 +1290,9 @@ impl AppState {
     /// pane gets the keyboard again.
     pub fn blur_panes(&mut self, cx: &mut Context<Self>) {
         self.pending_focus = None;
+        // The keyboard left any editor too, so an editor focus asked for earlier and not yet
+        // granted is withdrawn: whatever panel took the keyboard owns it now.
+        self.pending_editor_focus = None;
         cx.notify();
     }
 
@@ -1798,6 +1817,7 @@ impl AppState {
         let Some(pane_id) = self.pending_focus.take() else {
             return;
         };
+        self.pending_editor_focus = None;
         if let Some(terminal) = self.terminals.get(&pane_id) {
             terminal
                 .view
@@ -1806,6 +1826,35 @@ impl AppState {
                 .clone()
                 .focus(window, cx);
         }
+    }
+
+    /// Give the keyboard to the editor the last active file panel asked for.
+    ///
+    /// Focus needs a window, so this waits for the frame like [`Self::take_focus`] does — and it
+    /// needs the file's buffer, which may still be arriving, so a file whose editor has no bytes
+    /// yet keeps its turn until it does.
+    fn take_editor_focus(&mut self, window: &mut Window, cx: &mut App) {
+        let Some(key) = self.pending_editor_focus.clone() else {
+            return;
+        };
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.active_file() else {
+            return;
+        };
+        if file.key() != key {
+            return;
+        }
+        let editor = match &file.body {
+            crate::state::FileBody::Text { state, .. } => state.clone(),
+            _ => return,
+        };
+        self.pending_editor_focus = None;
+        editor.read(cx).focus_handle(cx).focus(window, cx);
     }
 
     // ── Workbench chrome ────────────────────────────────────────────
@@ -3464,7 +3513,11 @@ impl AppState {
                 true
             }
             ExplorerPressed::Open { path } => {
-                self.select_file(path, cx);
+                if matches!(key, ExplorerKey::ShiftEnter) {
+                    self.select_file(path, cx);
+                } else {
+                    self.select_file_temporary(path, cx);
+                }
                 true
             }
             ExplorerPressed::Listing { path } => {
@@ -3497,6 +3550,7 @@ impl AppState {
     pub fn click_explorer_row(
         &mut self,
         path: String,
+        permanent: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3507,7 +3561,13 @@ impl AppState {
             open.explorer.click(&path)
         };
         match pressed {
-            ExplorerPressed::Open { path } => self.select_file(path, cx),
+            ExplorerPressed::Open { path } => {
+                if permanent {
+                    self.select_file(path, cx);
+                } else {
+                    self.select_file_temporary(path, cx);
+                }
+            }
             ExplorerPressed::Listing { path } => {
                 let Some(project) = self.project(cx) else {
                     return;
@@ -3614,6 +3674,54 @@ impl AppState {
                 }
                 cx.notify();
             }
+            ExplorerAction::CopyFullPath => {
+                if let Some(rel) = path
+                    && let Some(snap) = self.project_snapshot(cx)
+                {
+                    let full = std::path::Path::new(&snap.record.path)
+                        .join(&rel)
+                        .to_string_lossy()
+                        .to_string();
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
+                }
+                cx.notify();
+            }
+            ExplorerAction::OpenInSystem => {
+                if let Some(rel) = path
+                    && let Some(snap) = self.project_snapshot(cx)
+                {
+                    let full = std::path::Path::new(&snap.record.path)
+                        .join(&rel)
+                        .to_string_lossy()
+                        .to_string();
+                    let _ = open_in_system(&full);
+                }
+                cx.notify();
+            }
+            ExplorerAction::Refresh => {
+                let Some(project) = self.project(cx) else {
+                    cx.notify();
+                    return;
+                };
+                if let Some(open) = self.projects.get_mut(&project) {
+                    if let Some(rel) = &path {
+                        open.explorer.set_loading(rel, true);
+                        self.bus.send(Message::ProjectTree {
+                            project_id: project,
+                            rel_path: rel.clone(),
+                            depth: EXPAND_DEPTH,
+                        });
+                    } else if open.explorer.is_listed() {
+                        self.bus.send(Message::ProjectTree {
+                            project_id: project,
+                            rel_path: String::new(),
+                            depth: EXPAND_DEPTH,
+                        });
+                    }
+                }
+                self.remember(project, cx);
+                cx.notify();
+            }
             ExplorerAction::Toggle => {
                 if let Some(path) = path {
                     self.toggle_folder(path, cx);
@@ -3639,8 +3747,12 @@ impl AppState {
             return;
         };
         open.explorer.selected = Some(path.clone());
+        self.pending_editor_focus = Some(tab_key(&path, Subject::File));
 
         let fresh = open.editor.index_of(&path).is_none();
+        // A permanent open (double-click, Shift+click, menu) also promotes a preview that is
+        // already showing the path: the user asked for it to stick, so it stops being replaceable.
+        open.editor.promote(&path);
         let index = open.editor.open_pending(&path);
         open.editor.active = index;
 
@@ -3662,7 +3774,48 @@ impl AppState {
         cx.notify();
     }
 
-    /// Open a tab on a file's change against a version-control base, and ask the host for it.
+    /// Open a file permanently (as opposed to temp preview). Double-click, Shift+click, or
+    /// Shift+Enter all reach here.
+    pub fn double_click_explorer_row(&mut self, path: String, cx: &mut Context<Self>) {
+        self.select_file(path, cx);
+    }
+
+    /// Open a file as a temporary preview tab. A single temp tab is kept at a time: opening
+    /// another temp closes the previous one. Editing the file promotes it to permanent.
+    pub fn select_file_temporary(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        open.explorer.selected = Some(path.clone());
+        self.pending_editor_focus = Some(tab_key(&path, Subject::File));
+
+        let fresh = open.editor.index_of(&path).is_none();
+        let (index, closed) = open.editor.open_temporary(&path);
+        open.editor.active = index;
+
+        if let Some(closed) = closed {
+            self.pending_panels
+                .push(PanelEdit::Close(PanelKind::File(closed)));
+        }
+
+        if fresh {
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::File(tab_key(
+                    &path,
+                    Subject::File,
+                ))));
+            self.bus.send(Message::ReadProjectFile {
+                project_id: project,
+                rel_path: path,
+                max_bytes: Some(MAX_FILE_BYTES),
+            });
+        }
+        self.remember(project, cx);
+        cx.notify();
+    }
     ///
     /// A diff is not the file, so it is a tab of its own beside it rather than something the file's
     /// tab switches into: opening a comparison never takes over what is being read or edited.
@@ -3886,6 +4039,9 @@ impl AppState {
         if let Some(path) = open.editor.active_file().map(|file| file.path.clone()) {
             open.explorer.selected = Some(path);
         }
+        // A file panel becoming the displayed tab asks for the keyboard, which the frame grants
+        // once it has a window and the file has a buffer — see [`Self::take_editor_focus`].
+        self.pending_editor_focus = Some(key.to_string());
         self.remember(project, cx);
         cx.notify();
     }
@@ -4065,11 +4221,37 @@ impl AppState {
             2 => self.close_editor_tabs_left(&key, cx),
             3 => self.close_editor_tabs_right(&key, cx),
             4 => self.close_all_editor_tabs(cx),
-            5 => self.save_file(&key, cx),
-            6 => self.toggle_editor_wrap(window, cx),
+            5 => self.copy_full_path_for_tab(&key, cx),
+            6 => self.open_in_finder_for_tab(&key, cx),
+            7 => self.save_file(&key, cx),
+            8 => self.toggle_editor_wrap(window, cx),
             _ => {}
         }
         cx.notify();
+    }
+
+    /// Copy the file a tab names, resolved against the project root, to the clipboard.
+    fn copy_full_path_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        let (rel, _) = from_tab_key(key);
+        if let Some(snap) = self.project_snapshot(cx) {
+            let full = std::path::Path::new(&snap.record.path)
+                .join(&rel)
+                .to_string_lossy()
+                .to_string();
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
+        }
+    }
+
+    /// Reveal the file a tab names in the system file manager.
+    fn open_in_finder_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        let (rel, _) = from_tab_key(key);
+        if let Some(snap) = self.project_snapshot(cx) {
+            let full = std::path::Path::new(&snap.record.path)
+                .join(&rel)
+                .to_string_lossy()
+                .to_string();
+            let _ = open_in_system(&full);
+        }
     }
 
     /// Close the one tab named by a key, the way the close button does: a dirty tab is asked for
@@ -4224,10 +4406,17 @@ impl AppState {
                     return;
                 }
                 let typed = buffer.read(cx).value().to_string();
-                if let Some(open) = this.projects.get_mut(&project)
-                    && let Some(file) = open.editor.find_mut(&watched)
-                {
-                    file.refresh_dirty(&typed);
+                if let Some(open) = this.projects.get_mut(&project) {
+                    let key = tab_key(&watched, Subject::File);
+                    let promoted = open
+                        .editor
+                        .find_mut(&watched)
+                        .is_some_and(|file| file.refresh_dirty(&typed));
+                    // The first edit promotes the preview; as it does, the pane must forget it was
+                    // the replaceable preview, or opening another file would close the promoted tab.
+                    if promoted {
+                        open.editor.promote_key(&key);
+                    }
                 }
                 cx.notify();
             },
@@ -5169,6 +5358,10 @@ impl Render for AppState {
         self.settle_panels(window, cx);
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
+        // The keyboard a file panel asked for waits for its buffer, which `attach_arrived_files`
+        // may have just delivered in this same frame — so the editor is focused after it, not
+        // before.
+        self.take_editor_focus(window, cx);
         self.fill_task_form(window, cx);
         self.fill_project_form(window, cx);
         self.settle_graph(cx);
@@ -5333,4 +5526,30 @@ pub fn window_closed(id: WindowId, cx: &mut App) {
 /// a path names a file and its diff both, and a panel names exactly one of them.
 fn index_of_key(editor: &EditorPaneState, key: &str) -> Option<usize> {
     editor.open.iter().position(|file| file.key() == key)
+}
+
+/// Reveal a resolved absolute path in the system's file manager. The path is a file or folder;
+/// a file is revealed by opening its parent directory.
+fn open_in_system(path: &str) -> std::io::Result<()> {
+    let target = std::path::Path::new(path);
+    let dir = if target.is_dir() {
+        target.to_path_buf()
+    } else {
+        target
+            .parent()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| target.to_path_buf())
+    };
+    let (cmd, arg) = if cfg!(target_os = "macos") {
+        ("open", "-R")
+    } else if cfg!(target_os = "windows") {
+        ("explorer", "/select,")
+    } else {
+        ("xdg-open", "")
+    };
+    let mut command = std::process::Command::new(cmd);
+    if !arg.is_empty() {
+        command.arg(arg);
+    }
+    command.arg(dir).spawn().map(|_| ())
 }

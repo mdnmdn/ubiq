@@ -499,6 +499,8 @@ fn a_right_click_prepares_the_actions_the_row_can_grow_into() {
             ExplorerAction::Open,
             ExplorerAction::OpenDiff,
             ExplorerAction::CopyPath,
+            ExplorerAction::CopyFullPath,
+            ExplorerAction::OpenInSystem,
             ExplorerAction::Rename,
             ExplorerAction::Delete,
         ]

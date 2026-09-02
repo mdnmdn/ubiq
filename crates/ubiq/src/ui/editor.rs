@@ -45,7 +45,7 @@ pub fn highlighter_language(language: FileLanguage) -> Language {
 ///
 /// Nothing reads version control, so this is the file's own state — whether it is still arriving,
 /// whether it is on its way to disk, whether that failed, and whether it holds an unsaved edit.
-pub fn state_colour(file: &OpenFile) -> Rgba {
+pub fn dirty_colour(file: &OpenFile) -> Rgba {
     match (&file.save, &file.body) {
         (SaveState::Failed(_), _) => theme::danger(),
         (SaveState::Saving(_), _) => theme::info(),
@@ -56,18 +56,19 @@ pub fn state_colour(file: &OpenFile) -> Rgba {
     }
 }
 
-/// The tab's label. A dirty file is marked in shape as well as colour, because a dot alone is not
-/// something to rely on. What the tab is looking at is said after the name, so a file and its diff
-/// are told apart at a glance rather than by their position.
+/// The colour a file tab's title takes from the repository, the same mapping the explorer uses.
+pub fn git_colour(file: &OpenFile, explorer: &crate::state::ExplorerState) -> Rgba {
+    crate::ui::explorer::git_colour(explorer.git_status(&file.path))
+}
+
+/// The tab's label. The dot and git colour are drawn by the dock's tab skin, so the label itself
+/// is just the name — the file's own report lives next to it, not inside it.
 pub fn label(file: &OpenFile, confirming: bool) -> SharedString {
     let name = format!("{}{}", file.name, file.subject.suffix());
     if confirming {
         return SharedString::from(format!("{name} \u{2014} discard?"));
     }
-    match file.dirty() {
-        true => SharedString::from(format!("{name} \u{2022}")),
-        false => SharedString::from(name),
-    }
+    SharedString::from(name)
 }
 
 /// The centre panel in IDE mode, which is only ever the page saying no file is open.

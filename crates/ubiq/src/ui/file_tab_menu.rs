@@ -19,9 +19,22 @@ const ITEMS: &[&str] = &[
     "Close Left",
     "Close Right",
     "Close All",
+    "Copy Full Path",
+    "Open in Finder",
     "Save",
     "Word Wrap",
 ];
+
+/// The "reveal in the system file manager" row's label, named after the platform.
+fn open_in_system_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Open in Finder"
+    } else if cfg!(target_os = "windows") {
+        "Open in Explorer"
+    } else {
+        "Open in File Manager"
+    }
+}
 
 /// Draw the open file-tab menu, or nothing when there is none. Called from the window root.
 pub fn overlay(
@@ -34,7 +47,14 @@ pub fn overlay(
     };
     let items: Vec<_> = ITEMS
         .iter()
-        .map(|label| kit::ContextItem::new(SharedString::from(*label)))
+        .map(|label| {
+            let label = if *label == "Open in Finder" {
+                open_in_system_label()
+            } else {
+                label
+            };
+            kit::ContextItem::new(SharedString::from(label))
+        })
         .collect();
     kit::context_menu(
         "file-tab-menu",

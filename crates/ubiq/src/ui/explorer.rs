@@ -11,6 +11,7 @@ use gpui::{
     div, point, px,
 };
 use gpui_component::IconName;
+use gpui_component::InteractiveElementExt;
 use gpui_component::input::Input;
 
 use crate::app::AppState;
@@ -69,6 +70,7 @@ gpui::actions!(
         ExplorerOut,
         ExplorerInto,
         ExplorerEnter,
+        ExplorerShiftEnter,
         ExplorerDismiss
     ]
 );
@@ -91,6 +93,7 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         both("left", ExplorerOut),
         both("right", ExplorerInto),
         both("enter", ExplorerEnter),
+        both("shift-enter", ExplorerShiftEnter),
         both("escape", ExplorerDismiss),
     ]
     .into_iter()
@@ -164,6 +167,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         }))
         .on_action(cx.listener(|this, _: &ExplorerEnter, window, cx| {
             answer(this, ExplorerKey::Enter, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerShiftEnter, window, cx| {
+            answer(this, ExplorerKey::ShiftEnter, window, cx)
         }))
         .on_action(cx.listener(|this, _: &ExplorerDismiss, window, cx| {
             answer(this, ExplorerKey::Dismiss, window, cx)
@@ -304,20 +310,6 @@ fn line(
 
     line = line.child(kind_icon(row.is_dir, icon_colour(row.git, readable)));
 
-    // A git mark is a decorator, not the row's identity: the icon already says file or folder,
-    // and the dot is what a status fills in. Unmarked rows look like the picker's.
-    if row.git.is_some() {
-        line = line.child(
-            div()
-                .size(px(14.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .child(div().size(px(6.)).rounded_full().bg(git_colour(row.git))),
-        );
-    }
-
     line = line.child(elided_with(
         eid("explorer-name", &row.path),
         row.name.clone(),
@@ -328,6 +320,8 @@ fn line(
         name_colour(row.git, readable),
         font_size,
     ));
+
+    line = line.child(div().flex_1().min_w(px(0.)));
 
     if let Some(status) = row.git {
         line = line.child(badge(status.badge(), git_colour(row.git)));
@@ -384,8 +378,14 @@ fn line(
         return line.into_any_element();
     }
 
-    line.on_click(cx.listener(move |this, _, window, cx| {
-        this.click_explorer_row(path.clone(), window, cx);
+    let double_path = path.clone();
+    line.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+        let mods = event.modifiers();
+        let permanent = mods.shift || mods.platform;
+        this.click_explorer_row(path.clone(), permanent, window, cx);
+    }))
+    .on_double_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        this.double_click_explorer_row(double_path.clone(), cx);
     }))
     .into_any_element()
 }
