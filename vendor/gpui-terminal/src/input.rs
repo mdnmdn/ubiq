@@ -258,6 +258,65 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
     None
 }
 
+/// Platform copy shortcut: `Cmd+C` on macOS, `Ctrl+Shift+C` elsewhere.
+///
+/// `Ctrl+C` is never a copy shortcut — it is SIGINT on every platform.
+pub fn is_copy_shortcut(keystroke: &Keystroke) -> bool {
+    if keystroke.key != "c" {
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        keystroke.modifiers.platform && !keystroke.modifiers.control && !keystroke.modifiers.alt
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        keystroke.modifiers.control
+            && keystroke.modifiers.shift
+            && !keystroke.modifiers.alt
+            && !keystroke.modifiers.platform
+    }
+}
+
+/// Platform paste shortcut: `Cmd+V` on macOS, `Ctrl+Shift+V` elsewhere.
+pub fn is_paste_shortcut(keystroke: &Keystroke) -> bool {
+    if keystroke.key != "v" {
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        keystroke.modifiers.platform && !keystroke.modifiers.control && !keystroke.modifiers.alt
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        keystroke.modifiers.control
+            && keystroke.modifiers.shift
+            && !keystroke.modifiers.alt
+            && !keystroke.modifiers.platform
+    }
+}
+
+/// Bracketed-paste wrapper (`\x1b[200~` … `\x1b[201~`).
+pub fn bracketed_paste(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() + 12);
+    out.extend_from_slice(b"\x1b[200~");
+    out.extend_from_slice(text.as_bytes());
+    out.extend_from_slice(b"\x1b[201~");
+    out
+}
+
+/// Quote a dropped OS path for a shell when it contains whitespace or metacharacters.
+pub fn quote_path(path: &str) -> String {
+    let safe = path
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | ':' | '\\' | '-'));
+    if safe {
+        path.to_string()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,5 +487,58 @@ mod tests {
 
         let space = Keystroke::parse("space").unwrap();
         assert_eq!(keystroke_to_bytes(&space, mode), Some(b" ".to_vec()));
+    }
+
+    #[test]
+    fn copy_shortcut_is_not_ctrl_c() {
+        let ctrl_c = Keystroke::parse("ctrl-c").unwrap();
+        assert!(!is_copy_shortcut(&ctrl_c));
+        let cmd_c = Keystroke::parse("cmd-c").unwrap();
+        #[cfg(target_os = "macos")]
+        assert!(is_copy_shortcut(&cmd_c));
+        #[cfg(not(target_os = "macos"))]
+        assert!(!is_copy_shortcut(&cmd_c));
+        let ctrl_shift_c = Keystroke::parse("ctrl-shift-c").unwrap();
+        #[cfg(target_os = "macos")]
+        assert!(!is_copy_shortcut(&ctrl_shift_c));
+        #[cfg(not(target_os = "macos"))]
+        assert!(is_copy_shortcut(&ctrl_shift_c));
+    }
+
+    #[test]
+    fn paste_shortcut_matches_platform() {
+        let cmd_v = Keystroke::parse("cmd-v").unwrap();
+        let ctrl_shift_v = Keystroke::parse("ctrl-shift-v").unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            assert!(is_paste_shortcut(&cmd_v));
+            assert!(!is_paste_shortcut(&ctrl_shift_v));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(!is_paste_shortcut(&cmd_v));
+            assert!(is_paste_shortcut(&ctrl_shift_v));
+        }
+    }
+
+    #[test]
+    fn bracketed_paste_wraps_text() {
+        assert_eq!(bracketed_paste("hi"), b"\x1b[200~hi\x1b[201~".to_vec());
+    }
+
+    #[test]
+    fn quote_path_leaves_safe_paths() {
+        assert_eq!(
+            quote_path("/Users/mdn/src/main.rs"),
+            "/Users/mdn/src/main.rs"
+        );
+    }
+
+    #[test]
+    fn quote_path_quotes_spaces() {
+        assert_eq!(
+            quote_path("/Users/mdn/My File.rs"),
+            "'/Users/mdn/My File.rs'"
+        );
     }
 }

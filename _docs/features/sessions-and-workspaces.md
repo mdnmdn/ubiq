@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -101,7 +101,7 @@ pane appear.
 | The agent binary is missing or fails to execute | `PaneError` naming the pane; the session is unaffected |
 | The home folder cannot be created | `Error`; the session is not created |
 | A spawn names an unknown session or agent type | `Error`; nothing is created |
-| The harness exits | `PaneExited` with its code. The pane stays visible and stops accepting input |
+| The harness exits | `PaneExited` with its code. The pane's tab is closed |
 | The pseudo-terminal stream ends | Treated as an exit |
 
 Sessions and workspaces live in memory for the lifetime of the process. Persisting them across

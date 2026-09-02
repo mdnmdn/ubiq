@@ -7,7 +7,7 @@ summary: What a pane shows, how exactly one of them holds focus, how a resize re
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-09-02
 verified: 2026-09-02
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -60,16 +60,32 @@ panel displaced by a whole arrangement being installed over it has not been clos
 is untouched.
 
 **The keyboard belongs to the focused panel.** Exactly one panel in the dock holds it. When that
-panel is a terminal, keystrokes go to that pane's harness and nowhere else — a terminal panel's
-focus handle *is* its emulator's, so there is nothing in between. When it is anything else — the
-console, the explorer, the chat, the centre — no pane holds the keyboard at all, so a terminal
-nobody can see cannot be typed into. Unfocused panes keep drawing — an agent working in the
-background stays visible — but take no input.
+panel is a terminal, keystrokes go to that pane's emulator — a terminal panel's focus handle *is*
+its emulator's, so there is nothing in between — and from there to the harness, except the
+intercept set below. When it is anything else — the console, the explorer, the chat, the centre —
+no pane holds the keyboard at all, so a terminal nobody can see cannot be typed into. Unfocused
+panes keep drawing — an agent working in the background stays visible — but take no input.
 
-**Bytes are forwarded, never interpreted.** Output from the harness goes straight into the pane's
-emulator; keystrokes from the focused pane go straight to the harness. Ubiq forms no opinion about
-either. That covers what would otherwise be a long list of special cases: arrow keys, Ctrl and Alt
-chords, bracketed paste, mouse reporting, and the alternate screen.
+**Bytes are forwarded, never interpreted, except a closed intercept set.** Output from the harness
+goes straight into the pane's emulator; keystrokes from the focused pane go straight to the harness
+unless they are one of: platform copy (`Cmd+C` on Mac, `Ctrl+Shift+C` elsewhere), platform paste
+(`Cmd+V` / `Ctrl+Shift+V`), or a defocus chord (`Shift+Escape`, `Ctrl+Escape`, `Cmd+Escape`).
+`Ctrl+C` is SIGINT on every platform. Bare Escape is `\x1b` to the harness. Copy with no selection
+is consumed and does nothing; paste wraps the clipboard in bracketed paste. Tab and Shift+Tab reach
+the harness: the emulator's `Terminal` key context suppresses the window's focus-cycle bindings.
+Special keys, Ctrl and Alt chords, mouse reporting and the alternate screen are otherwise the
+emulator's.
+
+**The pointer is the emulator's when the harness has asked for it.** A harness that enables SGR
+mouse reporting owns clicks, drags and the wheel. When reporting is off, a click-drag selects
+text (double-click a word, triple-click a line), release copies the selection, and a click with no
+drag on an OSC 8 or `http(s)://` URL opens it. The wheel in the alternate screen becomes arrows; in
+the normal screen it moves the pane through scrollback. An OS file drop always pastes quoted
+absolute paths as bracketed paste, including while mouse reporting is on.
+
+**A defocus chord releases the keyboard without sending `Focus`.** The pane keeps drawing and its
+tab stays; `blur_panes()` clears pending focus and the emulator's focus handle is blurred. Clicking
+the pane gives it the keyboard again. The host still records the last focused pane.
 
 **A resize is not complete until the harness knows.** Changing a pane's geometry means computing the
 new size in character cells, telling the coordinator, setting the pseudo-terminal's size, and
@@ -89,9 +105,9 @@ the emulator has been given any bounds to measure, so it begins at the conventio
 resized as soon as the first measurement exists. A harness that starts at the wrong size and is
 immediately resized draws correctly; one that never learns its size does not.
 
-**An exited harness leaves its pane.** The pane keeps its final screen, shows that the process
-ended, and stops accepting input. Its panel is a panel like any other and still moves, splits, tabs
-and docks. The user closes it when they are done reading it; nothing disappears on them.
+**An exited harness closes its pane.** Typing `exit` or sending EOF (Ctrl+D) ends the child, the
+coordinator reports `PaneExited`, and the tab goes with it — the same close path as the tab's ×.
+Closing a tab is still what kills a harness that has not already ended.
 
 **A pane's chrome is its tab.** The title says which agent, and the dot beside it says whether the
 harness is still running. The pane itself carries that same state on the coloured left edge every
@@ -159,7 +175,16 @@ vendored `gpui-terminal`, which parses the bytes with `alacritty_terminal` and d
 holds no path, no process handle and no descriptor: it is constructed from a `Read` and a `Write`
 that are ends of the bus, which is what keeps the UI honest about a pane being an ID plus a byte
 stream. The palette it is given is
-[`../tech/ui-and-design.md`](../tech/ui-and-design.md)'s.
+[`../tech/ui-and-design.md`](../tech/ui-and-design.md)'s, including the selection and link tokens.
+
+Copy, paste, OSC 52, mouse selection, hyperlinks and file drops are the emulator's: `TerminalView`
+intercepts the copy and paste shortcuts, writes bracketed paste and OSC 52 replies to the pane's
+`Write`, drives alacritty's `Term::selection`, and paints selection and link underlines in
+`vendor/gpui-terminal/src/render.rs`. It installs the `Terminal` key context, and
+`install_key_bindings()` nulls Tab, Shift+Tab and the window copy chord in that context so they are
+not stolen by the shell's focus cycle. Ubiq only adds the defocus chord: `open_pane()` sets
+`with_key_handler` so Shift/Ctrl/Cmd+Escape calls `window.blur` and `blur_panes()`, and does not
+send `Focus`. A `PaneExited` is `close_pane()`.
 
 **The `+` that opens a pane sits at the right end of the tab strip.** Opening a terminal is chrome
 rather than a group's own action: `crates/ubiq/src/ui/dock/skin.rs` draws the control in
@@ -200,6 +225,7 @@ The paths through the two halves, in call order:
 | Brings a pane's tab forward | the dock displays the panel and gives it the keyboard, which for a terminal is its emulator's own handle; `set_active()` calls `focus_pane()`, which sends `Focus` on the transition and no other |
 | Drags a pane somewhere else | the dock re-parents the panel by id, leaving the emulator, its stream and the pane ID alone; the panel is laid out in its new rectangle, the emulator measures it, and the resize callback sends `TerminalResize` — the move and the resize are one path |
 | Closes a pane | the tab's × takes the panel out of the dock; `on_removed()` defers a turn so a displaced panel is not mistaken for a closed one, then `close_pane()` sends `CloseWorkspace` and drops the emulator; the coordinator kills the child, and the thread `pty::reap` left waiting on it collects the exit |
+| The harness exits | `PaneExited` reaches `close_pane()`, which queues the same panel close and sends `CloseWorkspace` so the host drops the pseudo-terminal |
 
 `crates/ubiq-host/src/coordinator.rs` holds one `Pty` per pane ID and nothing about layout or colour;
 `crates/ubiq-host/src/pty/` is the only place a descriptor or a process lives. Its reader thread and the
@@ -216,8 +242,8 @@ stalled reader stalls the harness.
 | A pane is dragged while its harness is writing | Nothing is interrupted. The panel is re-parented by id, so the emulator, the stream and the pane ID are the same on the other side; the new rectangle is measured and the harness is told |
 | A pane becomes a background tab | It is not laid out and not resized, and keeps the geometry its harness was told. Its output goes on arriving and its emulator goes on consuming it |
 | A panel is displaced by an arrangement being installed over it | Its pane is untouched. Only a closed tab closes a pane |
-| The harness exits | `PaneExited`; the pane persists, showing its last screen, and its output stream ends |
-| The harness exits while its pane is a background tab | The same, and nothing changes on screen. The panel keeps its place, and shows the last screen when it is brought forward |
+| The harness exits | `PaneExited`; `close_pane()` takes the tab out of the dock. Focus moves to another pane, or to none if it was the last |
+| The harness exits while its pane is a background tab | The same close: the tab leaves that project's dock, and the pane the user is typing into is untouched |
 | The harness cannot be started | `PaneError` against a pane ID the UI never drew; no tab appears |
 | A spawn is asked for with no project open | Nothing is sent; there is no folder to start a harness in |
 | A spawn names a project whose folder has gone | `ProjectError`, and the picker's row is marked. No pseudo-terminal is opened and no tab appears |

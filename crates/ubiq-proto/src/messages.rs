@@ -25,7 +25,7 @@ pub enum Message {
         pane_id: PaneId,
         bytes: Vec<u8>,
     },
-    /// The harness ended. The pane stays, showing its last screen.
+    /// The harness ended. The UI closes the pane.
     PaneExited {
         pane_id: PaneId,
         code: i32,

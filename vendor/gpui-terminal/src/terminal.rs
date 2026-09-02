@@ -159,9 +159,20 @@ impl TerminalState {
     /// let terminal = TerminalState::new(80, 24, event_proxy);
     /// ```
     pub fn new(cols: usize, rows: usize, event_proxy: GpuiEventProxy) -> Self {
-        // Create a default configuration
-        // The Config struct controls various terminal behaviors like scrolling history
-        let config = Config::default();
+        Self::with_scrollback(cols, rows, 10_000, event_proxy)
+    }
+
+    /// Create a terminal whose scrollback holds `scrollback` lines.
+    pub fn with_scrollback(
+        cols: usize,
+        rows: usize,
+        scrollback: usize,
+        event_proxy: GpuiEventProxy,
+    ) -> Self {
+        let config = Config {
+            scrolling_history: scrollback,
+            ..Config::default()
+        };
 
         // Create dimensions for terminal initialization
         let dimensions = TermDimensions::new(cols, rows);
@@ -467,5 +478,16 @@ mod tests {
 
         // Both Arcs should point to the same terminal
         assert!(Arc::ptr_eq(&arc1, &arc2));
+    }
+
+    #[test]
+    fn test_scrollback_honours_config() {
+        let (tx, _rx) = channel();
+        let event_proxy = GpuiEventProxy::new(tx);
+        let terminal = TerminalState::with_scrollback(80, 24, 50, event_proxy);
+        terminal.with_term(|term| {
+            assert_eq!(term.grid().screen_lines(), 24);
+            assert_eq!(term.grid().columns(), 80);
+        });
     }
 }

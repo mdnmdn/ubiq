@@ -2965,6 +2965,7 @@ dependencies = [
  "alacritty_terminal",
  "anyhow",
  "arboard",
+ "base64",
  "flume",
  "gpui",
  "parking_lot",

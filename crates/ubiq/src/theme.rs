@@ -112,6 +112,14 @@ pub struct StatusColors {
     pub info_soft: Rgba,
 }
 
+/// Colours the terminal emulator paints that are not ANSI — selection and links.
+#[derive(Clone, Copy, Debug)]
+pub struct TerminalColors {
+    pub selection: Rgba,
+    pub link_underline: Rgba,
+    pub link_underline_hover: Rgba,
+}
+
 // ── Palette ─────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]
@@ -122,6 +130,7 @@ pub struct Palette {
     pub border: BorderColors,
     pub status: StatusColors,
     pub project: ProjectColors,
+    pub terminal: TerminalColors,
 }
 
 // ── Theme ───────────────────────────────────────────────────────────
@@ -249,6 +258,18 @@ pub fn border_focus() -> Rgba {
     Theme::current().palette.border.focus
 }
 
+pub fn selection_background() -> Rgba {
+    Theme::current().palette.terminal.selection
+}
+
+pub fn link_underline() -> Rgba {
+    Theme::current().palette.terminal.link_underline
+}
+
+pub fn link_underline_hover() -> Rgba {
+    Theme::current().palette.terminal.link_underline_hover
+}
+
 pub fn danger() -> Rgba {
     Theme::current().palette.status.danger
 }
@@ -364,6 +385,11 @@ pub fn dark() -> Theme {
                     rgba_hex(0x6fbf5b),
                 ],
             },
+            terminal: TerminalColors {
+                selection: rgba_hex(0x1c2a44),
+                link_underline: rgba_hex(0x5b8def),
+                link_underline_hover: rgba_hex(0x7aa6f5),
+            },
         },
     }
 }
@@ -415,6 +441,11 @@ pub fn light() -> Theme {
                     rgba_hex(0xc44f6d),
                     rgba_hex(0x4e9b3c),
                 ],
+            },
+            terminal: TerminalColors {
+                selection: rgba_hex(0xd4e4ff),
+                link_underline: rgba_hex(0x3b6fd4),
+                link_underline_hover: rgba_hex(0x5a8ad4),
             },
         },
     }

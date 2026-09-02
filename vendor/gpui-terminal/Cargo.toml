@@ -16,6 +16,7 @@ anyhow = "1"
 parking_lot = "0.12"
 flume = "0.12"
 ropey = "1"
+base64 = "0.22"
 
 [dependencies.arboard]
 version = "3"

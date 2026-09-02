@@ -108,6 +108,15 @@ pub struct ColorPalette {
 
     /// Default cursor color
     cursor: Hsla,
+
+    /// Background for a selected range of cells
+    selection_background: Hsla,
+
+    /// Underline colour for OSC 8 and regex-detected URLs
+    link_underline: Hsla,
+
+    /// Underline colour when the pointer is over a link
+    link_underline_hover: Hsla,
 }
 
 impl Default for ColorPalette {
@@ -246,6 +255,21 @@ impl Default for ColorPalette {
             g: 0xff,
             b: 0xff,
         }); // White
+        let selection_background = rgb_to_hsla(Rgb {
+            r: 0x26,
+            g: 0x4f,
+            b: 0x78,
+        });
+        let link_underline = rgb_to_hsla(Rgb {
+            r: 0x5b,
+            g: 0x8d,
+            b: 0xef,
+        });
+        let link_underline_hover = rgb_to_hsla(Rgb {
+            r: 0x7a,
+            g: 0xa6,
+            b: 0xf5,
+        });
 
         Self {
             ansi_colors,
@@ -253,6 +277,9 @@ impl Default for ColorPalette {
             foreground,
             background,
             cursor,
+            selection_background,
+            link_underline,
+            link_underline_hover,
         }
     }
 }
@@ -390,6 +417,21 @@ impl ColorPalette {
     pub fn cursor(&self) -> Hsla {
         self.cursor
     }
+
+    /// Gets the selection highlight colour.
+    pub fn selection_background(&self) -> Hsla {
+        self.selection_background
+    }
+
+    /// Gets the underline colour for hyperlinks.
+    pub fn link_underline(&self) -> Hsla {
+        self.link_underline
+    }
+
+    /// Gets the underline colour for a hovered hyperlink.
+    pub fn link_underline_hover(&self) -> Hsla {
+        self.link_underline_hover
+    }
 }
 
 /// Converts an RGB color to GPUI's Hsla color format.
@@ -480,6 +522,24 @@ impl ColorPaletteBuilder {
     /// Sets the cursor color.
     pub fn cursor(mut self, r: u8, g: u8, b: u8) -> Self {
         self.palette.cursor = rgb_to_hsla(Rgb { r, g, b });
+        self
+    }
+
+    /// Sets the selection highlight colour.
+    pub fn selection_background(mut self, r: u8, g: u8, b: u8) -> Self {
+        self.palette.selection_background = rgb_to_hsla(Rgb { r, g, b });
+        self
+    }
+
+    /// Sets the underline colour for hyperlinks.
+    pub fn link_underline(mut self, r: u8, g: u8, b: u8) -> Self {
+        self.palette.link_underline = rgb_to_hsla(Rgb { r, g, b });
+        self
+    }
+
+    /// Sets the underline colour for a hovered hyperlink.
+    pub fn link_underline_hover(mut self, r: u8, g: u8, b: u8) -> Self {
+        self.palette.link_underline_hover = rgb_to_hsla(Rgb { r, g, b });
         self
     }
 
