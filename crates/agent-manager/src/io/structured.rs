@@ -33,6 +33,11 @@ pub fn spawn_piped(launch: &Launch, cwd: &Path) -> Result<Child> {
     cmd.args(&launch.args);
     cmd.current_dir(cwd);
 
+    // A confined launch carries the whole environment its policy computed, so
+    // inheriting this process's would put back what the sandbox took out.
+    if launch.env_clear {
+        cmd.env_clear();
+    }
     for var in &launch.env_remove {
         cmd.env_remove(var);
     }

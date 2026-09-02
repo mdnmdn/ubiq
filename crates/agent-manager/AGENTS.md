@@ -120,7 +120,7 @@ agent-manager/
     ├── run.rs             # PTY spawn/supervise + exit-code + cleanup (feature: pty)
     ├── io/                # I/O bridging (core: model + bridges; passthrough: pty-gated)
     │   ├── mod.rs         #   neutral AgentInput/AgentEvent model (core)
-    │   ├── model.rs       #   AgentInput/AgentEvent/AgentParams (core, P2)
+    │   ├── model.rs       #   AgentInput/AgentEvent/ApprovalDecision (core, P2)
     │   ├── passthrough.rs #   raw-tty pump (SIGWINCH resize, cooked-mode restore; pty)
     │   ├── structured.rs  #   IoBridge trait for harness-neutral structured I/O (core, P2)
     │   ├── jsonl.rs       #   Claude stream-json input bridge (core, P2)
