@@ -20,8 +20,8 @@ drivers on top.
                                 └────┬──────┘
                                       │  (ephemeral config dir + launch argv + env)
                                       ▼
-                                ┌───────────┐   optional: wrap the launch in an
-                                │ isolate   │   isol8 sandbox
+                                ┌───────────┐   optional: compose an isol8
+                                │ isolate   │   policy the run is confined by
                                 └────┬──────┘
                                       │
                                       ▼
@@ -183,7 +183,7 @@ src/
 │   ├── mod.rs        #   McpService trait for embedders    (core, P2)
 │   └── server.rs     #   HTTP server for in-process MCPs   (feature: inproc-mcp, P2)
 ├── session.rs        # session history + metadata; ls/show/resume + transcript recording (P3 ✅)
-└── isolate.rs        # isol8 integration via command template wrapper (P3 ✅)
+└── isolate.rs        # RunSpec -> isol8 Spec/Context, in-process (core dep); confined_launch is a macOS-only stopgap (P3 ✅)
 ```
 
 Phase 1 needs `spec`, `resolve`, `settings`, `registry`, `harness` (claude),

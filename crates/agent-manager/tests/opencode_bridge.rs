@@ -31,6 +31,7 @@ fn opencode_bridge_drains_fake_stream_to_completion() {
         args: vec![],
         env: vec![],
         env_remove: vec![],
+        env_clear: false,
     };
 
     let cwd = std::env::current_dir().expect("could not get current dir");

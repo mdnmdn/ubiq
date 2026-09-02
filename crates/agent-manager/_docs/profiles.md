@@ -206,8 +206,12 @@ CLI flag  >  --profile <name>  >  [defaults].profile  >  implicit "default"
 
 ## 8. Isolation is an orthogonal axis
 
-Profile = *what config*; isolation = *what sandbox*. `isolate.rs` already wraps
-a `Launch` as a pure argv transform, so the two compose cleanly:
+Profile = *what config*; isolation = *what sandbox*. `isolate.rs` resolves a
+`Launch` into an isol8 policy (a `Spec` + `Context`) in-process rather than
+wrapping argv itself; a caller that owns a pseudo-terminal turns that policy
+back into a `Launch` via `confined_launch`, a macOS-only stopgap that execs
+`sandbox-exec` (`refs/isol8-pty-seam-update.md` tracks the seam that will
+replace it on other platforms). Either way the two axes compose cleanly:
 
 - A profile carries a **default** for the isolation axis (`isolate = false`, or
   `isolate = "dev.toml"` naming an isol8 policy). Per-run `--isolate[=profile]`

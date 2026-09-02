@@ -158,6 +158,9 @@ struct RunArgs {
     /// isolation).
     #[arg(long, num_args = 0..=1)]
     isolate: Option<Option<String>>,
+    /// Opt out when a settings file or profile turns isolation on.
+    #[arg(long, conflicts_with = "isolate")]
+    no_isolate: bool,
     /// Resume a prior harness-native session by id (raw harness id, not an
     /// `am` session id — for resuming from `am`'s own session history use
     /// `am session resume <id>` instead).
@@ -333,6 +336,19 @@ mod tests {
     fn isolate_flag_with_value_is_some_some() {
         let args = RunArgs::try_parse_from(["am-run", "--isolate=dev"]).unwrap();
         assert_eq!(args.isolate, Some(Some("dev".to_string())));
+    }
+
+    #[test]
+    fn no_isolate_flag_alone_parses_true() {
+        let args = RunArgs::try_parse_from(["am-run", "--no-isolate"]).unwrap();
+        assert!(args.no_isolate);
+        assert_eq!(args.isolate, None);
+    }
+
+    #[test]
+    fn isolate_and_no_isolate_together_is_rejected() {
+        let err = RunArgs::try_parse_from(["am-run", "--isolate", "--no-isolate"]).unwrap_err();
+        assert!(err.to_string().contains("cannot be used with"));
     }
 
     #[test]

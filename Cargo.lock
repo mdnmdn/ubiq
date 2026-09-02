@@ -3952,14 +3952,26 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isol8"
-version = "0.2.0"
-source = "git+https://github.com/mdnmdn/isol8?branch=featurs%2Flib-crate#b540dbffb87c19421a1ada4332b2d46873a185fe"
+version = "0.3.0"
+source = "git+https://github.com/mdnmdn/isol8?rev=46c72edac4dda6d146af57f90121bb54820150eb#46c72edac4dda6d146af57f90121bb54820150eb"
+dependencies = [
+ "anyhow",
+ "isol8-core",
+]
+
+[[package]]
+name = "isol8-core"
+version = "0.3.0"
+source = "git+https://github.com/mdnmdn/isol8?rev=46c72edac4dda6d146af57f90121bb54820150eb#46c72edac4dda6d146af57f90121bb54820150eb"
 dependencies = [
  "anyhow",
  "enumflags2",
  "landlock",
+ "libc",
  "nix 0.31.3",
  "serde",
+ "serde_json",
+ "serde_yaml",
  "thiserror 1.0.69",
  "toml 0.8.23",
  "windows 0.62.2",
@@ -8774,6 +8786,7 @@ dependencies = [
 name = "ubiq-host"
 version = "0.1.0"
 dependencies = [
+ "agent-manager",
  "anyhow",
  "chrono",
  "directories",

@@ -20,20 +20,36 @@ pub enum SettingsLayer {
     Host,
 }
 
-/// The host-owned settings record. Empty of fields this build acts on; `schema` is the hook a
-/// later field hangs from.
+/// The host-owned settings record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostSettings {
     pub schema: u32,
+    /// Whether an agent runs confined: a policy that grants its project's folder and its own
+    /// throwaway configuration, and denies the rest of the machine.
+    ///
+    /// On, because an agent that edits files is exactly what a deny-by-default policy is for, and
+    /// a default the user has to find is a default nobody has. Which harnesses opt out of it, and
+    /// under which policy, belongs to the harness library rather than here — this is the one bit
+    /// Ubiq owns, because Ubiq is what spawns the pane.
+    #[serde(default = "isolate_agents_default")]
+    pub isolate_agents: bool,
 }
 
 /// The shape this host writes and understands.
-pub const HOST_SETTINGS_SCHEMA: u32 = 1;
+///
+/// A record from an older schema still parses — every field added since carries a default — and
+/// only a *newer* one is refused, because that is the one this build cannot be trusted to read.
+pub const HOST_SETTINGS_SCHEMA: u32 = 2;
+
+fn isolate_agents_default() -> bool {
+    true
+}
 
 impl Default for HostSettings {
     fn default() -> Self {
         Self {
             schema: HOST_SETTINGS_SCHEMA,
+            isolate_agents: isolate_agents_default(),
         }
     }
 }

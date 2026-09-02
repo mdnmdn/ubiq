@@ -15,6 +15,7 @@ use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::ProjectHealth;
 
+use crate::agent::Agents;
 use crate::config::ConfigRoot;
 use crate::files::{self, Files};
 use crate::git::{self, Git};
@@ -60,6 +61,8 @@ struct Coordinator {
     work: Work,
     /// Application settings: the Ui layer opaque, the Host layer parsed.
     settings: Settings,
+    /// Which agent types can run here, and the composer that turns one into a launch.
+    agents: Agents,
     /// The thread that reads and writes a project's files. Nothing in the file family touches disk
     /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
     files: Files,
@@ -90,12 +93,18 @@ impl Coordinator {
         settings: Settings,
         pending: Vec<Reply>,
     ) -> Self {
+        // A run directory outlives its pane only when Ubiq did not get to close it, and no pane
+        // from a previous process is still running, so the sweep happens once here.
+        let agents = Agents::new(root.path.clone(), settings.host().isolate_agents);
+        agents.sweep();
+
         Self {
             host,
             root,
             projects,
             work,
             settings,
+            agents,
             files: Files::start(),
             git: Git::start(),
             pending,
@@ -192,10 +201,23 @@ impl Coordinator {
 
     /// A pane has ended, however it ended: the project it belonged to has one fewer.
     fn pane_gone(&mut self, client: ClientId, pane_id: PaneId) {
+        // The pane owned its run's configuration directory — credentials seeded into it included
+        // — so that goes when the pane does. A harness that exited by itself reaches here too:
+        // the interface closes the tab on `PaneExited`, and closing a tab is a `CloseWorkspace`.
+        self.agents.retire(pane_id);
         if let Some(project_id) = self.pane_projects.remove(&pane_id) {
             let replies = self.projects.pane_closed(project_id);
             self.answer(client, replies);
         }
+    }
+
+    /// Tell the window that asked that its pane never started.
+    ///
+    /// A `PaneError` and no `WorkspaceSpawned`: the interface was never told the pane exists, so
+    /// there is nothing on screen to close, and the error belongs where the user was looking.
+    fn refuse_pane(&self, client: ClientId, pane_id: PaneId, error: String) {
+        self.host
+            .send(To::Client(client), Message::PaneError { pane_id, error });
     }
 
     /// Whether this window is the one that owns the pane. A message about somebody else's pane is
@@ -341,12 +363,21 @@ impl Coordinator {
             Message::SetPreferences { scope, value } => {
                 self.projects.set_preferences(scope, value, Instant::now());
             }
+            Message::ListAgentTypes => {
+                let agent_types = self.agents.types();
+                self.host
+                    .send(To::Client(client), Message::AgentTypes { agent_types });
+            }
+
             Message::GetSettings { layer } => {
                 let reply = self.settings.get(layer);
                 self.answer(client, vec![reply]);
             }
             Message::SetSettings { layer, value } => {
                 let replies = self.settings.set(layer, value);
+                // Whether an agent is confined is acted on at the next spawn, so the setting is
+                // re-read here rather than kept in a copy that could go stale.
+                self.agents.set_isolate(self.settings.host().isolate_agents);
                 self.answer(client, replies);
             }
 
@@ -649,16 +680,49 @@ impl Coordinator {
         let pane_id = PaneId::generate();
         let agent_type = agent_type.unwrap_or_else(shells::default_program);
 
-        let spawned = pty::spawn(
-            &agent_type,
-            &args,
-            Some(cwd.as_path()),
-            INITIAL_COLS,
-            INITIAL_ROWS,
-        );
+        // An agent type the library knows is composed — its skills, its throwaway configuration
+        // and the policy it runs under all come from there. Anything else is a program name,
+        // which is what a shell is.
+        let composed = if self.agents.is_agent_type(&agent_type) {
+            match self
+                .agents
+                .compose(pane_id, &agent_type, &cwd, args.clone())
+            {
+                Ok(composed) => Some(composed),
+                Err(error) => {
+                    tracing::error!("pane {pane_id}: composing {agent_type} failed: {error:#}");
+                    self.refuse_pane(client, pane_id, format!("{error:#}"));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        let program = match &composed {
+            Some(composed) => match composed.exec() {
+                Ok(launch) => pty::Program {
+                    program: launch.program,
+                    args: launch.args,
+                    env: launch.env,
+                    env_remove: launch.env_remove,
+                    env_clear: launch.env_clear,
+                },
+                Err(error) => {
+                    tracing::error!("pane {pane_id}: confining {agent_type} failed: {error:#}");
+                    self.agents.retire(pane_id);
+                    self.refuse_pane(client, pane_id, format!("{error:#}"));
+                    return;
+                }
+            },
+            None => pty::Program::plain(&agent_type, args),
+        };
+
+        let spawned = pty::spawn(&program, Some(cwd.as_path()), INITIAL_COLS, INITIAL_ROWS);
         let (pane, child) = match spawned {
             Ok(spawned) => spawned,
             Err(error) => {
+                self.agents.retire(pane_id);
                 tracing::error!("pane {pane_id}: starting {agent_type} failed: {error:#}");
                 self.host.send(
                     To::Client(client),
@@ -670,7 +734,13 @@ impl Coordinator {
                 return;
             }
         };
-        tracing::info!("pane {pane_id}: started {agent_type} in session {session_id} for {client}");
+        let confined = composed
+            .as_ref()
+            .is_some_and(|composed| composed.is_confined());
+        tracing::info!(
+            "pane {pane_id}: started {agent_type}{} in session {session_id} for {client}",
+            if confined { " (confined)" } else { "" }
+        );
 
         // The owner is recorded before the pane is announced, so nothing can arrive about a pane
         // the routing table has never heard of.

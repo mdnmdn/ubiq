@@ -99,6 +99,17 @@ pub enum Message {
         shells: Vec<ShellInfo>,
     },
 
+    /// Which agent harnesses can be started here. Answered with [`Message::AgentTypes`].
+    ///
+    /// Asked for the same reason as [`Message::ListShells`]: whether a harness is installed is a
+    /// local fact, and the interface reads none. The answer is the harness library's list, not a
+    /// table Ubiq keeps, so a harness the library learns about is offered without a change here.
+    ListAgentTypes,
+    /// The agent types the host can start, in the order the menu offers them.
+    AgentTypes {
+        agent_types: Vec<AgentTypeInfo>,
+    },
+
     // ── Project family: UI → host ───────────────────────────────────
     /// Every project in the catalogue, probed. Answered with [`Message::ProjectList`].
     ListProjects,
@@ -460,6 +471,23 @@ pub struct ShellInfo {
     pub program: String,
     /// Whether this is the one a bare click on the new-pane control already starts.
     pub is_default: bool,
+}
+
+/// One agent type a workspace can be, as the UI is told about it.
+///
+/// Every field comes from the embedded harness library — `id` is the library's harness id, and it
+/// is what a spawn asks for on [`Message::SpawnWorkspace`]. The interface shows `label` and hands
+/// `id` back; it never names a binary, a config path or a launch flag, because how a harness is
+/// started is not a fact it holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentTypeInfo {
+    /// The library's harness id, e.g. `claude-code`.
+    pub id: String,
+    /// What the row says — the harness's display name.
+    pub label: String,
+    /// Whether the harness's own binary was found, so a row that cannot start says so before it is
+    /// picked rather than failing as a spawn the user has to interpret.
+    pub available: bool,
 }
 
 /// One running workspace, as the UI is told about it. It carries no process, no writer and no

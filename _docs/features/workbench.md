@@ -469,9 +469,15 @@ are interface-wide, so the overlay opens with no project.
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
 it dismisses project settings, and the reverse. Three sections ship: **File explorer** (whether a
 single click opens a preview tab), **Editor** (whether a new markdown file opens in preview or
-source), and **Harnesses** (an Add button over an empty list — definitions belong to the harness
-library). The kitchen sink still draws the larger fixture nav; that page is how the furniture is
-looked at, not how the application is configured.
+source), and **Harnesses** (whether an agent is confined to its project, over an Add button and an
+empty list — definitions belong to the harness library). The kitchen sink still draws the larger
+fixture nav; that page is how the furniture is looked at, not how the application is configured.
+
+**The isolation toggle is the one setting the host acts on**, so it is the only row that writes the
+Host layer rather than the interface's own — an agent runs under a policy, and the half that spawns
+the pane is the half that has to know. Every other row is a `UiSettings` field. Which harnesses opt
+out of confinement is not here at all: that belongs to the harness library, which already has the
+shape for it. See [`../tech/agent-manager.md`](../tech/agent-manager.md).
 
 **The explorer draws the project's folder, one directory at a time, in the same two arrangements
 the file picker uses.** Opening a project asks the host for its top level; expanding a folder asks

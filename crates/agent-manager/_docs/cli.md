@@ -40,7 +40,7 @@ am opencode --config ./run.toml
 | `--config <path>`        | Settings file to merge (toml/yaml). Default: discovered (see below).|
 | `--catalog <path>`       | Catalog root override (else env, else config, else default).        |
 | `--keep-config`          | Don't delete the ephemeral config dir on exit (debugging).          |
-| `--print-config`         | Provision only; print the generated dir + argv + env; don't launch. |
+| `--print-config`         | Provision only; print the generated dir + argv + env — and, on a confined run, the effective isolation policy (layer stack, grants, home, argv); don't launch. |
 | `--account <id>`         | Account/credential profile to use.                                  |
 | `--model <id>`           | Launch with a specific harness-native model id (discover with `--list-models`). |
 | `--list-models`          | List the models available for this harness and exit (don't launch). |
@@ -49,13 +49,24 @@ am opencode --config ./run.toml
 | `--prompt <text>`        | Seed an initial prompt for the first harness message.               |
 | `--io <mode>`            | I/O mode: `passthrough` (default) or `structured` (alias `jsonl`).  |
 | `--output <mode>`        | `--io structured` event projection: `events` (default), `acp`, or `agui` (alias `ag-ui`). |
-| `--isolate[=profile]`    | Run inside an isol8 sandbox.                                        |
+| `--isolate[=profile]`    | Confine the run under an isol8 sandbox policy. Bare `--isolate` adds no named layer beyond the built-in defaults; `--isolate=<name>` layers a named profile on top. Refused together with `--io structured`. *(2)* |
+| `--no-isolate`           | Opt out of isolation, even when a settings file, a resolved profile, or `[isolate] enabled` would otherwise turn it on. `conflicts_with` `--isolate`. |
 | `--resume <id>`          | Resume a prior run by its *harness-native* session id (see below).  |
 | `--mcp-as-skill a,b`     | Expose these already-injected catalog mcp ids as a latent skill pointer for this run (see [`mcp-as-skill.md`](./mcp-as-skill.md)). |
 | `-- <harness-args…>`     | Everything after `--` is forwarded verbatim to the harness binary.  |
 
 *(1)* `--safe` is a named **preset** resolved from the settings file / built-in
 defaults, not a hard-coded flag list — so teams can define what "safe" means.
+
+*(2)* A structured run bridges the harness over pipes, and isol8 spawns with
+inherited stdio; combining `--isolate` with `--io structured` has no seam to
+confine through yet, so `am` refuses the combination outright rather than
+silently running it unconfined. Passthrough is unaffected: on macOS, a
+confined passthrough run execs `sandbox-exec` around the harness. Off macOS,
+confining a run in a caller-owned terminal has no native seam either — isol8
+spawns with inherited stdio and keeps its `SandboxChild` constructors private
+— so `--isolate` fails there too until isol8 grows that seam; see
+`refs/isol8-pty-seam-update.md`.
 
 Anything `am` doesn't recognize after `--` is the harness's own CLI (e.g.
 `am claude -- --model opus -p`). This keeps `am` from having to mirror every
@@ -118,7 +129,18 @@ mcps    = ["postgres"]
 [presets.safe]                               # what `--safe` expands to
 permission_mode = "restricted"
 deny            = ["Bash(rm *)", "WebFetch"]
+
+[isolate]                                    # confine runs under isol8 by default
+enabled = true                               # off unless a flag/profile says otherwise
+profile = "default"                          # layer added when a confined run names no profile of its own
+home    = "ephemeral"                        # "ephemeral" (scratch, discarded with the run) | "managed"
 ```
+
+`[isolate]` sets the default; a run's actual isolation is resolved highest-precedence
+first: `--no-isolate` (off, unconditionally) → `--isolate=<name>` → bare `--isolate`
+(layer from `[isolate].profile`) → the resolved profile's own `isolate` field →
+`[isolate].enabled` → off. `home = "managed"` needs a name to key the home by — the
+CLI keys it by the run's `--account`, falling back to the harness id.
 
 ### Merge semantics — **replace by default** (decided)
 

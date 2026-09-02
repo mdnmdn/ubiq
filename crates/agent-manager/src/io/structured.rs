@@ -72,6 +72,7 @@ mod tests {
             args: args.iter().map(|s| s.to_string()).collect(),
             env: Vec::new(),
             env_remove: Vec::new(),
+            env_clear: false,
         }
     }
 

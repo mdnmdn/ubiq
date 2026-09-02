@@ -79,7 +79,7 @@ The control path. Lower volume, request-and-response.
 | `SessionCreated` | coordinator → UI | `session` | — |
 | `SessionAttached` | coordinator → UI | `session`, `workspaces[]` | — |
 | `WorkspaceSpawned` | coordinator → UI | `workspace` | — |
-| `AgentTypes` | coordinator → UI | `types[]` | — |
+| `AgentTypes` | coordinator → UI | `agent_types[]` | — |
 | `Status` | coordinator → UI | `message` | — |
 | `Error` | coordinator → UI | `message` | — |
 
@@ -158,12 +158,14 @@ path in it is relative.
 **`HostInfo` is unsolicited**, sent once to each window as it attaches. The interface reads no
 disk, so it is the only way the status bar can say that a run is not writing to the usual place.
 
-**`ListShells` is asked repeatedly and answered from a fresh probe.** Which programs are on the
-machine is another fact the interface cannot read, and unlike a config root it can change while a
-window is open, so it is a request rather than something stamped at attach — the new-pane menu asks
-every time it opens. A pane is then started with the `program` a `ShellInfo` carried, on
-`SpawnWorkspace`'s existing `agent_type`; nothing about the spawn changes for a shell picked from a
-menu.
+**`ListShells` and `ListAgentTypes` are asked repeatedly and answered from a fresh probe.** Which
+programs are on the machine is another fact the interface cannot read, and unlike a config root it
+can change while a window is open, so both are requests rather than something stamped at attach —
+the new-pane menu asks every time it opens. A pane is then started with the `program` a `ShellInfo`
+carried or the `id` an `AgentTypeInfo` carried, both on `SpawnWorkspace`'s existing `agent_type`:
+one field, and the coordinator's answer to whether the harness library knows that name is what
+decides whether the pane is a composed agent or a program. An `AgentTypeInfo` whose `available` is
+false is offered and not pickable, so the interface never has to decide what a missing binary means.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
@@ -400,7 +402,7 @@ Eighteen records travel inside payloads.
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `name`, `command`, `description`, `default_args` |
+| `AgentTypeInfo` | `id`, `label`, `available` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes` and `workarea` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
@@ -444,6 +446,10 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
+`HostSettings` carries a `schema` and `isolate_agents`, which is whether an agent runs confined —
+the one setting the host acts on rather than stores, read again at every spawn. A record written by
+an older build still parses, because every field added since carries a default; only a newer schema
+is refused.
 
 `DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
 textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.

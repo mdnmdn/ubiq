@@ -13,7 +13,7 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::messages::ShellInfo;
+use ubiq_proto::messages::{AgentTypeInfo, ShellInfo};
 
 use crate::state::settings::SettingsState;
 use crate::theme::ThemeId;
@@ -160,6 +160,8 @@ pub enum MenuId {
 /// cannot be picked by an index that has shifted under it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NewPaneRow {
+    /// An agent harness, by its index in [`WorkbenchState::agent_types`].
+    Agent(usize),
     /// A shell, by its index in [`WorkbenchState::shells`].
     Shell(usize),
     /// The line between what starts something and what does not.
@@ -212,6 +214,12 @@ pub struct WorkbenchState {
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
     pub shells: Vec<ShellInfo>,
+    /// The agent harnesses the host says can be started here, in the order the menu offers them
+    /// above the shells. Empty until the host answers — asked alongside [`Message::ListShells`]
+    /// for the same reason: a harness installed since is offered without a restart.
+    ///
+    /// [`Message::ListShells`]: ubiq_proto::messages::Message::ListShells
+    pub agent_types: Vec<AgentTypeInfo>,
 }
 
 impl Default for WorkbenchState {
@@ -233,6 +241,7 @@ impl Default for WorkbenchState {
             file_tab_menu: None,
             new_pane_menu: None,
             shells: Vec::new(),
+            agent_types: Vec::new(),
         }
     }
 }
@@ -241,11 +250,18 @@ impl WorkbenchState {
     /// What the new-pane control's menu offers.
     ///
     /// A window with no project can start no pane — there is no folder to run one in — so it is
-    /// offered the console alone rather than shells that would do nothing. The separator is a row
-    /// like any other, and there is none when there is nothing above it to separate.
+    /// offered the console alone rather than agents and shells that would do nothing. Agent
+    /// harnesses are offered above the shells, because starting a harness is the common case and
+    /// a bare shell is the fallback. Each separator is a row like any other, and there is none
+    /// when there is nothing above it to separate — an empty agent list degrades to exactly the
+    /// menu a window with no harnesses installed showed before agents existed.
     pub fn new_pane_rows(&self, has_project: bool) -> Vec<NewPaneRow> {
         let mut rows = Vec::new();
         if has_project {
+            rows.extend((0..self.agent_types.len()).map(NewPaneRow::Agent));
+            if !self.agent_types.is_empty() {
+                rows.push(NewPaneRow::Separator);
+            }
             rows.extend((0..self.shells.len()).map(NewPaneRow::Shell));
             if !self.shells.is_empty() {
                 rows.push(NewPaneRow::Separator);

@@ -66,8 +66,6 @@ enum AccountCommand {
         /// that version reports as an error and does NOT fall back to a
         /// plaintext credential file — whereas denying keychain access at
         /// the sandbox layer does still take the clean file-fallback path.
-        /// Requires the `isolate-lib` feature (on by default in the `cli`/
-        /// `frontend` build).
         #[arg(long, num_args = 0..=1)]
         isolate: Option<Option<String>>,
         /// Force the plain (non-isolated) PTY capture, overriding the macOS
@@ -1339,7 +1337,9 @@ fn cmd_login(
             std::env::var("USER").unwrap_or_else(|_| "you".to_string())
         );
         let cwd = std::env::current_dir()?;
-        crate::run::run(&provisioned, &cwd, true)? // keep_config: persistent
+        // A login capture runs unconfined here; `--isolate` on `am account
+        // login` takes the `isol8::Sandbox` path below instead.
+        crate::run::run(&provisioned, &cwd, true, None)? // keep_config: persistent
     };
     if code != 0 {
         bail!("harness login exited with code {code}; no account recorded");
@@ -1430,7 +1430,6 @@ fn cmd_login(
 /// the OAuth browser fails to open or `claude` can't start, diagnose the
 /// missing grant with `isol8 @diag claude` and either widen the composition
 /// here or pass an explicit `--isolate=<profile>`.
-#[cfg(feature = "isolate-lib")]
 fn run_login_isolated(
     home: &Path,
     plan: &crate::harness::LoginPlan,
@@ -1480,20 +1479,6 @@ fn run_login_isolated(
     sandbox
         .run(argv)
         .map_err(|e| anyhow!("isol8 sandbox run failed: {e}"))
-}
-
-/// Stub for builds without the `isolate-lib` feature: `--isolate` errors
-/// clearly instead of the flag silently being accepted and ignored.
-#[cfg(not(feature = "isolate-lib"))]
-fn run_login_isolated(
-    _home: &Path,
-    _plan: &crate::harness::LoginPlan,
-    _profile: Option<String>,
-) -> Result<i32> {
-    bail!(
-        "--isolate requires the 'isolate-lib' feature (already part of the default 'cli'/\
-         'frontend' build); rebuild without disabling it to use --isolate"
-    )
 }
 
 /// Render an [`Account`] as an inline `[[account]]` TOML snippet.

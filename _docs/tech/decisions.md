@@ -802,6 +802,36 @@ asks the window for each panel rather than assuming it can have one, because whe
 is the coordinator's answer and not the layout's. A blob written before this carries terminal leaves
 with no payload; they are dropped, which is what the old code did with all of them.
 
+### D52 — An agent is composed by the library and confined by default
+
+`SpawnWorkspace` naming an agent type the harness library knows is composed rather than executed:
+the library provisions a throwaway configuration directory, answers with the launch, and resolves
+the policy the run is confined under. Anything the library does not know stays a program name, which
+is what a shell is. Confinement is on unless the host settings turn it off, and grants the project's
+folder and that run's own directory — nothing else.
+
+**Why on by default:** an agent that edits files is what a deny-by-default policy is for, and a
+default the user has to find is a default nobody has. The grant set is the smallest one that lets a
+harness do the work it was opened for.
+
+**Why the registry decides what to exec, not the coordinator:** `Composed` keeps its launch and its
+policy private and answers `exec()`, so a confined run cannot be started unconfined by reaching for
+the wrong field. Losing confinement silently is the one failure here that looks like success.
+
+**Why the run directory is the pane's:** the library would otherwise mint its own under
+`~/.config/agent-manager/runs`, named by a timestamp and a pid. Naming it by the pane is what lets
+closing a tab delete exactly one run's state — credentials seeded into it included — and what makes
+a directory left by a killed process identifiable at the next start, which is when the host sweeps
+them.
+
+**Cost:** three of them. The environment a pane starts from is no longer Ubiq's own, so `pty::spawn`
+takes a `Program` rather than a program name — a confined run brings its whole environment, because
+the policy sanitized it. Confinement in a terminal Ubiq owns is macOS-only, because isol8 spawns
+with inherited stdio and a host cannot hand it a pseudo-terminal; the seam that fixes it is
+specified in `refs/isol8-pty-seam-update.md` and the stopgap renders the policy and execs
+`sandbox-exec`. And a harness whose toolchain lives outside the project reads as broken until a
+recipe grants it — both are rows in the backlog register.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

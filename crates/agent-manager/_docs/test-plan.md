@@ -115,9 +115,12 @@ real `~/.claude`:
 - [ ] **E1** `export AM_ACCOUNTS="$(mktemp -d)"`; create an `accounts.toml` with a
       reference-only account (e.g. `id="test"`, `api_key_env="SOME_ENV"`). Needed
       for §7 and §5-account.
-- [ ] **E2** For §12 isolation: `isol8` (or the configured sandbox command)
-      installed, **or** plan to assert the pre-launch wrap only via
-      `--print-config` (no sandbox binary needed to see the wrapped argv).
+- [ ] **E2** For §12 isolation: no external `isol8` binary to install — isol8
+      is a core library dependency baked into `am`. `--print-config` prints
+      the resolved policy without spawning anything; a *live* confined run
+      only works on macOS today (it execs the always-present
+      `/usr/bin/sandbox-exec`) — off macOS it errors naming
+      `refs/isol8-pty-seam-update.md` (see T-12f/T-12g).
 - [ ] **E3** For §13 settings: a scratch project dir with an `am.toml` you
       control (so discovery/merge tests don't depend on your real config).
 - [ ] **E4** `export AM_SESSIONS="$(mktemp -d)"` so §14 session history writes to a
@@ -404,17 +407,23 @@ Applies to **claude ✅, codex ✅, opencode ✅**; **grok ⛔**.
 
 ---
 
-## 12. Isolation (`--isolate`) (needs §1.E2)
+## 12. Isolation (`--isolate` / `--no-isolate`) (needs §1.E2)
 
-Can be checked **without** a sandbox binary via `--print-config` (the wrap is
-applied before launch):
+Can be checked **without spawning anything** via `--print-config`: it prints the
+plain provisioned argv/env as always, and — on a confined run — a trailing
+`isolation:` block with the resolved policy (layer stack, grants, home, argv),
+since the launch argv itself is never rewritten at provision time; only an
+actual spawn (§T-12f) execs under the policy.
 
 | id | Command | Expected |
 |----|---------|----------|
-| T-12a | `<h> --isolate --print-config` | launch argv wrapped: `program = "isol8"`, argv = `["--", "<harness>", …]` (harness and its args moved after `--`) |
-| T-12b | `<h> --isolate=dev --print-config` | named profile `dev` threaded in: `program = "isol8"`, argv = `["--profile", "dev", "--", "<harness>", …]` |
-| T-12c | *(no flag)* | no wrapping (baseline argv), confirming isolation is off by default |
-| T-12d | live (if isol8 installed) | `<h> --isolate -- --version` runs inside sandbox; harness output forwarded; exits with harness exit code |
+| T-12a | `<h> --isolate --print-config` | `argv:` is the harness's own program + args, unwrapped; followed by an `isolation:` block whose layers are `base` and this OS's `<os>/system-runtime` (bare `--isolate` adds no named layer), whose grants include the config dir and cwd as read-write, and whose home is an ephemeral path |
+| T-12b | `<h> --isolate=dev --print-config` | same shape as T-12a, but the `isolation:` layers also include `dev` |
+| T-12c | *(no flag)* | no `isolation:` block at all, confirming isolation is off by default |
+| T-12d | `<h> --no-isolate --print-config` with `[isolate] enabled = true` in the settings file | no `isolation:` block — `--no-isolate` beats the settings default (and beats a profile's own `isolate` and a bare/named `--isolate`, per the CLI's precedence order) |
+| T-12e | `<h> --isolate --io structured` (a real run, not `--print-config`) | refused before spawning the harness: error naming the `--isolate`/`--io structured` combination and `refs/isol8-pty-seam-update.md` |
+| T-12f | live, macOS: `<h> --isolate -- --version` | execs `/usr/bin/sandbox-exec` around the harness (one process, no PTY seam needed); harness output forwarded; exits with the harness's own exit code |
+| T-12g | live, non-macOS: `<h> --isolate -- --version` | fails before spawning the harness; error names `refs/isol8-pty-seam-update.md` |
 
 ---
 

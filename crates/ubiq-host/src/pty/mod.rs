@@ -26,13 +26,43 @@ pub struct Pty {
     killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
+/// What a pane runs: a program, its arguments, and the environment it starts from.
+///
+/// A shell is [`plain`](Program::plain) — it inherits Ubiq's environment and adds nothing. A
+/// composed agent brings its own: the harness library computed which variables point it at the
+/// throwaway configuration it was provisioned into, and a run that does not carry them reads the
+/// user's real configuration instead. A confined run brings the *whole* environment, because the
+/// policy sanitized it, and inheriting Ubiq's would put back what the sandbox took out.
+#[derive(Clone, Debug, Default)]
+pub struct Program {
+    pub program: String,
+    pub args: Vec<String>,
+    /// Variables to set on the child.
+    pub env: Vec<(String, String)>,
+    /// Variables to drop from the inherited environment.
+    pub env_remove: Vec<String>,
+    /// Start from an empty environment rather than Ubiq's own.
+    pub env_clear: bool,
+}
+
+impl Program {
+    /// A program run as-is, inheriting Ubiq's environment — what a shell is.
+    pub fn plain(program: impl Into<String>, args: Vec<String>) -> Self {
+        Self {
+            program: program.into(),
+            args,
+            ..Self::default()
+        }
+    }
+}
+
 /// Open a pseudo-terminal and start `program` in it.
 ///
 /// `TERM` and `COLORTERM` are set here because a harness asks the environment what it may draw,
-/// and everything Ubiq shows depends on the answer.
+/// and everything Ubiq shows depends on the answer. They are set before the program's own
+/// environment, so a confined run that carries its own answer keeps it.
 pub fn spawn(
-    program: &str,
-    args: &[String],
+    program: &Program,
     folder: Option<&Path>,
     cols: u16,
     rows: u16,
@@ -46,18 +76,30 @@ pub fn spawn(
         })
         .context("opening a pseudo-terminal")?;
 
-    let mut command = command_for(program, args);
+    let mut command = command_for(&program.program, &program.args);
     if let Some(folder) = folder {
         command.cwd(folder);
     }
+    if program.env_clear {
+        command.env_clear();
+    }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
+    for var in &program.env_remove {
+        command.env_remove(var);
+    }
+    for (key, value) in &program.env {
+        command.env(key, value);
+    }
 
     let child = pair
         .slave
         .spawn_command(command)
-        .with_context(|| format!("starting {program}"))?;
-    tracing::debug!("opened a {cols}x{rows} pseudo-terminal for {program}");
+        .with_context(|| format!("starting {}", program.program))?;
+    tracing::debug!(
+        "opened a {cols}x{rows} pseudo-terminal for {}",
+        program.program
+    );
     // The slave is only needed to start the child; holding it would keep the pseudo-terminal open
     // after the harness is gone, and the reader would never see the end of the stream.
     drop(pair.slave);

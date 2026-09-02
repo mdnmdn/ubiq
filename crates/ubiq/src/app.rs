@@ -56,7 +56,7 @@ use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
-use ubiq_proto::settings::SettingsLayer;
+use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
 /// How much of a file the interface asks for. The host has a ceiling of its own and this never
@@ -2028,6 +2028,7 @@ impl AppState {
                 // that is. Asked on attach so the first menu is not empty, and again on every
                 // open — see `open_new_pane_menu`.
                 self.bus.send(Message::ListShells);
+                self.bus.send(Message::ListAgentTypes);
                 cx.notify();
             }
 
@@ -2035,6 +2036,13 @@ impl AppState {
             // the list, and a shell that has been uninstalled has to leave the menu.
             Message::ShellList { shells } => {
                 self.workbench.shells = shells;
+                cx.notify();
+            }
+
+            // Which agent harnesses can be started here. Replaced whole, same as the shell list:
+            // a harness that has been uninstalled has to leave the menu, or read as unavailable.
+            Message::AgentTypes { agent_types } => {
+                self.workbench.agent_types = agent_types;
                 cx.notify();
             }
 
@@ -3751,6 +3759,18 @@ impl AppState {
         });
     }
 
+    /// Write down how the host behaves. The blob is the host's own schema — this half only ever
+    /// stamps the version it was built against and hands the rest across, unparsed on the way out
+    /// the same way it is unparsed on the way back until the host answers.
+    fn remember_host_settings(&mut self) {
+        let mut host = self.workbench.settings.host.clone();
+        host.schema = HOST_SETTINGS_SCHEMA;
+        self.bus.send(Message::SetSettings {
+            layer: SettingsLayer::Host,
+            value: serde_json::to_string(&host).unwrap_or_default(),
+        });
+    }
+
     fn apply_settings(
         &mut self,
         layer: SettingsLayer,
@@ -3766,7 +3786,18 @@ impl AppState {
                 }
             }
             SettingsLayer::Host => {
-                // Nothing this build displays. The fetch exists so the plumbing is live.
+                // Absent means nothing was ever written: the default already showing is correct,
+                // and there is nothing to decode.
+                let Some(blob) = value else { return };
+                match serde_json::from_str::<HostSettings>(&blob) {
+                    Ok(host) => {
+                        self.workbench.settings.host = host;
+                        cx.notify();
+                    }
+                    Err(error) => {
+                        tracing::debug!("discarding unreadable host settings: {error}");
+                    }
+                }
             }
         }
     }
@@ -3800,6 +3831,14 @@ impl AppState {
     pub fn set_markdown_open(&mut self, choice: MarkdownOpen, cx: &mut Context<Self>) {
         self.workbench.settings.ui.markdown_open = choice;
         self.remember_settings();
+        cx.notify();
+    }
+
+    /// Flip the deny-by-default policy an agent spawns under. Host-owned, so this writes the
+    /// Host layer rather than the Ui one.
+    pub fn toggle_isolate_agents(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.host.isolate_agents = !self.workbench.settings.host.isolate_agents;
+        self.remember_host_settings();
         cx.notify();
     }
 
@@ -4772,14 +4811,17 @@ impl AppState {
         self.workbench.open_menu = Some(MenuId::NewPane);
         self.workbench.new_pane_menu = Some(at);
         self.bus.send(Message::ListShells);
+        self.bus.send(Message::ListAgentTypes);
         cx.notify();
     }
 
     /// Act on one row of the open new-pane menu, by the row's index.
     ///
-    /// A shell row starts a pane running that shell — the same call the "+" makes, with a program
-    /// on it. Past the last shell is the separator, which is a row and does nothing, and then the
-    /// console, which is revealed rather than started.
+    /// An agent row starts a pane running that harness, and a shell row starts one running that
+    /// shell — the same call the "+" makes, with a program on it. A harness the host could not
+    /// find is drawn disabled and takes no click, so picking it here does nothing rather than
+    /// asking for a spawn that would fail. Past the last shell is the separator, which is a row
+    /// and does nothing, and then the console, which is revealed rather than started.
     pub fn pick_new_pane_menu(
         &mut self,
         index: usize,
@@ -4790,6 +4832,15 @@ impl AppState {
         self.workbench.new_pane_menu = None;
         let has_project = self.project(cx).is_some();
         match self.workbench.new_pane_rows(has_project).get(index) {
+            Some(NewPaneRow::Agent(agent)) => {
+                let Some(agent) = self.workbench.agent_types.get(*agent) else {
+                    return;
+                };
+                if !agent.available {
+                    return;
+                }
+                self.spawn_pane(Some(agent.id.clone()), Vec::new(), cx);
+            }
             Some(NewPaneRow::Shell(shell)) => {
                 let Some(program) = self
                     .workbench

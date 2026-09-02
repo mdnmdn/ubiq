@@ -113,8 +113,8 @@ fn basename(program: &str) -> String {
         .into_owned()
 }
 
-/// Where a named shell is on this machine, `PATH` first and then the usual homes.
-fn locate(name: &str) -> Option<PathBuf> {
+/// Where a named program is on this machine, `PATH` first and then the usual homes.
+pub(crate) fn locate(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH");
     let from_path = path
         .as_deref()

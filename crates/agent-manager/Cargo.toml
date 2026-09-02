@@ -23,7 +23,7 @@ default = ["frontend"]
 # spec/resolve/registry/harness/provision modules.
 frontend = ["cli", "tui"]
 # The clap CLI plus the runtime that launches a harness through a PTY.
-cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty", "isolate-lib", "keyring-store"]
+cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty", "keyring-store"]
 tui = ["dep:ratatui", "dep:crossterm"]
 # The passthrough runner: spawn the real harness in a PTY, forward the tty,
 # resize on SIGWINCH, and propagate its exit code. Pulled in by `cli`; kept
@@ -35,14 +35,6 @@ pty = ["dep:portable-pty", "dep:crossterm", "dep:signal-hook"]
 # remote MCP server. Off by default (not part of `frontend`/`cli`); pulled in
 # explicitly by embedders (or `--all-features`, e.g. for the E2E test).
 inproc-mcp = ["dep:tiny_http"]
-# `am account login --isolate`: run the interactive login capture inside an
-# isol8 deny-by-default sandbox (see `src/cli/account.rs::cmd_login`), rather
-# than through the plain PTY runner. Pulled in by `cli` (so the standalone
-# tool has it); kept separate so the core still builds
-# `--no-default-features` without ever pulling in isol8. NOT the same thing
-# as `src/isolate.rs`'s `am <harness> --isolate`, which shells out to the
-# `isol8` CLI binary and has no dependency on this feature.
-isolate-lib = ["dep:isol8"]
 # `engine = "keyring"` credentials backend: stores secrets in the OS system
 # credential store (macOS Keychain / Windows Credential Manager / Linux
 # Secret Service) via the `keyring` crate, as a sibling to the `os` engine
@@ -91,11 +83,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 # Sync, no tokio — matches the crate's other optional runtime deps.
 tiny_http = { version = "0.12", optional = true }
 
-# Deny-by-default sandbox engine for `am account login --isolate` (optional —
-# `isolate-lib` feature; see that feature's doc comment above). Engine-only
-# (`default-features = false` drops isol8's own `cli` feature — its clap/
-# serde_yaml — since agent-manager only calls the `Sandbox` builder API).
-isol8 = { git = "https://github.com/mdnmdn/isol8", branch = "featurs/lib-crate", default-features = false, optional = true }
+# The deny-by-default sandbox every isolated run is composed against. Core, not
+# optional: `src/isolate.rs` builds an isol8 `Spec` in-process, so a run that
+# asks to be confined is confined in lib mode too. Engine-only
+# (`default-features = false` drops isol8's own `cli`, `registry` and `wizard`
+# features — clap, serde_yaml, the offline registry types — none of which an
+# embedder composing a run needs).
+isol8 = { git = "https://github.com/mdnmdn/isol8", rev = "46c72edac4dda6d146af57f90121bb54820150eb", default-features = false }
 
 # OS system credential store for the `keyring` credentials engine (optional —
 # `keyring-store` feature). Default features (`v1`) pull in the

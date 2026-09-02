@@ -67,6 +67,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         model: run_args.model.clone(),
         hooks: clean_ids(run_args.hooks.clone()),
         safe: run_args.safe,
+        no_isolate: run_args.no_isolate,
         instructions,
         prompt: run_args.prompt.clone(),
         passthrough_args,
@@ -106,22 +107,24 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
     // The CLI backs preference templates with the filesystem template store
     // (`AM_TEMPLATES` / the default location); an embedder passes its own.
     let templates = crate::harness::FsTemplateStore::from_default();
-    let mut provisioned = provision::provision(harness, &spec, &templates)?;
+    let provisioned = provision::provision(harness, &spec, &templates)?;
 
-    if !matches!(spec.isolation, crate::spec::Isolation::None) {
-        let template = crate::isolate::IsolateTemplate {
-            command: settings
-                .isolate
-                .command
-                .clone()
-                .unwrap_or_else(|| crate::isolate::IsolateTemplate::default().command),
-        };
-        provisioned.launch =
-            crate::isolate::wrap_launch(&provisioned.launch, &spec.isolation, &template);
-    }
+    // Isolation is resolved after provisioning, because the policy grants the
+    // config dir the provisioner just populated. The launch itself is left
+    // alone: what confinement replaces is the argv at spawn, not the harness's
+    // own idea of how it is started.
+    let confined = crate::isolate::plan(
+        &provisioned.launch,
+        &spec,
+        &provisioned.dir,
+        &isolate_options(&settings, &spec)?,
+    )?;
 
     if run_args.print_config {
         print_config(&provisioned.dir, &provisioned.launch, run_args.keep_config);
+        if let Some(confined) = &confined {
+            print_policy(&crate::isolate::describe(confined)?);
+        }
         return Ok(());
     }
 
@@ -142,9 +145,12 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         &spec,
         &provisioned,
         &cwd,
-        output,
-        sessions_root,
-        run_args.keep_config,
+        RunTail {
+            output,
+            sessions_root,
+            keep_config: run_args.keep_config,
+            confined: confined.as_ref(),
+        },
     )
 }
 
@@ -158,15 +164,30 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
 /// a session recorder actually starts, the config dir is retained regardless
 /// of `keep_config` — a resume needs the retained dir to point the harness
 /// back at.
+pub(super) struct RunTail<'a> {
+    /// How structured events are projected outward.
+    pub output: OutputMode,
+    /// Where a session's transcript and metadata are written, if anywhere.
+    pub sessions_root: Option<PathBuf>,
+    /// Keep the ephemeral config dir after the run.
+    pub keep_config: bool,
+    /// The policy the run is confined under, if it is.
+    pub confined: Option<&'a crate::isolate::Confined>,
+}
+
 pub(super) fn run_provisioned(
     harness: &dyn Harness,
     spec: &crate::spec::RunSpec,
     provisioned: &provision::Provisioned,
     cwd: &Path,
-    output: OutputMode,
-    sessions_root: Option<PathBuf>,
-    keep_config: bool,
+    tail: RunTail<'_>,
 ) -> Result<()> {
+    let RunTail {
+        output,
+        sessions_root,
+        keep_config,
+        confined,
+    } = tail;
     let io_label = if spec.io == crate::spec::IoModes::Structured {
         "structured"
     } else {
@@ -182,6 +203,16 @@ pub(super) fn run_provisioned(
     );
 
     if spec.io == crate::spec::IoModes::Structured {
+        // A structured run talks to the harness over pipes, and isol8 spawns
+        // with inherited stdio, so there is nothing to hand it yet. Refusing
+        // is the only honest answer: the alternative is a run the user asked
+        // to confine and which silently was not.
+        if confined.is_some() {
+            anyhow::bail!(
+                "--isolate and --io structured cannot be combined yet: confining a run whose \
+                 I/O is bridged needs isol8's stdio seam (see refs/isol8-pty-seam-update.md)"
+            );
+        }
         return run_structured(harness, spec, provisioned, cwd, output, sessions_root, meta);
     }
 
@@ -199,7 +230,7 @@ pub(super) fn run_provisioned(
     // `ephemeral` check.)
     let keep_config = keep_config || recorder.is_some();
 
-    let code = crate::run::run(provisioned, cwd, keep_config)?;
+    let code = crate::run::run(provisioned, cwd, keep_config, confined)?;
 
     if let Some(recorder) = recorder {
         let _ = recorder.finish(Some(code));
@@ -374,6 +405,74 @@ fn print_models(harness: &dyn Harness, models: &[crate::harness::ModelInfo]) {
 
 /// Print the provisioned config dir, launch argv, and env — the
 /// `--print-config` output.
+/// Where isol8 keeps this tool's isolation state, and what a confined run's
+/// `$HOME` is — the CLI's answer to what an embedder passes in directly.
+///
+/// The state dir sits beside every other `am` store so a relocated config
+/// folder relocates isolation with it. A managed home is keyed by the run's
+/// account when it has one, because a persistent home holds that account's
+/// logins and caches; a run with no account keys it by the harness.
+fn isolate_options(
+    settings: &crate::settings::Settings,
+    spec: &crate::spec::RunSpec,
+) -> Result<crate::isolate::IsolateOptions> {
+    let base = std::env::var("AM_CONFIG_FOLDER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(crate::settings::default_config_dir)
+        .context("could not determine a config directory for this OS")?;
+
+    let mut options = crate::isolate::IsolateOptions::new(base.join("isol8"));
+
+    if let Some(mode) = settings.isolate.home.as_deref() {
+        let id = spec
+            .account
+            .as_ref()
+            .map(|a| a.id.clone())
+            .unwrap_or_else(|| spec.harness.clone());
+        options.home = crate::isolate::HomeMode::parse(mode, &sanitize_segment(&id))?;
+    }
+
+    Ok(options)
+}
+
+/// A single path segment isol8 will accept for a managed home: no separator,
+/// no `..`, nothing empty.
+fn sanitize_segment(id: &str) -> String {
+    let cleaned: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "default".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// The effective policy a confined run was resolved into: the layer stack, the
+/// grants, the home and the environment the harness will actually see.
+fn print_policy(dry: &isol8::DryRun) {
+    println!("isolation: {}", dry.policy_label);
+    println!("  home: {}", dry.home_path.display());
+    println!("  layers:");
+    for (name, origin) in &dry.layer_names {
+        println!("    {name} ({origin:?})");
+    }
+    println!("  grants:");
+    for grant in &dry.profile.paths {
+        println!("    {:?} {}", grant.access, grant.path);
+    }
+    println!("  argv: {}", dry.cmd.join(" "));
+}
+
 fn print_config(dir: &Path, launch: &crate::harness::Launch, keep_config: bool) {
     println!("config dir: {}", dir.display());
     println!("argv: {} {}", launch.program, launch.args.join(" "));

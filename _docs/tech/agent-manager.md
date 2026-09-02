@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-08-31
-verified: 2026-08-31
-code_anchors: [crates/ubiq/Cargo.toml, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs]
+updated: 2026-09-02
+verified: 2026-09-02
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/isolate.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -37,6 +37,8 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | Which accounts exist and how credentials are referenced | the library |
 | Session history and resume, as the *harness* understands it | the library |
 | How a harness's I/O is bridged into structured events | the library |
+| What a policy grants, and how the operating system enforces it | the library |
+| Whether an agent is confined at all, and where its run directory lives | Ubiq |
 | That a harness runs under a pseudo-terminal in a pane | Ubiq |
 | Which panes exist, which is focused, how they are laid out | Ubiq |
 | A session as a *user's* piece of work, with a home folder | Ubiq |
@@ -54,6 +56,25 @@ configuration directory and produces a launch. Ubiq's coordinator constructs tha
 programmatically instead of parsing command-line flags, and spawns the resulting launch under a
 pseudo-terminal it owns.
 
+`crates/ubiq-host/src/agent.rs` is the whole of that consumption, and it is deliberately thin. The
+agent-type list is `harness::all()` projected into `AgentTypeInfo`, each row marked with whether the
+harness's own binary is on this machine. A spawn naming one of those ids composes a run — a
+`RunSpec` with the harness, the project's folder and the policy setting — provisions it, and answers
+with what to exec. A spawn naming anything else is a program name, which is what a shell is.
+
+Two things in that file are Ubiq's rather than the library's, and both concern ownership rather than
+configuration. **A run's configuration directory belongs to the pane**: it is `ConfigStrategy::Fixed`
+under Ubiq's own config root, named by the pane id, deleted when the pane closes, and swept at
+startup for whatever a killed process left. And **an agent is confined unless the host settings say
+otherwise** — the policy grants the project's folder and that directory, with an ephemeral `$HOME`.
+Which harnesses opt out, and under which policy, stays the library's: it has the layered shape for
+that already, and a second one here would be two places to look. See `D52`.
+
+Confining a run in a terminal Ubiq owns is macOS-only. isol8 spawns with inherited stdio and keeps
+its child handle private, so no host can hand it a pseudo-terminal; `isolate::confined_launch`
+renders the policy and execs `sandbox-exec`, which macOS supports and Landlock cannot. The seam that
+replaces it is specified in `refs/isol8-pty-seam-update.md`.
+
 Everything an embedder can substitute is a trait: the catalog registry, the account store, the
 secret store, profiles, templates, session history, and an in-process MCP service. Ubiq supplies its
 own implementations where it wants application-specific behaviour and takes the filesystem defaults
@@ -67,11 +88,11 @@ Two feature decisions follow from embedding rather than shelling out:
   service on a loopback endpoint and inject it into the run as an ordinary remote MCP server —
   which is how a hosted agent calls back into Ubiq.
 
-`crates/ubiq/Cargo.toml` declares no dependency on the library, and neither does
-`crates/ubiq-host/Cargo.toml`, which is where the edge belongs: the host owns configuration and
-processes, and the interface may not name either. Adding that edge, and the agent
-registry that reads from the catalog rather than a hard-coded list, is tracked in
-[`../backlog.md`](../backlog.md).
+`crates/ubiq-host/Cargo.toml` declares the dependency and `crates/ubiq/Cargo.toml` does not, which
+is where the edge belongs: the host owns configuration and processes, and the interface may not name
+either. `just host` and `just ui` are the mechanical checks that this stayed true. What a run is
+composed *of* beyond a harness and a folder — skills, MCP servers, an account, a model — needs a
+composition on the wire, and is tracked in [`../backlog.md`](../backlog.md).
 
 ## The rules
 
