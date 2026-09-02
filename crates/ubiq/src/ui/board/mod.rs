@@ -1,11 +1,12 @@
 //! The tasks board: every task in the project as a card, in the column that says how far along it
 //! is, with the one that is selected reported beside it.
 //!
-//! It is the second view of the work the agents screen draws. The graph answers "who is doing
-//! what"; the board answers "what is there, and where has it got to" — the same tasks, in
-//! [`crate::state::work`], read at the scale of the project rather than of one session. Which is
-//! why a card carries an agent's name and a state, and why `Show in graph` is one click away: the
-//! two screens are two questions about one set of facts, not two sets.
+//! It is the third view of the work, beside the agents screen's columns and the orchestration
+//! graph. The graph answers "who is doing what"; the board answers "what is there, and where has it
+//! got to" — the same tasks, in [`crate::state::work`], read at the scale of the project rather
+//! than of one session. Which is why a card carries an agent's name and a state, and why
+//! `Show in graph` is one click away: the screens are three questions about one set of facts, not
+//! three sets.
 //!
 //! Three things on it are live. **A task is asked for** from the filter field — one field to find
 //! work and to name it — and lands in the backlog. **A card is dragged between columns**, and
@@ -37,9 +38,9 @@ use ubiq_proto::work::{Status, TaskRecord};
 use crate::app::AppState;
 use crate::state::work;
 use crate::theme;
-use crate::ui::agents::{activity_colour, bucket_colour};
 use crate::ui::eid;
 use crate::ui::kit::{card, choice_pill, field, meter, mono, primary_button, section_label};
+use crate::ui::work::{activity_colour, bucket_colour};
 
 /// The task under the pointer. It carries the id alone: where the task belongs is the column's
 /// answer, not the drag's.

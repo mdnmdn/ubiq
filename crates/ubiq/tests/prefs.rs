@@ -99,10 +99,13 @@ fn the_tabs_a_project_remembers_are_keys_rather_than_paths() {
 /// move the schema is a field already being written changing meaning, which no default can rescue.
 #[test]
 fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
-    let before = r#"{"schema":2,"rail_mode":"Ide","show_left":true,"show_bottom":true,
-                     "show_right":false,"explorer_width":280.0,"chat_width":null,
-                     "dock_height":220.5}"#;
-    let view: ViewPrefs = prefs::decode(before).expect("decodes");
+    let before = format!(
+        r#"{{"schema":{},"rail_mode":"Ide","show_left":true,"show_bottom":true,
+             "show_right":false,"explorer_width":280.0,"chat_width":null,
+             "dock_height":220.5}}"#,
+        prefs::SCHEMA
+    );
+    let view: ViewPrefs = prefs::decode(&before).expect("decodes");
 
     assert_eq!(view.rail_mode, RailMode::Ide);
     // The flat show flags and the three sizes belong to a frame this build no longer has: they are
@@ -128,14 +131,38 @@ fn the_interface_blob_carries_the_palette() {
     assert_eq!(back.theme, ThemeId::Light);
 }
 
-/// The schema moved when a remembered file became a tab key rather than a path, and when the saved
-/// arrangement gained one panel per open file. Both are fields an older build already wrote, so a
-/// blob from before the move is discarded whole rather than read as though it meant this.
+/// The schema moved when a remembered file became a tab key rather than a path, when the saved
+/// arrangement gained one panel per open file, and when `rail_mode: "Agents"` stopped naming the
+/// graph and started naming the columns. All three are fields an older build already wrote, so a
+/// blob from before a move is discarded whole rather than read as though it meant this.
 #[test]
-fn a_blob_from_before_the_tabs_became_keys_is_discarded() {
-    let before = r#"{"schema":1,"rail_mode":"Ide","show_left":true,"show_bottom":true,
-                     "show_right":true,"open_files":["justfile"],"active_file":"justfile"}"#;
-    assert!(prefs::decode::<ViewPrefs>(before).is_none());
+fn a_blob_from_a_previous_schema_is_discarded() {
+    for schema in 1..prefs::SCHEMA {
+        let before = format!(
+            r#"{{"schema":{schema},"rail_mode":"Ide","show_left":true,"show_bottom":true,
+                 "show_right":true,"open_files":["justfile"],"active_file":"justfile"}}"#
+        );
+        assert!(
+            prefs::decode::<ViewPrefs>(&before).is_none(),
+            "schema {schema} is not this build's and must be discarded"
+        );
+    }
+}
+
+/// The mode the graph screen answers to. `Agents` is still a name the blob carries and it now
+/// names a different screen, which is the reason the schema moved — so both names have to survive
+/// a round trip, or a window would come back on the wrong one.
+#[test]
+fn both_screens_over_the_work_survive_a_round_trip() {
+    for mode in [RailMode::Agents, RailMode::Orchestration] {
+        let out = ViewPrefs {
+            schema: prefs::SCHEMA,
+            rail_mode: mode,
+            ..ViewPrefs::default()
+        };
+        let back: ViewPrefs = prefs::decode(&prefs::encode(&out)).expect("decodes");
+        assert_eq!(back.rail_mode, mode);
+    }
 }
 
 #[test]
@@ -163,15 +190,19 @@ fn nonsense_is_discarded_rather_than_panicking() {
     assert!(prefs::decode::<ViewPrefs>("not json at all").is_none());
     assert!(prefs::decode::<ViewPrefs>("{}").is_none());
     // Right schema, wrong shape.
-    assert!(prefs::decode::<ViewPrefs>(r#"{"schema":2}"#).is_none());
+    let bare = format!(r#"{{"schema":{}}}"#, prefs::SCHEMA);
+    assert!(prefs::decode::<ViewPrefs>(&bare).is_none());
 }
 
 #[test]
 fn the_arrangement_may_be_absent() {
     // A blob written before the window remembered one still opens, and the window arranges itself
     // the way a fresh one does: the mode has no record, so it falls to `default_for`.
-    let without = r#"{"schema":2,"rail_mode":"Ide","open_files":[],"active_file":null}"#;
-    let view: ViewPrefs = prefs::decode(without).expect("decodes");
+    let without = format!(
+        r#"{{"schema":{},"rail_mode":"Ide","open_files":[],"active_file":null}}"#,
+        prefs::SCHEMA
+    );
+    let view: ViewPrefs = prefs::decode(&without).expect("decodes");
 
     assert!(view.modes.is_empty());
     let fresh = ModeLayout::default_for(RailMode::Ide);

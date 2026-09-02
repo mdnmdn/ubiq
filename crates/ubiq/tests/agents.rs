@@ -1,52 +1,41 @@
 //! The agents screen's logic, without a frame.
 //!
-//! Everything the graph decides — how it arranges itself, which cards are drawn, where a task's
-//! container falls, what a drop means, which tasks a selection lists, how long a grain of sand
-//! lasts — is arithmetic over plain data, so it is tested the way the explorer's tree and the
-//! window registry are: on the state alone, seeded the way the host would have filled it.
+//! Everything the columns decide — how the screen lays itself out from the work, what a close
+//! means, what a tab dragged onto a column means, which composer a column owns, what happens when
+//! an agent the host was reporting goes away — is arithmetic over plain data, so it is tested the
+//! way the orchestration graph's arrangement is: on the state alone, seeded the way the host would
+//! have filled it.
 //!
 //! The records are `ubiq_proto::work`'s own and arrive through `WorkProjection`, which is what the
-//! window does with a `WorkList`; the view over them is a `GraphView`, which holds no records and
-//! takes the projection as the first argument of every reader. Ids are minted rather than written
-//! down — a `TaskId` is a ULID the host mints, so the fixture binds each one to a name and the
-//! tests say `f.parser` where they used to say `2`.
+//! window does with a `WorkList`; the view over them is an `AgentsView`, which holds no records and
+//! takes the projection as the first argument of every reader that needs one.
 //!
-//! Positions are never asserted against the fixture, because the fixture has none. A test that
-//! needs a card somewhere in particular puts it there with `place`, which is the same call a drag
-//! makes.
+//! **The one claim worth stating twice**: closing a tab benches an agent and never ends it. Nothing
+//! in this file sends anything, because the arrangement is the interface's own fact.
 
-use std::time::{Duration, Instant};
-
-use ubiq::state::agents::{
-    CARD_HEIGHT, CARD_WIDTH, GRAIN_CEILING, GRAIN_LIFE, GROUP_LABEL, GROUP_PAD, GraphView, Held,
-    Selection, ZOOM_MAX, ZOOM_MIN,
-};
-use ubiq::state::layout::{CARD_GAP_X, CARD_GAP_Y};
+use ubiq::state::agents::{AgentsView, COLUMNS_MAX};
 use ubiq::state::work::WorkProjection;
-use ubiq_proto::ids::{SessionId, TaskId};
-use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Priority, Shape, Status, Step, StepState, TaskRecord, WorkAgent,
-    WorkSession,
-};
+use ubiq_proto::ids::SessionId;
+use ubiq_proto::work::{Activity, AgentId, Bucket, WorkAgent, WorkSession};
 
-fn session(id: SessionId, name: &str) -> WorkSession {
+fn session(id: SessionId, name: &str, worktree: bool) -> WorkSession {
     WorkSession {
         id,
         name: name.to_string(),
-        branch: "main".to_string(),
-        worktree: false,
+        branch: name.to_string(),
+        worktree,
     }
 }
 
-fn agent(id: AgentId, session: SessionId, task: Option<TaskId>, name: &str) -> WorkAgent {
+fn agent(id: AgentId, session: SessionId, name: &str, activity: Activity) -> WorkAgent {
     WorkAgent {
         id,
         session,
-        task,
+        task: None,
         parent: None,
         name: name.to_string(),
         role: "Implementer".to_string(),
-        activity: Activity::Writing,
+        activity,
         note: "doing a thing".to_string(),
         branch: "main".to_string(),
         tokens: 10_000.0,
@@ -57,621 +46,329 @@ fn agent(id: AgentId, session: SessionId, task: Option<TaskId>, name: &str) -> W
     }
 }
 
-/// The same card, doing something else. Written as a builder step so the fixture reads as a list of
-/// agents rather than a list of mutations.
-fn doing(mut agent: WorkAgent, activity: Activity) -> WorkAgent {
-    agent.activity = activity;
-    agent
-}
-
-fn task(id: TaskId, session: SessionId, title: &str, owners: &[Option<AgentId>]) -> TaskRecord {
-    TaskRecord {
-        id,
-        session: Some(session),
-        status: Status::Backlog,
-        priority: Priority::Normal,
-        shape: Shape::Direct,
-        title: title.to_string(),
-        description: String::new(),
-        steps: owners
-            .iter()
-            .enumerate()
-            .map(|(ix, owner)| {
-                let mut step = Step::new(format!("step-{ix}"));
-                step.state = if ix == 0 {
-                    StepState::Done
-                } else {
-                    StepState::Idle
-                };
-                step.owner = *owner;
-                step
-            })
-            .collect(),
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    }
-}
-
-/// A record the host has sent again, changed. The projection replaces on id, so this is the whole
-/// of how anything in the work changes — nothing on this side edits a record in place.
-fn edit_agent(work: &mut WorkProjection, id: AgentId, edit: impl FnOnce(&mut WorkAgent)) {
-    let mut agent = work.agent(id).expect("the fixture has that agent").clone();
-    edit(&mut agent);
-    work.apply_agent(agent);
-}
-
-/// One project's work and the graph's view of it, with a name for every id in it.
+/// One project's work and the screen's view of it, with a name for every id in it.
 struct Fixture {
     work: WorkProjection,
-    graph: GraphView,
+    view: AgentsView,
     refit: SessionId,
-    spike: SessionId,
-    writer: AgentId,
-    waiter: AgentId,
-    stopped: AgentId,
-    broken: AgentId,
-    loose: AgentId,
-    plumbing: TaskId,
-    parser: TaskId,
-    elsewhere: TaskId,
+    store: SessionId,
+    fixer: AgentId,
+    spec: AgentId,
+    builder: AgentId,
 }
 
-/// Two sessions, three tasks, five agents — one in each bucket, and one in the other session that
-/// nobody has given work to.
+/// Two sessions: one with a single agent, one with two — which is what makes a grouped column and
+/// a lone one both reachable without editing the fixture.
 fn seeded() -> Fixture {
     let refit = SessionId::generate();
-    let spike = SessionId::generate();
-    let writer = AgentId::generate();
-    let waiter = AgentId::generate();
-    let stopped = AgentId::generate();
-    let broken = AgentId::generate();
-    let loose = AgentId::generate();
-    let plumbing = TaskId::generate();
-    let parser = TaskId::generate();
-    let elsewhere = TaskId::generate();
+    let store = SessionId::generate();
+    let fixer = AgentId::generate();
+    let spec = AgentId::generate();
+    let builder = AgentId::generate();
 
     let mut work = WorkProjection::empty();
     work.replace_all(
-        vec![session(refit, "refit"), session(spike, "spike")],
         vec![
-            doing(
-                agent(writer, refit, Some(plumbing), "writer"),
-                Activity::Writing,
-            ),
-            doing(
-                agent(waiter, refit, Some(plumbing), "waiter"),
-                Activity::NeedsYou,
-            ),
-            doing(
-                agent(stopped, refit, Some(parser), "stopped"),
-                Activity::Ended,
-            ),
-            doing(
-                agent(broken, refit, Some(parser), "broken"),
-                Activity::Failed,
-            ),
-            doing(agent(loose, spike, None, "loose"), Activity::Thinking),
+            session(refit, "fix/terminal-refit", true),
+            session(store, "feat/session-store", true),
         ],
         vec![
-            task(plumbing, refit, "plumbing", &[Some(writer), Some(waiter)]),
-            task(parser, refit, "parser", &[Some(stopped)]),
-            task(elsewhere, spike, "elsewhere", &[Some(loose)]),
+            agent(fixer, refit, "Fixer", Activity::Tools),
+            agent(spec, store, "Spec", Activity::Ended),
+            agent(builder, store, "Builder", Activity::Writing),
         ],
+        Vec::new(),
     );
 
-    let mut graph = GraphView::default();
-    graph.relayout(&work);
+    let mut view = AgentsView::default();
+    view.arrange(&work);
     Fixture {
         work,
-        graph,
+        view,
         refit,
-        spike,
-        writer,
-        waiter,
-        stopped,
-        broken,
-        loose,
-        plumbing,
-        parser,
-        elsewhere,
+        store,
+        fixer,
+        spec,
+        builder,
     }
 }
 
-/// The same fixture with the four cards of the first session put where the geometry tests want
-/// them.
-fn placed() -> Fixture {
-    let mut f = seeded();
-    f.graph.place(&f.work, f.writer, (0.0, 0.0));
-    f.graph.place(&f.work, f.waiter, (400.0, 0.0));
-    f.graph.place(&f.work, f.stopped, (0.0, 400.0));
-    f.graph.place(&f.work, f.broken, (400.0, 400.0));
-    f
-}
-
-/// Pointing the screen at the first agent belongs to whoever first learns there is one — the window
-/// does it when a `WorkList` arrives. What the view guarantees on its own is the fallback: with
-/// nothing selected the screen is about the first session, so a graph is never about no session.
+/// The screen lays itself out from the work: one column per session that has an agent in it,
+/// holding every agent in that session, in the order the host listed them.
+///
+/// The bench therefore starts **empty**. That is the whole point of the default: the user has not
+/// taken anything off screen, so nothing is off screen, and the bench is a record of their own
+/// closes rather than a filter nobody chose.
 #[test]
-fn a_new_screen_selects_nothing_and_shows_the_first_session() {
+fn the_screen_opens_one_column_per_session_and_an_empty_bench() {
     let f = seeded();
-    assert_eq!(f.graph.selection, None);
-    assert_eq!(f.graph.active_session(&f.work), Some(f.refit));
-}
+    assert_eq!(f.view.columns.len(), 2);
+    assert_eq!(f.view.columns[0].tabs, vec![f.fixer]);
+    assert_eq!(f.view.columns[1].tabs, vec![f.spec, f.builder]);
+    assert_eq!(f.view.columns[1].active, 0);
 
-/// The screen opens on the whole of the work, and narrows only when asked to.
-///
-/// Which session is *drawn* is its own field, and it starts absent. Selecting a session does not
-/// narrow the canvas by itself — the two questions came apart so that "show me all of it" could
-/// stop meaning "stop looking at this".
-#[test]
-fn the_graph_opens_on_every_session_and_narrows_only_when_told_to() {
-    let mut f = seeded();
-    assert_eq!(f.graph.session, None);
-    assert!(f.graph.visible(f.work.agent(f.writer).unwrap()));
-    assert!(f.graph.visible(f.work.agent(f.loose).unwrap()));
-
-    // A selection on its own draws nothing away.
-    f.graph.selection = Some(Selection::Session(f.spike));
-    assert!(f.graph.visible(f.work.agent(f.writer).unwrap()));
-
-    f.graph.show_session(Some(f.spike));
-    assert!(!f.graph.visible(f.work.agent(f.writer).unwrap()));
-    assert!(f.graph.visible(f.work.agent(f.loose).unwrap()));
-
-    // And `all` puts them back without touching what is selected.
-    f.graph.show_session(None);
-    assert!(f.graph.visible(f.work.agent(f.writer).unwrap()));
-    assert_eq!(f.graph.selection, Some(Selection::Session(f.spike)));
-}
-
-/// A bucket pill narrows to its bucket, and a row with none lit narrows to nothing.
-///
-/// That is the way back from having turned them all off, and it is why any pill may be the last
-/// one: an empty canvas nobody can undo is the failure the old "the last pill stays on" rule was
-/// avoiding, and this avoids it without making a pill refuse a click.
-#[test]
-fn a_bucket_pill_hides_its_bucket_and_a_row_with_none_lit_hides_nothing() {
-    let mut f = seeded();
-    f.graph.toggle_bucket(Bucket::Error);
-    assert!(!f.graph.showing(Bucket::Error));
-    assert!(!f.graph.visible(f.work.agent(f.broken).unwrap()));
-
-    f.graph.toggle_bucket(Bucket::Error);
-    assert!(f.graph.showing(Bucket::Error));
-
-    // Every one of them off, which the row allows, and then everything is drawn again.
-    for bucket in Bucket::all() {
-        f.graph.toggle_bucket(bucket);
-    }
-    assert!(f.graph.buckets.is_empty());
-    for bucket in Bucket::all() {
-        assert!(f.graph.showing(bucket), "{bucket:?} with no pill lit");
-    }
-    assert!(f.graph.visible(f.work.agent(f.broken).unwrap()));
-}
-
-/// One control puts every filter back, and says whether it has anything to do.
-#[test]
-fn clearing_the_filters_draws_everything_and_knows_when_it_is_needed() {
-    let mut f = seeded();
-    assert!(!f.graph.filtered(), "nothing is hidden to begin with");
-
-    f.graph.toggle_bucket(Bucket::Error);
-    assert!(f.graph.filtered());
-    f.graph.clear_filters();
-    assert!(!f.graph.filtered());
-
-    f.graph.show_session(Some(f.spike));
-    assert!(f.graph.filtered());
-    f.graph.clear_filters();
-    assert!(!f.graph.filtered());
-    assert_eq!(f.graph.session, None);
-    assert_eq!(f.graph.buckets.len(), Bucket::all().len());
-}
-
-#[test]
-fn the_graph_lays_itself_out_from_the_definitions_alone() {
-    let f = seeded();
-
-    // Two cards on one task, neither answering to the other, so they sit side by side.
-    let one = f.graph.at_id(&f.work, f.writer).unwrap();
-    let two = f.graph.at_id(&f.work, f.waiter).unwrap();
-    assert_eq!(one.1, two.1, "same row");
-    assert_eq!(two.0 - one.0, CARD_WIDTH + CARD_GAP_X);
-
-    // A hand-off is a column: a card that answers to another in the same container goes under it.
-    let session_id = SessionId::generate();
-    let lead = AgentId::generate();
-    let next = AgentId::generate();
-    let handoff = TaskId::generate();
-    let mut second = agent(next, session_id, Some(handoff), "next");
-    second.parent = Some(lead);
-    let mut chained = WorkProjection::empty();
-    chained.replace_all(
-        vec![session(session_id, "chain")],
-        vec![agent(lead, session_id, Some(handoff), "lead"), second],
-        vec![task(
-            handoff,
-            session_id,
-            "handoff",
-            &[Some(lead), Some(next)],
-        )],
+    assert_eq!(f.view.on_the_field(), 3);
+    assert_eq!(
+        f.view.grouped(),
+        1,
+        "the session with two agents is grouped"
     );
-    let mut view = GraphView::default();
-    view.relayout(&chained);
-    let one = view.at_id(&chained, lead).unwrap();
-    let two = view.at_id(&chained, next).unwrap();
-    assert_eq!(one.0, two.0, "same column");
-    assert_eq!(two.1 - one.1, CARD_HEIGHT + CARD_GAP_Y);
-
-    // Two containers in the same session never overlap.
-    let (ax, _, aw, _) = f.graph.bounds_of(&f.work, f.plumbing).unwrap();
-    let (bx, _, _, _) = f.graph.bounds_of(&f.work, f.parser).unwrap();
-    assert!(bx >= ax + aw, "containers are laid out clear of each other");
+    assert!(f.view.benched(&f.work).is_empty());
+    assert!(f.view.arranged);
 }
 
+/// A session with no agent in it gets no column: the screen is about agents, and a column with
+/// nothing to say is a column the user has to close.
 #[test]
-fn tidying_puts_a_dragged_card_back() {
+fn a_session_nobody_is_working_in_gets_no_column() {
     let mut f = seeded();
-    let home = f.graph.at_id(&f.work, f.writer).unwrap();
-
-    f.graph.place(&f.work, f.writer, (2_000.0, 2_000.0));
-    assert_eq!(f.graph.at_id(&f.work, f.writer), Some((2_000.0, 2_000.0)));
-
-    f.graph.relayout(&f.work);
-    assert_eq!(f.graph.at_id(&f.work, f.writer), Some(home));
+    let idle = SessionId::generate();
+    f.work.sessions.push(session(idle, "main", false));
+    f.view.arrange(&f.work);
+    assert_eq!(f.view.columns.len(), 2);
 }
 
-/// An arriving card is given a place of its own, and nothing already on the canvas moves — the
-/// difference between `place_new` and `relayout`, which is the difference between a card arriving
-/// and the user asking for a tidy.
+/// **Closing a tab benches the agent; it does not end it.** The record is untouched — this screen
+/// sends nothing and kills nothing — and the sidebar still lists it, because the bench is computed
+/// from the work rather than written down.
 #[test]
-fn a_new_card_is_placed_without_moving_what_is_already_drawn() {
-    let mut f = placed();
-    let drawn = [f.writer, f.waiter, f.stopped, f.broken];
-    let before: Vec<(f32, f32)> = drawn
-        .iter()
-        .map(|id| f.graph.at_id(&f.work, *id).unwrap())
-        .collect();
-    let origins: Vec<(f32, f32)> = [f.plumbing, f.parser, f.elsewhere]
-        .iter()
-        .map(|id| f.graph.layout.task_origin(*id))
-        .collect();
+fn closing_a_tab_benches_the_agent_and_leaves_the_record_alone() {
+    let mut f = seeded();
+    f.view.bench(f.builder);
 
-    let arriving = AgentId::generate();
-    f.work
-        .apply_agent(agent(arriving, f.refit, Some(f.plumbing), "just spawned"));
-    f.graph.layout.place_new(&f.work.agents, &f.work.tasks);
+    assert!(!f.view.on_screen(f.builder));
+    assert_eq!(f.view.columns[1].tabs, vec![f.spec]);
+    assert!(!f.view.columns[1].grouped());
+    let benched: Vec<AgentId> = f.view.benched(&f.work).iter().map(|a| a.id).collect();
+    assert_eq!(benched, vec![f.builder]);
 
-    assert_ne!(
-        f.graph.layout.offset(arriving),
-        (0.0, 0.0),
-        "an arriving card gets a place rather than being left on its container's origin"
-    );
-    let at = f.graph.at_id(&f.work, arriving).unwrap();
-    assert!(
-        before.iter().all(|was| *was != at),
-        "and not the place of a card that is already drawn"
-    );
+    // The record says exactly what it said before: the agent is still running, still in its
+    // session, still doing what it was doing.
+    let still = f.work.agent(f.builder).expect("the host still reports it");
+    assert_eq!(still.activity, Activity::Writing);
+    assert_eq!(still.session, f.store);
 
-    for (id, was) in drawn.iter().zip(&before) {
-        assert_eq!(f.graph.at_id(&f.work, *id).as_ref(), Some(was));
-    }
-    for (id, was) in [f.plumbing, f.parser, f.elsewhere].iter().zip(&origins) {
-        assert_eq!(f.graph.layout.task_origin(*id), *was);
-    }
+    // And the last tab of a column takes the column with it rather than leaving an empty one.
+    f.view.bench(f.fixer);
+    assert_eq!(f.view.columns.len(), 1);
+    assert_eq!(f.view.focus, 0, "focus never names a column that has gone");
 }
 
+/// Closing the tab that is in front leaves a column reporting on one of the others rather than on
+/// nothing.
 #[test]
-fn a_container_is_the_box_round_the_cards_that_are_drawn() {
-    let mut f = placed();
-    let (x, y, w, h) = f
-        .graph
-        .bounds_of(&f.work, f.plumbing)
-        .expect("the first task has visible cards");
-    assert_eq!(x, -GROUP_PAD);
-    assert_eq!(y, -GROUP_PAD - GROUP_LABEL);
-    assert_eq!(w, 400.0 + CARD_WIDTH + GROUP_PAD * 2.0);
-    assert_eq!(h, CARD_HEIGHT + GROUP_PAD * 2.0 + GROUP_LABEL);
+fn closing_the_front_tab_leaves_the_column_on_a_live_one() {
+    let mut f = seeded();
+    f.view.select_tab(1, 1);
+    assert_eq!(f.view.active_agent(1), Some(f.builder));
 
-    // A container with no cards in it has no box at all: nobody *serves* `elsewhere`, though an
-    // agent owns a step in it. Being in another session is no longer a reason — the canvas draws
-    // every session — so what else leaves a task boxless is a filter that hid all of its cards.
-    assert!(f.graph.bounds_of(&f.work, f.elsewhere).is_none());
-    // `parser` is served by an ended card and a failed one, so turning both buckets off empties
-    // it — with two pills still lit, so the row is genuinely filtering rather than cleared.
-    f.graph.toggle_bucket(Bucket::Ended);
-    f.graph.toggle_bucket(Bucket::Error);
-    assert!(f.graph.bounds_of(&f.work, f.parser).is_none());
+    f.view.bench(f.builder);
+    assert_eq!(f.view.active_agent(1), Some(f.spec));
 }
 
-/// Sessions stack, so a canvas drawing all of them is not a pile.
+/// A tab dropped on another column joins it, and is in exactly one column afterwards.
 ///
-/// Each session used to be laid out from the same origin, which nothing noticed while the graph
-/// drew one session at a time. It draws every session now, so the second one has to start below the
-/// first — and an agent with no task, which is where a project manager coordinating everything
-/// ends up, has to clear the containers of the session before it too.
+/// The duplicate is the failure worth naming: an agent drawn in two columns would have two
+/// composers addressed at it, and the second would be a conversation nobody could see the whole of.
 #[test]
-fn two_sessions_are_laid_out_clear_of_each_other() {
-    let alpha = SessionId::generate();
-    let beta = SessionId::generate();
-    let one = AgentId::generate();
-    let two = AgentId::generate();
-    let boss = AgentId::generate();
-    let first = TaskId::generate();
-    let second = TaskId::generate();
+fn a_tab_dropped_on_another_column_groups_and_leaves_no_duplicate() {
+    let mut f = seeded();
+    f.view.open_in(1, f.fixer);
 
+    assert_eq!(
+        f.view.columns.len(),
+        1,
+        "the column it came from held nothing else and went with it"
+    );
+    assert_eq!(f.view.columns[0].tabs, vec![f.spec, f.builder, f.fixer]);
+    assert_eq!(
+        f.view.active_agent(0),
+        Some(f.fixer),
+        "and comes to the front"
+    );
+    assert_eq!(f.view.on_the_field(), 3, "three agents, still three");
+    assert_eq!(f.view.grouped(), 1);
+}
+
+/// A tab dropped past the last column gets one of its own, and the group it left keeps the rest.
+#[test]
+fn a_grouped_tab_split_off_gets_a_column_and_the_group_keeps_the_rest() {
+    let mut f = seeded();
+    let at = f.view.columns.len();
+    assert!(f.view.split_off(f.builder, at));
+
+    assert_eq!(f.view.columns.len(), 3);
+    assert_eq!(f.view.columns[1].tabs, vec![f.spec]);
+    assert_eq!(f.view.columns[2].tabs, vec![f.builder]);
+    assert_eq!(f.view.grouped(), 0, "nothing is grouped any more");
+    assert_eq!(f.view.focus, 2);
+}
+
+/// A tab already alone in its column is already what a split would produce, so the gesture changes
+/// nothing rather than shuffling the row under the pointer.
+#[test]
+fn splitting_a_lone_tab_off_changes_nothing() {
+    let mut f = seeded();
+    let before: Vec<Vec<AgentId>> = f.view.columns.iter().map(|c| c.tabs.clone()).collect();
+    assert!(f.view.split_off(f.fixer, 2));
+    let after: Vec<Vec<AgentId>> = f.view.columns.iter().map(|c| c.tabs.clone()).collect();
+    assert_eq!(before, after);
+}
+
+/// **A column's composer is its own for the column's life.** A slot is stable, so closing a column
+/// to the left of another does not carry what was typed at one agent into a field addressed at a
+/// different one — and the freed slot is cleared, because it is handed to the next column to open.
+#[test]
+fn a_slot_is_stable_for_a_columns_life_and_cleared_when_it_ends() {
+    let mut f = seeded();
+    let (first, second) = (f.view.columns[0].slot, f.view.columns[1].slot);
+    assert_ne!(first, second);
+
+    f.view.set_draft(second, "run the migration".to_string());
+    f.view.bench(f.fixer);
+
+    // The row is one shorter and the surviving column kept its slot, so its draft is still its own.
+    assert_eq!(f.view.columns.len(), 1);
+    assert_eq!(f.view.columns[0].slot, second);
+    assert_eq!(f.view.draft(second), "run the migration");
+
+    // And the slot the closed column had is empty, ready for the next column to be given it.
+    f.view.set_draft(first, "typed at the fixer".to_string());
+    f.view.bench(f.spec);
+    f.view.bench(f.builder);
+    assert_eq!(f.view.draft(second), "");
+}
+
+/// The host has stopped reporting an agent, so no column may still be drawing it.
+///
+/// A prune says whether it did anything, which is what lets a re-sent `WorkList` that changed
+/// nothing cost no redraw — and it never re-arranges, because the arrangement is the user's.
+#[test]
+fn pruning_drops_tabs_for_agents_the_host_has_forgotten() {
+    let mut f = seeded();
+    assert!(!f.view.prune(&f.work), "nothing to do, and it says so");
+
+    f.work.agents.retain(|a| a.id != f.builder);
+    assert!(f.view.prune(&f.work));
+    assert_eq!(f.view.columns[1].tabs, vec![f.spec]);
+    assert_eq!(f.view.on_the_field(), 2);
+
+    // The last agent of a column goes, and the column goes with it rather than drawing a tab
+    // naming nothing.
+    f.work.agents.retain(|a| a.id != f.fixer);
+    assert!(f.view.prune(&f.work));
+    assert_eq!(f.view.columns.len(), 1);
+    assert_eq!(f.view.columns[0].tabs, vec![f.spec]);
+}
+
+/// Revealing is the sidebar's one gesture at both scales: an agent on the field comes to the front
+/// of the column holding it, and a benched one is brought on.
+#[test]
+fn revealing_brings_an_agent_forward_or_brings_it_on() {
+    let mut f = seeded();
+    assert!(f.view.reveal(f.builder));
+    assert_eq!(f.view.active_agent(1), Some(f.builder));
+    assert_eq!(
+        f.view.focus, 1,
+        "and the column it is in is the focused one"
+    );
+
+    f.view.bench(f.builder);
+    assert!(f.view.reveal(f.builder));
+    assert_eq!(
+        f.view.columns.len(),
+        3,
+        "a benched agent gets its own column"
+    );
+    assert_eq!(f.view.columns[2].tabs, vec![f.builder]);
+    assert!(f.view.benched(&f.work).is_empty());
+}
+
+/// The screen is full at the ceiling, and the readers say so before a click has to fail.
+#[test]
+fn the_screen_is_full_at_the_ceiling_and_says_so() {
     let mut work = WorkProjection::empty();
-    work.replace_all(
-        vec![session(alpha, "alpha"), session(beta, "beta")],
-        vec![
-            agent(one, alpha, Some(first), "one"),
-            agent(two, beta, Some(second), "two"),
-            // No task: the shape a project manager has, drawn above its session's containers.
-            agent(boss, beta, None, "boss"),
-        ],
-        vec![
-            task(first, alpha, "first", &[Some(one)]),
-            task(second, beta, "second", &[Some(two)]),
-        ],
-    );
-    let mut view = GraphView::default();
-    view.relayout(&work);
-
-    let (_, ay, _, ah) = view.bounds_of(&work, first).unwrap();
-    let (_, by, _, _) = view.bounds_of(&work, second).unwrap();
-    assert!(
-        by >= ay + ah,
-        "beta's container starts below alpha's, not on top of it: {by} vs {}",
-        ay + ah
-    );
-
-    // And the loose card sits above its own session's container rather than inside the one above.
-    let at = view.at_id(&work, boss).unwrap();
-    assert!(at.1 >= ay + ah, "the unowned card clears alpha too");
-    assert!(at.1 + CARD_HEIGHT <= by, "and stays above beta's container");
-}
-
-/// An agent coordinating the whole project parents each session's master, and the graph draws that.
-///
-/// Two things have to hold for the tree to read as a tree. A master answering to a parent **outside**
-/// its container stays on the container's top row — otherwise every session's root would be pushed
-/// down a level by a parent that is not in the box. And the row of agents with no task is stacked
-/// rather than laid side by side, because that row holds a spawn tree of its own: an orchestrator
-/// drawn beside its own child would send the connector sideways.
-#[test]
-fn an_orchestrator_parents_each_sessions_master_without_sinking_it() {
-    let alpha = SessionId::generate();
-    let beta = SessionId::generate();
-    let boss = AgentId::generate();
-    let scribe = AgentId::generate();
-    let master = AgentId::generate();
-    let worker = AgentId::generate();
-    let job = TaskId::generate();
-
-    // The orchestrator answers to nobody; the session's master answers to it; the worker answers to
-    // the master. `scribe` shares the orchestrator's taskless row.
-    let mut scribe_card = agent(scribe, alpha, None, "scribe");
-    scribe_card.parent = Some(boss);
-    let mut master_card = agent(master, beta, Some(job), "master");
-    master_card.parent = Some(boss);
-    let mut worker_card = agent(worker, beta, Some(job), "worker");
-    worker_card.parent = Some(master);
-
-    let mut work = WorkProjection::empty();
-    work.replace_all(
-        vec![session(alpha, "alpha"), session(beta, "beta")],
-        vec![
-            agent(boss, alpha, None, "boss"),
-            scribe_card,
-            master_card,
-            worker_card,
-        ],
-        vec![task(job, beta, "job", &[Some(master)])],
-    );
-    let mut view = GraphView::default();
-    view.relayout(&work);
-
-    // The master is on its container's top row even though its parent is outside the box, and the
-    // worker is the level below it.
-    let origin = view.layout.task_origin(job);
-    let m = view.at_id(&work, master).unwrap();
-    let w = view.at_id(&work, worker).unwrap();
-    assert_eq!(m.1, origin.1, "the master sits on the container's top row");
-    assert_eq!(
-        w.1 - m.1,
-        CARD_HEIGHT + CARD_GAP_Y,
-        "the worker is under it"
-    );
-
-    // And the taskless row stacks: the child is under the orchestrator, not beside it.
-    let b = view.at_id(&work, boss).unwrap();
-    let sc = view.at_id(&work, scribe).unwrap();
-    assert_eq!(
-        sc.1 - b.1,
-        CARD_HEIGHT + CARD_GAP_Y,
-        "stacked, not in a row"
-    );
-    assert_eq!(b.0, sc.0, "and in the same column");
-}
-
-/// **Position is the interface's own fact, membership is the host's.** A drop answers the card and
-/// the container it landed in, for the caller to send as an `AssignAgent`, and changes nothing
-/// about the work: the card is still recorded against the task it came from until the host says
-/// otherwise. What the drop does write is the offset, against the container it landed in — so the
-/// card is where it was let go of the moment the answer comes back.
-#[test]
-fn a_card_dropped_in_another_container_answers_the_pair_and_moves_no_membership() {
-    let mut f = placed();
-    edit_agent(&mut f.work, f.stopped, |a| a.parent = Some(f.writer));
-
-    f.graph.start_carry(Held::Agent(f.stopped), (10.0, 10.0));
-    // Into the middle of the first task's container.
-    f.graph
-        .carry_to(&f.work, (200.0, 0.0), Some((0.0, 0.0)), Instant::now());
-    assert_eq!(f.graph.carry.unwrap().over, Some(f.plumbing));
-
-    assert_eq!(
-        f.graph.end_carry(&f.work),
-        Some((f.stopped, f.plumbing)),
-        "the drop is a request, not a result"
-    );
-    assert!(f.graph.carry.is_none());
-
-    let dropped = f.work.agent(f.stopped).unwrap();
-    assert_eq!(
-        dropped.task,
-        Some(f.parser),
-        "the card is still recorded where it was until the host answers"
-    );
-    assert_eq!(
-        dropped.parent,
-        Some(f.writer),
-        "and still answers to whoever spawned it"
-    );
-
-    // The host confirms, and the offset written at the drop puts the card back under the pointer.
-    edit_agent(&mut f.work, f.stopped, |a| a.task = Some(f.plumbing));
-    assert_eq!(
-        f.graph.at_id(&f.work, f.stopped),
-        Some((200.0, 0.0)),
-        "re-anchoring to the new container leaves it where it was let go of"
-    );
-}
-
-#[test]
-fn a_card_dropped_on_open_ground_only_moves() {
-    let mut f = placed();
-    f.graph.start_carry(Held::Agent(f.writer), (0.0, 0.0));
-    // Far outside every container, including the one it started in — a carried card is left out
-    // of the boxes it is tested against, so it does not sit inside its own.
-    f.graph.carry_to(
-        &f.work,
-        (2_000.0, 2_000.0),
-        Some((0.0, 0.0)),
-        Instant::now(),
-    );
-    assert_eq!(f.graph.carry.unwrap().over, None);
-    assert_eq!(f.graph.end_carry(&f.work), None);
-    assert_eq!(
-        f.work.agent(f.writer).unwrap().task,
-        Some(f.plumbing),
-        "still its own task"
-    );
-    assert_eq!(f.graph.at_id(&f.work, f.writer), Some((2_000.0, 2_000.0)));
-}
-
-#[test]
-fn a_carried_container_takes_everything_in_it() {
-    let mut f = placed();
-    let cards = [f.writer, f.waiter, f.stopped, f.broken];
-    let before: Vec<(f32, f32)> = cards
-        .iter()
-        .map(|id| f.graph.at_id(&f.work, *id).unwrap())
+    let one = SessionId::generate();
+    let agents: Vec<WorkAgent> = (0..COLUMNS_MAX + 2)
+        .map(|n| {
+            agent(
+                AgentId::generate(),
+                one,
+                &format!("worker-{n}"),
+                Activity::Writing,
+            )
+        })
         .collect();
-    let (x, y, w, h) = f.graph.bounds_of(&f.work, f.plumbing).unwrap();
+    let ids: Vec<AgentId> = agents.iter().map(|a| a.id).collect();
+    work.replace_all(vec![session(one, "main", false)], agents, Vec::new());
 
-    f.graph.start_carry(Held::Task(f.plumbing), (0.0, 0.0));
-    f.graph.carry_to(
-        &f.work,
-        (x + 300.0, y + 120.0),
-        Some((0.0, 0.0)),
-        Instant::now(),
-    );
+    // One session, so `arrange` gives it one column holding all of them — the ceiling is on
+    // columns, not on tabs.
+    let mut view = AgentsView::default();
+    view.arrange(&work);
+    assert_eq!(view.columns.len(), 1);
+    assert!(view.has_room());
 
-    // The box went exactly where it was put, and kept its size.
-    assert_eq!(
-        f.graph.bounds_of(&f.work, f.plumbing),
-        Some((x + 300.0, y + 120.0, w, h))
-    );
-
-    // Its two cards moved with it, by the same amount, and nothing else moved at all.
-    for id in [f.writer, f.waiter] {
-        let ix = cards.iter().position(|c| *c == id).unwrap();
-        let at = f.graph.at_id(&f.work, id).unwrap();
-        let was = before[ix];
-        assert_eq!((at.0 - was.0, at.1 - was.1), (300.0, 120.0));
+    // Split them off one at a time until the row is full. The ones that find no room stay in the
+    // column they were in — a split that cannot finish must not leave a tab nowhere.
+    for id in &ids {
+        let at = view.columns.len();
+        view.split_off(*id, at);
+        assert!(
+            view.on_screen(*id),
+            "a refused split leaves the tab where it was"
+        );
     }
-    for id in [f.stopped, f.broken] {
-        let ix = cards.iter().position(|c| *c == id).unwrap();
-        assert_eq!(f.graph.at_id(&f.work, id), Some(before[ix]));
-    }
+    assert_eq!(view.columns.len(), COLUMNS_MAX);
+    assert!(!view.has_room());
+    assert_eq!(view.on_the_field(), ids.len(), "and loses none of them");
 
-    // A container is not filed inside another container, so putting it down asks for nothing.
-    assert_eq!(f.graph.carry.unwrap().over, None);
-    assert_eq!(f.graph.end_carry(&f.work), None);
-    assert_eq!(f.work.agent(f.writer).unwrap().task, Some(f.plumbing));
-}
-
-#[test]
-fn carrying_lays_sand_that_runs_out() {
-    let mut f = seeded();
-    let start = Instant::now();
-
-    f.graph.start_carry(Held::Agent(f.writer), (0.0, 0.0));
-    for step in 0..5 {
-        let d = step as f32 * 10.0;
-        f.graph.carry_to(&f.work, (d, d), Some((d, d)), start);
-    }
-    assert_eq!(f.graph.sand.len(), 5);
+    // With the row full, an agent taken off it cannot be given a column of its own.
+    let stranded = *ids.last().expect("the fixture has agents");
+    view.bench(stranded);
+    assert_eq!(view.columns.len(), COLUMNS_MAX, "its column held others");
     assert!(
-        f.graph.settle_sand(start),
-        "fresh grains are still owed frames"
+        !view.open(stranded),
+        "a full screen has no ninth column to give"
     );
 
-    let later = start + GRAIN_LIFE + Duration::from_millis(1);
-    assert!(!f.graph.settle_sand(later));
-    assert!(f.graph.sand.is_empty());
-
-    // Reduced motion asks for no trail, and the card still moves.
-    f.graph.start_carry(Held::Agent(f.writer), (0.0, 0.0));
-    f.graph.carry_to(&f.work, (90.0, 90.0), None, start);
-    assert!(f.graph.sand.is_empty());
-    assert_eq!(f.graph.at_id(&f.work, f.writer), Some((90.0, 90.0)));
+    // But grouping into a column that is already there always works — the ceiling is on columns —
+    // so the sidebar's click still does what it says whatever the row looks like.
+    view.focus_column(3);
+    assert!(view.reveal(stranded), "reveal always shows the agent");
+    assert_eq!(view.holds(stranded).map(|(col, _)| col), Some(3));
+    assert_eq!(view.columns.len(), COLUMNS_MAX);
 }
 
+/// The counts are about **the field**, not the project, and the bench is exactly the difference.
+/// That is what the status bar reports on, and reporting on the project would make the strip say
+/// something the screen is not showing.
 #[test]
-fn the_sand_is_capped() {
+fn the_counts_are_about_the_field_and_the_bench_is_the_difference() {
     let mut f = seeded();
-    let now = Instant::now();
-    f.graph.start_carry(Held::Agent(f.writer), (0.0, 0.0));
-    for step in 0..1_000 {
-        let d = step as f32;
-        f.graph.carry_to(&f.work, (d, d), Some((d, d)), now);
-    }
-    assert!(f.graph.sand.len() <= GRAIN_CEILING);
-}
+    assert_eq!(f.view.count(&f.work, Bucket::Running), 2);
+    assert_eq!(f.view.count(&f.work, Bucket::Ended), 1);
+    assert_eq!(f.view.count(&f.work, Bucket::Error), 0);
 
-#[test]
-fn the_tasks_listed_follow_the_selection() {
-    let mut f = seeded();
-
-    f.graph.selection = Some(Selection::Session(f.refit));
-    let ids: Vec<TaskId> = f.graph.listed_tasks(&f.work).iter().map(|t| t.id).collect();
+    f.view.bench(f.builder);
+    assert_eq!(f.view.count(&f.work, Bucket::Running), 1);
     assert_eq!(
-        ids,
-        vec![f.plumbing, f.parser],
-        "a session lists every task in it"
-    );
-
-    f.graph.selection = Some(Selection::Agent(f.stopped));
-    let ids: Vec<TaskId> = f.graph.listed_tasks(&f.work).iter().map(|t| t.id).collect();
-    assert_eq!(
-        ids,
-        vec![f.parser],
-        "an agent lists the tasks it has a step in"
+        f.view.on_the_field() + f.view.benched(&f.work).len(),
+        f.work.agents.len()
     );
 }
 
+/// A session folds and unfolds, and one that has never been touched is open — so a session that
+/// arrives after the screen was last looked at arrives visible rather than hidden.
 #[test]
-fn zoom_is_clamped_at_both_ends() {
+fn a_session_folds_and_starts_open() {
     let mut f = seeded();
-    for _ in 0..50 {
-        f.graph.zoom_by(-1.0);
-    }
-    assert_eq!(f.graph.zoom, ZOOM_MIN);
-    for _ in 0..50 {
-        f.graph.zoom_by(1.0);
-    }
-    assert_eq!(f.graph.zoom, ZOOM_MAX);
+    assert!(!f.view.is_collapsed(f.refit));
+
+    f.view.toggle_session(f.refit);
+    assert!(f.view.is_collapsed(f.refit));
+    assert!(!f.view.is_collapsed(f.store));
+
+    f.view.toggle_session(f.refit);
+    assert!(!f.view.is_collapsed(f.refit));
 }

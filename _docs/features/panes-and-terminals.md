@@ -56,6 +56,8 @@ that was never drawn, so nothing empty is left on screen for the user to close.
 **Closing a pane kills its harness.** The child is signalled and reaped, and the panel and its
 emulator go with it. Closing a pane's tab is what closes the pane, and it is the only thing that
 kills a harness — an agent left alone keeps working whether or not anyone is looking at its pane. A
+tab on the agents screen is a different tab: its close benches the agent and the harness keeps
+running. A
 panel displaced by a whole arrangement being installed over it has not been closed and its harness
 is untouched.
 
@@ -255,7 +257,7 @@ stalled reader stalls the harness.
 ## Related docs
 
 - [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) — what a pane is a view of
-- [`workbench.md`](./workbench.md) — the dock a pane's panel sits in, and where it may sit
+- [`workbench.md`](./workbench.md) — the dock a pane's panel sits in, where it may sit, and the agents screen's tab, whose close benches an agent instead
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the message set, in full
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the chrome conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — why the UI holds no pseudo-terminal

@@ -265,18 +265,24 @@ impl OpenFile {
 
     /// The same, for a tab looking at something the host will make from the file.
     pub fn pending_on(path: &str, subject: Subject) -> Self {
+        Self::opening(path, subject, ViewLayout::default())
+    }
+
+    /// Open a tab, taking the markdown default from settings when the path is a markdown file.
+    pub fn opening(path: &str, subject: Subject, markdown_open: ViewLayout) -> Self {
         let viewer = ViewerKind::of(path);
+        let layout = match viewer {
+            ViewerKind::Markdown => markdown_open,
+            other if other.has_preview() => ViewLayout::default(),
+            _ => ViewLayout::Source,
+        };
         Self {
             name: leaf(path).to_string(),
             path: path.to_string(),
             subject,
             language: FileLanguage::of(path),
             viewer,
-            layout: if viewer.has_preview() {
-                ViewLayout::default()
-            } else {
-                ViewLayout::Source
-            },
+            layout,
             body: FileBody::Loading,
             save: SaveState::Idle,
             temporary: false,
@@ -286,10 +292,10 @@ impl OpenFile {
     }
 
     /// A temporary preview tab with no bytes yet.
-    pub fn temporary(path: &str) -> Self {
+    pub fn temporary(path: &str, markdown_open: ViewLayout) -> Self {
         Self {
             temporary: true,
-            ..Self::pending_on(path, Subject::File)
+            ..Self::opening(path, Subject::File, markdown_open)
         }
     }
 
@@ -519,8 +525,15 @@ impl EditorPaneState {
 
     /// Put a tab in front of the user before its bytes exist, answering the index it took. A path
     /// already open answers where it is instead, so a second click cannot open it twice.
-    pub fn open_pending(&mut self, path: &str) -> usize {
-        self.open_pending_on(path, Subject::File)
+    pub fn open_pending(&mut self, path: &str, markdown_open: ViewLayout) -> usize {
+        match self.index_of_key(&tab_key(path, Subject::File)) {
+            Some(at) => at,
+            None => {
+                self.open
+                    .push(OpenFile::opening(path, Subject::File, markdown_open));
+                self.open.len() - 1
+            }
+        }
     }
 
     /// The same, for a tab looking at something the host will make from the file.
@@ -539,7 +552,11 @@ impl EditorPaneState {
     /// A path already open answers where it is, keeping it permanent. The preview already open is
     /// replaced by this one: the returned `closed` names the tab whose panel the caller has to
     /// take away, `None` when nothing was displaced.
-    pub fn open_temporary(&mut self, path: &str) -> (usize, Option<String>) {
+    pub fn open_temporary(
+        &mut self,
+        path: &str,
+        markdown_open: ViewLayout,
+    ) -> (usize, Option<String>) {
         let key = tab_key(path, Subject::File);
         if let Some(at) = self.index_of_key(&key) {
             return (at, None);
@@ -555,7 +572,7 @@ impl EditorPaneState {
                 self.active -= 1;
             }
         }
-        self.open.push(OpenFile::temporary(path));
+        self.open.push(OpenFile::temporary(path, markdown_open));
         self.temporary_key = Some(key);
         (self.open.len() - 1, closed)
     }

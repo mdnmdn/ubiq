@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -58,6 +58,8 @@ project's own folder — `D30`.
 <config root>/
 ├── projects.toml            the catalogue: one record per project
 ├── preferences.toml         the interface's own view blob, opaque to the host
+├── ui-settings.toml         Ui-layer settings, opaque to the host
+├── host-settings.toml       Host-layer settings, the host parses
 └── projects/
     └── <project ulid>/
         ├── tasks.toml       that project's tasks, the user's data
@@ -117,6 +119,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | Path | Holds | Never holds |
 |---|---|---|
 | `ubiq-proto/src/messages.rs` | The transport contract enum and its payload records | Anything that fails to serialise |
+| `ubiq-proto/src/settings.rs` | Which half owns a settings blob, and the host's own record | A Ui-layer field |
 | `ubiq-proto/src/ids.rs` | The contract's id newtypes, and the one generator behind them | A second id scheme |
 | `ubiq-proto/src/bus.rs` | The hub, a client's end of it, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
@@ -125,17 +128,21 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
-| `ubiq-host/src/store/` | The catalogue, a project's tasks and the view state, behind three traits | Any opinion about what a view blob means |
+| `ubiq-host/src/store/` | The catalogue, a project's tasks, the view state and settings, behind four traits | Any opinion about what a Ui-layer blob means |
 | `ubiq-host/src/projects.rs` | The catalogue as the host runs it, and the reservation of each project's `ui/` workarea | An opinion about colour or layout, or a read of anything inside a workarea |
+| `ubiq-host/src/settings.rs` | Application settings as the host runs them: Ui opaque, Host parsed | An opinion about what a Ui-layer blob means |
 | `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |
 | `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
 | `ubiq-host/src/mcp_server.rs` | The MCP surface Ubiq exposes to the agents it hosts | Anything the hosted agent should not reach |
 | `ubiq/src/app.rs` | `AppState`: the panes, the focused pane, the dock and its panels, the workbench state, and window creation | Process handles, PTY handles, disk |
-| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, `chat/`, `agents/`, `board/` | Anything that names the host |
+| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, settings overlay, `chat/`, `agents/`, `orchestration/`, `board/` | Anything that names the host |
+| `ubiq/src/ui/agents/` | The Agents screen: the sidebar of every agent the host reports, and one column per conversation — its tabs, its thread and its composer | Anything that ends an agent; a close that means more than benching one |
+| `ubiq/src/ui/orchestration/` | The Orchestration screen: the graph of who spawned whom, its inspector and its tasks drawer | A position a record would have to carry |
+| `ubiq/src/ui/work.rs` | What a work record reads as: the token an activity, a bucket or a role takes | A second mapping for a state one screen wants to draw differently |
 | `ubiq/src/ui/dock/` | The window's arrangement: the panel adapter over those areas, and Ubiq's skin over the component library's dock | State of its own — a panel holds what identifies it and reads the rest |
 | `ubiq/src/ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
 | `ubiq/src/theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
-| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, what a panel is and where it may sit, the projections of the host's catalogue and of a project's work, and the fixture that still seeds the chat | Rendering, or any component-library type |
+| `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, what a panel is and where it may sit, the projections of the host's catalogue and of a project's work, the three views over that work — `agents.rs` for the columns, `orchestration.rs` for the graph, `board.rs` for the board — and the fixture that still seeds the chat | Rendering, or any component-library type |
 | `ubiq-app/src/main.rs` | Application start: the config root, the host, the theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
 
 The "never holds" column is the enforcement of the architecture's rules in file terms. A

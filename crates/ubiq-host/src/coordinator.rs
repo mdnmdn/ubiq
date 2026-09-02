@@ -22,6 +22,7 @@ use crate::health;
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
 use crate::reply::Reply;
+use crate::settings::Settings;
 use crate::work::Work;
 
 /// The geometry a pane starts at, before the emulator has measured its own bounds and said what it
@@ -33,10 +34,17 @@ const INITIAL_ROWS: u16 = 24;
 /// catalogue it will own is process-wide, and two of them would disagree about what exists.
 ///
 /// It ends when the hub and every client have gone.
-pub fn start(host: HostEnd, root: ConfigRoot, projects: Projects, work: Work, pending: Vec<Reply>) {
+pub fn start(
+    host: HostEnd,
+    root: ConfigRoot,
+    projects: Projects,
+    work: Work,
+    settings: Settings,
+    pending: Vec<Reply>,
+) {
     thread::Builder::new()
         .name("ubiq-coordinator".to_string())
-        .spawn(move || Coordinator::new(host, root, projects, work, pending).run())
+        .spawn(move || Coordinator::new(host, root, projects, work, settings, pending).run())
         .expect("the coordinator thread");
 }
 
@@ -49,6 +57,8 @@ struct Coordinator {
     projects: Projects,
     /// Each project's tasks, and the sessions and agents the two screens over the work draw.
     work: Work,
+    /// Application settings: the Ui layer opaque, the Host layer parsed.
+    settings: Settings,
     /// The thread that reads and writes a project's files. Nothing in the file family touches disk
     /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
     files: Files,
@@ -76,6 +86,7 @@ impl Coordinator {
         root: ConfigRoot,
         projects: Projects,
         work: Work,
+        settings: Settings,
         pending: Vec<Reply>,
     ) -> Self {
         Self {
@@ -83,6 +94,7 @@ impl Coordinator {
             root,
             projects,
             work,
+            settings,
             files: Files::start(),
             git: Git::start(),
             pending,
@@ -316,6 +328,14 @@ impl Coordinator {
             }
             Message::SetPreferences { scope, value } => {
                 self.projects.set_preferences(scope, value, Instant::now());
+            }
+            Message::GetSettings { layer } => {
+                let reply = self.settings.get(layer);
+                self.answer(client, vec![reply]);
+            }
+            Message::SetSettings { layer, value } => {
+                let replies = self.settings.set(layer, value);
+                self.answer(client, replies);
             }
 
             // ── the file family ─────────────────────────────────────

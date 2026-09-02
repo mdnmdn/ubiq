@@ -12,7 +12,7 @@ use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Wind
 use crate::app::{AppState, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
-use crate::ui::{rail, status_bar, titlebar};
+use crate::ui::{rail, settings, status_bar, titlebar};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -65,6 +65,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .project_settings
                 .as_ref()
                 .map(|_| project_settings::overlay(app, window, cx)),
+        )
+        // Application settings is a page with a nav, not the kit's one-question modal, so it is
+        // painted here — over the window — the same way project settings is.
+        .children(
+            app.workbench
+                .settings
+                .open
+                .then(|| settings::overlay(app, window, cx)),
         )
         // The file-tab context menu, named a file and a point by a right-click in the dock. It
         // lives at the window root rather than in a panel, so it stays on screen whether a file

@@ -41,16 +41,28 @@ pub const EXPLORER_WIDTH: f32 = 300.0;
 pub const CHAT_WIDTH: f32 = 420.0;
 pub const DOCK_HEIGHT: f32 = 300.0;
 
-/// The agents screen: the inspector beside the graph, the tasks drawer under it, and the pitch of
-/// the graph's dotted ground at 100% zoom.
+/// The orchestration screen: the inspector beside the graph, the tasks drawer under it, and the
+/// pitch of the graph's dotted ground at 100% zoom.
 pub const INSPECTOR_WIDTH: f32 = 420.0;
 pub const TASKS_HEIGHT: f32 = 220.0;
 pub const GRAPH_DOT_PITCH: f32 = 28.0;
+
+/// The agents screen: the sidebar listing every agent, and the strip that drops a dragged tab into
+/// a column of its own. The columns themselves share the row and are sized by
+/// `state::agents::COLUMN_MIN_WIDTH`, because how narrow a conversation may get is a fact about
+/// the conversation rather than about this window.
+pub const AGENT_SIDEBAR_WIDTH: f32 = 300.0;
+pub const NEW_COLUMN_STRIP: f32 = 28.0;
 
 /// A modal: how wide it is drawn, and the most of the window's height it may take before its body
 /// scrolls inside it. A modal is one question, so it is one width rather than a per-caller size.
 pub const MODAL_WIDTH: f32 = 460.0;
 pub const MODAL_MAX_HEIGHT: f32 = 0.8;
+
+/// Application settings: a page overlay with a nav, not a one-question modal. Fixed size so
+/// switching sections does not resize the panel. Same width as project settings.
+pub const SETTINGS_WIDTH: f32 = 820.0;
+pub const SETTINGS_HEIGHT: f32 = 560.0;
 
 /// The tasks board: a column's width open and shut, and the panel the selected task opens in.
 pub const COLUMN_WIDTH: f32 = 320.0;

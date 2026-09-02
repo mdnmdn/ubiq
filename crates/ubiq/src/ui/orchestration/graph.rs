@@ -29,14 +29,14 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::work::{TaskRecord, WorkAgent};
 
 use crate::app::AppState;
-use crate::state::agents::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD};
+use crate::state::orchestration::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD};
 use crate::state::work;
 use crate::state::{Held, Selection};
 use crate::theme;
-use crate::ui::agents::{activity_colour, role_mark};
 use crate::ui::eid;
 use crate::ui::kit::canvas::{self, Link};
 use crate::ui::kit::{card, ghost_button, mono, state_chip};
+use crate::ui::work::{activity_colour, role_mark};
 
 /// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
 /// the state, so a drag that is interrupted leaves it wherever the last move put it rather than in
@@ -96,7 +96,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             );
         if filtered {
             said = said.child(ghost_button(
-                "agents-empty-clear",
+                "orch-empty-clear",
                 None,
                 "Show everything",
                 cx.listener(|this, _, _, cx| this.clear_graph_filters(cx)),
@@ -166,7 +166,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             // it.
             .child(
                 div()
-                    .id(eid("agents-task", id))
+                    .id(eid("orch-task", id))
                     .absolute()
                     .left(px(x * zoom))
                     .top(px(y * zoom))
@@ -282,7 +282,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_graph_carry(cx)));
 
     div()
-        .id("agents-graph")
+        .id("orch-graph")
         .flex()
         .flex_1()
         .min_w(px(0.))
@@ -309,7 +309,7 @@ fn agent_card(
     let colour = activity_colour(agent.activity);
     let view = view.clone();
 
-    let body = card(eid("agents-card", id), colour, selected)
+    let body = card(eid("orch-card", id), colour, selected)
         .absolute()
         .left(px(at.0 * zoom))
         .top(px(at.1 * zoom))
@@ -382,7 +382,7 @@ fn agent_card(
                 // the inspector on its thread, which is two clicks the card can save.
                 .child(
                     div()
-                        .id(eid("agents-card-chat", id))
+                        .id(eid("orch-card-chat", id))
                         .flex()
                         .flex_none()
                         .items_center()

@@ -24,6 +24,7 @@ pub fn mode_icon(mode: RailMode) -> IconName {
         RailMode::Control => IconName::LayoutDashboard,
         RailMode::Ide => IconName::SquareTerminal,
         RailMode::Agents => IconName::Asterisk,
+        RailMode::Orchestration => IconName::Network,
         RailMode::Kb => IconName::BookOpen,
         RailMode::Tasks => IconName::CircleCheck,
         RailMode::Sink => IconName::Palette,

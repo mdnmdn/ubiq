@@ -12,6 +12,7 @@
 //! - `messages`: the message set, serialisable by construction
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
+//! - `settings`: which half owns a settings blob, and the host's own record
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
 //! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
 //! - `work`: a task as it is written down, and the sessions and agents doing it
@@ -25,4 +26,5 @@ pub mod ids;
 pub mod log;
 pub mod messages;
 pub mod projects;
+pub mod settings;
 pub mod work;

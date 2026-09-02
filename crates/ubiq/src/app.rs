@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::state::agents::{GraphView, Held, InspectorTab, Selection};
+use crate::state::agents::{AgentsView, COLUMNS_MAX};
 use crate::state::board::{BoardState, Field};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
@@ -25,6 +25,8 @@ use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
 use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
+use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
+use crate::state::settings::{self as ui_settings, MarkdownOpen, SettingsSection};
 use crate::state::sink::{
     ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
 };
@@ -52,6 +54,7 @@ use ubiq_proto::git::{GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
+use ubiq_proto::settings::SettingsLayer;
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
 /// How much of a file the interface asks for. The host has a ceiling of its own and this never
@@ -172,6 +175,9 @@ pub struct OpenProject {
     /// until the `ListWork` is answered, so a project whose work has never arrived draws as empty
     /// rather than as a project with no work.
     pub work: WorkProjection,
+    /// The agents screen's view of that work: which agents are in which column, and what is typed
+    /// at each. Per project, for the reason the graph's view is.
+    pub agents: AgentsView,
     /// The graph's view of that work: what is selected in it, which states it is showing, and where
     /// its cards sit. Per project, because a selection and an arrangement are about one project's
     /// agents and switching away must not lose either.
@@ -204,6 +210,7 @@ impl OpenProject {
             explorer: ExplorerState::empty(),
             editor: EditorPaneState::empty(),
             work: WorkProjection::empty(),
+            agents: AgentsView::default(),
             graph: GraphView::default(),
             board: BoardState::default(),
             prefs,
@@ -316,9 +323,17 @@ pub struct AppState {
     /// The component library's own state entities. Each open file owns its buffer, so none of
     /// them is the editor's.
     pub chat_input: Entity<TextareaState>,
-    /// The inspector's composer on the agents screen. A field of its own rather than the chat's,
-    /// because the two are two conversations and a shared draft would leak between them.
+    /// The inspector's composer on the orchestration screen. A field of its own rather than the
+    /// chat's, because the two are two conversations and a shared draft would leak between them.
     pub agent_input: Entity<TextareaState>,
+    /// One composer per column slot on the agents screen, [`COLUMNS_MAX`] of them.
+    ///
+    /// A fixed pool rather than one entity per live column: an entity is created with a `Window`
+    /// and columns open from handlers that have one, but the *subscription* that mirrors what is
+    /// typed has to be held for the window's life — so all of them are built once, before the
+    /// first frame, and a column borrows the slot it is given. `AgentsView::drafts` is the other
+    /// half, indexed the same way.
+    pub column_inputs: Vec<Entity<TextareaState>>,
     pub file_filter: Entity<InputState>,
     /// The file picker's own field. Separate from the explorer's because the two are up at once
     /// and one state drawn twice is one field in two places.
@@ -371,6 +386,9 @@ pub struct AppState {
     pub picker_scroll: ScrollHandle,
     /// The explorer's rows, for the same reason.
     pub explorer_scroll: ScrollHandle,
+    /// The agents screen's sidebar. Its own handle rather than the explorer's: the two lists are
+    /// on screen in different modes and a shared handle would carry one's position into the other.
+    pub agents_scroll: ScrollHandle,
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
     explorer_filter_gen: u64,
@@ -381,6 +399,10 @@ pub struct AppState {
     form_filled: Option<TaskId>,
     /// A project switch owes the window's own fields the entered project's text.
     refill_fields: bool,
+    /// The agents screen's composers owe themselves a placeholder and a draft: the columns changed,
+    /// or a column's tab did, and which agent a composer is addressed at is what its placeholder
+    /// says. Drained in `render` for the reason `refill_fields` is.
+    refill_columns: bool,
     /// The project settings dialog owes its fields the path, name and colour it was opened with.
     /// Drained in `render` for the same reason as `refill_fields`: `set_value` needs a window.
     fill_project_form: bool,
@@ -419,6 +441,20 @@ impl AppState {
                 .auto_grow(1, 6)
                 .submit_on_enter(true)
         });
+
+        // The whole pool, before the first frame. Each one's placeholder names the agent its
+        // column is showing and is set when the column opens or changes tab; until then it says
+        // what the field is for.
+        let column_inputs: Vec<Entity<TextareaState>> = (0..COLUMNS_MAX)
+            .map(|_| {
+                cx.new(|cx| {
+                    TextareaState::new(window, cx)
+                        .placeholder("Steer this agent\u{2026}")
+                        .auto_grow(1, 5)
+                        .submit_on_enter(true)
+                })
+            })
+            .collect();
 
         let file_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Go to file\u{2026}"));
@@ -655,6 +691,28 @@ impl AppState {
                 _ => {}
             },
         ));
+
+        // One subscription per column composer, each carrying the slot it belongs to. What is
+        // typed lands in that slot of the project's drafts; a bare Enter steers the column.
+        for (slot, input) in column_inputs.iter().enumerate() {
+            subscriptions.push(cx.subscribe_in(
+                input,
+                window,
+                move |this, input, event: &InputEvent, window, cx| match event {
+                    InputEvent::Change => {
+                        let draft = input.read(cx).value().to_string();
+                        if let Some(agents) = this.agents_mut(cx) {
+                            agents.set_draft(slot, draft);
+                        }
+                        cx.notify();
+                    }
+                    InputEvent::PressEnter { shift: false, .. } => {
+                        this.steer_column(slot, window, cx)
+                    }
+                    _ => {}
+                },
+            ));
+        }
 
         subscriptions.push(cx.subscribe_in(
             &file_filter,
@@ -900,6 +958,7 @@ impl AppState {
             viewport_drag: RefCell::new(None),
             chat_input,
             agent_input,
+            column_inputs,
             file_filter,
             picker_filter,
             task_filter,
@@ -927,10 +986,12 @@ impl AppState {
             chat_scroll: ScrollHandle::new(),
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
+            agents_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,
             log_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,
+            refill_columns: false,
             fill_project_form: false,
             _subscriptions: subscriptions,
         };
@@ -939,6 +1000,12 @@ impl AppState {
         this.bus.send(Message::ListProjects);
         this.bus.send(Message::GetPreferences {
             scope: Scope::Interface,
+        });
+        this.bus.send(Message::GetSettings {
+            layer: SettingsLayer::Ui,
+        });
+        this.bus.send(Message::GetSettings {
+            layer: SettingsLayer::Host,
         });
 
         // Whatever the registry says this window holds, it now holds — including the pane a
@@ -992,8 +1059,9 @@ impl AppState {
             self.bus.send(Message::GetPreferences {
                 scope: Scope::Project(id),
             });
-            // The work is the host's as well, and the graph and the board draw nothing until it
-            // answers. Once per newly held project: the reply is the whole of it.
+            // The work is the host's as well, and the three screens over it draw nothing until it
+            // answers. Once per newly held project: the reply is the whole of it, and it is the
+            // frame the agents screen lays its columns out on.
             self.bus.send(Message::ListWork { project_id: id });
             // The overview is cheap and lands first; the working-tree walk follows on the same
             // worker, behind it, so the branch name is not stuck waiting for badges.
@@ -1056,6 +1124,9 @@ impl AppState {
         // entities are the window's, but the text in them is about the project on screen.
         self.form_filled = None;
         self.refill_fields = true;
+        // The composers are the window's and the drafts are the project's, so the entering
+        // project's text has to be written into them.
+        self.refill_columns = true;
         self.workbench.rail_mode = view.rail_mode;
         // The arrangement is the mode's own: whichever mode this project was left in is the one
         // whose window comes back. A mode this project never arranged opens on its defaults — no
@@ -1098,6 +1169,11 @@ impl AppState {
         self.open_project(cx).map(|open| &open.work)
     }
 
+    /// The agents screen's view of that work: the columns and the bench.
+    pub fn agents(&self, cx: &App) -> Option<&AgentsView> {
+        self.open_project(cx).map(|open| &open.agents)
+    }
+
     /// The graph's view of that work.
     pub fn graph(&self, cx: &App) -> Option<&GraphView> {
         self.open_project(cx).map(|open| &open.graph)
@@ -1111,6 +1187,11 @@ impl AppState {
     pub fn work_mut(&mut self, cx: &App) -> Option<&mut WorkProjection> {
         let id = self.project(cx)?;
         self.projects.get_mut(&id).map(|open| &mut open.work)
+    }
+
+    pub fn agents_mut(&mut self, cx: &App) -> Option<&mut AgentsView> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.agents)
     }
 
     pub fn graph_mut(&mut self, cx: &App) -> Option<&mut GraphView> {
@@ -1378,6 +1459,12 @@ impl AppState {
 
             Message::Preferences { scope, value } => self.apply_preferences(scope, value, cx),
 
+            Message::Settings { layer, value } => self.apply_settings(layer, value, cx),
+            Message::SettingsError { layer, error } => {
+                tracing::error!("settings {layer:?}: {error}");
+                cx.notify();
+            }
+
             // ── the file family ─────────────────────────────────────
             // Every answer names its project and its path, so one that arrives after the user has
             // switched projects lands where it belongs rather than on screen.
@@ -1563,6 +1650,15 @@ impl AppState {
                 if open.graph.selection.is_none() {
                     open.graph.selection = open.work.agents.first().map(|a| Selection::Agent(a.id));
                 }
+                // The agents screen lays its columns out the first time it hears there is work,
+                // and only prunes after that: an arrangement the user has changed is not something
+                // a re-sent list may undo.
+                if open.agents.arranged {
+                    open.agents.prune(&open.work);
+                } else {
+                    open.agents.arrange(&open.work);
+                }
+                self.refill_columns = true;
                 cx.notify();
             }
 
@@ -1644,6 +1740,12 @@ impl AppState {
                 open.graph
                     .layout
                     .place_new(&open.work.agents, &open.work.tasks);
+                // An arriving agent is not put in a column: the arrangement is the user's, and the
+                // sidebar lists it on the bench with one click to bring it on. What a change *can*
+                // do is take a column's tab away, if the agent behind it has gone.
+                if open.agents.prune(&open.work) {
+                    self.refill_columns = true;
+                }
                 cx.notify();
             }
 
@@ -2843,6 +2945,7 @@ impl AppState {
     pub fn open_create_project(&mut self, path: String, cx: &mut Context<Self>) {
         let colour = self.next_colour(cx);
         self.workbench.open_menu = None;
+        self.workbench.settings.open = false;
         self.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Create { path },
             colour,
@@ -2864,6 +2967,7 @@ impl AppState {
         let project = snapshot.record.id;
         let colour = snapshot.record.colour;
         self.workbench.open_menu = None;
+        self.workbench.settings.open = false;
         self.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Edit { project },
             colour,
@@ -3315,6 +3419,68 @@ impl AppState {
         });
     }
 
+    /// Write down how the interface behaves. Immediate: a toggle is one event, not a drag.
+    fn remember_settings(&mut self) {
+        let mut ui = self.workbench.settings.ui.clone();
+        ui.schema = ui_settings::SCHEMA;
+        self.bus.send(Message::SetSettings {
+            layer: SettingsLayer::Ui,
+            value: ui_settings::encode(&ui),
+        });
+    }
+
+    fn apply_settings(
+        &mut self,
+        layer: SettingsLayer,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        match layer {
+            SettingsLayer::Ui => {
+                let Some(blob) = value else { return };
+                if let Some(ui) = ui_settings::decode(&blob) {
+                    self.workbench.settings.ui = ui;
+                    cx.notify();
+                }
+            }
+            SettingsLayer::Host => {
+                // Nothing this build displays. The fetch exists so the plumbing is live.
+            }
+        }
+    }
+
+    pub fn toggle_settings(&mut self, cx: &mut Context<Self>) {
+        let open = !self.workbench.settings.open;
+        self.workbench.settings.open = open;
+        if open {
+            self.workbench.project_settings = None;
+            self.workbench.open_menu = None;
+        }
+        cx.notify();
+    }
+
+    pub fn close_settings(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.open = false;
+        cx.notify();
+    }
+
+    pub fn set_settings_nav(&mut self, nav: SettingsSection, cx: &mut Context<Self>) {
+        self.workbench.settings.nav = nav;
+        cx.notify();
+    }
+
+    pub fn toggle_explorer_preview(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.explorer_preview = !self.workbench.settings.ui.explorer_preview;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    pub fn set_markdown_open(&mut self, choice: MarkdownOpen, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.markdown_open = choice;
+        self.remember_settings();
+        cx.notify();
+    }
+
     // ── Explorer ────────────────────────────────────────────────────
 
     /// Open or shut a folder, asking the host what is inside it the first time.
@@ -3518,7 +3684,9 @@ impl AppState {
                 true
             }
             ExplorerPressed::Open { path } => {
-                if matches!(key, ExplorerKey::ShiftEnter) {
+                if matches!(key, ExplorerKey::ShiftEnter)
+                    || !self.workbench.settings.ui.explorer_preview
+                {
                     self.select_file(path, cx);
                 } else {
                     self.select_file_temporary(path, cx);
@@ -3567,7 +3735,7 @@ impl AppState {
         };
         match pressed {
             ExplorerPressed::Open { path } => {
-                if permanent {
+                if permanent || !self.workbench.settings.ui.explorer_preview {
                     self.select_file(path, cx);
                 } else {
                     self.select_file_temporary(path, cx);
@@ -3748,6 +3916,7 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
+        let markdown_open = self.workbench.settings.ui.markdown_open.layout();
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
@@ -3758,7 +3927,7 @@ impl AppState {
         // A permanent open (double-click, Shift+click, menu) also promotes a preview that is
         // already showing the path: the user asked for it to stick, so it stops being replaceable.
         open.editor.promote(&path);
-        let index = open.editor.open_pending(&path);
+        let index = open.editor.open_pending(&path, markdown_open);
         open.editor.active = index;
 
         if fresh {
@@ -3791,6 +3960,7 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
+        let markdown_open = self.workbench.settings.ui.markdown_open.layout();
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
@@ -3798,7 +3968,7 @@ impl AppState {
         self.pending_editor_focus = Some(tab_key(&path, Subject::File));
 
         let fresh = open.editor.index_of(&path).is_none();
-        let (index, closed) = open.editor.open_temporary(&path);
+        let (index, closed) = open.editor.open_temporary(&path, markdown_open);
         open.editor.active = index;
 
         if let Some(closed) = closed {
@@ -4437,6 +4607,200 @@ impl AppState {
 
     // ── The agents screen ───────────────────────────────────────────
     //
+    // The arrangement is the interface's own: not one of these sends a message. What crosses the
+    // bus from this screen is the one thing that is not about arrangement — what the user typed at
+    // an agent, which `steer_column` sends. Every handler is guarded on the window holding a
+    // project, because the screen is a view of one project's work.
+
+    /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
+    /// The one thing a click in the sidebar does.
+    pub fn reveal_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.reveal(agent);
+        }
+        self.refill_columns = true;
+        cx.notify();
+    }
+
+    /// Add an agent to one column's strip. What a column's `+` does — grouping it with whatever is
+    /// already there rather than widening the row.
+    pub fn group_agent_into(&mut self, column: usize, agent: AgentId, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.open_in(column, agent);
+        }
+        self.refill_columns = true;
+        cx.notify();
+    }
+
+    /// Take an agent off the field. **The agent keeps running** — a column tab is a view onto a
+    /// conversation, not the harness's screen — so this benches it and the sidebar still lists it.
+    pub fn bench_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.bench(agent);
+        }
+        self.refill_columns = true;
+        cx.notify();
+    }
+
+    pub fn select_column_tab(&mut self, column: usize, tab: usize, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.select_tab(column, tab);
+        }
+        // Which agent a composer is addressed at is what its placeholder says, so a tab change
+        // owes it one.
+        self.refill_columns = true;
+        cx.notify();
+    }
+
+    pub fn focus_agent_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.focus_column(column);
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_agents_session(&mut self, session: SessionId, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.toggle_session(session);
+        }
+        cx.notify();
+    }
+
+    /// A tab has been picked up. Nothing moves yet: what the drop lands on is what decides whether
+    /// it groups or splits.
+    pub fn start_tab_drag(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.dragging = Some(agent);
+        }
+        cx.notify();
+    }
+
+    /// A tab dropped on a column joins it.
+    pub fn drop_tab_on(&mut self, column: usize, cx: &mut Context<Self>) {
+        let Some(agent) = self.agents(cx).and_then(|agents| agents.dragging) else {
+            return;
+        };
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.dragging = None;
+            agents.open_in(column, agent);
+        }
+        self.refill_columns = true;
+        cx.notify();
+    }
+
+    /// A tab dropped past the last column opens one of its own.
+    pub fn drop_tab_at_end(&mut self, cx: &mut Context<Self>) {
+        let Some(agent) = self.agents(cx).and_then(|agents| agents.dragging) else {
+            return;
+        };
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.dragging = None;
+            let at = agents.columns.len();
+            agents.split_off(agent, at);
+        }
+        self.refill_columns = true;
+        cx.notify();
+    }
+
+    /// A drag that ended anywhere but a column never reaches a drop handler, so a tab left in the
+    /// air is put down here — and it stays in the column it came from.
+    fn settle_tab_drag(&mut self, cx: &mut Context<Self>) {
+        let stranded = self
+            .agents(cx)
+            .is_some_and(|agents| agents.dragging.is_some() && !cx.has_active_drag());
+        if stranded && let Some(agents) = self.agents_mut(cx) {
+            agents.dragging = None;
+        }
+    }
+
+    /// What one column's composer sends, to the agent that column is showing.
+    ///
+    /// Nothing is appended here, for the reason [`Self::send_to_agent`] appends nothing: the line
+    /// lands in the thread when the host answers with the agent carrying it.
+    pub fn steer_column(&mut self, slot: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(agents) = self.agents(cx) else {
+            return;
+        };
+        let Some(column) = agents.columns.iter().find(|column| column.slot == slot) else {
+            return;
+        };
+        let Some(agent_id) = column.active_agent() else {
+            return;
+        };
+        let text = agents.draft(slot).trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.bus.send(Message::SendToAgent {
+            project_id,
+            agent_id,
+            text,
+        });
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.clear_draft(slot);
+        }
+        let input = self.column_inputs[slot].clone();
+        input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Give every column's composer its placeholder and its draft.
+    ///
+    /// Drained in `render` rather than done where the columns change, because `set_placeholder` and
+    /// `set_value` both need a window and three of the callers have none: a message that arrives, a
+    /// project switch, and a jump from another screen. The flag is what stops it writing over what
+    /// the user is typing on every frame.
+    fn fill_columns(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.refill_columns {
+            return;
+        }
+        self.refill_columns = false;
+
+        // A slot no column holds is left alone: it is off screen, and the next column to be given
+        // it is what fills it.
+        let filled: Vec<(usize, String, String)> = self
+            .agents(cx)
+            .map(|agents| {
+                agents
+                    .columns
+                    .iter()
+                    .map(|column| {
+                        let name = column
+                            .active_agent()
+                            .and_then(|id| self.work(cx).and_then(|work| work.agent(id)))
+                            .map(|agent| agent.name.clone())
+                            .unwrap_or_else(|| "this agent".to_string());
+                        (
+                            column.slot,
+                            format!("Steer {name}\u{2026}"),
+                            agents.draft(column.slot).to_string(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for (slot, placeholder, draft) in filled {
+            let Some(input) = self.column_inputs.get(slot).cloned() else {
+                continue;
+            };
+            input.update(cx, |state, cx| {
+                state.set_placeholder(placeholder, window, cx);
+                if state.value() != draft.as_str() {
+                    state.set_value(&draft, window, cx);
+                }
+            });
+        }
+    }
+
+    // ── The orchestration screen ────────────────────────────────────
+    //
     // Every handler here is guarded on the window holding a project: the screen is a view of one
     // project's work, and a window with none open has nothing for it to act on.
 
@@ -4459,7 +4823,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// Put every filter on the agents screen back. The one control for "show me all of it".
+    /// Put every filter on the orchestration screen back. The one control for "show me all of it".
     pub fn clear_graph_filters(&mut self, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut(cx) {
             graph.clear_filters();
@@ -5110,7 +5474,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// Take a task to the agents screen: the graph, pointed at whoever is doing it.
+    /// Take a task to the orchestration screen: the graph, pointed at whoever is doing it.
     pub fn show_task_in_graph(&mut self, task: TaskId, cx: &mut Context<Self>) {
         let selection = self.work(cx).and_then(|work| {
             let task = work.task(task)?;
@@ -5123,13 +5487,14 @@ impl AppState {
         {
             graph.selection = Some(selection);
         }
-        self.set_rail_mode(RailMode::Agents, cx);
+        self.set_rail_mode(RailMode::Orchestration, cx);
     }
 
-    /// The way from a card to the conversation with the agent holding it: the agents screen, that
-    /// agent selected, the inspector on its thread.
+    /// The way from a card to the conversation with the agent holding it: the **agents** screen,
+    /// that agent in a column of its own. The conversation is what was asked for, and the columns
+    /// are where a conversation is had — the graph is the map, not the transcript.
     pub fn open_task_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        self.open_agent_chat(agent, cx);
+        self.reveal_agent(agent, cx);
         self.set_rail_mode(RailMode::Agents, cx);
     }
 
@@ -5368,9 +5733,11 @@ impl Render for AppState {
         // before.
         self.take_editor_focus(window, cx);
         self.fill_task_form(window, cx);
+        self.fill_columns(window, cx);
         self.fill_project_form(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
+        self.settle_tab_drag(cx);
         // The filter field is one per window; the project on screen's filter is the window's habit
         // from the frame after the project swings in. Cheap when nothing changed, and it never
         // fights a query being typed.

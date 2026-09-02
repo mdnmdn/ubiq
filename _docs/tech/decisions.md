@@ -685,6 +685,41 @@ emulator, and a chord that looks unused in a shell is often a command in a TUI. 
 turns selection and link clicks off, which is what the harness asked for and what every other
 terminal does — and what a user who wanted to select text in vim with `mouse=a` will not get.
 
+### D46 — Settings are two layers, not a preference blob
+
+How the application behaves is not where the window was left. View state stays
+`GetPreferences` / `SetPreferences` with a `Scope` — opaque, debounced, discarded on a schema
+the interface does not know. Application settings are `GetSettings` / `SetSettings` with a
+`SettingsLayer`. The Ui layer is opaque the same way view state is, with its own schema so a
+layout bump does not throw away a checkbox. The Host layer is parsed: a blob this host cannot
+read is `SettingsError` and a corrupt file is preserved, because the host acts on it. Harness
+definitions stay in agent-manager; they are neither layer.
+
+**Why:** stuffing settings into `InterfacePrefs` would couple a dock-schema bump to a toggle,
+and a host-parsed setting cannot live in a blob the host is forbidden to read (`D29`).
+
+**Cost:** a fourth store, two files beside `preferences.toml`, and a second message family whose
+write policy differs from the preference debounce. The Host record is empty of fields this build
+acts on; the messages exist so a later host setting does not redesign the wire.
+
+### D47 — Two screens over one set of agents: one to talk to them, one to arrange them
+
+The rail carries `Agents` and `Orchestration`, and both read the same `WorkProjection`. Agents is
+parallel columns — one conversation each, tabs that group, a composer per column. Orchestration is
+the graph — who spawned whom, which task a card serves, where a card sits. Neither screen holds a
+record; each holds its own arrangement over the same ones, and neither arrangement crosses the bus.
+
+**Why:** the two questions want opposite shapes. Talking to an agent wants width — a transcript, a
+harness readout, a field — and several of those side by side is the whole point of a multiplexer.
+Arranging agents wants a canvas, and a canvas that also had to hold four composers would be a
+canvas nobody could read. One screen doing both would be a graph with a chat drawer, which is the
+inspector the orchestration screen carries, and which is not where a day's work is done.
+
+**Cost:** two screens to keep honest about the same records, and a rename that moved the meaning of
+`rail_mode: "Agents"` — so `prefs::SCHEMA` went to `3` and every window opens on its defaults once.
+Two arrangements per project rather than one, and a user who closes a tab on one screen sees
+nothing change on the other, because a column and a card are not the same claim about an agent.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

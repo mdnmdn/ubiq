@@ -11,9 +11,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
+use ubiq_proto::settings::SettingsLayer;
 use ubiq_proto::work::TaskRecord;
 
-use super::{PreferenceStore, ProjectStore, StoreError, TaskStore};
+use super::{PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
 
 #[derive(Default)]
 pub struct MemoryProjectStore {
@@ -231,6 +232,58 @@ impl PreferenceStore for MemoryPreferenceStore {
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .remove(scope);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct MemorySettingsStore {
+    values: RwLock<BTreeMap<SettingsLayer, String>>,
+    fail_writes: AtomicBool,
+    writes: AtomicUsize,
+}
+
+impl MemorySettingsStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn fail_writes(&self, failing: bool) {
+        self.fail_writes.store(failing, Ordering::Relaxed);
+    }
+
+    pub fn writes(&self) -> usize {
+        self.writes.load(Ordering::Relaxed)
+    }
+}
+
+impl SettingsStore for MemorySettingsStore {
+    fn get(&self, layer: SettingsLayer) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .values
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&layer)
+            .cloned())
+    }
+
+    fn set(&self, layer: SettingsLayer, value: &str) -> Result<(), StoreError> {
+        if self.fail_writes.load(Ordering::Relaxed) {
+            return Err(StoreError::NotDurable);
+        }
+        self.values
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(layer, value.to_string());
+        self.writes.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn clear(&self, layer: SettingsLayer) -> Result<(), StoreError> {
+        self.values
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&layer);
         Ok(())
     }
 }

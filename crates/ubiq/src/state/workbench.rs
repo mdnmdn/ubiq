@@ -14,15 +14,22 @@
 
 use ubiq_proto::ids::ProjectId;
 
+use crate::state::settings::SettingsState;
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. `Ide`, `Agents`, `Tasks` and `Sink` are built; the rest render an
-/// empty page.
+/// The left rail's destinations. `Ide`, `Agents`, `Orchestration`, `Tasks` and `Sink` are built;
+/// the rest render an empty page.
+///
+/// `Agents` and `Orchestration` are two screens over the same records, and the split is the point.
+/// `Agents` is where the user *talks to* the agents — parallel columns, one conversation each.
+/// `Orchestration` is where the user *arranges* them — the graph of who spawned whom and which
+/// task each card serves.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
     Control,
     Ide,
     Agents,
+    Orchestration,
     Kb,
     Tasks,
     /// The kitchen sink: the application's own test bench. The one mode with no project behind it
@@ -41,6 +48,7 @@ impl RailMode {
             RailMode::Control => "Control",
             RailMode::Ide => "IDE",
             RailMode::Agents => "Agents",
+            RailMode::Orchestration => "Orchestration",
             RailMode::Kb => "KB",
             RailMode::Tasks => "Tasks",
             RailMode::Sink => "Sink",
@@ -52,7 +60,8 @@ impl RailMode {
         match self {
             RailMode::Control => "Sessions, workspaces and the agents running in them.",
             RailMode::Ide => "",
-            RailMode::Agents => "Agent types, accounts, skills and MCP servers.",
+            RailMode::Agents => "The agents running in this project, one column each.",
+            RailMode::Orchestration => "How the agents are arranged, and which task each serves.",
             RailMode::Kb => "Notes and documents the agents can read.",
             RailMode::Tasks => "Work queued for the agents in this session.",
             RailMode::Sink => "The application's own test bench.",
@@ -68,6 +77,7 @@ impl RailMode {
                 &[
                     RailMode::Ide,
                     RailMode::Agents,
+                    RailMode::Orchestration,
                     RailMode::Kb,
                     RailMode::Tasks,
                 ],
@@ -118,6 +128,9 @@ pub enum MenuId {
     /// The task panel's session picker. Priority and shape are pill rows rather than menus, because
     /// three fixed values read better as the report and the control at once.
     TaskSession,
+    /// One agents-screen column's `+`: which benched agent to group into it. It carries the
+    /// column, because a row of columns each has one and only one may be open.
+    AgentBench(usize),
     /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
     /// looked at, and one menu in the window has to be openable with no project behind it.
     SinkPicker,
@@ -150,6 +163,9 @@ pub struct WorkbenchState {
     pub row_action: Option<(ProjectId, RowAction)>,
     /// Project settings, raised over the window to create a project or edit the one on screen.
     pub project_settings: Option<ProjectSettings>,
+    /// Application settings, raised from the titlebar's gear. Interface-wide, so it opens with
+    /// no project.
+    pub settings: SettingsState,
     /// The last thing the host refused to do, shown at the top of the picker until dismissed.
     pub project_error: Option<String>,
     /// The last thing the host refused to do to the work, drawn at the top of the task panel by
@@ -180,6 +196,7 @@ impl Default for WorkbenchState {
             pending_close: None,
             row_action: None,
             project_settings: None,
+            settings: SettingsState::default(),
             project_error: None,
             work_error: None,
             file_filter: String::new(),

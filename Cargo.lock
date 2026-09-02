@@ -8781,6 +8781,7 @@ dependencies = [
  "git2",
  "portable-pty 0.9.0",
  "serde",
+ "serde_json",
  "similar",
  "tempfile",
  "thiserror 2.0.18",

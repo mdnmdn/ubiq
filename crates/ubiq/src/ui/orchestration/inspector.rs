@@ -24,12 +24,12 @@ use crate::app::AppState;
 use crate::state::work;
 use crate::state::{InspectorTab, Selection};
 use crate::theme;
-use crate::ui::agents::{activity_colour, bucket_colour, role_mark};
 use crate::ui::indexed;
 use crate::ui::kit::{
     Tab, field, ghost_button, icon_button, mono, panel, pill, progress_ring, section_label,
     state_chip, tab_strip,
 };
+use crate::ui::work::{activity_colour, bucket_colour, role_mark};
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let Some(graph) = app.graph(cx) else {
@@ -90,7 +90,7 @@ fn header_bar(
         .child(mono(kind.to_string(), theme::text_muted()).text_size(px(11.5)))
         .child(div().flex_1().min_w(px(0.)))
         .child(icon_button(
-            "inspector-close",
+            "orch-inspector-close",
             IconName::Close,
             false,
             cx.listener(|this, _, _, cx| this.toggle_inspector(cx)),
@@ -229,7 +229,7 @@ fn agent_view(
                 .child(mono(work::tokens_label(agent), theme::text_muted()).text_size(px(11.5))),
         )
         .child(tab_strip(
-            "inspector-tabs",
+            "orch-inspector-tabs",
             tabs,
             active,
             indexed(&view, |this, ix, _, cx| this.select_inspector_tab(ix, cx)),
@@ -279,7 +279,7 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
         .collect();
 
     div()
-        .id("inspector-thread")
+        .id("orch-inspector-thread")
         .flex()
         .flex_col()
         .flex_1()
@@ -321,7 +321,7 @@ fn composer(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl
         .items_stretch()
         .child(
             div()
-                .id("inspector-composer")
+                .id("orch-inspector-composer")
                 .px_3()
                 .pt_2()
                 .cursor_text()
@@ -350,7 +350,7 @@ fn composer(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl
                 .child(div().flex_1().min_w(px(0.)))
                 .child(
                     ghost_button(
-                        "inspector-send",
+                        "orch-inspector-send",
                         Some(IconName::ArrowUp),
                         "Send",
                         cx.listener(|this, _, window, cx| this.send_to_agent(window, cx)),

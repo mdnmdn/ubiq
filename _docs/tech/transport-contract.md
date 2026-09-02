@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-02
 verified: 2026-09-02
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -116,17 +116,32 @@ recolour and a move on disk.
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
 | `GetPreferences` | UI → host | `scope` | `Preferences` |
 | `SetPreferences` | UI → host | `scope`, `value` | — |
+| `GetSettings` | UI → host | `layer` | `Settings` |
+| `SetSettings` | UI → host | `layer`, `value` | — (Ui) or `SettingsError` (Host) |
 | `ProjectList` | host → UI | `projects[]` | — |
 | `ProjectAdded` | host → UI | `project` | — |
 | `ProjectChanged` | host → UI | `project` | — |
 | `ProjectForgotten` | host → UI | `project_id` | — |
 | `ProjectError` | host → UI | `project_id?`, `error` | — |
 | `Preferences` | host → UI | `scope`, `value?` | — |
+| `Settings` | host → UI | `layer`, `value?` | — |
+| `SettingsError` | host → UI | `layer`, `error` | — |
 | `HostInfo` | host → UI | `config_root`, `is_default` | — |
 
 **`ProjectChanged`, `ProjectAdded` and `ProjectForgotten` are broadcast** to every attached window,
-so every picker agrees by construction rather than by each window asking again. A `ProjectList` and
-a `Preferences` go only to the window that asked.
+so every picker agrees by construction rather than by each window asking again. A `ProjectList`, a
+`Preferences` and a `Settings` go only to the window that asked.
+
+**Settings are not preferences.** View state — theme, dock, open tabs — is `GetPreferences` /
+`SetPreferences` with a `Scope`, opaque, debounced. How the application behaves is
+`GetSettings` / `SetSettings` with a `SettingsLayer`. `Ui` is opaque: the host writes the string
+and never looks inside, a failed write is a log line, and a blob whose schema this build does not
+know is discarded. `Host` is parsed: a blob the host cannot read answers `SettingsError` and a
+corrupt file is preserved, like the catalogue. Harness definitions are neither layer — they belong
+to agent-manager.
+
+A `SettingsLayer` is `Ui` or `Host`. The Host record on the wire is JSON with a `schema` field;
+on disk it is TOML of that same record. The Ui record's schema lives in the interface.
 
 **`LocateProject` is separate from `UpdateProject`** because the two differ in kind. A rename or a
 recolour is display only: it touches no filesystem and cannot fail. Locate changes truth — it
@@ -415,6 +430,10 @@ A `Scope` — `Interface` or `Project(ProjectId)` — says what a stored prefere
 `value` is **opaque**: a string the host writes down and hands back and never parses, on the same
 discipline that keeps terminal bytes uninterpreted. The interface owns that schema and versions
 it.
+
+`SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
+the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
+host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
 
 `DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
 textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.
