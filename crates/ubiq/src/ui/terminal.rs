@@ -63,12 +63,12 @@ pub fn pane(app: &AppState, pane_id: PaneId, _cx: &App) -> AnyElement {
 ///
 /// The sixteen ANSI colours are the emulator's defaults, because the terminal body is the
 /// harness's output and Ubiq does not style it.
-pub fn config(cols: u16, rows: u16) -> TerminalConfig {
+pub fn config(cols: u16, rows: u16, font_size: f32) -> TerminalConfig {
     TerminalConfig {
         cols: cols as usize,
         rows: rows as usize,
         font_family: theme::MONO_FONT.to_string(),
-        font_size: px(theme::TERMINAL_FONT_SIZE),
+        font_size: px(font_size),
         scrollback: theme::TERMINAL_SCROLLBACK,
         line_height_multiplier: 1.0,
         padding: Edges::all(px(theme::TERMINAL_PADDING)),

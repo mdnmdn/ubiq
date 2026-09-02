@@ -18,9 +18,9 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, KeyBinding, MouseButton,
-    MouseDownEvent, MouseMoveEvent, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, Window, anchored, deferred, div, point, px,
+    AnyElement, App, Context, CursorStyle, Focusable, InteractiveElement, IntoElement, KeyBinding,
+    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -142,7 +142,7 @@ pub fn render(
         .border_color(theme::accent())
         .shadow_lg()
         .child(header(picker, cx))
-        .child(field(app, picker))
+        .child(field(app, picker, window, cx))
         .child(
             div()
                 .id("file-picker-rows")
@@ -244,23 +244,16 @@ fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-/// A mono chip saying one word about the request. Not a control: nothing about the ask changes
-/// while the dialog is up.
-fn chip(label: &str) -> impl IntoElement {
-    mono(SharedString::from(label.to_string()), theme::text_muted())
-        .text_size(px(11.))
-        .flex_none()
-        .px_1p5()
-        .py(px(2.))
-        .border_1()
-        .border_color(theme::border())
-}
-
 /// The filter field, the prefilter it is on top of, and the name of the arrangement below it.
 ///
 /// One field over both views on purpose: what was typed survives the toggle, because a user who
 /// cannot find something in the tree switches to the list to look for the same thing.
-fn field(app: &AppState, picker: &FilePickerState) -> impl IntoElement {
+fn field(app: &AppState, picker: &FilePickerState, window: &Window, cx: &App) -> impl IntoElement {
+    let focused = app
+        .picker_filter
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
     filter_bar(
         Input::new(&app.picker_filter).appearance(false),
         div()
@@ -282,6 +275,7 @@ fn field(app: &AppState, picker: &FilePickerState) -> impl IntoElement {
                     .px_1()
                     .bg(theme::surface_raised()),
             ),
+        focused,
     )
 }
 

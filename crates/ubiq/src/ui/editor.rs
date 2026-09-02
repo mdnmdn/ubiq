@@ -9,13 +9,23 @@
 //! the two things its tab asks of the file it names: [`label`] and [`state_colour`]. The centre
 //! panel keeps only the page that says no file is open, which is what it is in IDE mode.
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, div, px};
+use std::sync::Arc;
+
+use gpui::{
+    AnyElement, Context, Image, ImageFormat, ImageSource, IntoElement, ParentElement, Rgba,
+    SharedString, Styled, div, img, px,
+};
 use gpui_component::highlighter::Language;
 
 use crate::app::AppState;
 use crate::state::{FileBody, FileLanguage, OpenFile, SaveState};
-use crate::theme;
+use crate::theme::{self, ThemeId};
 use crate::ui::kit::mono;
+
+/// The page's logo files, theme picked so it reads on the page's background: the blue mark for a
+/// light theme, the white for a dark one. They are Ubiq's only assets, baked in wherever drawn.
+const LOGO_WHITE: &[u8] = include_bytes!("../../../../assets/logo-white.png");
+const LOGO_BLUE: &[u8] = include_bytes!("../../../../assets/logo-blue.png");
 
 /// The highlighter's language for one of ours. This is the only place the two enums meet.
 pub fn highlighter_language(language: FileLanguage) -> Language {
@@ -25,6 +35,8 @@ pub fn highlighter_language(language: FileLanguage) -> Language {
         FileLanguage::Json => Language::Json,
         FileLanguage::Rust => Language::Rust,
         FileLanguage::Markdown => Language::Markdown,
+        FileLanguage::Yaml => Language::Yaml,
+        FileLanguage::Java => Language::Java,
         FileLanguage::Plain => Language::Plain,
     }
 }
@@ -74,8 +86,38 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .child(match open {
             // Reached for the frame between a tab opening and the dock settling its panel.
             true => note("\u{2026}", theme::text_faint()),
-            false => note("No file open", theme::text_faint()),
+            false => welcome(app),
         })
+        .into_any_element()
+}
+
+/// The page when no file is open in IDE mode: the brand mark, big and soft, on the empty page.
+///
+/// A surface that is about to hold a file says so without furniture — no button, no menu, just the
+/// mark that owns the window. The logo is theme picked (blue on light, white on dark) so it reads
+/// on the page's background exactly as the rail's does on its swatch.
+fn welcome(app: &AppState) -> AnyElement {
+    let logo = Arc::new(Image::from_bytes(
+        ImageFormat::Png,
+        match app.workbench.theme_id {
+            ThemeId::Light => LOGO_BLUE,
+            ThemeId::Dark => LOGO_WHITE,
+        }
+        .to_vec(),
+    ));
+    div()
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .items_center()
+        .justify_center()
+        .bg(theme::app_bg())
+        .child(
+            div()
+                .size(px(200.))
+                .opacity(0.5)
+                .child(img(ImageSource::Image(logo)).size_full()),
+        )
         .into_any_element()
 }
 

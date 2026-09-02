@@ -18,7 +18,7 @@ use crate::theme::ThemeId;
 
 /// The left rail's destinations. `Ide`, `Agents`, `Tasks` and `Sink` are built; the rest render an
 /// empty page.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
     Control,
     Ide,
@@ -31,6 +31,11 @@ pub enum RailMode {
 }
 
 impl RailMode {
+    /// Whether this mode is the IDE. The one mode the left rail's side panels belong to.
+    pub fn is_ide(self) -> bool {
+        self == RailMode::Ide
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             RailMode::Control => "Control",
@@ -120,6 +125,11 @@ pub enum MenuId {
     SinkSettings,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.
     Explorer,
+    /// The status bar's text-size dropdown. It offers the whole point range the chrome admits.
+    FontSize,
+    /// The file tab's right-click menu. Which tab it opened on, and where, is
+    /// `WorkbenchState::file_tab_menu`.
+    FileTab,
 }
 
 pub struct WorkbenchState {
@@ -152,6 +162,10 @@ pub struct WorkbenchState {
     /// What was typed into the explorer's "Go to file…" field. It belongs to the window rather than
     /// to a tree, because one field filters whichever project is on screen.
     pub file_filter: String,
+    /// The file tab whose right-click menu is open, and where the click went down. The menu is one
+    /// at a time, so this is a single `Option` like `open_menu`; the tab key names the file, the
+    /// point anchors the `context_menu` over the window.
+    pub file_tab_menu: Option<(String, (f32, f32))>,
 }
 
 impl Default for WorkbenchState {
@@ -169,6 +183,7 @@ impl Default for WorkbenchState {
             project_error: None,
             work_error: None,
             file_filter: String::new(),
+            file_tab_menu: None,
         }
     }
 }
@@ -178,6 +193,6 @@ impl WorkbenchState {
     /// together — every other panel outlives a rail-mode switch, and the centre panel is what the
     /// mode actually selects between.
     pub fn is_ide(&self) -> bool {
-        self.rail_mode == RailMode::Ide
+        self.rail_mode.is_ide()
     }
 }

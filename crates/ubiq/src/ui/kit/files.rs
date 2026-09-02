@@ -16,11 +16,11 @@ use gpui::{
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
-use crate::ui::kit::controls::icon_button;
+use crate::ui::kit::controls::{field, icon_button};
 
 /// How tall one row is, and how far each level of the tree indents it.
-pub const ROW_HEIGHT: f32 = 34.0;
-pub const INDENT: f32 = 16.0;
+pub const ROW_HEIGHT: f32 = 24.0;
+pub const INDENT: f32 = 11.0;
 
 /// The two-arrangement toggle: tree on the left, list on the right, lit when it is the one on
 /// screen.
@@ -46,18 +46,20 @@ pub fn view_switch(
 ///
 /// One field over both views on purpose: what was typed survives the toggle, because a user who
 /// cannot find something in the tree switches to the list to look for the same thing.
-pub fn filter_bar(field: impl IntoElement, trailing: impl IntoElement) -> impl IntoElement {
-    div().px_3().pb_2().flex().flex_none().child(
-        div()
+///
+/// `focused` is the shared text-field treatment — the surface, the left edge, and the focused
+/// underline — so the picker and the explorer draw their filter the way every other field does.
+pub fn filter_bar(
+    input: impl IntoElement,
+    trailing: impl IntoElement,
+    focused: bool,
+) -> impl IntoElement {
+    div().px_3().pb_1().flex().flex_none().child(
+        field(theme::border(), focused)
             .w_full()
-            .h(px(34.))
-            .px_2()
-            .flex()
-            .items_center()
-            .gap_2()
-            .bg(theme::surface())
-            .border_l(px(theme::ACCENT_EDGE))
-            .border_color(theme::border())
+            .h(px(26.))
+            .px_1p5()
+            .gap_1p5()
             .child(
                 Icon::new(IconName::Search)
                     .with_size(Size::XSmall)
@@ -68,7 +70,7 @@ pub fn filter_bar(field: impl IntoElement, trailing: impl IntoElement) -> impl I
                     .flex_1()
                     .min_w(px(0.))
                     .text_size(px(12.5))
-                    .child(field),
+                    .child(input),
             )
             .child(trailing),
     )
@@ -89,11 +91,11 @@ pub fn file_row(
     let mut line = div()
         .id(id)
         .h(px(ROW_HEIGHT))
-        .pr_3()
+        .pr_1p5()
         .flex()
         .flex_none()
         .items_center()
-        .gap_2()
+        .gap_1()
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
         .child(div().w(px(6.0 + depth as f32 * INDENT)).flex_none());

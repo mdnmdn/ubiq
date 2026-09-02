@@ -21,6 +21,14 @@ pub const TERMINAL_FONT_SIZE: f32 = 13.0;
 pub const TERMINAL_PADDING: f32 = 8.0;
 pub const TERMINAL_SCROLLBACK: usize = 10_000;
 
+/// The base point size a file editor draws its text at, and the anchor a project's zoom nudges.
+/// The component library draws editors at the theme's mono size (13px); this is Ubiq's own name
+/// for that floor so a per-project font size has a known start rather than an ever-tallied one.
+pub const EDITOR_FONT_SIZE: f32 = 13.0;
+/// The range a project's editor zoom is allowed to live in, in whole points.
+pub const EDITOR_FONT_MIN: f32 = 8.0;
+pub const EDITOR_FONT_MAX: f32 = 36.0;
+
 /// Fixed chrome heights, in pixels.
 pub const TITLEBAR_HEIGHT: f32 = 44.0;
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
@@ -282,6 +290,28 @@ pub fn project_colour(index: usize) -> Rgba {
 /// The number of distinct project swatches before they repeat.
 pub fn project_colour_count() -> usize {
     Theme::current().palette.project.swatches.len()
+}
+
+/// Whether a project's swatch is dark enough that a white mark reads on it.
+///
+/// The mark is Ubiq's own logo drawn on the swatch; a dark swatch takes the white file and a light
+/// one the blue, so the decision is made where the swatches live rather than by the rail.
+pub fn project_mark_dark(index: usize) -> bool {
+    relative_luminance(Theme::current().palette.project.swatches[index % project_colour_count()])
+        < 0.5
+}
+
+/// WCAG relative luminance for a colour, so a swatch can say whether it is light or dark.
+fn relative_luminance(colour: Rgba) -> f64 {
+    let linear = |c: f32| {
+        let c = c as f64;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(colour.r) + 0.7152 * linear(colour.g) + 0.0722 * linear(colour.b)
 }
 
 // ── Built-in palettes ──────────────────────────────────────────────

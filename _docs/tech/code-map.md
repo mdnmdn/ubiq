@@ -143,7 +143,8 @@ crates/ubiq/src/
 │   │   ├── files.rs
 │   │   ├── project.rs
 │   │   └── settings.rs
-│   └── file_picker.rs
+│   ├── file_picker.rs
+│   └── file_tab_menu.rs
 ├── app.rs
 ├── lib.rs
 └── theme.rs
@@ -230,7 +231,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/chat/sidebar.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/chat/transcript.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/dock/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
-| `crates/ubiq/src/ui/dock/skin.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/dock/skin.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/empty.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -268,6 +269,7 @@ the documents in its row.
 | `crates/ubiq/tests/dock.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/file_picker.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/tests/mode_restore.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/scene.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/viewport.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -290,6 +292,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/store/memory.rs` |
 | `crates/ubiq-host/src/store/mod.rs` |
 | `crates/ubiq-host/src/work/mock.rs` |
+| `crates/ubiq/src/ui/file_tab_menu.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
 
 <!-- generated:end anchors -->

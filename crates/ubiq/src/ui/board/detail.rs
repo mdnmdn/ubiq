@@ -13,7 +13,7 @@
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
+    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -28,7 +28,12 @@ use crate::ui::board::{form, status_colour};
 use crate::ui::eid2;
 use crate::ui::kit::{ghost_button, icon_button, meter, mono, panel, pill, section_label};
 
-pub fn render(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
     let colour = app
         .work(cx)
         .map(|work| bucket_colour(work.pulse(task)))
@@ -56,11 +61,16 @@ pub fn render(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> 
                     cx.listener(|this, _, _, cx| this.close_task_detail(cx)),
                 )),
         )
-        .child(body(app, task, cx))
+        .child(body(app, task, window, cx))
         .child(footer(app, task, cx))
 }
 
-fn body(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+fn body(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(work) = app.work(cx) else {
         return div().into_any_element();
     };
@@ -153,7 +163,7 @@ fn body(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyEle
                         .flex_1()
                         .min_w(px(0.))
                         .child(if renaming {
-                            form::step_field(app)
+                            form::step_field(app, window, cx)
                         } else {
                             div()
                                 .id(eid2("board-step-title", task_id, step_id))
@@ -205,7 +215,7 @@ fn body(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyEle
         .gap_3()
         .overflow_y_scroll()
         .children(form::refusal(app))
-        .child(form::title(app, task, cx))
+        .child(form::title(app, task, window, cx))
         .child(
             div()
                 .flex()
@@ -243,7 +253,7 @@ fn body(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyEle
                 ))
                 .child(fact("Now", now)),
         )
-        .child(form::description(app, task, cx))
+        .child(form::description(app, task, window, cx))
         .children((total > 0).then(|| {
             div()
                 .flex()
@@ -275,7 +285,7 @@ fn body(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyEle
                 .child("No sub-tasks yet.")
         }))
         .children(steps)
-        .child(form::new_step(app))
+        .child(form::new_step(app, window, cx))
         .into_any_element()
 }
 

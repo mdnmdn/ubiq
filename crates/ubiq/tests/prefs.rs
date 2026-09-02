@@ -2,7 +2,7 @@
 
 use ubiq::state::RailMode;
 use ubiq::state::editor::{Subject, from_tab_key, tab_key};
-use ubiq::state::prefs::{self, InterfacePrefs, ViewPrefs};
+use ubiq::state::prefs::{self, InterfacePrefs, ModeLayout, ViewPrefs};
 use ubiq::theme::ThemeId;
 use ubiq_proto::files::DiffBase;
 
@@ -11,16 +11,25 @@ fn a_blob_survives_the_round_trip() {
     let view = ViewPrefs {
         schema: prefs::SCHEMA,
         rail_mode: RailMode::Agents,
-        show_left: false,
-        show_bottom: true,
-        show_right: false,
-        layout: Some(
-            serde_json::json!({"version": prefs::SCHEMA, "center": {"panel_name": "TabPanel"}}),
-        ),
+        modes: [(
+            RailMode::Agents,
+            ModeLayout {
+                show_left: false,
+                show_bottom: true,
+                show_right: false,
+                layout: Some(
+                    serde_json::json!({"version": prefs::SCHEMA, "center": {"panel_name": "TabPanel"}}),
+                ),
+            },
+        )]
+        .into(),
         open_files: Vec::new(),
         active_file: None,
         expanded: Vec::new(),
         selected: None,
+        file_filter: "main".to_string(),
+        ui_font_size: Some(16.0),
+        editor_wrap: Some(false),
     };
 
     let back: ViewPrefs = prefs::decode(&prefs::encode(&view)).expect("decodes");
@@ -80,9 +89,11 @@ fn the_tabs_a_project_remembers_are_keys_rather_than_paths() {
 }
 
 /// Every field added after the first release is defaulted, so a blob written before the file set
-/// was remembered — or before the window's arrangement was a dock, when three panel sizes were
-/// what there was to remember — still opens at the same schema, with its rail mode intact and the
-/// fields it never carried empty.
+/// was remembered — or before the window's arrangement was a per-mode record — still opens at the
+/// same schema, with its rail mode intact and the fields it never carried empty.
+///
+/// The window's arrangement is remembered per rail mode, so a blob that never carried a mode's
+/// flags opens with an empty `modes` map and each mode is arranged the way a fresh one is.
 ///
 /// Bumping the schema for an *added* field would have discarded all of it for nothing. What does
 /// move the schema is a field already being written changing meaning, which no default can rescue.
@@ -94,10 +105,12 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     let view: ViewPrefs = prefs::decode(before).expect("decodes");
 
     assert_eq!(view.rail_mode, RailMode::Ide);
-    assert!(!view.show_right);
-    // The three sizes it carries are a frame this build no longer has. Nothing reads them, and
-    // the window opens in the arrangement a fresh one does.
-    assert_eq!(view.layout, None);
+    // The flat show flags and the three sizes belong to a frame this build no longer has: they are
+    // written into the per-mode record instead, so nothing here reads them and the window opens
+    // each mode the way a fresh one does.
+    assert!(view.modes.is_empty());
+    let arranged = ModeLayout::default_for(RailMode::Ide);
+    assert!(arranged.show_left && arranged.show_bottom && arranged.show_right);
 
     assert!(view.open_files.is_empty());
     assert_eq!(view.active_file, None);
@@ -156,11 +169,11 @@ fn nonsense_is_discarded_rather_than_panicking() {
 #[test]
 fn the_arrangement_may_be_absent() {
     // A blob written before the window remembered one still opens, and the window arranges itself
-    // the way a fresh one does.
-    let without =
-        r#"{"schema":2,"rail_mode":"Ide","show_left":true,"show_bottom":false,"show_right":true}"#;
+    // the way a fresh one does: the mode has no record, so it falls to `default_for`.
+    let without = r#"{"schema":2,"rail_mode":"Ide","open_files":[],"active_file":null}"#;
     let view: ViewPrefs = prefs::decode(without).expect("decodes");
 
-    assert_eq!(view.layout, None);
-    assert!(!view.show_bottom);
+    assert!(view.modes.is_empty());
+    let fresh = ModeLayout::default_for(RailMode::Ide);
+    assert!(fresh.show_left && fresh.show_bottom && fresh.show_right);
 }

@@ -1,8 +1,8 @@
 //! The composer: what is typed, what it will be sent to, and the button that sends it.
 
 use gpui::{
-    Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
-    div, px,
+    Context, Focusable, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
+    Styled, Window, div, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -11,21 +11,19 @@ use crate::app::AppState;
 use crate::state::{HARNESSES, MODELS, MODES, MenuId, THINKING};
 use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
-use crate::ui::kit::{Picker, PickerStyle, icon_button, mono};
+use crate::ui::kit::{Picker, PickerStyle, field, icon_button, mono};
 use crate::ui::{handler, indexed};
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let view = cx.entity();
     let open = app.workbench.open_menu;
     let can_send = !app.chat.draft.trim().is_empty();
+    let focused = app.chat_input.read(cx).focus_handle(cx).is_focused(window);
 
-    div()
-        .flex()
+    field(theme::accent(), focused)
         .flex_none()
         .flex_col()
-        .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::accent())
+        .items_stretch()
         .child(
             div()
                 .id("chat-composer")

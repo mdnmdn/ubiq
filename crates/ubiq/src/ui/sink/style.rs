@@ -523,6 +523,7 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .text_size(px(10.5))
             .px_1()
             .bg(theme::surface_raised()),
+            false,
         )
         .into_any_element(),
     );

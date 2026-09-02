@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode.
 read_when: you are changing the chat panel, a message or tool block renderer, or the composer's pickers
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/ui/chat/transcript.rs, crates/ubiq/src/ui/chat/composer.rs, crates/ubiq/src/state/chat.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -74,7 +74,9 @@ selections and the draft. `ChatState::send` appends the user turn and the canned
 
 Rendering is four modules under `crates/ubiq/src/ui/chat/`: `mod.rs` assembles the panel,
 `sidebar.rs` draws the header, the list and the status strip, `transcript.rs` draws the turns and
-their blocks, and `composer.rs` draws the input and its pickers. The pickers are the shared
+their blocks, and `composer.rs` draws the input and its pickers. The composer sits in the kit's `field`
+container, so its textarea carries a coloured edge and a bottom underline while it holds the
+keyboard. The pickers are the shared
 `ui::kit::Picker` and the run pill is the shared `ui::kit::state_chip`; the scrollbar is a sibling
 of the scroll area, so it stays put while the content moves under it.
 

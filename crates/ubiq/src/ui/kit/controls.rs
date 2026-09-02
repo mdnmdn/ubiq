@@ -24,6 +24,26 @@ pub fn slab(edge: Rgba) -> Div {
         .border_color(edge)
 }
 
+/// The container every text entry sits in: a surface with its edge on the boundary and nothing
+/// rounded.
+///
+/// A field is identified on the left like every other surface; when it holds the keyboard the
+/// bottom edge lights as well, so the active box is the one that is underlined. This is the same
+/// treatment the sink gives its fields, lifted into the kit where every input shares it.
+pub fn field(edge: Rgba, focused: bool) -> Div {
+    let colour = if focused { theme::border_focus() } else { edge };
+    let mut root = div()
+        .flex()
+        .items_center()
+        .bg(theme::surface())
+        .border_l(px(theme::ACCENT_EDGE))
+        .border_color(colour);
+    if focused {
+        root = root.border_b(px(theme::ACCENT_EDGE));
+    }
+    root
+}
+
 /// A monospace run, at the size the chrome uses for paths, counts and code.
 pub fn mono(text: impl Into<SharedString>, color: Rgba) -> Div {
     div()

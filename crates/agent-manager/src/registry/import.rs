@@ -151,7 +151,7 @@ pub fn import(opts: &ImportOptions) -> Result<ImportPlan> {
                             let dest = opts
                                 .catalog_root
                                 .join("mcp")
-                                .join(format!("{}.json", &item.id));
+                                .join(format!("{}.json", item.id));
                             std::fs::create_dir_all(dest.parent().unwrap())?;
                             let json = serde_json::to_string_pretty(server)?;
                             std::fs::write(&dest, json)?;

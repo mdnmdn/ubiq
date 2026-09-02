@@ -7,18 +7,19 @@
 //! screen with no buffer is not a fact. A project in a repository prints its branch; a project
 //! that is not one prints nothing git-related.
 
-use gpui::{App, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::{Anchor, App, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitHead, GitOperation};
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
-use crate::state::{OpenFile, RailMode, SaveState};
+use crate::state::{MenuId, OpenFile, RailMode, SaveState};
 use crate::theme;
 use crate::ui::agents::bucket_colour;
 use crate::ui::board::status_colour;
-use crate::ui::kit::mono;
+use crate::ui::kit::{Picker, mono};
+use crate::ui::{handler, indexed};
 
 /// Where this run writes everything down, when that is not `~/.config/ubiq`.
 fn config_root(app: &AppState) -> Option<impl IntoElement> {
@@ -182,6 +183,58 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             )),
             theme::text_muted(),
         ))
+        .child(font_size_dropdown(app, cx))
+}
+
+/// Every text size the status bar's dropdown offers, in points. A hand-picked ladder rather than
+/// every integer: a font size is chosen by eye, and the spread of sizes the same knob wants on an
+/// editor, a terminal and a tree is the ladder rather than a grid.
+const FONT_SIZES: &[f32] = &[
+    10.0, 11.0, 12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 32.0,
+];
+
+/// The text-size dropdown, at the bottom-right of the strip. A project's text size scales the
+/// editor, the terminal panes and the explorer tree together, and it is remembered with the
+/// project, so the dropdown is where the whole window's zoom lives. The nearest ladder entry is
+/// shown when a nudge-landed size is not one of the ladder's.
+fn font_size_dropdown(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let view = cx.entity();
+    let current = app.ui_font_size_or_default(cx);
+    let index = nearest_font_index(current);
+
+    Picker::new("font-size", format!("{current:.0}\u{2009}px"))
+        .items(
+            FONT_SIZES
+                .iter()
+                .map(|n| format!("{n:.0}"))
+                .collect::<Vec<_>>(),
+        )
+        .selected(index)
+        .open(app.workbench.open_menu == Some(MenuId::FontSize))
+        .anchor(Anchor::BottomLeft)
+        .on_toggle(handler(&view, |this, _, cx| {
+            this.open_menu(MenuId::FontSize, cx)
+        }))
+        .on_pick(indexed(&view, |this, index, _, cx| {
+            this.set_ui_font_size(FONT_SIZES[index], cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        .into_any_element()
+}
+
+/// The ladder entry nearest a size, for the trigger's `selected` mark. Only meaningful when the
+/// current size is a nudge-landed value that is not itself on the ladder.
+fn nearest_font_index(size: f32) -> usize {
+    let mut best = 0;
+    let mut best_delta = f32::INFINITY;
+    for (i, &candidate) in FONT_SIZES.iter().enumerate() {
+        let delta = (candidate - size).abs();
+        if delta < best_delta {
+            best_delta = delta;
+            best = i;
+        }
+    }
+    best
 }
 
 /// Branch, tracking, working-tree totals — or nothing, when the project is not a repository.
