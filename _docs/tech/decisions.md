@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -667,6 +667,23 @@ second interface that is not on the host's machine has to earn that path some ot
 interface — a web one — gets no diagrams for free: it renders them itself or shows none, where a
 host-side family would have served both. And the cache is the interface's to bound and to
 invalidate, on a directory the host will delete without asking the moment its project is forgotten.
+
+### D45 — A terminal pane intercepts a closed set of keystrokes and pointer gestures
+
+The emulator forwards every keystroke and mouse event to the harness except a named set: platform
+copy and paste, a defocus chord (`Shift+Escape`, `Ctrl+Escape`, `Cmd+Escape`), text selection when
+the harness has not asked for the mouse, click-to-open on OSC 8 and `http(s)://` URLs, and OS file
+drops as bracketed paste. `Ctrl+C` is SIGINT on every platform. Bare Escape is `\x1b`.
+
+**Why:** a multiplexer that never copies, never pastes, and never lets the keyboard leave a pane is
+a pane the user is trapped in. The intercepts are the emulator's (except defocus, which is the
+window's) and invent no bus messages, because clipboard, drops and links are local to the UI
+process. Bare Escape stays with the harness so vim, emacs and less keep the key they already own.
+
+**Cost:** the closed set is a product contract. Adding a shortcut means adding it here and in the
+emulator, and a chord that looks unused in a shell is often a command in a TUI. Mouse reporting
+turns selection and link clicks off, which is what the harness asked for and what every other
+terminal does — and what a user who wanted to select text in vim with `mouse=a` will not get.
 
 ## Related docs
 

@@ -246,7 +246,7 @@
 //! consume the event:
 //!
 //! ```ignore
-//! terminal.with_key_handler(|event| {
+//! terminal.with_key_handler(|event, _window, _cx| {
 //!     // Handle Ctrl++ to increase font size
 //!     if event.keystroke.modifiers.control && event.keystroke.key == "+" {
 //!         // Your font size logic here
@@ -286,10 +286,12 @@
 //! | Keyboard input | ✅ Full support |
 //! | Application cursor mode | ✅ Full support |
 //! | Function keys (F1-F12) | ✅ Full support |
-//! | Mouse click reporting | 🔄 Partial (framework ready) |
-//! | Mouse selection | 🔄 Planned |
-//! | Scrollback | 🔄 Planned |
-//! | Clipboard (OSC 52) | ✅ Callback support |
+//! | Mouse click reporting | ✅ SGR when the harness requests it |
+//! | Mouse selection | ✅ Click/drag, word, line |
+//! | Scrollback | ✅ Mouse wheel in normal screen |
+//! | Clipboard (OSC 52) | ✅ Store and load |
+//! | Hyperlinks | ✅ OSC 8 and regex URLs |
+//! | File drops | ✅ Paths as bracketed paste |
 //! | Title changes (OSC 0/2) | ✅ Callback support |
 //! | Bell (BEL) | ✅ Callback support |
 //!
@@ -346,6 +348,7 @@ pub mod clipboard;
 pub mod colors;
 pub mod event;
 pub mod input;
+pub mod links;
 pub mod mouse;
 pub mod render;
 pub mod terminal;
@@ -358,6 +361,6 @@ pub use event::{GpuiEventProxy, TerminalEvent};
 pub use render::TerminalRenderer;
 pub use terminal::TerminalState;
 pub use view::{
-    BellCallback, ClipboardStoreCallback, ExitCallback, KeyHandler, ResizeCallback, TerminalConfig,
-    TerminalView, TitleCallback,
+    BellCallback, ClipboardLoadCallback, ClipboardStoreCallback, ExitCallback, KEY_CONTEXT,
+    KeyHandler, ResizeCallback, TerminalConfig, TerminalView, TitleCallback, install_key_bindings,
 };

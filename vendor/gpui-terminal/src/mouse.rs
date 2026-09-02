@@ -189,6 +189,23 @@ pub fn pixel_to_cell(
     AlacPoint::new(Line(row), Column(col))
 }
 
+/// Convert a viewport cell (row 0 = top of the painted pane) into a grid point
+/// that accounts for scrollback (`display_offset`).
+pub fn viewport_to_grid(cell: AlacPoint, display_offset: usize) -> AlacPoint {
+    AlacPoint::new(Line(cell.line.0 - display_offset as i32), cell.column)
+}
+
+/// Map a click count onto alacritty's selection kinds.
+pub fn alacritty_selection_type(
+    click_count: usize,
+) -> alacritty_terminal::selection::SelectionType {
+    match click_count {
+        1 => alacritty_terminal::selection::SelectionType::Simple,
+        2 => alacritty_terminal::selection::SelectionType::Semantic,
+        _ => alacritty_terminal::selection::SelectionType::Lines,
+    }
+}
+
 /// Determine the selection type based on the number of clicks.
 ///
 /// # Arguments
@@ -516,6 +533,24 @@ mod tests {
         let point = pixel_to_cell(position, origin, cell_width, cell_height);
         assert_eq!(point.column.0, 0);
         assert_eq!(point.line.0, 0);
+    }
+
+    #[test]
+    fn test_viewport_to_grid_identity_at_bottom() {
+        let cell = AlacPoint::new(Line(3), Column(4));
+        assert_eq!(viewport_to_grid(cell, 0), cell);
+        assert_eq!(
+            viewport_to_grid(cell, 10),
+            AlacPoint::new(Line(-7), Column(4))
+        );
+    }
+
+    #[test]
+    fn test_alacritty_selection_type() {
+        use alacritty_terminal::selection::SelectionType as AlacTy;
+        assert_eq!(alacritty_selection_type(1), AlacTy::Simple);
+        assert_eq!(alacritty_selection_type(2), AlacTy::Semantic);
+        assert_eq!(alacritty_selection_type(3), AlacTy::Lines);
     }
 
     #[test]

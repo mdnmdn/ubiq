@@ -87,6 +87,9 @@ fn tokens() -> AnyElement {
         ("warning_soft", theme::warning_soft()),
         ("info", theme::info()),
         ("info_soft", theme::info_soft()),
+        ("selection_background", theme::selection_background()),
+        ("link_underline", theme::link_underline()),
+        ("link_underline_hover", theme::link_underline_hover()),
     ];
 
     // The project group's members carry no role, so they are numbered rather than named.

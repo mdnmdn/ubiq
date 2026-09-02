@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git and work families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -56,7 +56,7 @@ them.
 | `TerminalInput` | UI → coordinator | `pane_id`, `bytes` | Raw keystrokes from the focused pane. No response; effects arrive as `TerminalOutput` |
 | `TerminalResize` | UI → coordinator | `pane_id`, `cols`, `rows` | New geometry. The coordinator sets the pseudo-terminal size; the kernel signals the harness |
 | `Focus` | UI → coordinator | `pane_id` | The pane that receives input. Exactly one at a time |
-| `PaneExited` | coordinator → UI | `pane_id`, `code` | The harness ended. The pane stays visible and stops accepting input |
+| `PaneExited` | coordinator → UI | `pane_id`, `code` | The harness ended |
 | `PaneError` | coordinator → UI | `pane_id`, `error` | The pane could not be spawned or its stream failed |
 
 `bytes` is a byte sequence, never a string. Harness output is not guaranteed to be valid UTF-8 at a

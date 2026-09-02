@@ -60,8 +60,8 @@ document; file it instead.
   kernel signals the process. A pane that resizes visually while its harness believes the old size
   is the classic corruption bug.
 - **Exactly one pane holds focus** and receives keystrokes. Unfocused panes keep drawing.
-- **An exited harness leaves its pane** showing its last screen. Nothing disappears from under the
-  user.
+- **An exited harness closes its pane.** Typing `exit` or sending EOF (Ctrl+D) takes the tab with
+  it; closing the tab is still what kills a harness that has not already ended.
 - **The coordinator's reader is never blocked by a slow UI** — that stalls the harness itself.
 - **Accounts carry credential references, never credential material.**
 - **The word "session" means two things.** Ubiq's session is a named grouping of panes with a

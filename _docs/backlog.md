@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 review_cycle: monthly
 ---
 
@@ -43,7 +43,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G18 | No pane shows focus on its edge, because focus across split panes is designed ahead of the code. `selected` and `border_focus` are drawn on the file picker's keyboard cursor and nowhere in a pane | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G19 | Of the session family, only `SpawnWorkspace`, `WorkspaceSpawned` and `CloseWorkspace` are implemented (the project family is complete). `ListSessions`/`SessionList`, `CreateSession`/`SessionCreated`, `AttachToSession`/`SessionAttached`, `DetachFromSession`, `ListAgentTypes`/`AgentTypes`, `Status`, `Error` and the `SessionInfo` and `AgentTypeInfo` records exist in the transport contract document and in no code. The work family's `WorkSession` is a session on the wire, seen from the other side, and the two records merge when the session family lands | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | G21 | A harness is started as a plain command — an agent type is a program name, defaulting to the user's shell — rather than composed through the harness library | [`tech/agent-manager.md`](./tech/agent-manager.md) |
-| G22 | The emulator offers no mouse text selection and no scrollback navigation, so what a harness draws can be read but not copied or scrolled back through | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
+| G22 | Keyboard scrollback navigation is absent — Page Up/Down still go to the harness. The wheel in normal screen moves through scrollback | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
 | G25 | The harness library emits no `tracing` events, so the log console's Harness subsystem has nothing to show |
 | G27 | Ubiq's four crates pin `serde`, `tracing` and `flume` independently; the workspace has no `[workspace.dependencies]` table to make a skew impossible | [`tech/project-structure.md`](./tech/project-structure.md) |
 | G28 | The config root moves Ubiq's own stores but not the embedded library's, so a development run is only self-contained as far as the catalogue and view state. Deriving `agent-manager`'s catalogue, accounts and credentials roots from it waits on the dependency in `G1` | [`tech/agent-manager.md`](./tech/agent-manager.md) |
@@ -84,6 +84,17 @@ change what Ubiq does (here), or where a document lives (there)?
 | G52 | The inspector's composer sends into a thread nothing answers. `SendToAgent` reaches the host, which appends the line to the mock agent's thread and answers with the agent carrying it, and nothing generates a reply — a reply needs a live harness behind the mock | [`features/workbench.md`](./features/workbench.md) |
 | G66 | Nothing bounds the interface's workarea. The host reserves `projects/<ulid>/ui/` and never looks inside, so no size ceiling, no eviction and no age limit exists anywhere — the only thing that empties it is forgetting the project, which removes the directory wholesale | [`tech/architecture.md`](./tech/architecture.md) |
 | G67 | The workarea is reserved by a `create_dir_all` inside `Projects::snapshot`, so every listing of the catalogue makes one syscall per project on the coordinator's run loop, beside the health probe on the same line. The same class as `G46` | [`tech/architecture.md`](./tech/architecture.md) |
+| G68 | File search on single file (proposal in inbox) |
+| G69 | File search on the workspace (proposal in inbox)  |
+| G70 | file context menu: duplicate, copy, paste , delete, rename |
+| G71 | markdown default on code |
+| G71 | excalidraw no code view |
+| G72 | fix file selection on click no explorer |
+| G73 | explorer file wrong spacing and disposition |
+| G74 | explorer hide hidden files, and force hidden files and folder on selection |
+| G75 | spacing on project selector |
+| G76 | memory on tab disposition (eg terminals), hide logs by default |
+
 
 ## Open questions — a decision nobody has made
 

@@ -63,6 +63,7 @@
 use crate::box_drawing;
 use crate::colors::ColorPalette;
 use crate::event::GpuiEventProxy;
+use crate::links::urls_in_line;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point as AlacPoint};
 use alacritty_terminal::term::Term;
@@ -455,6 +456,7 @@ impl TerminalRenderer {
         bounds: Bounds<Pixels>,
         padding: Edges<Pixels>,
         term: &Term<GpuiEventProxy>,
+        hovered: Option<AlacPoint>,
         window: &mut Window,
         _cx: &mut App,
     ) {
@@ -463,6 +465,8 @@ impl TerminalRenderer {
         let num_lines = grid.screen_lines();
         let num_cols = grid.columns();
         let colors = term.colors();
+        let display_offset = grid.display_offset();
+        let selection = term.selection.as_ref().and_then(|s| s.to_range(term));
 
         // Calculate default background color
         let default_bg = self.palette.resolve(
@@ -486,9 +490,9 @@ impl TerminalRenderer {
             y: bounds.origin.y + padding.top,
         };
 
-        // Iterate over visible lines
+        // Iterate over visible lines (display_offset shifts Line(0) into scrollback)
         for line_idx in 0..num_lines {
-            let line = Line(line_idx as i32);
+            let line = Line(line_idx as i32 - display_offset as i32);
 
             // Collect cells for this line
             let cells: Vec<(usize, Cell)> = (0..num_cols)
@@ -528,6 +532,40 @@ impl TerminalRenderer {
                     transparent_black(),
                     Default::default(),
                 ));
+            }
+
+            // Selection highlight sits on top of cell backgrounds.
+            if let Some(range) = selection {
+                let mut col = 0;
+                while col < num_cols {
+                    let point = AlacPoint::new(line, Column(col));
+                    if !range.contains(point) {
+                        col += 1;
+                        continue;
+                    }
+                    let start = col;
+                    col += 1;
+                    while col < num_cols && range.contains(AlacPoint::new(line, Column(col))) {
+                        col += 1;
+                    }
+                    let x = origin.x + self.cell_width * (start as f32);
+                    let y = origin.y + self.cell_height * (line_idx as f32);
+                    let width = self.cell_width * ((col - start) as f32);
+                    window.paint_quad(quad(
+                        Bounds {
+                            origin: Point { x, y },
+                            size: Size {
+                                width,
+                                height: self.cell_height,
+                            },
+                        },
+                        px(0.0),
+                        self.palette.selection_background(),
+                        Edges::<Pixels>::default(),
+                        transparent_black(),
+                        Default::default(),
+                    ));
+                }
             }
 
             // Calculate vertical offset to center text in cell
@@ -646,6 +684,27 @@ impl TerminalRenderer {
                 }
             }
 
+            let line_text: String = cells_vec
+                .iter()
+                .map(|(_, cell)| if cell.c == '\0' { ' ' } else { cell.c })
+                .collect();
+            let urls = urls_in_line(&line_text);
+            let hovered_uri = hovered.and_then(|point| {
+                if point.line != line {
+                    return None;
+                }
+                let col = point.column.0;
+                cells_vec
+                    .iter()
+                    .find(|(c, _)| *c == col)
+                    .and_then(|(_, cell)| cell.hyperlink().map(|h| h.uri().to_string()))
+                    .or_else(|| {
+                        urls.iter()
+                            .find(|u| col >= u.start && col < u.end)
+                            .map(|u| u.uri.clone())
+                    })
+            });
+
             // Third pass: draw regular text characters
             for (col_idx, cell) in cells_vec.iter() {
                 let ch = cell.c;
@@ -666,6 +725,14 @@ impl TerminalRenderer {
                 let bold = flags.contains(alacritty_terminal::term::cell::Flags::BOLD);
                 let italic = flags.contains(alacritty_terminal::term::cell::Flags::ITALIC);
                 let underline = flags.contains(alacritty_terminal::term::cell::Flags::UNDERLINE);
+                let cell_uri = cell.hyperlink().map(|h| h.uri().to_string()).or_else(|| {
+                    urls.iter()
+                        .find(|u| *col_idx >= u.start && *col_idx < u.end)
+                        .map(|u| u.uri.clone())
+                });
+                let link_hover = cell_uri
+                    .as_ref()
+                    .is_some_and(|uri| hovered_uri.as_ref() == Some(uri));
 
                 // Create font with styling
                 let font = Font {
@@ -686,20 +753,31 @@ impl TerminalRenderer {
 
                 // Create text run for this single character
                 let char_str = ch.to_string();
+                let underline_style = if cell_uri.is_some() {
+                    Some(UnderlineStyle {
+                        thickness: px(1.0),
+                        color: Some(if link_hover {
+                            self.palette.link_underline_hover()
+                        } else {
+                            self.palette.link_underline()
+                        }),
+                        wavy: false,
+                    })
+                } else if underline {
+                    Some(UnderlineStyle {
+                        thickness: px(1.0),
+                        color: Some(fg_color),
+                        wavy: false,
+                    })
+                } else {
+                    None
+                };
                 let text_run = TextRun {
                     len: char_str.len(),
                     font,
                     color: fg_color,
                     background_color: None,
-                    underline: if underline {
-                        Some(UnderlineStyle {
-                            thickness: px(1.0),
-                            color: Some(fg_color),
-                            wavy: false,
-                        })
-                    } else {
-                        None
-                    },
+                    underline: underline_style,
                     strikethrough: None,
                 };
 
@@ -722,35 +800,38 @@ impl TerminalRenderer {
             }
         }
 
-        // Paint cursor
+        // Paint cursor when it sits in the visible viewport
         let cursor_point = grid.cursor.point;
-        let cursor_x = origin.x + self.cell_width * (cursor_point.column.0 as f32);
-        let cursor_y = origin.y + self.cell_height * (cursor_point.line.0 as f32);
+        let cursor_row = cursor_point.line.0 + display_offset as i32;
+        if cursor_row >= 0 && (cursor_row as usize) < num_lines {
+            let cursor_x = origin.x + self.cell_width * (cursor_point.column.0 as f32);
+            let cursor_y = origin.y + self.cell_height * (cursor_row as f32);
 
-        let cursor_color = self.palette.resolve(
-            Color::Named(alacritty_terminal::vte::ansi::NamedColor::Cursor),
-            colors,
-        );
+            let cursor_color = self.palette.resolve(
+                Color::Named(alacritty_terminal::vte::ansi::NamedColor::Cursor),
+                colors,
+            );
 
-        let cursor_bounds = Bounds {
-            origin: Point {
-                x: cursor_x,
-                y: cursor_y,
-            },
-            size: Size {
-                width: self.cell_width,
-                height: self.cell_height,
-            },
-        };
+            let cursor_bounds = Bounds {
+                origin: Point {
+                    x: cursor_x,
+                    y: cursor_y,
+                },
+                size: Size {
+                    width: self.cell_width,
+                    height: self.cell_height,
+                },
+            };
 
-        window.paint_quad(quad(
-            cursor_bounds,
-            px(0.0),
-            cursor_color,
-            Edges::<Pixels>::default(),
-            transparent_black(),
-            Default::default(),
-        ));
+            window.paint_quad(quad(
+                cursor_bounds,
+                px(0.0),
+                cursor_color,
+                Edges::<Pixels>::default(),
+                transparent_black(),
+                Default::default(),
+            ));
+        }
     }
 }
 

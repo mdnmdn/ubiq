@@ -47,8 +47,7 @@ pub fn pane(app: &AppState, pane_id: PaneId, _cx: &App) -> AnyElement {
         Some(terminal) => body
             .child(div().flex().flex_1().min_h(px(0.)).child(terminal.clone()))
             .into_any_element(),
-        // A pane whose emulator has gone is a pane that was closed under its own panel. Nothing
-        // disappears from under the user, so the panel says so until it is closed.
+        // The emulator is dropped as the panel leaves the dock; this line is the frame in between.
         None => body
             .p_3()
             .items_center()
@@ -80,10 +79,16 @@ fn palette() -> ColorPalette {
     let background = channels(theme::pane_bg());
     let foreground = channels(theme::text());
     let cursor = channels(theme::accent());
+    let selection = channels(theme::selection_background());
+    let link = channels(theme::link_underline());
+    let link_hover = channels(theme::link_underline_hover());
     ColorPalette::builder()
         .background(background.0, background.1, background.2)
         .foreground(foreground.0, foreground.1, foreground.2)
         .cursor(cursor.0, cursor.1, cursor.2)
+        .selection_background(selection.0, selection.1, selection.2)
+        .link_underline(link.0, link.1, link.2)
+        .link_underline_hover(link_hover.0, link_hover.1, link_hover.2)
         .build()
 }
 

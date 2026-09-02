@@ -133,6 +133,13 @@ impl Clipboard {
     }
 }
 
+/// OSC 52 clipboard-load reply: `ESC ] 52 ; c ; <base64> BEL`.
+pub fn osc52_load_reply(text: &str) -> Vec<u8> {
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    format!("\x1b]52;c;{encoded}\x07").into_bytes()
+}
+
 impl Default for Clipboard {
     /// Creates a new clipboard instance using the default constructor.
     ///
@@ -207,5 +214,19 @@ mod tests {
             // After clearing, getting text might return empty or error
             // depending on the platform implementation
         }
+    }
+
+    #[test]
+    fn osc52_load_reply_is_base64() {
+        let bytes = osc52_load_reply("hi");
+        let s = String::from_utf8(bytes).unwrap();
+        assert!(s.starts_with("\x1b]52;c;"));
+        assert!(s.ends_with('\x07'));
+        let b64 = s.trim_start_matches("\x1b]52;c;").trim_end_matches('\x07');
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
+        assert_eq!(decoded, b"hi");
     }
 }

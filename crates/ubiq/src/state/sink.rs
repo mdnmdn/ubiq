@@ -879,7 +879,7 @@ impl Coordinator {
         true
     }
 
-    /// An exited harness leaves its pane. Nothing disappears from under the user.
+    /// The UI closes the tab on `PaneExited`; the mock only records that the harness stopped.
     pub fn exited(&mut self, pane: PaneId, code: i32) {
         if let Some(pane) = self.panes.get_mut(&pane) {
             pane.running = false;

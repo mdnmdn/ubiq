@@ -24,7 +24,7 @@
 //!
 //! - [`TerminalView`] itself is not `Send` (it contains GPUI handles)
 //! - The stdin writer is wrapped in `Arc<parking_lot::Mutex<>>` for thread-safe writes
-//! - Callbacks ([`ResizeCallback`], [`KeyHandler`]) must be `Send + Sync`
+//! - Resize callbacks must be `Send + Sync`; key and clipboard callbacks run on the UI thread
 //!
 //! # Example
 //!
@@ -47,13 +47,26 @@
 //! terminal.read(cx).focus_handle().focus(window);
 //! ```
 
+use crate::clipboard::{Clipboard, osc52_load_reply};
 use crate::colors::ColorPalette;
 use crate::event::{GpuiEventProxy, TerminalEvent};
-use crate::input::keystroke_to_bytes;
+use crate::input::{
+    bracketed_paste, is_copy_shortcut, is_paste_shortcut, keystroke_to_bytes, quote_path,
+};
+use crate::links::url_at;
+use crate::mouse::{
+    alacritty_selection_type, encode_modifiers, mouse_button_report, pixel_to_cell,
+    pixels_to_scroll_lines, scroll_report, viewport_to_grid,
+};
 use crate::render::TerminalRenderer;
 use crate::terminal::TerminalState;
-use gpui::{Edges, *};
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Point as AlacPoint, Side};
+use alacritty_terminal::selection::Selection as AlacSelection;
+use alacritty_terminal::term::TermMode;
+use gpui::{Edges, ExternalPaths, ScrollDelta, *};
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
@@ -109,6 +122,25 @@ use std::thread;
 ///     terminal.update_config(config, cx);
 /// });
 /// ```
+/// Key context a focused terminal installs, so Tab and the platform copy chord
+/// reach the harness instead of the window's focus-cycle and copy bindings.
+pub const KEY_CONTEXT: &str = "Terminal";
+
+/// Suppress window-level Tab / copy bindings while a terminal holds the keyboard.
+///
+/// Call once at application start. The matching [`KEY_CONTEXT`] is set on every
+/// [`TerminalView`].
+pub fn install_key_bindings(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("tab", gpui::NoAction, Some(KEY_CONTEXT)),
+        KeyBinding::new("shift-tab", gpui::NoAction, Some(KEY_CONTEXT)),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-c", gpui::NoAction, Some(KEY_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-c", gpui::NoAction, Some(KEY_CONTEXT)),
+    ]);
+}
+
 #[derive(Clone, Debug)]
 pub struct TerminalConfig {
     /// Number of columns (character width) in the terminal
@@ -209,7 +241,7 @@ pub type ResizeCallback = Box<dyn Fn(usize, usize) + Send + Sync>;
 /// # Example
 ///
 /// ```ignore
-/// terminal.with_key_handler(|event| {
+/// terminal.with_key_handler(|event, window, cx| {
 ///     let keystroke = &event.keystroke;
 ///
 ///     // Intercept Ctrl++ for font size increase
@@ -224,10 +256,12 @@ pub type ResizeCallback = Box<dyn Fn(usize, usize) + Send + Sync>;
 ///         return true;
 ///     }
 ///
+///     let _ = (window, cx);
 ///     false // Let terminal handle all other keys
 /// });
 /// ```
-pub type KeyHandler = Box<dyn Fn(&KeyDownEvent) -> bool + Send + Sync>;
+pub type KeyHandler =
+    Box<dyn Fn(&KeyDownEvent, &mut Window, &mut Context<TerminalView>) -> bool + 'static>;
 
 /// Callback for terminal bell events.
 ///
@@ -296,6 +330,12 @@ pub type TitleCallback = Box<dyn Fn(&mut Window, &mut Context<TerminalView>, &st
 /// });
 /// ```
 pub type ClipboardStoreCallback = Box<dyn Fn(&mut Window, &mut Context<TerminalView>, &str)>;
+
+/// Callback for OSC 52 clipboard-load requests.
+///
+/// Return the clipboard text to send back to the harness, or `None` to skip.
+pub type ClipboardLoadCallback =
+    Box<dyn Fn(&mut Window, &mut Context<TerminalView>) -> Option<String>>;
 
 /// Callback for terminal exit events.
 ///
@@ -398,7 +438,7 @@ pub struct TerminalView {
     resize_callback: Option<Arc<ResizeCallback>>,
 
     /// Optional callback to intercept key events before terminal processing
-    key_handler: Option<Arc<KeyHandler>>,
+    key_handler: Option<KeyHandler>,
 
     /// Callback for terminal bell events
     bell_callback: Option<BellCallback>,
@@ -409,8 +449,43 @@ pub struct TerminalView {
     /// Callback for clipboard store requests
     clipboard_store_callback: Option<ClipboardStoreCallback>,
 
+    /// Callback for clipboard load requests (OSC 52)
+    clipboard_load_callback: Option<ClipboardLoadCallback>,
+
     /// Callback for terminal exit events
     exit_callback: Option<ExitCallback>,
+
+    /// Last painted grid origin and cell size, for mouse hit-testing.
+    layout: Arc<parking_lot::Mutex<GridLayout>>,
+
+    /// Grid point the pointer is over, for link hover styling.
+    hovered_cell: Option<AlacPoint>,
+
+    /// True when the pointer is over a hyperlink.
+    hovering_link: bool,
+
+    /// URI under the pointer at mouse-down, used to tell a link click from a drag.
+    link_down: Option<(AlacPoint, String)>,
+
+    /// True while a mouse-reporting-off selection drag is in progress.
+    selecting: bool,
+}
+
+#[derive(Clone, Copy)]
+struct GridLayout {
+    origin: Point<Pixels>,
+    cell_width: Pixels,
+    cell_height: Pixels,
+}
+
+impl Default for GridLayout {
+    fn default() -> Self {
+        Self {
+            origin: Point::default(),
+            cell_width: px(8.0),
+            cell_height: px(16.0),
+        }
+    }
 }
 
 impl TerminalView {
@@ -459,7 +534,12 @@ impl TerminalView {
         let event_proxy = GpuiEventProxy::new(event_tx);
 
         // Create terminal state
-        let state = TerminalState::new(config.cols, config.rows, event_proxy);
+        let state = TerminalState::with_scrollback(
+            config.cols,
+            config.rows,
+            config.scrollback,
+            event_proxy,
+        );
 
         // Create renderer with font settings and color palette
         let renderer = TerminalRenderer::new(
@@ -531,7 +611,13 @@ impl TerminalView {
             bell_callback: None,
             title_callback: None,
             clipboard_store_callback: None,
+            clipboard_load_callback: None,
             exit_callback: None,
+            layout: Arc::new(parking_lot::Mutex::new(GridLayout::default())),
+            hovered_cell: None,
+            hovering_link: false,
+            link_down: None,
+            selecting: false,
         }
     }
 
@@ -564,7 +650,7 @@ impl TerminalView {
     /// # Example
     ///
     /// ```ignore
-    /// terminal.with_key_handler(|event| {
+    /// terminal.with_key_handler(|event, _window, _cx| {
     ///     // Handle Ctrl++ to increase font size
     ///     if event.keystroke.modifiers.control && event.keystroke.key == "+" {
     ///         // Handle the event
@@ -575,9 +661,9 @@ impl TerminalView {
     /// ```
     pub fn with_key_handler(
         mut self,
-        handler: impl Fn(&KeyDownEvent) -> bool + Send + Sync + 'static,
+        handler: impl Fn(&KeyDownEvent, &mut Window, &mut Context<TerminalView>) -> bool + 'static,
     ) -> Self {
-        self.key_handler = Some(Arc::new(Box::new(handler)));
+        self.key_handler = Some(Box::new(handler));
         self
     }
 
@@ -653,6 +739,15 @@ impl TerminalView {
         self
     }
 
+    /// Set a callback for OSC 52 clipboard-load requests.
+    pub fn with_clipboard_load_callback(
+        mut self,
+        callback: impl Fn(&mut Window, &mut Context<TerminalView>) -> Option<String> + 'static,
+    ) -> Self {
+        self.clipboard_load_callback = Some(Box::new(callback));
+        self
+    }
+
     /// Set a callback to be invoked when the terminal process exits.
     ///
     /// The callback receives a mutable reference to the window and context,
@@ -715,80 +810,279 @@ impl TerminalView {
     /// Converts GPUI keystrokes to terminal escape sequences and writes them
     /// to the stdin writer. If a key handler is set and returns true, the event
     /// is consumed and not sent to the terminal.
-    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, _cx: &mut Context<Self>) {
-        // Check if key handler wants to consume this event
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(ref handler) = self.key_handler
-            && handler(event)
+            && handler(event, window, cx)
         {
-            return; // Event consumed by handler
+            return;
+        }
+
+        if is_copy_shortcut(&event.keystroke) {
+            let text = self.state.with_term(|term| term.selection_to_string());
+            if let Some(text) = text.filter(|t| !t.is_empty())
+                && let Ok(mut clipboard) = Clipboard::new()
+            {
+                let _ = clipboard.copy(&text);
+            }
+            return;
+        }
+
+        if is_paste_shortcut(&event.keystroke) {
+            if let Ok(mut clipboard) = Clipboard::new()
+                && let Ok(text) = clipboard.paste()
+                && !text.is_empty()
+            {
+                self.write_pty(&bracketed_paste(&text));
+            }
+            return;
         }
 
         if let Some(bytes) = keystroke_to_bytes(&event.keystroke, self.state.mode()) {
-            let mut writer = self.stdin_writer.lock();
-            let _ = writer.write_all(&bytes);
-            let _ = writer.flush();
+            self.write_pty(&bytes);
         }
     }
 
+    fn write_pty(&self, bytes: &[u8]) {
+        let mut writer = self.stdin_writer.lock();
+        let _ = writer.write_all(bytes);
+        let _ = writer.flush();
+    }
+
+    fn mouse_reporting(&self) -> bool {
+        self.state.mode().intersects(
+            TermMode::MOUSE_REPORT_CLICK | TermMode::MOUSE_MOTION | TermMode::MOUSE_DRAG,
+        )
+    }
+
+    fn cell_at(&self, position: Point<Pixels>) -> AlacPoint {
+        let layout = *self.layout.lock();
+        let visual = pixel_to_cell(
+            position,
+            layout.origin,
+            layout.cell_width,
+            layout.cell_height,
+        );
+        let (cols, rows, offset) = self.state.with_term(|term| {
+            (
+                term.grid().columns(),
+                term.grid().screen_lines(),
+                term.grid().display_offset(),
+            )
+        });
+        let visual = AlacPoint::new(
+            alacritty_terminal::index::Line(visual.line.0.clamp(0, rows.saturating_sub(1) as i32)),
+            Column(visual.column.0.min(cols.saturating_sub(1))),
+        );
+        viewport_to_grid(visual, offset)
+    }
+
+    fn uri_at(&self, point: AlacPoint) -> Option<String> {
+        self.state.with_term(|term| {
+            let grid = term.grid();
+            let cell = &grid[point];
+            if let Some(link) = cell.hyperlink() {
+                return Some(link.uri().to_string());
+            }
+            let cols = grid.columns();
+            let text: String = (0..cols)
+                .map(|col| {
+                    let ch = grid[AlacPoint::new(point.line, Column(col))].c;
+                    if ch == '\0' { ' ' } else { ch }
+                })
+                .collect();
+            url_at(&text, point.column.0)
+        })
+    }
+
+    fn paste_paths(&self, paths: &[impl AsRef<Path>]) {
+        if paths.is_empty() {
+            return;
+        }
+        let text = paths
+            .iter()
+            .map(|path| quote_path(&path.as_ref().to_string_lossy()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.write_pty(&bracketed_paste(&text));
+    }
+
+    fn on_drop_paths(&mut self, paths: &ExternalPaths, _: &mut Window, _: &mut Context<Self>) {
+        self.paste_paths(paths.paths());
+    }
+
     /// Handle mouse down events.
-    ///
-    /// Currently a placeholder for future mouse selection and interaction support.
     fn on_mouse_down(
         &mut self,
-        _event: &MouseDownEvent,
+        event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Request focus when clicking the terminal
         window.focus(&self.focus_handle, cx);
-        cx.notify();
+        let point = self.cell_at(event.position);
+        let mods = encode_modifiers(
+            event.modifiers.shift,
+            event.modifiers.alt,
+            event.modifiers.control,
+        );
 
-        // TODO: Implement mouse selection
-        // - Convert pixel coordinates to cell coordinates
-        // - Start selection at clicked cell
-        // - Send mouse reports if mouse tracking is enabled
+        if self.mouse_reporting() {
+            if let Some(bytes) =
+                mouse_button_report(event.button, true, point, mods, self.state.mode())
+            {
+                self.write_pty(&bytes);
+            }
+            self.link_down = None;
+            self.selecting = false;
+            cx.notify();
+            return;
+        }
+
+        if event.button != MouseButton::Left {
+            cx.notify();
+            return;
+        }
+
+        self.link_down = self.uri_at(point).map(|uri| (point, uri));
+        let ty = alacritty_selection_type(event.click_count.max(1));
+        self.state.with_term_mut(|term| {
+            term.selection = Some(AlacSelection::new(ty, point, Side::Left));
+        });
+        self.selecting = true;
+        cx.notify();
     }
 
     /// Handle mouse up events.
-    ///
-    /// Currently a placeholder for future mouse selection support.
-    fn on_mouse_up(
-        &mut self,
-        _event: &MouseUpEvent,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        // TODO: Implement mouse selection
-        // - End selection at released cell
-        // - Copy selection to clipboard if configured
+    fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let point = self.cell_at(event.position);
+        let mods = encode_modifiers(
+            event.modifiers.shift,
+            event.modifiers.alt,
+            event.modifiers.control,
+        );
+
+        if self.mouse_reporting() {
+            if let Some(bytes) =
+                mouse_button_report(event.button, false, point, mods, self.state.mode())
+            {
+                self.write_pty(&bytes);
+            }
+            cx.notify();
+            return;
+        }
+
+        if event.button != MouseButton::Left {
+            return;
+        }
+
+        let clicked_link = self
+            .link_down
+            .take()
+            .filter(|(down, _)| *down == point)
+            .map(|(_, uri)| uri);
+        self.selecting = false;
+
+        if let Some(uri) = clicked_link {
+            self.state.with_term_mut(|term| term.selection = None);
+            cx.open_url(&uri);
+            cx.notify();
+            return;
+        }
+
+        if let Some(text) = self
+            .state
+            .with_term(|term| term.selection_to_string())
+            .filter(|t| !t.is_empty())
+            && let Ok(mut clipboard) = Clipboard::new()
+        {
+            let _ = clipboard.copy(&text);
+        }
+        cx.notify();
     }
 
     /// Handle mouse move events.
-    ///
-    /// Currently a placeholder for future mouse selection support.
     fn on_mouse_move(
         &mut self,
-        _event: &MouseMoveEvent,
+        event: &MouseMoveEvent,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
-        // TODO: Implement mouse selection
-        // - Update selection range while dragging
-        // - Send mouse motion reports if mouse tracking is enabled
+        let point = self.cell_at(event.position);
+        let mods = encode_modifiers(
+            event.modifiers.shift,
+            event.modifiers.alt,
+            event.modifiers.control,
+        );
+
+        if self.mouse_reporting() {
+            if event.dragging()
+                && self
+                    .state
+                    .mode()
+                    .intersects(TermMode::MOUSE_MOTION | TermMode::MOUSE_DRAG)
+                && let Some(bytes) = mouse_button_report(
+                    MouseButton::Left,
+                    true,
+                    point,
+                    mods | 32,
+                    self.state.mode(),
+                )
+            {
+                self.write_pty(&bytes);
+            }
+            return;
+        }
+
+        if event.dragging() && self.selecting {
+            self.state.with_term_mut(|term| {
+                if let Some(selection) = term.selection.as_mut() {
+                    selection.update(point, Side::Right);
+                }
+            });
+            self.link_down = None;
+            cx.notify();
+            return;
+        }
+
+        let uri = self.uri_at(point);
+        let hovering = uri.is_some();
+        if self.hovered_cell != Some(point) || self.hovering_link != hovering {
+            self.hovered_cell = Some(point);
+            self.hovering_link = hovering;
+            cx.notify();
+        }
     }
 
     /// Handle scroll events.
-    ///
-    /// Currently a placeholder for future scrollback support.
     fn on_scroll(
         &mut self,
-        _event: &ScrollWheelEvent,
+        event: &ScrollWheelEvent,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
-        // TODO: Implement scrollback
-        // - Scroll the terminal display up/down
-        // - Send scroll reports if alternate screen is not active
+        let layout = *self.layout.lock();
+        let raw = match event.delta {
+            ScrollDelta::Lines(delta) => delta.y.round() as i32,
+            ScrollDelta::Pixels(delta) => pixels_to_scroll_lines(delta.y, layout.cell_height),
+        };
+        // GPUI y is positive when scrolling down; scroll_report treats positive as up.
+        let delta = -raw;
+        if delta == 0 {
+            return;
+        }
+        let point = self.cell_at(event.position);
+        let mods = encode_modifiers(
+            event.modifiers.shift,
+            event.modifiers.alt,
+            event.modifiers.control,
+        );
+        if let Some(bytes) = scroll_report(delta, point, mods, self.state.mode()) {
+            self.write_pty(&bytes);
+            return;
+        }
+        self.state.with_term_mut(|term| {
+            term.scroll_display(Scroll::Delta(delta));
+        });
+        cx.notify();
     }
 
     /// Process pending terminal events.
@@ -816,11 +1110,19 @@ impl TerminalView {
                 TerminalEvent::ClipboardStore(text) => {
                     if let Some(ref callback) = self.clipboard_store_callback {
                         callback(window, cx, &text);
+                    } else if let Ok(mut clipboard) = Clipboard::new() {
+                        let _ = clipboard.copy(&text);
                     }
                 }
                 TerminalEvent::ClipboardLoad => {
-                    // Terminal wants to load data from clipboard
-                    // TODO: Implement clipboard integration
+                    let text = if let Some(ref callback) = self.clipboard_load_callback {
+                        callback(window, cx)
+                    } else {
+                        Clipboard::new().ok().and_then(|mut c| c.paste().ok())
+                    };
+                    if let Some(text) = text.filter(|t| !t.is_empty()) {
+                        self.write_pty(&osc52_load_reply(&text));
+                    }
                 }
                 TerminalEvent::Exit => {
                     if let Some(ref callback) = self.exit_callback {
@@ -920,16 +1222,25 @@ impl Render for TerminalView {
         let renderer = self.renderer.clone();
         let resize_callback = self.resize_callback.clone();
         let padding = self.config.padding;
+        let layout = self.layout.clone();
+        let hovered = self.hovered_cell;
 
-        div()
+        let root = div()
             .size_full()
             .bg(self.config.colors.background())
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(Self::on_key_down))
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.focus_handle);
+        let root = if self.hovering_link {
+            root.cursor_pointer()
+        } else {
+            root.cursor_text()
+        };
+        root.on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .on_drop(cx.listener(Self::on_drop_paths))
             .child(
                 canvas(
                     move |bounds, _window, _cx| bounds,
@@ -989,8 +1300,18 @@ impl Render for TerminalView {
                             term.resize(TermSize { cols, rows });
                         }
 
+                        let origin = Point {
+                            x: bounds.origin.x + padding.left,
+                            y: bounds.origin.y + padding.top,
+                        };
+                        *layout.lock() = GridLayout {
+                            origin,
+                            cell_width: measured_renderer.cell_width,
+                            cell_height: measured_renderer.cell_height,
+                        };
+
                         // Paint the terminal with measured dimensions
-                        measured_renderer.paint(bounds, padding, &term, window, cx);
+                        measured_renderer.paint(bounds, padding, &term, hovered, window, cx);
                     },
                 )
                 .size_full(),

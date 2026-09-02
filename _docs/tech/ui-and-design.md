@@ -60,6 +60,7 @@ a palette swap changes every surface consistently.
 | Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `scrim` | The stack of backgrounds, from the window down to a selected row — and what a modal lays over the window it took the keyboard from |
 | Text | `text`, `text_muted`, `text_faint`, `on_accent` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — and copy sitting on a filled surface |
 | Accent | `accent`, `accent_muted`, `accent_soft` | The interactive colour, its subdued form, and the fill behind a selected row |
+| Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
 | Project | `project_colour(n)`, `project_colour_count()` | The identity of one project, wherever it appears |
@@ -129,9 +130,9 @@ chat's markdown never sit in a different mode from the chrome. That is the same 
 library's buttons and scrollbars: not a literal, and so not an exception to the rule.
 
 Adding a colour means adding a token to its group, giving it a value in **both** palettes, and using
-the accessor. Adding a group means a role none of the six covers, which is rare enough to be worth
-arguing about in [`decisions.md`](./decisions.md) — `Project` is the only group added since the
-original five, and it carries `D19`.
+the accessor. Adding a group means a role none of the seven covers, which is rare enough to be worth
+arguing about in [`decisions.md`](./decisions.md) — `Project` carries `D19`, and `Terminal` is the
+selection and link colours a pane's emulator paints.
 
 Every token has a call site, and for one of them the only one is a specimen. The style reference
 draws all of them by name — that is what the page is for — but `selected` fills no row, and
@@ -157,11 +158,12 @@ evidence a token has a value, not evidence anything uses it.
 - **Pane chrome stays two rows at most.** Identity and state on the first, context — folder, model,
   remaining context window — on the second. Anything more takes space from the terminal, which is
   the thing the user is actually reading.
-- **The terminal body is never styled by Ubiq.** A pane's emulator is given three tokens —
-  `pane_bg` for its background, `text` for its foreground, `accent` for the cursor — so the surface
-  it sits on matches the shell. The sixteen ANSI colours are the emulator's own defaults, because
-  those are the colours the harness is choosing between, and remapping them changes what the agent
-  said. `crates/ubiq/src/ui/terminal.rs` builds that palette in `config()`, and it is the only
+- **The terminal body is never styled by Ubiq.** A pane's emulator is given the surface, text and
+  cursor tokens plus the terminal group — `pane_bg`, `text`, `accent`, `selection_background`,
+  `link_underline`, `link_underline_hover` — so the surface it sits on matches the shell. The
+  sixteen ANSI colours are the emulator's own defaults, because those are the colours the harness is
+  choosing between, and remapping them changes what the agent said.
+  `crates/ubiq/src/ui/terminal.rs` builds that palette in `config()`, and it is the only
   place in the UI that converts a token into anything but a GPUI colour.
 - **Spacing comes from the framework's scale**, not from arbitrary pixel values. Sizes that are part
   of the layout — chrome heights, panel widths — are constants in `theme.rs` instead.

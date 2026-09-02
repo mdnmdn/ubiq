@@ -135,7 +135,7 @@ pub struct PaneState {
     pub rows: u16,
     pub cols: u16,
     pub title: String,
-    /// Whether the harness behind the pane is still running. An exited pane keeps its last screen.
+    /// Whether the harness behind the pane is still running.
     pub running: bool,
 }
 
@@ -1311,8 +1311,8 @@ impl AppState {
                 }
             }
 
-            // An exited harness leaves its pane, showing its last screen. Closing the output
-            // stream is what tells the emulator to stop reading.
+            // The harness ended: close the tab. `close_pane` sends `CloseWorkspace` so the host
+            // drops the pseudo-terminal, and queues the panel out of the dock.
             Message::PaneExited { pane_id, code } => {
                 let project = self.projects.iter().find_map(|(id, open)| {
                     open.panes
@@ -1320,10 +1320,6 @@ impl AppState {
                         .any(|pane| pane.id == pane_id)
                         .then_some(*id)
                 });
-                self.pane_stopped(pane_id);
-                if let Some(terminal) = self.terminals.get_mut(&pane_id) {
-                    terminal.output = None;
-                }
                 tracing::info!("pane {pane_id} exited with {code}");
                 if let Some(project_id) = project {
                     self.bus.send(Message::RefreshProjectGit {
@@ -1331,7 +1327,7 @@ impl AppState {
                         full: true,
                     });
                 }
-                cx.notify();
+                self.close_pane(pane_id, cx);
             }
 
             Message::PaneError { pane_id, error } => {
@@ -1722,8 +1718,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// A pane's harness has stopped, wherever the pane is. An exited pane keeps its last screen,
-    /// so the only thing that changes is what the tab's dot reports.
+    /// A pane's harness has stopped, wherever the pane is: the tab's dot reports it.
     fn pane_stopped(&mut self, pane_id: PaneId) {
         for open in self.projects.values_mut() {
             if let Some(pane) = open.panes.iter_mut().find(|pane| pane.id == pane_id) {
@@ -1762,16 +1757,26 @@ impl AppState {
 
         let to_host = self.bus.sender();
         let geometry = self.geometry.clone();
+        let app = cx.entity().downgrade();
         let view = cx.new(|cx| {
-            TerminalView::new(writer, reader, config, cx).with_resize_callback(move |cols, rows| {
-                let (cols, rows) = (cols as u16, rows as u16);
-                to_host.send(Message::TerminalResize {
-                    pane_id,
-                    cols,
-                    rows,
-                });
-                let _ = geometry.send((pane_id, cols, rows));
-            })
+            TerminalView::new(writer, reader, config, cx)
+                .with_resize_callback(move |cols, rows| {
+                    let (cols, rows) = (cols as u16, rows as u16);
+                    to_host.send(Message::TerminalResize {
+                        pane_id,
+                        cols,
+                        rows,
+                    });
+                    let _ = geometry.send((pane_id, cols, rows));
+                })
+                .with_key_handler(move |event, window, cx| {
+                    if !is_terminal_defocus(&event.keystroke) {
+                        return false;
+                    }
+                    window.blur(cx);
+                    let _ = app.update(cx, |app, cx| app.blur_panes(cx));
+                    true
+                })
         });
 
         if let Some(open) = self.projects.get_mut(&project) {
@@ -5426,6 +5431,20 @@ pub fn install_key_bindings(cx: &mut App) {
     // says why.
     cx.bind_keys(crate::ui::file_picker::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());
+    gpui_terminal::install_key_bindings(cx);
+}
+
+/// Release the terminal's keyboard: Shift+Escape, Ctrl+Escape, or Cmd+Escape.
+/// Bare Escape still reaches the harness.
+fn is_terminal_defocus(keystroke: &gpui::Keystroke) -> bool {
+    if keystroke.key != "escape" {
+        return false;
+    }
+    let m = &keystroke.modifiers;
+    let shift_only = m.shift && !m.control && !m.alt && !m.platform;
+    let ctrl_only = m.control && !m.shift && !m.alt && !m.platform;
+    let cmd_only = m.platform && !m.control && !m.alt && !m.shift;
+    shift_only || ctrl_only || cmd_only
 }
 
 /// What a pane calls itself before its harness says otherwise: the program, without its path.
