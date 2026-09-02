@@ -1,16 +1,34 @@
 Observed running inside Ubiq's own terminal pane (2026-09-02): `.zshrc` sourcing throws
 `command not found: pyenv` / `jump` / `starship`, and `uv` (present at `/opt/homebrew/bin/uv`) is
 not on `PATH`, even though the same shell works fine in Terminal.app/iTerm. Shift+Enter also behaves
-differently than in a normal terminal.
+differently than in a normal terminal. Root cause found for both (2026-09-02), not fixed.
 
-Likely cause: however Ubiq spawns the PTY shell, it's not matching a real terminal emulator's
-invocation — non-login and/or non-interactive, or with a `PATH`/env that hasn't gone through
-Homebrew's `shellenv`/`path_helper` the way login shells do. `.zshrc` still runs (hence the visible
-errors) but the tools those hooks depend on were never put on `PATH` first. Shift+Enter differing
-suggests the key event may be getting mapped/intercepted by Ubiq's input handling rather than passed
-through as the raw byte sequence a real terminal would send.
+**PATH / shell-init errors — confirmed root cause.**
+Both `crates/ubiq-host/src/pty/mod.rs:49` (`spawn`) and `crates/ubiq-host/src/coordinator.rs:755`
+(`default_agent_type`, which resolves to `$SHELL`, e.g. `/bin/zsh`) build the shell via
+`CommandBuilder::new(program)`. In `portable-pty` 0.9.0
+(`cmdbuilder.rs:497-524`, `as_command`), that path only runs the login-shell branch
+(`arg0 = "-<basename>"`) when the builder was made with `new_default_prog()`; `new(program)` always
+takes the plain branch (`cmd.arg0(&self.args[0])`, no leading `-`). So the spawned zsh is a
+**non-login** shell: `.zshrc` runs (hence the visible errors), but `.zprofile`/`.zlogin` — where
+Homebrew's `eval "$(brew shellenv)"` and most `pyenv`/`starship`/`jump` PATH setup normally lives —
+never runs, so those tools aren't on `PATH` yet when `.zshrc` calls their init hooks.
+Compounding factor: `CommandBuilder::new`'s base env (`get_base_env()`, `cmdbuilder.rs:75`) is
+`std::env::vars_os()` captured from Ubiq's own process at spawn time — i.e. whatever `PATH` Ubiq
+itself was launched with (thin, if launched via Finder/LaunchServices rather than a shell), not a
+freshly computed one.
 
-Not investigated or fixed. Relevant to whichever code spawns the shell process and to the keyboard
-pass-through work already tracked in
-[`terminal-interaction-proposal.md`](./terminal-interaction-proposal.md) (section 1, keyboard
-pass-through audit) — worth checking as part of that audit whether Shift+Enter is one of the gaps.
+**Shift+Enter — confirmed root cause.**
+`vendor/gpui-terminal/src/input.rs:126`, `keystroke_to_bytes`: the `"enter"` match arm is
+`"enter" => return Some(b"\r".to_vec())`, unconditional — it never looks at
+`keystroke.modifiers.shift` (unlike `"tab"`, a few lines below, which does branch on shift). So
+Shift+Enter and plain Enter send the identical byte (`\r`) to the pane. A harness that expects
+Shift+Enter to send a distinct sequence (to insert a literal newline instead of submitting) can't
+tell the two apart here.
+
+Both are in the pass-through/spawn code, not something a user setting can work around. Relevant to
+the keyboard pass-through work already tracked in
+[`terminal-interaction-proposal.md`](./terminal-interaction-proposal.md) (section 1, "every special
+keystroke reaches the harness correctly" — Shift+Enter is a gap in that claim, worth folding in
+there). The login-shell issue has no existing tracking document; it belongs wherever PTY spawn
+behavior is documented next.

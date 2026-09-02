@@ -9,7 +9,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px, relative,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::input::{Input, Textarea};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -22,8 +22,9 @@ use crate::state::sink::{
 };
 use crate::theme;
 use crate::ui::kit::{
-    Picker, PickerStyle, card, check_box, choice_pill, ghost_button, icon_button, meter, mono,
-    pill, primary_button, slab, status_dot, stepper,
+    Picker, PickerStyle, card, check_box, choice_pill, column, ghost_button, heading, icon_button,
+    label_block, meter, mono, nav_item, pill, primary_button, setting_row, slab, status_dot,
+    stepper,
 };
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
 use crate::ui::{handler, indexed};
@@ -826,140 +827,6 @@ fn privacy() -> AnyElement {
     ])
 }
 
-// ── Furniture the two settings pages share ──────────────────────────
-
-pub(super) fn heading(title: &str, note: &str) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .pb_2()
-        .child(
-            div()
-                .text_size(px(15.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text())
-                .child(SharedString::from(title.to_string())),
-        )
-        .child(
-            div()
-                .max_w(px(560.))
-                .text_size(px(12.5))
-                .text_color(theme::text_muted())
-                .child(SharedString::from(note.to_string())),
-        )
-        .into_any_element()
-}
-
-pub(super) fn setting_row(label: &str, note: &str, control: AnyElement) -> AnyElement {
-    div()
-        .w(relative(1.))
-        .py_3()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap_6()
-        .border_b_1()
-        .border_color(theme::border())
-        .child(label_block(label, note))
-        .child(control)
-        .into_any_element()
-}
-
-pub(super) fn label_block(label: &str, note: &str) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .flex_1()
-        .min_w(px(0.))
-        .child(
-            div()
-                .text_size(px(13.5))
-                .text_color(theme::text())
-                .child(SharedString::from(label.to_string())),
-        )
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme::text_muted())
-                .child(SharedString::from(note.to_string())),
-        )
-        .into_any_element()
-}
-
 fn form_row(label: &str, note: &str, control: AnyElement) -> AnyElement {
     setting_row(label, note, control)
-}
-
-pub(super) fn nav_item(
-    id: impl Into<ElementId>,
-    icon: IconName,
-    label: &str,
-    count: Option<usize>,
-    selected: bool,
-    enabled: bool,
-    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-) -> AnyElement {
-    let fg = if !enabled {
-        theme::text_faint()
-    } else if selected {
-        theme::text()
-    } else {
-        theme::text_muted()
-    };
-    let icon_fg = if !enabled {
-        theme::text_faint()
-    } else if selected {
-        theme::accent()
-    } else {
-        theme::text_muted()
-    };
-
-    let mut row = div()
-        .id(id)
-        .h(px(32.))
-        .px_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .child(Icon::new(icon).with_size(Size::Small).text_color(icon_fg))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(12.5))
-                .text_color(fg)
-                .child(SharedString::from(label.to_string())),
-        );
-
-    if let Some(count) = count {
-        row = row.child(mono(format!("{count}"), theme::text_faint()).text_size(px(11.)));
-    }
-    if selected && enabled {
-        row = row
-            .bg(theme::accent_soft())
-            .border_l(px(theme::ACCENT_EDGE))
-            .border_color(theme::accent());
-    }
-
-    if enabled {
-        row = row
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::hover()))
-            .on_click(on_click);
-    }
-
-    row.into_any_element()
-}
-
-fn column(children: Vec<AnyElement>) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .w(relative(1.))
-        .children(children)
-        .into_any_element()
 }

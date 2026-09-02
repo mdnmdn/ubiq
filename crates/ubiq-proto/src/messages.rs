@@ -13,6 +13,7 @@ use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, File
 use crate::git::{self, GitEntry, GitRollup, RepoOverview};
 use crate::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
+use crate::settings::SettingsLayer;
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
@@ -132,6 +133,16 @@ pub enum Message {
         scope: Scope,
         value: String,
     },
+    /// Read back the settings stored for a layer. Answered with [`Message::Settings`].
+    GetSettings {
+        layer: SettingsLayer,
+    },
+    /// Store a settings blob for a layer. The Ui layer is opaque and answers nothing. The Host
+    /// layer is parsed; a blob the host cannot read answers [`Message::SettingsError`].
+    SetSettings {
+        layer: SettingsLayer,
+        value: String,
+    },
 
     // ── Project family: host → UI ───────────────────────────────────
     ProjectList {
@@ -155,6 +166,16 @@ pub enum Message {
     Preferences {
         scope: Scope,
         value: Option<String>,
+    },
+    /// The blob stored for a settings layer. Absent means never set, which is not an empty blob.
+    Settings {
+        layer: SettingsLayer,
+        value: Option<String>,
+    },
+    /// The host could not read or would not store a settings blob.
+    SettingsError {
+        layer: SettingsLayer,
+        error: String,
     },
 
     // ── File family: UI → host ──────────────────────────────────────

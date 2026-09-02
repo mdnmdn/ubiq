@@ -18,9 +18,11 @@ pub mod explorer;
 pub mod file_picker;
 pub mod layout;
 pub mod logs;
+pub mod orchestration;
 pub mod prefs;
 pub mod sample;
 pub mod scene;
+pub mod settings;
 pub mod sink;
 pub mod viewport;
 pub mod when;
@@ -28,7 +30,7 @@ pub mod windows;
 pub mod work;
 pub mod workbench;
 
-pub use agents::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
+pub use agents::{AgentsView, Column};
 pub use board::{BoardState, Field, TaskForm};
 pub use chat::{
     Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
@@ -47,6 +49,7 @@ pub use file_picker::{
 };
 pub use layout::Layout;
 pub use logs::LogState;
+pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
 pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
 pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};

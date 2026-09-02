@@ -9,7 +9,7 @@
 //!
 //! - `config`: where Ubiq's config root is, and how it is found
 //! - `atomic`: writing a file so a crash never leaves half of one
-//! - `store`: the catalogue, a project's tasks and the interface's view state, behind three traits
+//! - `store`: the catalogue, a project's tasks, the interface's view state and settings, behind four traits
 //! - `health`: what is actually at a project's path
 //! - `projects`: the catalogue as the host runs it
 //! - `gc`: collecting the directories of projects no record names
@@ -34,5 +34,6 @@ pub mod mcp_server;
 pub mod projects;
 pub mod pty;
 pub mod reply;
+pub mod settings;
 pub mod store;
 pub mod work;

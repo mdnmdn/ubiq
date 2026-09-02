@@ -46,7 +46,9 @@ use crate::state::RailMode;
 use crate::state::dock::{PanelKind, Region};
 use crate::state::editor::ViewLayout;
 use crate::theme;
-use crate::ui::{agents, board, chat, editor, empty, explorer, logs, rail, sink, terminal};
+use crate::ui::{
+    agents, board, chat, editor, empty, explorer, logs, orchestration, rail, sink, terminal,
+};
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
 /// the layout blob is one field of the same document.
@@ -443,6 +445,9 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
     match wb.rail_mode {
         RailMode::Ide if has_project => editor::render(app, cx),
         RailMode::Agents if has_project => agents::render(app, window, cx).into_any_element(),
+        RailMode::Orchestration if has_project => {
+            orchestration::render(app, window, cx).into_any_element()
+        }
         RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
         // The two modes that are about the application rather than a project answer whether or
         // not one is open: the sink draws its own fixtures, and Control says what it will hold.

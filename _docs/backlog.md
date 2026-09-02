@@ -87,13 +87,19 @@ change what Ubiq does (here), or where a document lives (there)?
 | G68 | File search on single file (proposal in inbox) |
 | G69 | File search on the workspace (proposal in inbox)  |
 | G70 | file context menu: duplicate, copy, paste , delete, rename |
-| G71 | markdown default on code |
 | G71 | excalidraw no code view |
 | G72 | fix file selection on click no explorer |
 | G73 | explorer file wrong spacing and disposition |
 | G74 | explorer hide hidden files, and force hidden files and folder on selection |
 | G75 | spacing on project selector |
 | G76 | memory on tab disposition (eg terminals), hide logs by default |
+| G77 | manage autorefresh of git/tree on fs events |
+| G78 | The settings overlay's Add harness button is present and does nothing. Definitions belong to agent-manager; the catalog messages that would list and add them are not on the wire yet | [`features/workbench.md`](./features/workbench.md), [`tech/agent-manager.md`](./tech/agent-manager.md) |
+| G79 | The titlebar's centre holds the command field on every screen, where the design shows the screen's own name — `Agents · parallel columns`. A per-mode title needs somewhere for the field to go, which is `G16`'s question from the other side | [`features/workbench.md`](./features/workbench.md) |
+| G80 | A column's footer draws no mode chip, because `WorkAgent` carries no mode. The design shows one beside the harness and the model, so it needs a field on the wire before the footer can report it | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench.md`](./features/workbench.md) |
+| G81 | The agents sidebar's session note is the title of a task in that session, because `WorkSession` has no description on the wire. A session that is for something no task names has no line to draw | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench.md`](./features/workbench.md) |
+| G82 | `COLUMNS_MAX` caps the agents screen at eight columns because each owns a composer out of a fixed pool built before the first frame. An unbounded row needs a text area a column can be given when it opens | [`features/workbench.md`](./features/workbench.md) |
+
 
 
 ## Open questions — a decision nobody has made

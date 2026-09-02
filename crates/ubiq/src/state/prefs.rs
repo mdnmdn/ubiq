@@ -17,7 +17,12 @@ use crate::theme::ThemeId;
 /// rescue: a path read as a key opens the wrong tab, and an arrangement written before file panels
 /// existed has a centre panel where the files belong. `LAYOUT_VERSION` follows this number, so the
 /// blob and the arrangement inside it are discarded together rather than one half at a time.
-pub const SCHEMA: u32 = 2;
+///
+/// It moved to `3` when the graph screen became `RailMode::Orchestration` and `Agents` became the
+/// column screen. `rail_mode: "Agents"` is still a name this build reads, and it now names a
+/// different screen — the one case a default cannot rescue, because nothing is missing: the value
+/// changed meaning. An older blob would open the wrong mode with the wrong arrangement under it.
+pub const SCHEMA: u32 = 3;
 
 /// One rail mode's arrangement of one project's window: which edge regions were on screen, and the
 /// dock blob that restores it.

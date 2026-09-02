@@ -3,11 +3,11 @@ id: feat-workbench
 title: The workbench
 kind: feature
 status: draft
-summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, or the status bar
+summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
+read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
 updated: 2026-09-02
 verified: 2026-09-02
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/graph.rs, crates/ubiq/src/ui/agents/inspector.rs, crates/ubiq/src/ui/agents/tasks.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -23,26 +23,100 @@ seen through, and it is built against [`../design/ubiq-layout.png`](../design/ub
 
 ## Behaviour
 
-**The rail selects what the middle of the window is for.** Six destinations in two groups:
-`Control` and `Sink` under `APP`, and `IDE`, `Agents`, `KB` and `Tasks` under `PROJECT`. Exactly one
+**The rail selects what the middle of the window is for.** Seven destinations in two groups:
+`Control` and `Sink` under `APP`, and `IDE`, `Agents`, `Orchestration`, `KB` and `Tasks` under
+`PROJECT`. Exactly one
 is active, and the active one is shown by the accent colour on both its icon and its label. The
 group is not decoration: a `PROJECT` mode with no folder open draws the page saying so, and an `APP`
 mode answers whether or not one is open.
 
-**Four modes are built.** What the rail selects between is the centre. Agents fills it with the
-orchestration graph, Tasks with the board, Sink with the kitchen sink, and the centre panel's tab is
-named for the mode. IDE fills it with the open files, one panel each, and the centre panel steps
+**Five modes are built.** What the rail selects between is the centre. Agents fills it with the
+parallel columns, Orchestration with the graph, Tasks with the board, Sink with the kitchen sink,
+and the centre panel's tab is named for the mode. IDE fills it with the open files, one panel each, and the centre panel steps
 aside for as long as any is open. `Control` and `KB` render one empty page naming the mode and what
 it will hold. This is a stated gap, not an error state.
 
 **The explorer and the chat belong to IDE mode.** They are IDE furniture and leave together when the
 mode changes; the console, the terminals and the centre panel itself outlive a mode switch. The chat
 is written to be reused by the other screens later, but is not shared furniture today. A screen that
-wants a panel of its own brings it: the agents screen's inspector and tasks drawer, and the board's
+wants a panel of its own brings it: the orchestration screen's inspector and tasks drawer, and the board's
 task panel, are drawn inside the centre panel rather than in the dock, which is why they toggle
 instead of dragging and go with the mode.
 
-**The agents screen is one field of state and everything else.** A selection is either a **session**
+**Two screens stand over the same records, and the split is the point** — `D47`. Agents is where
+the user *talks to* the agents; Orchestration is where the user *arranges* them. A graph is a map of
+who spawned whom, a column is a transcript and a composer, and neither screen draws the other's
+view. Both read one projection of what the host reports about a project.
+
+**A column is a place to talk to an agent, not a place an agent lives.** Which column an agent's
+conversation is drawn in is the interface's own fact: no message carries it and no drop sends one,
+the same rule the graph's card positions follow. What the host owns is which agents exist and what
+each is doing, and the screen reads that and never writes it.
+
+**A column holds tabs, and more than one tab is a group.** Dragging a tab onto another column puts
+the two agents in one strip, which is how a hand-off is read — the plan and the build side by side,
+one column wide. Dragging it past the last column gives it a column of its own again, and a tab
+alone in its column is what that gesture produces anyway, so the drop changes nothing. The column a
+drop would group into lights up, and the strip at the end of the row lights only for a drop that
+would do something: a target that promises a change it will not make is worse than one that stays
+dark. The strip over the columns counts them — how many there are, how many agents they hold and how
+many of them are grouped — and names both gestures, because neither leaves a mark on the interface
+to be discovered from.
+
+**Closing a tab benches the agent; it does not end it.** This is the one place the screen
+deliberately reads differently from a terminal pane, whose close kills the harness behind it —
+[`panes-and-terminals.md`](./panes-and-terminals.md). A tab is a view onto a conversation, so taking
+it off screen leaves the agent running: the sidebar still lists it, marked `bench`, and one click
+brings it back. Nothing on this screen kills an agent.
+
+**The bench is computed, not stored.** It is every agent the host reports that no column is showing,
+so an agent the host stops reporting stops being listed with nothing to clean up.
+
+**The screen lays itself out once, and every listing after that only prunes.** The first `WorkList`
+gives one column per session that has an agent in it, holding every agent in that session in the
+order the host listed them: each column is a piece of work, and a session running several agents
+arrives grouped rather than spread across the row. The bench therefore starts empty and fills only
+from the user's own closes. Every later `WorkList` or `AgentChanged` drops the tabs naming agents the
+host has forgotten, and the columns that empties, and does nothing else — an arrangement the user has
+changed is not something an arriving record may undo. An arriving agent is listed on the bench rather
+than put in a column.
+
+**A column owns a composer for its life.** The window holds a fixed pool of `COLUMNS_MAX` text areas,
+because one is built before the first frame and its subscription is held for the window's life. A
+column is given a **slot** when it opens and keeps it, so what was typed at one agent never moves
+into a field addressed at another, and a freed slot's draft is cleared because the slot is handed to
+the next column that opens. The placeholder names the agent the column is showing. Enter sends,
+Shift-Enter inserts a newline.
+
+**The ceiling is on columns, not on tabs.** Eight columns fit the row. Grouping into a column that
+is open always works, however many tabs it holds; a split that would need a ninth is refused and
+leaves the tab where it was, because the room is checked before the tab comes off its column. A
+click in the sidebar is never refused: with the row full, a benched agent is grouped into the
+focused column rather than given one of its own, because "show me this agent" is a request the
+screen can honour whatever the row looks like.
+
+**Nothing writes into a transcript.** The composer sends `SendToAgent` — the one thing this screen
+puts on the bus — and the line appears in the thread when the host answers with the agent carrying
+it. A screen that drew its own half of a conversation would be inventing the other half too.
+
+**A column's footer reports the harness and no mode.** Which harness is behind the agent, which
+model, the ring of context left and the token count. A harness's mode is not on the `WorkAgent`
+record, and a chip reading the chat panel's selection would report a setting that has nothing to do
+with this agent.
+
+**The sidebar lists everything the host reports, not what is on screen.** That is the point of it: a
+column is one conversation and there are only ever a few of them, so the list is the one place a
+whole project is visible at once, and a benched agent is in it, marked, rather than gone. A session
+is a group with a bar down its left edge, and the bar carries the worst thing happening under it —
+error over waiting over running over ended — so a folded session still says it has a failing agent,
+the same rule `WorkProjection::pulse` follows for a task's card. Its note line is the title of a task
+in that session, read off the work rather than carried on the session, because a session has no
+description on the wire. A session with no agents in it is not drawn at all. One click reveals: an
+agent in a column comes to the front of it, and a benched one opens a column of its own — or joins
+the focused column when the row is already full. The row folds its session, and the header's one
+control folds every session or opens every one.
+
+**The orchestration screen is one field of state and everything else.** A selection is either a **session**
 — a named piece of work — or an **agent**, which is one workspace: one running harness, one
 terminal. Which session the graph draws, what the inspector reports and which tasks the drawer lists
 are all functions of that one field, so the three cannot disagree about what the user is looking at.
@@ -113,8 +187,8 @@ drawer's own task list, and the toolbar dismisses the panel and brings it back.
 the selected agent's thread and answers with the agent carrying it — the line appears because the
 host said it did, not because the interface wrote it there. Nothing replies, and the thread says in
 as many words that nothing is listening: a fabricated reply is the one thing a screen with a mock
-behind it must not draw. Enter sends, Shift-Enter inserts a newline, and the draft is the agents
-screen's own rather than the chat's.
+behind it must not draw. Enter sends, Shift-Enter inserts a newline, and the draft is the
+orchestration screen's own rather than the chat's or a column's.
 
 **The board and the graph are two views of one set of tasks.** The graph answers "who is doing
 what"; the board answers "what is there, and where has it got to" — the same tasks, at the scale of
@@ -219,10 +293,11 @@ unanswered delete question — so nothing is left in a state that cannot resolve
 host confirms clears the sentence: a report about a change that did not happen is stale the moment
 one does.
 
-**Both ways out of a task lead to the agents screen.** `Show in graph` switches the mode and points
-the graph at whoever is doing the task; `Open …'s chat` does the same and puts the inspector on that
-agent's thread. A task the user wants to intervene in is a conversation with an agent, and the
-conversation lives there.
+**Both ways out of a task lead to a screen over the agents, and they lead to different ones.**
+`Show in graph` switches to Orchestration and points the graph at whoever is doing the task;
+`Open …'s chat` switches to Agents and reveals that agent in a column, because a conversation is what
+was asked for. A task the user wants to intervene in is a conversation with an agent, and the
+conversation is a column.
 
 **A project is a colour.** Each project owns one of the theme's swatches, and wears it in four
 places at once: its dot in the picker, the fill behind its name in the titlebar, the mark above the
@@ -346,7 +421,18 @@ left and right switches are drawn only in IDE mode, because the side regions are
 hide in place in every other mode; the bottom switch is offered in every rail mode. The `+` that
 opens a terminal sits at the right end of the bottom region's tab strip, drawn only in a group that
 holds a terminal or the console and only while a project is open, because a pane runs in a
-project's folder.
+project's folder. Past a divider, the titlebar offers search and a bell (both stubs), a gear that
+raises application settings, and the theme switch. The gear lights while settings are up. Settings
+are interface-wide, so the overlay opens with no project.
+
+**Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
+`SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
+sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
+it dismisses project settings, and the reverse. Three sections ship: **File explorer** (whether a
+single click opens a preview tab), **Editor** (whether a new markdown file opens in preview or
+source), and **Harnesses** (an Add button over an empty list — definitions belong to the harness
+library). The kitchen sink still draws the larger fixture nav; that page is how the furniture is
+looked at, not how the application is configured.
 
 **The explorer draws the project's folder, one directory at a time, in the same two arrangements
 the file picker uses.** Opening a project asks the host for its top level; expanding a folder asks
@@ -418,11 +504,12 @@ active tab is marked on its bottom edge. The tab's title takes its colour from t
 same map the explorer draws on, and a small dot at the tab's right edge reports the *file*: reading,
 saving, a failed save, or an unsaved edit. A clean, idle tab draws no dot.
 
-**A file opens in a temporary preview on a single click, permanently on a double-click.** `enter`
-opens a temporary preview too, where `shift-enter` opens permanently; `shift` or `cmd` with a click,
-and a double-click — on the explorer row *or on the tab itself* — open permanently. Only one preview
-tab exists at a time — opening another preview replaces it and closes its panel. A preview is
-promoted to permanent by its first edit, or by the explicit gesture that opens it permanently; a
+**A file opens in a temporary preview on a single click, permanently on a double-click**, when
+*Open files in previews* is on — which is the default, and a setting. Off, a single click and
+`enter` open permanently too. `shift-enter` opens permanently either way; `shift` or `cmd` with a
+click, and a double-click — on the explorer row *or on the tab itself* — open permanently. Only one
+preview tab exists at a time — opening another preview replaces it and closes its panel. A preview
+is promoted to permanent by its first edit, or by the explicit gesture that opens it permanently; a
 single click that merely brings the tab to the front does not promote it. A preview tab is drawn in
 italics with a faint background so it reads as tentative at a glance.
 
@@ -468,8 +555,9 @@ Split, in a strip above the body, drawn only by the three viewers that have both
 buffer has nothing to toggle to and an image has no source. Split shows the file's own buffer, not a
 copy of it, so switching costs nothing and loses no undo history. Which of the three is on screen
 belongs to the file rather than to the strip, and it is written into the saved arrangement and into
-what the project remembers, so a document reopens in the layout it was left in. Preview is what a
-document opens in the first time.
+what the project remembers, so a document reopens in the layout it was left in. A new markdown file
+opens in Preview or Source as the Editor setting says; mermaid still opens in Preview. Already-open
+tabs keep the layout they were left in.
 
 **A diagram is drawn in the interface, on a background thread.** A Mermaid document is just text;
 the bus already carries a file's bytes, so nothing about a diagram crosses it. The window renders it
@@ -543,10 +631,16 @@ totals when those exist, the caret's real one-based line and column, the file's 
 and line ending, the harness and mode the composer is set to, and the active file's text size. A project that is not a repository
 prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
 go with the file, so a window with no file open reports neither rather than a position in nothing.
-With no project open it says so and stops. On the agents screen there is no file and no caret to report, so it counts instead: how
-many sessions and agents there are, and how the agents are spread across the four states, each count
-in its state's colour. A count of zero is drawn as zero rather than dropped — "no agent is failing"
-is a fact, and it is the one the user is checking for. On the board it counts the work instead: how
+With no project open it says so and stops. On the two screens over the agents there is no file and
+no caret to report, so it counts instead. On the orchestration screen: how many sessions and agents
+there are, and how the agents are spread across the four states, each count in its state's colour. A
+count of zero is drawn as zero rather than dropped — "no agent is failing" is a fact, and it is the
+one the user is checking for. On the agents screen it reports on the field rather than on the
+project: how many columns there are, how many agents they hold, how many of them are grouped, how
+many are on the bench, and the same four states over the agents in those columns. The strip reports
+on what is on screen, and the bench is exactly the difference between the field and what the host
+reports. At the right it names each harness behind the columns once, which is the one fact about
+them the columns' own footers say only one at a time. On the board it counts the work instead: how
 many cards are in each column, how many sub-tasks are done across the cards on screen, and how many
 of them nobody can finish without the user — over the cards the filters leave, because a count that
 disagrees with what is drawn is worse than none. Whichever set it is showing, it says where
@@ -676,8 +770,8 @@ folder — a folder it hid would take the files under it with it.
 **Projects cross the bus.** The catalogue belongs to the host, and the workbench holds a projection
 of it: `ListProjects`, `AddProject`, `ForgetProject`, `UpdateProject`, `LocateProject`,
 `OpenedProject` and `RefreshProject` going out, `ProjectList`, `ProjectAdded`, `ProjectChanged`,
-`ProjectForgotten` and `ProjectError` coming back, and `GetPreferences`/`SetPreferences` behind
-everything the window remembers. A chosen folder reaches the host as a path in `AddProject` or
+`ProjectForgotten` and `ProjectError` coming back, `GetPreferences`/`SetPreferences` behind
+everything the window remembers, and `GetSettings`/`SetSettings` behind how it behaves. A chosen folder reaches the host as a path in `AddProject` or
 `LocateProject`; Add also carries the name and colour from project settings. The choosing itself is
 the platform's, and crosses nothing. The full family is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
@@ -693,8 +787,9 @@ expanded folders and the selected row, and the host neither parses nor validates
 `CreateTask`, `UpdateTask`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`, `RenameStep`,
 `RemoveStep`, `MoveStep`, `ToggleStep`, `AssignAgent` and `SendToAgent`. Coming back: `WorkList`,
 `TaskCreated`, `TaskChanged`, `TaskDeleted`, `AgentChanged` and `WorkError`. A project is open in one
-window at a time, so each answer reaches only the window that asked, and both screens over the work
-draw from the same projection of it. The full family, with its payloads and its rules, is
+window at a time, so each answer reaches only the window that asked, and the three screens over the
+work draw from the same projection of it. What no message carries is the arrangement over the
+records — which column an agent's conversation is drawn in, and where a card sits. The full family, with its payloads and its rules, is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
 One fixture is left. `crates/ubiq/src/state/sample.rs` holds the chat, the one screen with no
@@ -733,10 +828,14 @@ saying no file is open, because the files are panels of their own:
 
 | Area | Module | Sits | Size | State |
 |---|---|---|---|---|
-| Agents screen | `ui/agents/mod.rs` | The centre panel in Agents mode | Fills it; its toolbar takes `TITLEBAR_HEIGHT` | `GraphView`, over the project's `WorkProjection` |
-| Orchestration graph | `ui/agents/graph.rs` | The agents screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
-| Inspector | `ui/agents/inspector.rs` | The agents screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
-| Tasks drawer | `ui/agents/tasks.rs` | The agents screen, under the graph | `TASKS_HEIGHT` open, its header shut | `GraphView::tasks_open` |
+| Agents screen | `ui/agents/mod.rs` | The centre panel in Agents mode | Fills it; its header strip takes `TITLEBAR_HEIGHT` | `AgentsView`, over the project's `WorkProjection` |
+| Agents sidebar | `ui/agents/sidebar.rs` | The agents screen, left | `AGENT_SIDEBAR_WIDTH`, fixed | The same projection, and `AgentsView::collapsed`, with `AppState::agents_scroll` |
+| A column | `ui/agents/column.rs` | The agents screen, one per column in the row | Shares the row and is floored at `COLUMN_MIN_WIDTH` in `state/agents.rs`; the row scrolls sideways | The `Column` it draws, and the window's composer for that column's slot |
+| New-column strip | `ui/agents/mod.rs`, `new_column_strip()` | The agents screen, past the last column | `NEW_COLUMN_STRIP`, fixed | `AgentsView::dragging` |
+| Orchestration screen | `ui/orchestration/mod.rs` | The centre panel in Orchestration mode | Fills it; its toolbar takes `TITLEBAR_HEIGHT` | `GraphView`, over the project's `WorkProjection` |
+| Orchestration graph | `ui/orchestration/graph.rs` | The orchestration screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
+| Inspector | `ui/orchestration/inspector.rs` | The orchestration screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
+| Tasks drawer | `ui/orchestration/tasks.rs` | The orchestration screen, under the graph | `TASKS_HEIGHT` open, its header shut | `GraphView::tasks_open` |
 | Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; its columns scroll sideways | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
@@ -751,8 +850,9 @@ saying no file is open, because the files are panels of their own:
 Two rules hold across the three tables. **The chrome does not move and the panels do** — the
 titlebar, the rail and the status bar each take one fixed constant and are the frame the dock is
 drawn inside, while a region opens at `EXPLORER_WIDTH`, `CHAT_WIDTH` or `DOCK_HEIGHT` and keeps
-whatever the user drags it to from then on. And **a screen's furniture is the screen's**: the agents
-screen's inspector and drawer and the board's task panel take one fixed constant each, are shown and
+whatever the user drags it to from then on. And **a screen's furniture is the screen's**: the
+orchestration screen's inspector and drawer, the agents screen's sidebar and the board's task panel
+take one fixed constant each, are shown and
 hidden from the screen they belong to rather than from the titlebar's switches, and leave with the
 mode.
 
@@ -769,8 +869,8 @@ before `centre()`'s no-project case rather than after it.
 A window is one `AppState`, and inside it one `OpenProject` per project open in that window. The
 split between them is the feature's spine. **A project owns what is about that project** — its
 explorer tree, its open files and their buffers, its panes, which of them holds the keyboard, the
-furniture it was last left in, the work the host last described to it, and the graph's and the
-board's own views of that work. **The window owns what is about the window** — the dock and one
+furniture it was last left in, the work the host last described to it, and the graph's, the columns'
+and the board's own views of that work. **The window owns what is about the window** — the dock and one
 panel per kind in it, the palette, the chat, the log console, and one flat map from pane id to
 emulator, because an emulator does not care which list draws it.
 
@@ -819,9 +919,9 @@ furniture reaches the window — the rail mode it was left in and that mode's ar
 starts no pane, which is why a window opening on nothing starts no harness.
 
 Accessors read through the active project and tolerate its absence: `open_project()`, `explorer()`,
-`editor()`, `work()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
-for a window with no project without a caller having to check, and `work_mut()`, `graph_mut()` and
-`board_mut()` are the writing twins of the three over the work. `drop_project()` writes the project's blob, parks a copy against a
+`editor()`, `work()`, `agents()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
+for a window with no project without a caller having to check, and `work_mut()`, `agents_mut()`,
+`graph_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
 reopen in the same session, and kills its panes. `ui_font_size_or_default()` is the project's live
 text size (or `theme::EDITOR_FONT_SIZE`), and `set_ui_font_size()` and `nudge_ui_font_size()` are
 the two ways it changes — the former reconfiguring every already-open emulator through
@@ -854,11 +954,17 @@ way the host does.
 mode in the `ViewPrefs::modes` map, each carrying that mode's region flags and a dock blob of its
 own, beside the files and folders a project reopens with, the point size its text is read at
 (`ui_font_size`), whether its editors wrap (`editor_wrap`) and the text in its explorer's filter
-(`file_filter`) — each new field `#[serde(default)]`, so the schema stays at 2.
+(`file_filter`) — each new field `#[serde(default)]`, so a field costs the schema nothing. The
+number is `3`, because one value in the blob carries a meaning that moves with the build: a
+`rail_mode` of `Agents` names the column screen, and an older blob wrote it for the graph. That is
+the one case a default cannot rescue — nothing is missing, and the value means something else — so
+the blob is discarded whole, and `ui::dock::LAYOUT_VERSION` follows the number so the arrangement
+inside it goes with it.
 
 `crates/ubiq/src/ui/shell.rs` assembles the frame and nothing more: the mark and the titlebar in one
 row, then the rail beside `AppState::dock()`, then the status bar, and — when one is up — the
-file-tab context menu over all of it. The mark is drawn by `rail::mark`
+project-settings overlay, the application-settings overlay, or the file-tab context menu over all
+of it. The mark is drawn by `rail::mark`
 in that first row so it sits in the corner above the rail rather than inside it. It fixes no
 arrangement — everything between the chrome is the dock's.
 
@@ -910,22 +1016,27 @@ the incoming mode's saved blob to `pending_layout`, or — for a mode never arra
 `ModeLayout::default_for` flags as `pending_regions`, which `settle_mode()` forces on the frame.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
-`explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/` and `board/`. The project picker is
+`explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/` and
+`board/`, with `work.rs` beside them for the one thing all three of the last draw. The project picker is
 its own module rather than a `Picker`, because a project row carries actions and a confirmation and
 is not just a value. Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
-shell paints the same dialog over the window when a project is being created or edited. Shared
-primitives are in `ui/kit/`; the conventions behind that split are in
+shell paints the same dialog over the window when a project is being created or edited. Application
+settings is `ui/settings.rs`: the titlebar's gear raises it, `state/settings.rs` holds the overlay
+and the Ui-layer schema, and a toggle sends `SetSettings`. Shared primitives are in `ui/kit/`;
+the conventions behind that split are in
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
-project settings dialog, what was typed into the picker's and the explorer's filters, and the two
-menus that came later — `MenuId::FontSize` for the status bar's text-size dropdown, and
-`MenuId::FileTab` with the tab's key and anchor in `WorkbenchState::file_tab_menu` for the file tab's
-right-click;
+project settings dialog, the application settings overlay, what was typed into the picker's and the
+explorer's filters, and the two menus that came later — `MenuId::FontSize` for the status bar's
+text-size dropdown, and `MenuId::FileTab` with the tab's key and anchor in
+`WorkbenchState::file_tab_menu` for the file tab's right-click; `settings.rs` for the Ui-layer
+schema, the overlay's nav, and how a blob is read;
 `explorer.rs` for the tree, the list, the keyboard and the right-click menu, drawing through the
 shared chrome in `ui/kit/files.rs`; `editor.rs`
 for the open files; `logs.rs` for the console's filter; `work.rs` for one project's work as the host
-describes it; `agents.rs` for the graph's view of that work; `board.rs` for the board's.
+describes it; `agents.rs` for the columns' view of that work and `orchestration.rs` for the graph's;
+`board.rs` for the board's.
 
 `state/work.rs` is the projection and nothing else: the sessions, agents and tasks of one project as
 the window last heard the host describe them, and a flag saying whether it has heard at all. The
@@ -941,7 +1052,7 @@ bar counts by bucket. The free `fraction()` and `tokens_label()` are two values 
 out at draw time for the reason `state/when.rs` renders how long ago something was rather than
 storing it.
 
-`state/agents.rs` holds `GraphView`, the agents screen's *view* of that work: the selection, the
+`state/orchestration.rs` holds `GraphView`, the orchestration screen's *view* of that work: the selection, the
 session being drawn, the showing buckets, the zoom, the composer's draft, what a drag is carrying,
 the grains behind it, and the arrangement. It holds no records, which is why every reader takes a
 `WorkProjection` as its first argument — the shape `BoardState`'s readers have. Nothing here draws
@@ -965,8 +1076,8 @@ record gets instead: it takes a tidy arrangement of everything and adopts it for
 has never seen, so a new task takes the next container slot in the same flow-and-wrap order and a new
 agent the next offset inside its task, with nothing already placed moving and no second geometry to
 keep in step. `CARD_WIDTH`, `CARD_HEIGHT`, `GROUP_PAD` and `GROUP_LABEL` live there because the
-outlines, the connectors and the hit testing work from them. Both are tested without a frame in `crates/ubiq/tests/agents.rs`, which
-asserts no position against the fixture — it has none.
+outlines, the connectors and the hit testing work from them. Both are tested without a frame in
+`crates/ubiq/tests/orchestration.rs`, which asserts no position against the fixture — it has none.
 
 `AppState` carries the graph's view as `graph` and the composer as `agent_input`, a `TextareaState`
 of its own so the two drafts cannot leak into each other. `start_graph_carry()` selects a card and
@@ -974,9 +1085,49 @@ does not select a container; `move_graph_carry()` honours reduced motion, moving
 laying a grain; `tidy_graph()` is the tidy control; `end_graph_carry()` sends the `AssignAgent` a
 drop asks for; `send_to_agent()` sends the composer's line and appends nothing itself;
 `settle_graph()`, called from `render` beside the other end-of-frame passes, ages the trail and puts
-down a carry whose drag ended where the canvas's drop handler never sees it. `ui/agents/mod.rs` is the frame and its `activity_colour()` is the one place a
-state becomes a colour; `graph.rs`, `inspector.rs` and `tasks.rs` are its three areas, painted from
-the layers in `ui/kit/canvas.rs`.
+down a carry whose drag ended where the canvas's drop handler never sees it. `ui/orchestration/mod.rs`
+is the frame; `graph.rs`, `inspector.rs` and `tasks.rs` are its three areas, painted from the layers
+in `ui/kit/canvas.rs`.
+
+`ui/work.rs` is the one place a work state becomes a colour, for every screen that draws one.
+`activity_colour()` and `bucket_colour()` put the four buckets on the four status tokens — the three
+ways of working share the one that means "moving" — and `role_icon()` and `role_mark()` are the glyph
+a role wears. `ubiq_proto::work` keeps the words and `theme.rs` keeps the values, so the columns, the
+graph, the board and the status bar cannot disagree about what running looks like.
+
+`state/agents.rs` is the other view over that projection, and holds the arrangement rather than any
+record: the columns, which one the sidebar's "here" means, which sessions are folded, what is typed
+in each composer by slot, and the tab a drag is carrying. A `Column` is a composer slot, an ordered
+set of agent ids and which of them is in front, and `grouped()` is the more-than-one-tab rule the
+header counts. `arrange()` is the one-column-per-session layout and runs on the first listing;
+`prune()` drops the tabs naming agents the host has forgotten and answers whether anything went, so a
+re-sent `WorkList` costs no redraw. `reveal()` is the sidebar's one gesture, `open()` a column of its
+own, `open_in()` a group, `bench()` a close, and `split_off()` the drop past the last column, which
+asks `free_slot()` for room **before** it takes the tab off the column it was in. `reveal()` falls
+back to `open_in()` on the focused column when the row is full, which is why the sidebar's click
+never fails. `benched()` is the
+difference between what the host reports and what the columns hold, and `on_the_field()`,
+`grouped()`, `count()` and `has_room()` are what the header, the status bar and the drop targets
+read. `COLUMNS_MAX` and `COLUMN_MIN_WIDTH` live here rather than in `theme.rs`, because how many
+conversations fit and how narrow one may get are facts about a conversation. Nothing in it draws,
+nothing in it names a colour, and it is tested without a frame in `crates/ubiq/tests/agents.rs`.
+
+`AppState` carries it as `agents`, the composers as `column_inputs` — a fixed pool of `COLUMNS_MAX`
+`TextareaState` entities built in the constructor, each with a subscription that mirrors what is
+typed onto that slot's draft and steers the column on a bare Enter — and the sidebar's scroll as
+`agents_scroll`, its own rather than the explorer's. `reveal_agent()`, `group_agent_into()`,
+`bench_agent()`, `select_column_tab()` and `focus_agent_column()` are the clicks;
+`start_tab_drag()`, `drop_tab_on()`, `drop_tab_at_end()` and `settle_tab_drag()` are the drag, the
+last putting down a tab whose drag ended where no drop handler sees it. `steer_column()` is the one
+thing this screen sends, and appends nothing itself. `fill_columns()` gives each composer its
+placeholder and its draft, drained in `render` for the reason `fill_task_form()` is:
+`set_placeholder` and `set_value` both need a window, and an arriving message, a project switch and a
+jump from another screen have none. `MenuId::AgentBench` carries the column its `+` was clicked in,
+because a row of columns has one each and only one menu may be open. `open_task_chat()` reveals an
+agent and switches to Agents mode; `show_task_in_graph()` switches to Orchestration.
+`ui/agents/mod.rs` is the frame — the sidebar, the header strip, the row of columns and the drop
+strip at the end — `sidebar.rs` is the list, and `column.rs` is one column, from its tab strip to its
+composer.
 
 `state/board.rs` is the board's view of the same projection, and holds nothing that is a fact about a
 task: the filter text, which session's pills are on, which task is open, which columns and cards are
@@ -1183,7 +1334,12 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
-| Nothing is selected on the agents screen | The inspector says so and points at the toolbar and the graph. The drawer falls back to the first session, so it does not go blank; the graph draws every session and needs no fallback |
+| The row of columns is full | A split is refused and the tab stays in the column it was in. A click in the sidebar still brings a benched agent on, grouped into the focused column, and the `+` still groups into the column it belongs to — the ceiling is on columns, not on tabs |
+| A benched agent stops being reported | It stops being listed, and there is nothing to clean up: the bench is computed from the work rather than written down |
+| An agent arrives after the screen has laid itself out | It is listed on the bench rather than put in a column. Every listing after the first only prunes, because the arrangement is the user's |
+| Every agent is on the bench | The field says which control brings one back, rather than an empty row that would read as a project with nothing running |
+| A tab is dropped anywhere but a column or the end strip | The next frame puts it down in the column it came from, so it cannot stay stuck to the pointer |
+| Nothing is selected on the orchestration screen | The inspector says so and points at the toolbar and the graph. The drawer falls back to the first session, so it does not go blank; the graph draws every session and needs no fallback |
 | Every agent is filtered out | The graph says so and offers to show everything. It says the opposite thing — that no agent is running in this project — when there was nothing to hide, so the two emptinesses are never confused |
 | Every bucket pill is turned off | The row is not filtering, and every card is drawn. This is the way back from having turned them all off, which is why no pill refuses a click |
 | A task's cards are all hidden | No outline is drawn for it. The task keeps its place in the drawer's list |
@@ -1192,7 +1348,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A container is dragged onto another | Nothing is filed anywhere. The outlines overlap until one is moved or the graph is tidied |
 | The composer sends with a session selected, or with nothing | Nothing is sent, and Send reads as disabled while the draft is empty |
 | A message is sent to an agent | The host puts it in that agent's thread and answers with the agent carrying it. Nothing replies, and the thread says so rather than inventing one |
-| Either screen is opened with no project | The centre draws nothing. Both are views of one project's work and there is none; the rail, titlebar and status bar stay |
+| A screen over the work is opened with no project | The centre draws nothing. All three are views of one project's work and there is none; the rail, titlebar and status bar stay |
 | A move is never answered | The card stays in the column it came from, drawn muted and saying it is waiting. Nothing times it out, and the mark comes off on the next answer naming that task |
 | An edit is never answered | The field closes and the panel goes on reporting the task the host last confirmed, so the change reads as not having happened. What was typed stays in the form until the selection changes or the project is entered again |
 | The host refuses a change to the work | The panel says what it would not do, puts the open field away, takes the waiting mark off, gives up on a `New task` that never arrived and withdraws a pending delete. The next thing the host confirms clears the sentence |
@@ -1234,12 +1390,13 @@ library's own so they win — and the binary calls it beside its own quit bindin
 - [`chat.md`](./chat.md) — the panel that survives every mode switch
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the component conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — who owns which state, and why the interface asks
+- [`../tech/decisions.md`](../tech/decisions.md) — `D47`, why the agents and the work are two screens, and `D42`, the dock they are panels in
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the project, file, git and work families in full
 - [`../backlog.md`](../backlog.md) — what the shell still lacks
 
 ## Next steps
 
-- Build the Control, KB and Tasks screens.
+- Build the Control and KB screens.
 - Reorder a task's sub-tasks, which `MoveStep` names on the wire for exactly that.
 - Hand a sub-task to an agent, so `Step.owner` is set by something.
 - Write the graph's arrangement down, so a hand-placed card survives a restart.

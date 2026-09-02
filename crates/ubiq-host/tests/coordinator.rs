@@ -6,12 +6,16 @@ use std::time::Duration;
 use ubiq_host::config::{ConfigRoot, RootSource};
 use ubiq_host::coordinator;
 use ubiq_host::projects::Projects;
-use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore, MemoryTaskStore};
+use ubiq_host::settings::Settings;
+use ubiq_host::store::memory::{
+    MemoryPreferenceStore, MemoryProjectStore, MemorySettingsStore, MemoryTaskStore,
+};
 use ubiq_host::work::Work;
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::Message;
+use ubiq_proto::settings::{HostSettings, SettingsLayer};
 
 /// Long enough for a process to start and say something on a loaded machine.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -33,7 +37,8 @@ fn coordinator() -> (Hub, Client) {
     // The directory has to outlive the thread that is writing into it.
     std::mem::forget(root);
     let work = Work::open(Box::new(MemoryTaskStore::new()));
-    coordinator::start(host, config, projects, work, pending);
+    let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+    coordinator::start(host, config, projects, work, settings, pending);
     let client = hub.connect();
     (hub, client)
 }
@@ -61,7 +66,8 @@ fn coordinator_on_disk() -> (Hub, Client, std::path::PathBuf) {
     let work = Work::open(Box::new(ubiq_host::store::file::FileTaskStore::new(
         path.clone(),
     )));
-    coordinator::start(host, config, projects, work, pending);
+    let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+    coordinator::start(host, config, projects, work, settings, pending);
     let client = hub.connect();
     (hub, client, path)
 }
@@ -974,6 +980,74 @@ fn wait_for_body(path: &std::path::Path, needle: &str) -> String {
         std::thread::sleep(Duration::from_millis(10));
     }
     panic!("{needle} never reached {}: {last}", path.display());
+}
+
+#[test]
+fn settings_round_trip_on_both_layers() {
+    let (_hub, ui) = coordinator();
+    let ui_blob = r#"{"schema":1,"explorer_preview":false,"markdown_open":"source"}"#;
+    let host_blob = serde_json::to_string(&HostSettings::default()).unwrap();
+
+    ui.send(Message::SetSettings {
+        layer: SettingsLayer::Ui,
+        value: ui_blob.to_string(),
+    });
+    ui.send(Message::SetSettings {
+        layer: SettingsLayer::Host,
+        value: host_blob.clone(),
+    });
+    ui.send(Message::GetSettings {
+        layer: SettingsLayer::Ui,
+    });
+    ui.send(Message::GetSettings {
+        layer: SettingsLayer::Host,
+    });
+
+    let mut ui_back = None;
+    let mut host_back = None;
+    while ui_back.is_none() || host_back.is_none() {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::Settings {
+                layer: SettingsLayer::Ui,
+                value,
+            }) => ui_back = Some(value),
+            Ok(Message::Settings {
+                layer: SettingsLayer::Host,
+                value,
+            }) => host_back = Some(value),
+            Ok(Message::HostInfo { .. }) => {}
+            Ok(Message::SettingsError { error, .. }) => panic!("settings failed: {error}"),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    assert_eq!(ui_back.unwrap().as_deref(), Some(ui_blob));
+    let host = host_back.unwrap().expect("host settings were stored");
+    let parsed: HostSettings = serde_json::from_str(&host).unwrap();
+    assert_eq!(parsed, HostSettings::default());
+}
+
+#[test]
+fn a_host_blob_this_build_cannot_read_is_an_error() {
+    let (_hub, ui) = coordinator();
+    ui.send(Message::SetSettings {
+        layer: SettingsLayer::Host,
+        value: r#"{"schema":99}"#.to_string(),
+    });
+
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::SettingsError {
+                layer: SettingsLayer::Host,
+                error,
+            }) => {
+                assert!(error.contains("99"), "{error}");
+                return;
+            }
+            Ok(Message::HostInfo { .. }) => continue,
+            other => panic!("expected SettingsError, got {other:?}"),
+        }
+    }
 }
 
 fn expect_work_list(

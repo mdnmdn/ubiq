@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-02
 verified: 2026-09-02
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -51,6 +51,12 @@ but the palette, which is process-wide. Everything drawn belongs under `crates/u
 **This document owns the token set.** Every colour in the UI comes from a token accessor in
 `crates/ubiq/src/theme.rs`. A literal colour anywhere else is a defect, with no exceptions worth
 carving out — a one-off shade is the mechanism by which a themed application stops being themeable.
+
+**Which token a *state* reads in is the interface's choice, and it is made in one file.**
+`crates/ubiq/src/ui/work.rs` is where a work record's state becomes a token: an activity or a bucket
+becomes a status colour, and a role becomes a glyph. `ubiq_proto::work` keeps the words and this
+document's tokens keep the values, so the agents screen's columns, the orchestration graph, the tasks
+board and the status bar cannot disagree about what running looks like.
 
 Tokens are grouped by role, and the role is the point: a token names what a colour is *for*, so that
 a palette swap changes every surface consistently.
@@ -117,12 +123,15 @@ restyling the shell should be one file to visit.
 | `EDITOR_FONT_SIZE`, `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | The editor's base point size and the range a project's zoom is allowed to live in — the same project font size the editor, the terminal panes and the explorer tree follow |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
-| `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The agents screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
+| `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
+| `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
+| `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
 
 A region's constant is what a fresh window opens it at; what the drag will not pass is the dock's
-own, so a region is one number rather than a triple. The agents screen's three are the same shape
-for a different reason: its inspector and its drawer are shown and hidden rather than dragged.
+own, so a region is one number rather than a triple. The orchestration screen's three are the same
+shape for a different reason: its inspector and its drawer are shown and hidden rather than dragged,
+and so is the agents screen's sidebar.
 
 Syntax colours are the one thing not tokenised here. They come from the component library's own
 highlighter theme, which `theme::set_mode` keeps in step with Ubiq's palette, so the editor and the
@@ -150,8 +159,8 @@ evidence a token has a value, not evidence anything uses it.
   active box is the one that is underlined. That treatment is `kit::field` in
   `crates/ubiq/src/ui/kit/controls.rs`, the container every free-text input sits in — a surface with
   a coloured left edge, joined by a bottom underline in the focus colour while the input holds the
-  keyboard. The command field, the project search, the chat composer, the agents
-  inspector's composer, the board's filter and form fields, and the explorer's and the file picker's
+  keyboard. The command field, the project search, the chat composer, the orchestration
+  inspector's composer, each agents column's composer, the board's filter and form fields, and the explorer's and the file picker's
   filters all draw themselves with it.
 - **Status is shown by colour from the status group**, never by wording alone. A stopped agent and a
   failed one are different colours.
@@ -224,6 +233,14 @@ not strand it; and **whether an outside click dismisses it is the caller's**, be
 holds the window until it is answered and one that goes away the moment attention leaves it are two
 different asks. The four sizes live beside the state, in `state/file_picker.rs`, because they are
 what a resize is clamped against rather than what a screen is laid out on.
+
+**A page overlay is that same dialog, with a nav, and it does not resize.** Application settings
+and project settings are this shape: `SETTINGS_WIDTH` by `SETTINGS_HEIGHT` (project settings is
+the same width), clamped to the viewport, body scrolling inside, switching nav sections must not
+change the panel's size. They keep the modal's scrim, coloured left edge, outside-click dismiss and
+`deferred` priority, and they are painted from the shell over the window rather than from
+`kit::modal`. The furniture — `heading`, `setting_row`, `nav_item` — lives in `ui/kit/settings.rs`
+so the kitchen sink draws the same rows.
 
 **A dialog is worked from the keyboard, and a binding against a field has to be registered late.**
 The component library's input binds `up`, `down`, `left`, `right`, `enter` and `escape` for itself, in

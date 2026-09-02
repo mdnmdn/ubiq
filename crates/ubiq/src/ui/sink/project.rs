@@ -23,8 +23,9 @@ use crate::state::sink::{
 };
 use crate::state::workbench::ProjectSettingsMode;
 use crate::theme;
-use crate::ui::kit::{elided, ghost_button, icon_button, mono, primary_button};
-use crate::ui::sink::settings::{heading, nav_item, setting_row};
+use crate::ui::kit::{
+    elided, ghost_button, heading, icon_button, mono, nav_item, primary_button, setting_row,
+};
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
 
 /// Which copy of the dialog is being drawn. The sink is a fixture; Live is create or edit.

@@ -8,8 +8,8 @@
 //! column. Everything either of them does asks the host and waits, so what is on screen is always
 //! the task the host last confirmed.
 //!
-//! The two buttons at the bottom leave for the agents screen, because a task the user wants to
-//! intervene in is a conversation with an agent, and that lives there.
+//! The two buttons at the bottom leave for the screens over the agents, because a task the user
+//! wants to intervene in is a conversation with an agent, and that lives there.
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -23,10 +23,10 @@ use crate::app::AppState;
 use crate::state::board::Field;
 use crate::state::work;
 use crate::theme;
-use crate::ui::agents::{activity_colour, bucket_colour};
 use crate::ui::board::{form, status_colour};
 use crate::ui::eid2;
 use crate::ui::kit::{ghost_button, icon_button, meter, mono, panel, pill, section_label};
+use crate::ui::work::{activity_colour, bucket_colour};
 
 pub fn render(
     app: &AppState,
@@ -314,7 +314,7 @@ fn tag(label: impl Into<SharedString>, colour: gpui::Rgba) -> impl IntoElement {
         .child(mono(label, colour).text_size(px(10.5)))
 }
 
-/// The two ways out of a task, both of them onto the agents screen: the graph pointed at whoever
+/// The two ways out of a task, one onto each screen over the agents: the graph pointed at whoever
 /// is doing it, or that agent's thread.
 fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl IntoElement {
     let id = task.id;

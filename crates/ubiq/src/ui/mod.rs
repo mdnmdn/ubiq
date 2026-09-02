@@ -17,14 +17,17 @@ pub mod file_picker;
 pub mod file_tab_menu;
 pub mod kit;
 pub mod logs;
+pub mod orchestration;
 pub mod project_menu;
 pub mod rail;
+pub mod settings;
 pub mod shell;
 pub mod sink;
 pub mod status_bar;
 pub mod terminal;
 pub mod titlebar;
 pub mod viewer;
+pub mod work;
 
 use gpui::{App, Context, ElementId, Entity, Window};
 

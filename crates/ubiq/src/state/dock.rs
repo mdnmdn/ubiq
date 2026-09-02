@@ -73,9 +73,10 @@ pub struct Visibility {
 /// **A file's key is the tab's, not the path's.** A file and its diff are two tabs looking at the
 /// same file, so `state/editor.rs`'s `tab_key` is what identifies a panel and a bare path is not.
 ///
-/// `Centre` is the one panel whose body follows the rail mode: the agents screen in Agents mode,
-/// the board in Tasks mode, and the empty page otherwise. In IDE mode it is the page that says no
-/// file is open — as soon as one is, the file panels are the centre and it steps aside.
+/// `Centre` is the one panel whose body follows the rail mode: the columns in Agents mode, the
+/// graph in Orchestration mode, the board in Tasks mode, and the empty page otherwise. In IDE mode
+/// it is the page that says no file is open — as soon as one is, the file panels are the centre and
+/// it steps aside.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum PanelKind {
     Terminal(PaneId),

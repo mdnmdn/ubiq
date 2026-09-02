@@ -1,433 +1,381 @@
-//! The agents screen's own view of the work: what is selected in the orchestration graph, which
-//! session and which states it is showing, how far in it is zoomed, and what the pointer has hold
-//! of.
+//! The agents screen's own view of the work: which agents are on screen, how they are spread
+//! across the parallel columns, and which of them the user has put back on the bench.
 //!
-//! **Every filter can be cleared, and cleared means everything.** A graph showing one session and
-//! four states is the useful default and not the only view: the session row has an "all" and no
-//! bucket lit is no bucket filter, so the whole of a project's work is always one click away. An
-//! empty canvas therefore means an empty project rather than a filter nobody can see.
+//! **A column is a place to talk to an agent, not a place an agent lives.** The work itself —
+//! sessions, agents, tasks — arrives from the host and lives in [`super::work`]; this is the
+//! arrangement over it, which is why every reader takes a [`WorkProjection`] as its first
+//! parameter rather than holding one. The split is what keeps both halves testable without a
+//! frame, and it is the same shape [`super::orchestration`] and [`super::board`] have.
 //!
-//! **The work itself is not here.** Sessions, agents and tasks arrive from the host and live in
-//! [`super::work`]; this is the view over them, which is why every reader takes a
-//! [`WorkProjection`] as its first parameter rather than holding one. The split is what keeps both
-//! halves testable without a frame, and it is the same shape `BoardState`'s readers have.
+//! **The arrangement is the interface's own fact.** Nothing outside this window has an opinion
+//! about which column an agent's conversation is drawn in, so no message carries it and no drop
+//! sends one — the same rule the graph's card positions follow. What *is* the host's is which
+//! agents exist and what they are doing, and that is read and never written here.
+//!
+//! **Closing a tab benches an agent; it does not end it.** A terminal pane's close kills the
+//! harness behind it, because a pane *is* the harness's screen. A column tab is a view onto a
+//! conversation, so taking it off screen leaves the agent running and puts it on the bench, where
+//! the sidebar still lists it and one click brings it back. Nothing on this screen kills an agent.
 //!
 //! Nothing here draws and nothing here names a colour — an activity says what it *is*, and
-//! `ui::agents` decides which token that reads in. Nothing here says where anything sits either:
-//! a record and its position are separate, and [`super::layout`] owns the second half.
-//!
-//! **Position is the interface's own fact, membership is the host's.** A drag moves a card on the
-//! canvas, which nothing outside this window has an opinion about; which task that card *serves* is
-//! written down, so a drop answers the pair and the caller sends `AssignAgent`.
+//! `ui::work` decides which token that reads in.
 
-use std::time::{Duration, Instant};
-
-use ubiq_proto::ids::{SessionId, TaskId};
-use ubiq_proto::work::{AgentId, Bucket, TaskRecord, WorkAgent};
+use ubiq_proto::ids::SessionId;
+use ubiq_proto::work::{AgentId, Bucket, WorkAgent};
 
 use super::work::WorkProjection;
 
-pub use super::layout::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout};
-
-/// What the inspector and the tasks strip are about. A session and an agent are both selectable,
-/// and the two answer the same questions at different scales.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Selection {
-    Session(SessionId),
-    Agent(AgentId),
-}
-
-/// Which half of the inspector is showing.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum InspectorTab {
-    Chat,
-    Tasks,
-}
-
-/// One grain of the trail a dragged card leaves behind.
+/// The most columns the screen holds at once.
 ///
-/// The trail is not decoration: a card that moves with no evidence of having moved reads as a
-/// redraw, and a card that leaves a fading track reads as something the user picked up.
-#[derive(Clone, Copy, Debug)]
-pub struct Grain {
-    /// Window coordinates, because the trail is painted over the canvas rather than in it.
-    pub at: (f32, f32),
-    pub born: Instant,
-    /// A fixed jitter per grain, so the trail scatters rather than drawing a rope.
-    pub spread: (f32, f32),
-    pub size: f32,
+/// A ceiling rather than an unbounded row, for two reasons that point the same way. Each column
+/// owns a composer, and a composer is a window entity created before the first frame rather than
+/// during one — so the pool of them is fixed and the columns draw from it. And a column narrower
+/// than [`COLUMN_MIN_WIDTH`] stops being a conversation, which is the same limit arriving from the
+/// other side.
+pub const COLUMNS_MAX: usize = 8;
+
+/// The narrowest a column is drawn. Below this a transcript is a word per line, so the row scrolls
+/// sideways rather than squeezing further.
+pub const COLUMN_MIN_WIDTH: f32 = 360.0;
+
+/// One column: an ordered set of agent tabs, and which of them is in front.
+///
+/// A column with more than one tab is **grouped** — several agents stacked in one strip, which is
+/// what the header counts and what a tab dragged onto another column produces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Column {
+    /// Which of the window's composers this column owns. Allocated when the column opens and freed
+    /// when it closes, and **stable for the column's life** — so what was typed into a column does
+    /// not move to a neighbour when a column to its left is closed.
+    pub slot: usize,
+    pub tabs: Vec<AgentId>,
+    pub active: usize,
 }
 
-/// How long a grain takes to disappear.
-pub const GRAIN_LIFE: Duration = Duration::from_millis(650);
-
-/// The most grains kept at once. A cap rather than a decay-only rule, so a long drag on a slow
-/// frame cannot grow the vector without bound.
-pub const GRAIN_CEILING: usize = 240;
-
-impl Grain {
-    /// Zero when the grain has just landed, one when it is gone.
-    pub fn age(&self, now: Instant) -> f32 {
-        let life = GRAIN_LIFE.as_secs_f32();
-        (now.saturating_duration_since(self.born).as_secs_f32() / life).clamp(0.0, 1.0)
+impl Column {
+    fn new(slot: usize, agent: AgentId) -> Self {
+        Self {
+            slot,
+            tabs: vec![agent],
+            active: 0,
+        }
     }
 
-    pub fn spent(&self, now: Instant) -> bool {
-        self.age(now) >= 1.0
+    pub fn active_agent(&self) -> Option<AgentId> {
+        self.tabs.get(self.active).copied()
+    }
+
+    /// Whether this column is holding more than one agent, which is what "grouped" means.
+    pub fn grouped(&self) -> bool {
+        self.tabs.len() > 1
     }
 }
 
-/// What the pointer has hold of. A card moves alone; a container moves everything in it, because
-/// the cards are positioned against its origin and the origin is the only thing that changes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Held {
-    Agent(AgentId),
-    Task(TaskId),
+/// What the agents screen is showing: the columns, which one the sidebar opens into, and what is
+/// typed in each.
+pub struct AgentsView {
+    pub columns: Vec<Column>,
+    /// Which column the sidebar's and the keyboard's "here" mean. Clamped by every mutator, so it
+    /// always names a live column or is zero on an empty screen.
+    pub focus: usize,
+    /// The sessions the sidebar has shut. Absent is open, so a session that arrives after the
+    /// screen was last looked at arrives expanded rather than hidden.
+    pub collapsed: Vec<SessionId>,
+    /// What is typed in each composer, by slot, mirroring the window's textarea so rendering never
+    /// has to read the entity. Always [`COLUMNS_MAX`] long; a slot no column holds is empty.
+    pub drafts: Vec<String>,
+    /// The tab the pointer is carrying. A tab dropped on another column joins it; dropped past the
+    /// last column it opens one of its own.
+    pub dragging: Option<AgentId>,
+    /// Whether the screen has laid itself out from the work yet. The first `WorkList` arranges the
+    /// columns once; every later one only prunes, because an arrangement the user has changed is
+    /// not something an arriving record may undo.
+    pub arranged: bool,
 }
 
-/// Something being carried. The grab point is where inside it the pointer went down, so it does
-/// not jump under the cursor on the first move.
-#[derive(Clone, Copy, Debug)]
-pub struct Carry {
-    pub held: Held,
-    pub grab: (f32, f32),
-    /// The task container the pointer is over, which is what a drop would move a card into. Always
-    /// `None` while a container is the thing being carried: a task is not filed inside a task.
-    pub over: Option<TaskId>,
-}
-
-pub struct GraphView {
-    /// Where the work is drawn. Thrown away and recomputed whole by `relayout`, and topped up one
-    /// arriving card at a time by `Layout::place_new`.
-    pub layout: Layout,
-
-    /// Which session the graph is drawing, or every one of them. Its own field rather than a
-    /// reading of `selection`, because which session is *shown* and which is *selected* are two
-    /// questions: the inspector and the drawer report on the second, and clearing the first must
-    /// not throw the second away.
-    pub session: Option<SessionId>,
-    /// Which buckets the graph is showing. **Empty is no filter, not nothing** — a card in a hidden
-    /// bucket is not drawn, and neither are the connectors into it, so a row with every pill off
-    /// would otherwise be an empty screen with no way back.
-    pub buckets: Vec<Bucket>,
-    pub zoom: f32,
-    pub selection: Option<Selection>,
-    pub tab: InspectorTab,
-    pub show_inspector: bool,
-    pub tasks_open: bool,
-
-    /// What is typed in the inspector's composer.
-    pub draft: String,
-
-    pub carry: Option<Carry>,
-    pub sand: Vec<Grain>,
-}
-
-/// The screen as it opens: every session and every state showing, zoomed out far enough to see the
-/// work whole, the inspector up on the thread and the tasks drawer shut. Written out rather than
-/// derived, because the derived zero of a zoom is a graph nobody can see.
-impl Default for GraphView {
+impl Default for AgentsView {
     fn default() -> Self {
         Self {
-            layout: Layout::default(),
-            session: None,
-            buckets: Bucket::all().to_vec(),
-            zoom: 0.8,
-            // Nothing is selected until there is something to select; the window points the
-            // selection at the first agent the moment the work arrives.
-            selection: None,
-            tab: InspectorTab::Chat,
-            show_inspector: true,
-            tasks_open: false,
-            draft: String::new(),
-            carry: None,
-            sand: Vec::new(),
+            columns: Vec::new(),
+            focus: 0,
+            collapsed: Vec::new(),
+            drafts: vec![String::new(); COLUMNS_MAX],
+            dragging: None,
+            arranged: false,
         }
     }
 }
 
-/// The zoom range and the step the toolbar's `−` and `+` move in.
-pub const ZOOM_MIN: f32 = 0.5;
-pub const ZOOM_MAX: f32 = 1.6;
-pub const ZOOM_STEP: f32 = 0.1;
+impl AgentsView {
+    // ── what it holds ───────────────────────────────────────────────
 
-impl GraphView {
-    /// Where a card is drawn, on the canvas at 100% zoom. The layout alone answers this, which is
-    /// why it is the one reader that needs no projection.
-    pub fn at(&self, agent: &WorkAgent) -> (f32, f32) {
-        self.layout.at(agent)
-    }
-
-    pub fn at_id(&self, work: &WorkProjection, id: AgentId) -> Option<(f32, f32)> {
-        work.agent(id).map(|agent| self.layout.at(agent))
-    }
-
-    /// Put a card at a point on the canvas, whatever frame it hangs off.
-    pub fn place(&mut self, work: &WorkProjection, id: AgentId, at: (f32, f32)) {
-        let origin = work
-            .agent(id)
-            .and_then(|agent| agent.task)
-            .map(|task| self.layout.task_origin(task))
-            .unwrap_or((0.0, 0.0));
-        self.layout
-            .place_agent(id, (at.0 - origin.0, at.1 - origin.1));
-    }
-
-    /// Throw the arrangement away and compute it again from the records.
-    pub fn relayout(&mut self, work: &WorkProjection) {
-        self.layout = Layout::auto(&work.agents, &work.tasks);
-    }
-
-    /// The selected agent, when an agent is what is selected.
-    pub fn selected_agent<'a>(&self, work: &'a WorkProjection) -> Option<&'a WorkAgent> {
-        match self.selection {
-            Some(Selection::Agent(id)) => work.agent(id),
-            _ => None,
-        }
-    }
-
-    /// Which session the screen is *about*: the one selected, or the one the selected agent runs
-    /// in, falling back to the first so the inspector and the drawer always have something to
-    /// report. What the canvas *draws* is `session`, which is a separate question.
-    pub fn active_session(&self, work: &WorkProjection) -> Option<SessionId> {
-        match self.selection {
-            Some(Selection::Session(id)) => Some(id),
-            Some(Selection::Agent(id)) => work.agent(id).map(|a| a.session),
-            None => work.sessions.first().map(|s| s.id),
-        }
-    }
-
-    /// Whether one bucket is drawn. **No pill lit is no filter**: the row means "narrow it to
-    /// these", and narrowing to nothing is what an untouched row already does.
-    pub fn showing(&self, bucket: Bucket) -> bool {
-        self.buckets.is_empty() || self.buckets.contains(&bucket)
-    }
-
-    /// Whether a card is drawn at all, given the two filters. `session` absent is every session.
-    pub fn visible(&self, agent: &WorkAgent) -> bool {
-        self.showing(agent.activity.bucket()) && self.session.is_none_or(|id| agent.session == id)
-    }
-
-    /// The tasks the strip lists: every task in the session, or the ones the selected agent has a
-    /// step in.
-    pub fn listed_tasks<'a>(&self, work: &'a WorkProjection) -> Vec<&'a TaskRecord> {
-        match self.selection {
-            Some(Selection::Agent(id)) => work
-                .tasks
+    /// Which column and which tab an agent is drawn in, if it is on screen at all.
+    pub fn holds(&self, agent: AgentId) -> Option<(usize, usize)> {
+        self.columns.iter().enumerate().find_map(|(col, column)| {
+            column
+                .tabs
                 .iter()
-                .filter(|t| {
-                    t.steps.iter().any(|s| s.owner == Some(id))
-                        || work.agent(id).and_then(|a| a.task) == Some(t.id)
-                })
-                .collect(),
-            _ => {
-                let session = self.active_session(work);
-                // A task nobody has started belongs to no session, and the graph is a screen about
-                // sessions: it is the board that has somewhere to draw it.
-                work.tasks
-                    .iter()
-                    .filter(|t| t.session.is_some() && t.session == session)
-                    .collect()
-            }
-        }
+                .position(|id| *id == agent)
+                .map(|tab| (col, tab))
+        })
+    }
+
+    pub fn on_screen(&self, agent: AgentId) -> bool {
+        self.holds(agent).is_some()
+    }
+
+    /// The agent one column is showing.
+    pub fn active_agent(&self, column: usize) -> Option<AgentId> {
+        self.columns.get(column)?.active_agent()
+    }
+
+    /// The agents the host reports that no column is showing. **On the bench, not gone**: each is
+    /// still running, still listed in the sidebar, and one click from a column of its own.
+    pub fn benched<'a>(&self, work: &'a WorkProjection) -> Vec<&'a WorkAgent> {
+        work.agents
+            .iter()
+            .filter(|agent| !self.on_screen(agent.id))
+            .collect()
+    }
+
+    /// How many agents are drawn across every column. Not the number the host reports — the bench
+    /// is the difference.
+    pub fn on_the_field(&self) -> usize {
+        self.columns.iter().map(|column| column.tabs.len()).sum()
+    }
+
+    /// How many columns hold more than one agent, which is the header's "grouped" count.
+    pub fn grouped(&self) -> usize {
+        self.columns
+            .iter()
+            .filter(|column| column.grouped())
+            .count()
+    }
+
+    /// How many agents on the field are in one bucket — what the status bar counts, and the reason
+    /// it counts the field rather than the whole project: the strip reports on what is on screen.
+    pub fn count(&self, work: &WorkProjection, bucket: Bucket) -> usize {
+        self.columns
+            .iter()
+            .flat_map(|column| column.tabs.iter())
+            .filter_map(|id| work.agent(*id))
+            .filter(|agent| agent.activity.bucket() == bucket)
+            .count()
+    }
+
+    pub fn is_collapsed(&self, session: SessionId) -> bool {
+        self.collapsed.contains(&session)
+    }
+
+    /// Whether another column can be opened. The screen says so rather than refusing a click with
+    /// no explanation: the control is not offered when this is false.
+    pub fn has_room(&self) -> bool {
+        self.columns.len() < COLUMNS_MAX
+    }
+
+    pub fn draft(&self, slot: usize) -> &str {
+        self.drafts.get(slot).map(String::as_str).unwrap_or("")
+    }
+
+    /// The lowest composer nothing is using. `None` is a full screen.
+    fn free_slot(&self) -> Option<usize> {
+        (0..COLUMNS_MAX).find(|slot| self.columns.iter().all(|column| column.slot != *slot))
     }
 
     // ── Mutators ────────────────────────────────────────────────────
     //
     // None of them notifies: they are called from `AppState`, which is what owns the redraw.
 
-    /// Turn one bucket's pill on or off. Any of them may be the last: with none lit the row is not
-    /// filtering, which is the way back from having turned them all off.
-    pub fn toggle_bucket(&mut self, bucket: Bucket) {
-        if let Some(ix) = self.buckets.iter().position(|b| *b == bucket) {
-            self.buckets.remove(ix);
-        } else {
-            self.buckets.push(bucket);
-        }
-    }
-
-    /// Show one session, or every one. It leaves the selection alone: "show me all of it" is not
-    /// "stop looking at this".
-    pub fn show_session(&mut self, session: Option<SessionId>) {
-        self.session = session;
-    }
-
-    /// Put every filter back, which is the toolbar's one control for "show everything".
-    pub fn clear_filters(&mut self) {
-        self.session = None;
-        self.buckets = Bucket::all().to_vec();
-    }
-
-    /// Whether anything is being hidden, so the control that clears the filters can say whether it
-    /// has anything to do.
-    pub fn filtered(&self) -> bool {
-        self.session.is_some() || self.buckets.len() < Bucket::all().len()
-    }
-
-    pub fn zoom_by(&mut self, delta: f32) {
-        self.zoom = (self.zoom + delta).clamp(ZOOM_MIN, ZOOM_MAX);
-    }
-
-    pub fn zoom_pct(&self) -> u32 {
-        (self.zoom * 100.0).round() as u32
-    }
-
-    /// Pick something up. The grab point is where inside it the pointer went down.
-    pub fn start_carry(&mut self, held: Held, grab: (f32, f32)) {
-        self.carry = Some(Carry {
-            held,
-            grab,
-            over: None,
-        });
-    }
-
-    /// Move whatever is being carried, and lay a grain down where it passed.
+    /// Lay the screen out from the work, once.
     ///
-    /// `at` is in graph coordinates — the top-left of the card, or of the container's box.
-    /// `pointer` is where the pointer is in the window, which is the frame the sand is painted in;
-    /// `None` lays no trail, which is what reduced motion asks for.
-    pub fn carry_to(
-        &mut self,
-        work: &WorkProjection,
-        at: (f32, f32),
-        pointer: Option<(f32, f32)>,
-        now: Instant,
-    ) {
-        let Some(carry) = self.carry else { return };
-        match carry.held {
-            Held::Agent(id) => {
-                self.place(work, id, at);
-                // Which container the pointer is over decides what a drop means, and is what the
-                // canvas lights up while the card is in the air.
-                let over = self.task_at(work, id, at);
-                if let Some(carry) = self.carry.as_mut() {
-                    carry.over = over;
-                }
+    /// **One column per session that has an agent in it, holding every agent in that session, in
+    /// the order the host lists them.** It is the arrangement that says the most about a project on
+    /// the frame it opens: each column is a piece of work, and a session running several agents
+    /// arrives grouped rather than spread across the row. The bench therefore starts empty — it
+    /// fills as the user closes tabs, which is the only thing that puts anything on it.
+    ///
+    /// Sessions past [`COLUMNS_MAX`] have no column, so their agents start benched.
+    pub fn arrange(&mut self, work: &WorkProjection) {
+        self.columns.clear();
+        for session in &work.sessions {
+            let members: Vec<AgentId> = work
+                .agents
+                .iter()
+                .filter(|agent| agent.session == session.id)
+                .map(|agent| agent.id)
+                .collect();
+            if members.is_empty() {
+                continue;
             }
-            // A container has no position of its own — its box is the box round its cards — so it
-            // is moved by the difference between where the box is and where the pointer wants it,
-            // and every card in it comes along because none of them was ever placed absolutely.
-            Held::Task(id) => {
-                if let Some((x, y, _, _)) = self.bounds_of(work, id) {
-                    let origin = self.layout.task_origin(id);
-                    self.layout
-                        .place_task(id, (origin.0 + at.0 - x, origin.1 + at.1 - y));
-                }
-            }
+            let Some(slot) = self.free_slot() else { break };
+            self.columns.push(Column {
+                slot,
+                tabs: members,
+                active: 0,
+            });
         }
-        if let Some(pointer) = pointer {
-            self.drop_grain(pointer, now);
-        }
+        self.focus = 0;
+        self.arranged = true;
     }
 
-    /// Put it down, and answer the card and the container it landed in — for the caller to send as
-    /// an `AssignAgent`.
+    /// Drop every tab naming an agent the host no longer reports, and the columns that empties.
     ///
-    /// **Position is the interface's own fact, membership is the host's.** The offset is written
-    /// here, because where a card sits on this canvas is nothing anybody outside the window has an
-    /// opinion about; which task the card *serves* is written down, so this touches none of it and
-    /// the answer is a request rather than a result. The offset is taken against the container the
-    /// card landed in rather than the one it is still recorded in, so the card is where it was let
-    /// go of the moment the host confirms — the one frame in between draws it against its old
-    /// origin, which is the cost of not writing the answer down before it is given.
+    /// Answers whether anything went, so a `WorkList` that changed nothing costs no redraw. A
+    /// benched agent that disappears needs nothing done: the bench is computed from the work, so it
+    /// simply stops being listed.
+    pub fn prune(&mut self, work: &WorkProjection) -> bool {
+        let before = self.on_the_field() + self.columns.len();
+        for column in &mut self.columns {
+            column.tabs.retain(|id| work.agent(*id).is_some());
+            column.active = column.active.min(column.tabs.len().saturating_sub(1));
+        }
+        self.columns.retain(|column| !column.tabs.is_empty());
+        self.clamp_focus();
+        before != self.on_the_field() + self.columns.len()
+    }
+
+    /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
     ///
-    /// `None` is a card put down on open ground, a card put back where it came from, or a container
-    /// that was carried — none of them a hand-over.
-    pub fn end_carry(&mut self, work: &WorkProjection) -> Option<(AgentId, TaskId)> {
-        let carry = self.carry.take()?;
-        let Held::Agent(id) = carry.held else {
-            return None;
+    /// The one thing a click in the sidebar does, and it always does something. An agent on the
+    /// field is revealed where it is. A benched one gets a column, and on a full row it is grouped
+    /// into the focused column instead — the ceiling is on columns, and "show me this agent" is a
+    /// request the screen can honour whatever the row looks like.
+    ///
+    /// Answers whether it is on screen afterwards. The only `false` is a screen with no columns at
+    /// all and no room for one, which [`COLUMNS_MAX`] being greater than zero rules out.
+    pub fn reveal(&mut self, agent: AgentId) -> bool {
+        if let Some((col, tab)) = self.holds(agent) {
+            self.columns[col].active = tab;
+            self.focus = col;
+            return true;
+        }
+        if self.open(agent) {
+            return true;
+        }
+        let focus = self.focus;
+        self.open_in(focus, agent)
+    }
+
+    /// Open an agent in a column of its own, at the end of the row.
+    pub fn open(&mut self, agent: AgentId) -> bool {
+        if self.on_screen(agent) {
+            return true;
+        }
+        let Some(slot) = self.free_slot() else {
+            return false;
         };
-        let task = carry.over?;
-        if work.agent(id)?.task == Some(task) {
-            return None;
-        }
-        // Where it was let go of, so re-anchoring it to the new container's origin leaves it under
-        // the pointer rather than jumping it to the same offset in a different frame.
-        let at = self.at_id(work, id)?;
-        let origin = self.layout.task_origin(task);
-        self.layout
-            .place_agent(id, (at.0 - origin.0, at.1 - origin.1));
-        Some((id, task))
+        self.columns.push(Column::new(slot, agent));
+        self.focus = self.columns.len() - 1;
+        true
     }
 
-    /// Which task's container the carried card is over. Containers do not overlap, so the first
-    /// hit wins.
+    /// Add an agent to one column's strip, in front. What the column's `+` does, and what a tab
+    /// dragged onto another column produces.
+    pub fn open_in(&mut self, column: usize, agent: AgentId) -> bool {
+        // Taken off wherever it was first, so an agent is never in two columns at once — and the
+        // column it came from goes if that emptied it, which can shift the target's index.
+        let column = match self.holds(agent) {
+            Some((from, _)) if from == column => return true,
+            Some(_) => {
+                let target = self.columns.get(column).map(|c| c.slot);
+                self.bench(agent);
+                match target.and_then(|slot| self.columns.iter().position(|c| c.slot == slot)) {
+                    Some(column) => column,
+                    None => return self.open(agent),
+                }
+            }
+            None => column,
+        };
+        let Some(target) = self.columns.get_mut(column) else {
+            return self.open(agent);
+        };
+        target.tabs.push(agent);
+        target.active = target.tabs.len() - 1;
+        self.focus = column;
+        true
+    }
+
+    /// Take an agent off the field. The agent keeps running — see the module note — and the column
+    /// goes with it when it held nothing else.
     ///
-    /// The carried card is left out of every container it is measured against. Without that, a
-    /// card is always inside its own task's box — the box is computed from where its cards are, and
-    /// it is one of them — so dragging it anywhere would read as dropping it back where it came
-    /// from.
-    fn task_at(&self, work: &WorkProjection, carried: AgentId, at: (f32, f32)) -> Option<TaskId> {
-        let centre = (at.0 + CARD_WIDTH / 2.0, at.1 + CARD_HEIGHT / 2.0);
-        work.tasks
-            .iter()
-            .find(|task| {
-                self.bounds_excluding(work, task.id, Some(carried))
-                    .is_some_and(|(x, y, w, h)| {
-                        centre.0 >= x && centre.0 <= x + w && centre.1 >= y && centre.1 <= y + h
-                    })
-            })
-            .map(|task| task.id)
-    }
-
-    /// The container a task is drawn in: the box round its cards, with room for the label.
-    pub fn bounds_of(&self, work: &WorkProjection, task: TaskId) -> Option<(f32, f32, f32, f32)> {
-        self.bounds_excluding(work, task, None)
-    }
-
-    fn bounds_excluding(
-        &self,
-        work: &WorkProjection,
-        task: TaskId,
-        skip: Option<AgentId>,
-    ) -> Option<(f32, f32, f32, f32)> {
-        let mut members = work
-            .agents
-            .iter()
-            .filter(|a| a.task == Some(task) && Some(a.id) != skip && self.visible(a))
-            .peekable();
-        members.peek()?;
-
-        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        for agent in members {
-            let at = self.layout.at(agent);
-            x0 = x0.min(at.0);
-            y0 = y0.min(at.1);
-            x1 = x1.max(at.0 + CARD_WIDTH);
-            y1 = y1.max(at.1 + CARD_HEIGHT);
-        }
-        Some((
-            x0 - GROUP_PAD,
-            y0 - GROUP_PAD - GROUP_LABEL,
-            (x1 - x0) + GROUP_PAD * 2.0,
-            (y1 - y0) + GROUP_PAD * 2.0 + GROUP_LABEL,
-        ))
-    }
-
-    /// Lay one grain down, and sweep the spent ones while we are here.
-    fn drop_grain(&mut self, at: (f32, f32), now: Instant) {
-        self.sand.retain(|g| !g.spent(now));
-        if self.sand.len() >= GRAIN_CEILING {
+    /// The freed composer's draft is dropped, because a slot is handed to the next column that
+    /// opens and what was typed at one agent must not turn up addressed to another.
+    pub fn bench(&mut self, agent: AgentId) {
+        let Some((col, tab)) = self.holds(agent) else {
             return;
+        };
+        let column = &mut self.columns[col];
+        column.tabs.remove(tab);
+        if column.tabs.is_empty() {
+            let slot = column.slot;
+            self.columns.remove(col);
+            self.clear_draft(slot);
+        } else {
+            column.active = column.active.min(column.tabs.len() - 1);
         }
-        // Deterministic scatter: no random number generator for four floats, and a repeatable
-        // trail is easier to look at than a truly random one.
-        let seed = self.sand.len() as f32;
-        let spread = ((seed * 12.9898).sin() * 43_758.55).fract();
-        let lift = ((seed * 78.233).sin() * 26_963.13).fract();
-        self.sand.push(Grain {
-            at,
-            born: now,
-            spread: ((spread - 0.5) * 26.0, (lift - 0.5) * 26.0),
-            size: 1.6 + spread * 2.6,
-        });
+        self.clamp_focus();
     }
 
-    /// Drop the grains that have run out, and answer whether any are left — which is what tells
-    /// the window whether it still owes the trail a frame.
-    pub fn settle_sand(&mut self, now: Instant) -> bool {
-        self.sand.retain(|g| !g.spent(now));
-        !self.sand.is_empty()
+    /// Put a tab in a column of its own, at a position in the row. What dropping a tab past the
+    /// last column does.
+    pub fn split_off(&mut self, agent: AgentId, at: usize) -> bool {
+        // A column already holding only this agent is already the answer, and moving it would be a
+        // drag that reads as having done nothing but reorder the row.
+        if let Some((col, _)) = self.holds(agent)
+            && !self.columns[col].grouped()
+        {
+            return true;
+        }
+        // Room is checked **before** the tab is taken off its column. Everything reaching this
+        // point is in a grouped column, so benching it frees no slot — and a split that ran out of
+        // room after benching would leave the tab neither where it was nor where it was going.
+        let Some(slot) = self.free_slot() else {
+            return false;
+        };
+        self.bench(agent);
+        let at = at.min(self.columns.len());
+        self.columns.insert(at, Column::new(slot, agent));
+        self.focus = at;
+        true
+    }
+
+    /// Which tab of a column is in front.
+    pub fn select_tab(&mut self, column: usize, tab: usize) {
+        if let Some(held) = self.columns.get_mut(column)
+            && tab < held.tabs.len()
+        {
+            held.active = tab;
+            self.focus = column;
+        }
+    }
+
+    pub fn focus_column(&mut self, column: usize) {
+        if column < self.columns.len() {
+            self.focus = column;
+        }
+    }
+
+    pub fn toggle_session(&mut self, session: SessionId) {
+        if let Some(ix) = self.collapsed.iter().position(|id| *id == session) {
+            self.collapsed.remove(ix);
+        } else {
+            self.collapsed.push(session);
+        }
+    }
+
+    pub fn set_draft(&mut self, slot: usize, text: String) {
+        if let Some(draft) = self.drafts.get_mut(slot) {
+            *draft = text;
+        }
+    }
+
+    pub fn clear_draft(&mut self, slot: usize) {
+        if let Some(draft) = self.drafts.get_mut(slot) {
+            draft.clear();
+        }
+    }
+
+    fn clamp_focus(&mut self) {
+        self.focus = self.focus.min(self.columns.len().saturating_sub(1));
     }
 }

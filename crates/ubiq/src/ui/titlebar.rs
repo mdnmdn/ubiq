@@ -92,12 +92,17 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
                 .child(icon_button("search", IconName::Search, false, |_, _, _| {}))
                 .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}))
-                .child(icon_button(
-                    "settings",
-                    IconName::Settings2,
-                    false,
-                    |_, _, _| {},
-                ))
+                .child(
+                    icon_button(
+                        "settings",
+                        IconName::Settings2,
+                        app.workbench.settings.open,
+                        cx.listener(|this, _, _, cx| this.toggle_settings(cx)),
+                    )
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Settings").build(window, cx)
+                    }),
+                )
                 .child(icon_button(
                     "theme",
                     if app.workbench.theme_id == crate::theme::ThemeId::Dark {

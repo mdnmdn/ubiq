@@ -1,10 +1,10 @@
 //! The stores as files under the config root.
 //!
-//! One TOML file for the catalogue, one per project for its tasks, and one per scope for view
-//! state. Nothing any of them does needs a query, an index or a partial read, so a whole-file
-//! rewrite of a few tens of records is microseconds and a database is a cost with no matching
-//! benefit. Where volume eventually arrives is the per-project cache, which is a different store
-//! behind a different trait.
+//! One TOML file for the catalogue, one per project for its tasks, one per scope for view
+//! state, and one per settings layer. Nothing any of them does needs a query, an index or a
+//! partial read, so a whole-file rewrite of a few tens of records is microseconds and a database
+//! is a cost with no matching benefit. Where volume eventually arrives is the per-project cache,
+//! which is a different store behind a different trait.
 
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -14,9 +14,10 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
+use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 use ubiq_proto::work::TaskRecord;
 
-use super::{PreferenceStore, ProjectStore, StoreError, TaskStore};
+use super::{PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
 use crate::atomic::{preserve_aside, write_atomic};
 
 /// The catalogue format this Ubiq writes and understands.
@@ -44,6 +45,18 @@ fn version_of(raw: &str) -> Option<u32> {
     toml::from_str::<JustTheVersion>(raw)
         .ok()
         .map(|probe| probe.version)
+}
+
+/// The host-settings file names its format `schema`, the same field the record on the wire carries.
+fn schema_of(raw: &str) -> Option<u32> {
+    #[derive(Deserialize)]
+    struct JustTheSchema {
+        #[serde(default)]
+        schema: u32,
+    }
+    toml::from_str::<JustTheSchema>(raw)
+        .ok()
+        .map(|probe| probe.schema)
 }
 
 /// The catalogue, as one TOML file.
@@ -353,5 +366,162 @@ impl PreferenceStore for FilePreferenceStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(StoreError::Io { path, source }),
         }
+    }
+}
+
+/// The envelope a Ui-layer settings blob is stored in. `value` is opaque: the host writes it and
+/// hands it back, and never looks inside. The Host layer does not use this — that file *is* the
+/// record.
+#[derive(Debug, Serialize, Deserialize)]
+struct SettingsEnvelope {
+    version: u32,
+    updated_at: chrono::DateTime<Utc>,
+    value: String,
+}
+
+/// The Ui-layer envelope format. Not the interface's schema, which lives inside `value`.
+pub const SETTINGS_ENVELOPE_VERSION: u32 = 1;
+
+/// Application settings, one file per layer under the config root.
+pub struct FileSettingsStore {
+    root: PathBuf,
+}
+
+impl FileSettingsStore {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    pub fn path(&self, layer: SettingsLayer) -> PathBuf {
+        match layer {
+            SettingsLayer::Ui => self.root.join("ui-settings.toml"),
+            SettingsLayer::Host => self.root.join("host-settings.toml"),
+        }
+    }
+}
+
+impl SettingsStore for FileSettingsStore {
+    fn get(&self, layer: SettingsLayer) -> Result<Option<String>, StoreError> {
+        match layer {
+            SettingsLayer::Ui => self.get_ui(),
+            SettingsLayer::Host => self.get_host(),
+        }
+    }
+
+    fn set(&self, layer: SettingsLayer, value: &str) -> Result<(), StoreError> {
+        match layer {
+            SettingsLayer::Ui => self.set_ui(value),
+            SettingsLayer::Host => self.set_host(value),
+        }
+    }
+
+    fn clear(&self, layer: SettingsLayer) -> Result<(), StoreError> {
+        let path = self.path(layer);
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(StoreError::Io { path, source }),
+        }
+    }
+}
+
+impl FileSettingsStore {
+    fn get_ui(&self) -> Result<Option<String>, StoreError> {
+        let path = self.path(SettingsLayer::Ui);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(StoreError::Io { path, source }),
+        };
+
+        // Opaque, so unreadable is discarded rather than preserved: the host never read the
+        // value, and a checkbox the window will reopen on its default is not a catalogue.
+        match toml::from_str::<SettingsEnvelope>(&raw) {
+            Ok(file) => Ok(Some(file.value)),
+            Err(error) => {
+                tracing::warn!(
+                    "discarding unreadable ui settings at {}: {error}",
+                    path.display()
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    fn set_ui(&self, value: &str) -> Result<(), StoreError> {
+        let path = self.path(SettingsLayer::Ui);
+        let file = SettingsEnvelope {
+            version: SETTINGS_ENVELOPE_VERSION,
+            updated_at: Utc::now(),
+            value: value.to_string(),
+        };
+        let body = toml::to_string_pretty(&file).map_err(|error| StoreError::Parse {
+            path: path.clone(),
+            preserved_as: None,
+            message: error.to_string(),
+        })?;
+        write_atomic(&path, body.as_bytes()).map_err(|source| StoreError::Io { path, source })
+    }
+
+    fn get_host(&self) -> Result<Option<String>, StoreError> {
+        let path = self.path(SettingsLayer::Host);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(StoreError::Io { path, source }),
+        };
+
+        if let Some(schema) = schema_of(&raw)
+            && schema > HOST_SETTINGS_SCHEMA
+        {
+            return Err(StoreError::UnknownVersion {
+                path,
+                found: schema,
+                supported: HOST_SETTINGS_SCHEMA,
+            });
+        }
+
+        match toml::from_str::<HostSettings>(&raw) {
+            Ok(settings) => {
+                serde_json::to_string(&settings)
+                    .map(Some)
+                    .map_err(|error| StoreError::Parse {
+                        path,
+                        preserved_as: None,
+                        message: error.to_string(),
+                    })
+            }
+            Err(error) => {
+                let preserved_as = preserve_aside(&path, Utc::now()).ok();
+                Err(StoreError::Parse {
+                    path,
+                    preserved_as,
+                    message: error.message().to_string(),
+                })
+            }
+        }
+    }
+
+    fn set_host(&self, value: &str) -> Result<(), StoreError> {
+        let path = self.path(SettingsLayer::Host);
+        let settings: HostSettings =
+            serde_json::from_str(value).map_err(|error| StoreError::Parse {
+                path: path.clone(),
+                preserved_as: None,
+                message: error.to_string(),
+            })?;
+        if settings.schema > HOST_SETTINGS_SCHEMA {
+            return Err(StoreError::UnknownVersion {
+                path,
+                found: settings.schema,
+                supported: HOST_SETTINGS_SCHEMA,
+            });
+        }
+        let body = toml::to_string_pretty(&settings).map_err(|error| StoreError::Parse {
+            path: path.clone(),
+            preserved_as: None,
+            message: error.to_string(),
+        })?;
+        write_atomic(&path, body.as_bytes()).map_err(|source| StoreError::Io { path, source })
     }
 }

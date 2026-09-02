@@ -14,9 +14,9 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::app::AppState;
 use crate::state::Selection;
 use crate::theme;
-use crate::ui::agents::activity_colour;
 use crate::ui::eid2;
 use crate::ui::kit::{disclosure, mono, slab};
+use crate::ui::work::activity_colour;
 
 /// The drawer under the graph: shut, it is one line saying what there is; open, it is the list.
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -54,7 +54,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .into_any_element();
 
     let mut root = div().flex().flex_none().flex_col().child(disclosure(
-        "agents-tasks",
+        "orch-tasks",
         "Tasks",
         summary,
         graph.tasks_open,
@@ -202,7 +202,7 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .collect();
 
     div()
-        .id("agents-task-list")
+        .id("orch-task-list")
         .flex()
         .flex_col()
         .flex_1()

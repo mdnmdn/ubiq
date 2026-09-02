@@ -20,6 +20,7 @@ pub mod files;
 pub mod menu;
 pub mod overlay;
 pub mod panel;
+pub mod settings;
 
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
@@ -30,3 +31,4 @@ pub use files::{INDENT, ROW_HEIGHT, file_row, filter_bar, kind_icon, twisty, vie
 pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};
 pub use overlay::{modal, modal_note};
 pub use panel::{Tab, panel, panel_header, tab_strip};
+pub use settings::{column, heading, label_block, nav_item, setting_row};

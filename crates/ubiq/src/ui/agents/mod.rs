@@ -1,155 +1,106 @@
-//! The Agents screen: an orchestration graph, an inspector for whatever is selected in it, and
-//! the tasks belonging to that selection.
+//! The Agents screen: every agent the host reports, listed down one side, and the ones the user is
+//! working with drawn as **parallel columns** of conversation across the rest.
 //!
-//! The sessions, agents and tasks it draws are the host's, projected into
-//! [`crate::state::work`]; what is selected in them, which states are showing and how far in it is
-//! zoomed are this window's, in [`crate::state::agents`]. Everything on it is live: the filters
-//! filter, the zoom zooms, a card is picked up and put down, and what is selected is what the
-//! inspector and the tasks drawer are about.
+//! This is the screen for *talking to* the agents. The screen for *arranging* them is
+//! [`crate::ui::orchestration`], and the two never share a view: a graph is a map of who spawned
+//! whom, a column is a transcript and a composer.
 //!
-//! Selection has two scales, and they answer the same questions at each. A **session** is a named
-//! piece of work; an **agent** is one workspace inside it — one running harness, one terminal.
-//! Picking a session points the graph at it and lists its tasks; picking a card narrows both to
-//! that agent.
+//! Three things are on screen and each answers one question. The **sidebar** answers *what is
+//! running* — every session, every agent in it, what each is doing, and which of them is on the
+//! bench. A **column** answers *what is this one saying* — one agent in front, its harness and its
+//! context, its thread, and a field that steers it. The **strip between them** answers *how the
+//! columns are filled*, and says how to change it.
 //!
-//! Nothing on the graph carries its own position. What an agent or a task *is* lives in
-//! [`crate::state::work`]; where it is drawn lives in [`crate::state::layout`], which arranges
-//! the whole graph on its own and hands a card its point. The toolbar's tidy control throws every
-//! hand-placed position away and asks for that arrangement again.
+//! **A column holds tabs, and more than one tab is a group.** Dragging a tab onto another column
+//! puts the two agents in one strip, which is how the user reads a hand-off — the plan and the
+//! build side by side, one column wide. Dragging it past the last column gives it a column of its
+//! own again.
 //!
-//! Three files: the graph is [`graph`], the panel beside it is [`inspector`], the drawer under it
-//! is [`tasks`]. This module is the frame and the one place an activity is turned into a colour.
+//! **Closing a tab benches the agent; it does not end it.** That is the one place this screen
+//! deliberately reads differently from a terminal pane, whose close kills the harness behind it. A
+//! tab is a view onto a conversation, so taking it off screen leaves the agent running — the
+//! sidebar still lists it, marked `bench`, and one click brings it back. Nothing here kills an
+//! agent.
+//!
+//! The records are the host's, projected into [`crate::state::work`]; the arrangement over them is
+//! this window's, in [`crate::state::agents`], and no message carries it. Three files: the list is
+//! [`sidebar`], one column is [`column`], and this module is the frame.
 
-pub mod graph;
-pub mod inspector;
-pub mod tasks;
+pub mod column;
+pub mod sidebar;
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, ElementId, InteractiveElement, IntoElement,
-    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{Activity, Bucket};
-
 use crate::app::AppState;
-use crate::state::Selection;
 use crate::theme;
-use crate::ui::eid;
-use crate::ui::kit::{ghost_button, icon_button, mono, section_label, stepper, toggle_pill};
+use crate::ui::empty;
+use crate::ui::kit::mono;
 
-/// What an activity reads as. The four buckets share the four status tokens, and the three ways of
-/// working share the one that means "moving", so the graph never asks the user to learn a colour
-/// that means nothing anywhere else in the window.
-pub fn activity_colour(activity: Activity) -> Rgba {
-    bucket_colour(activity.bucket())
-}
-
-pub fn bucket_colour(bucket: Bucket) -> Rgba {
-    match bucket {
-        Bucket::Running => theme::success(),
-        Bucket::Waiting => theme::info(),
-        Bucket::Ended => theme::text_faint(),
-        Bucket::Error => theme::danger(),
-    }
-}
+/// What a dragged tab carries. The agent alone: which column it came from is a question the view
+/// can already answer, and the drop cares only about where it landed.
+#[derive(Clone, Debug)]
+pub struct DraggedTab(pub ubiq_proto::work::AgentId);
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // The screen is a view of one project's work, and the shell keeps a window with no project off
-    // it entirely — so there is nothing here to draw rather than an empty graph to explain.
-    let Some(graph) = app.graph(cx) else {
+    // it entirely — so there is nothing here to draw rather than an empty row to explain.
+    let (Some(work), Some(agents)) = (app.work(cx), app.agents(cx)) else {
         return div().into_any_element();
     };
 
-    let mut body = div()
-        .flex()
-        .flex_1()
-        .min_h(px(0.))
-        .child(graph::render(app, window, cx).into_any_element());
-
-    if graph.show_inspector {
-        body = body.child(
-            div()
-                .w(px(theme::INSPECTOR_WIDTH))
-                .flex()
-                .flex_none()
-                .border_l_1()
-                .border_color(theme::border())
-                .child(inspector::render(app, window, cx).into_any_element()),
-        );
-    }
+    let field = if agents.columns.is_empty() {
+        // Every agent on the bench. The page says which control puts one back rather than leaving
+        // an empty row that reads as a project with nothing running.
+        let note = if work.agents.is_empty() {
+            "Nothing is running in this project yet."
+        } else {
+            "Every agent is on the bench. Pick one in the list to open a column."
+        };
+        empty::empty_page("No columns", note, IconName::Asterisk, None).into_any_element()
+    } else {
+        columns(app, window, cx)
+    };
 
     div()
         .flex()
-        .flex_col()
         .flex_1()
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::app_bg())
-        .child(toolbar(app, cx))
-        .child(body)
-        .child(tasks::render(app, cx))
+        .child(
+            div()
+                .w(px(theme::AGENT_SIDEBAR_WIDTH))
+                .flex()
+                .flex_none()
+                .border_r_1()
+                .border_color(theme::border())
+                .child(sidebar::render(app, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .min_h(px(0.))
+                .child(header(app, cx))
+                .child(field),
+        )
         .into_any_element()
 }
 
-/// The strip over the graph: which session it is drawing, which states it is showing, and how far
-/// in.
+/// The strip over the columns: how they are filled, and how to change it.
 ///
-/// Both filters clear. The session row leads with an `all` that draws every session, and a bucket
-/// row with nothing lit is not filtering — so a graph emptied by a filter is always one click from
-/// being full again, and the control at the end of the row does both at once.
-fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
+/// The hint is on screen rather than in a tooltip because the two gestures it names are the only
+/// way to group and ungroup, and neither leaves a mark on the interface to be discovered from.
+fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(agents) = app.agents(cx) else {
         return div().into_any_element();
     };
-    // The lit pill is the one being *drawn*, not the one selected: `all` is a real state of the
-    // row, and a session can be selected while every session is on screen.
-    let showing = graph.session;
-
-    let all = session_pill(
-        "agents-session-all",
-        "all",
-        work.agents.len(),
-        showing.is_none(),
-        cx.listener(|this, _, _, cx| this.show_graph_session(None, cx)),
-    );
-
-    let sessions: Vec<_> = work
-        .sessions
-        .iter()
-        .map(|session| {
-            let id = session.id;
-            let count = work.agents.iter().filter(|a| a.session == id).count();
-            session_pill(
-                eid("agents-session", id),
-                session.name.clone(),
-                count,
-                showing == Some(id),
-                cx.listener(move |this, _, _, cx| {
-                    // Narrowing to a session is also picking it: the inspector reporting on one the
-                    // canvas is not drawing would be two answers to "which session".
-                    this.show_graph_session(Some(id), cx);
-                    this.select_in_graph(Selection::Session(id), cx);
-                }),
-            )
-        })
-        .collect();
-
-    let filters: Vec<_> = Bucket::all()
-        .into_iter()
-        .map(|bucket| {
-            toggle_pill(
-                // Keyed off the enum's discriminant rather than an id: there is one pill per
-                // bucket and no record behind it, so there is nothing here for a ULID to name.
-                ("agents-filter", bucket as u32),
-                bucket.label(),
-                bucket_colour(bucket),
-                graph.showing(bucket),
-                cx.listener(move |this, _, _, cx| this.toggle_agent_bucket(bucket, cx)),
-            )
-            .into_any_element()
-        })
-        .collect();
 
     div()
         .h(px(theme::TITLEBAR_HEIGHT))
@@ -161,117 +112,88 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .child(section_label("Session"))
-        .child(all)
-        .children(sessions)
-        .child(div().w(px(12.)).flex_none())
-        .children(filters)
+        .child(mono(
+            format!(
+                "{} columns \u{b7} {} agents \u{b7} {} grouped",
+                agents.columns.len(),
+                agents.on_the_field(),
+                agents.grouped()
+            ),
+            theme::text_muted(),
+        ))
         .child(div().flex_1().min_w(px(0.)))
-        .children(graph.filtered().then(|| {
-            ghost_button(
-                "agents-show-all",
-                None,
-                "Show everything",
-                cx.listener(|this, _, _, cx| this.clear_graph_filters(cx)),
-            )
-        }))
-        .child(stepper(
-            "agents-zoom",
-            format!("{}%", graph.zoom_pct()),
-            cx.listener(|this, _, _, cx| this.zoom_graph(-crate::state::agents::ZOOM_STEP, cx)),
-            cx.listener(|this, _, _, cx| this.zoom_graph(crate::state::agents::ZOOM_STEP, cx)),
-        ))
-        .child(icon_button(
-            "agents-tidy",
-            IconName::LayoutDashboard,
-            false,
-            cx.listener(|this, _, _, cx| this.tidy_graph(cx)),
-        ))
-        .child(icon_button(
-            "agents-fit",
-            IconName::Maximize,
-            false,
-            cx.listener(|this, _, _, cx| this.reset_graph_zoom(cx)),
-        ))
-        .child(icon_button(
-            "agents-inspector",
-            IconName::PanelRight,
-            graph.show_inspector,
-            cx.listener(|this, _, _, cx| this.toggle_inspector(cx)),
-        ))
-        .into_any_element()
-}
-
-/// The glyph on a card and at the top of the inspector. Ubiq ships no icon set, so a role borrows
-/// the nearest thing in the component library's bundle.
-/// One pill in the session row: a name, how many agents are under it, and whether it is the one
-/// being drawn. `all` is one of these rather than a control of its own, because it answers the same
-/// question the others do.
-fn session_pill(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    count: usize,
-    active: bool,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
-    div()
-        .id(id)
-        .h(px(26.))
-        .px_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_1p5()
-        .bg(if active {
-            theme::accent_soft()
-        } else {
-            theme::pane_bg()
-        })
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(if active {
-            theme::accent()
-        } else {
-            theme::border()
-        })
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
         .child(
-            div()
-                .text_size(px(12.))
-                .text_color(if active {
-                    theme::text()
-                } else {
-                    theme::text_muted()
-                })
-                .child(label.into()),
+            mono(
+                "drag a tab onto another column to group \u{b7} drop right to open a new one",
+                theme::text_faint(),
+            )
+            .text_size(px(11.5)),
         )
-        .child(mono(format!("{count}"), theme::text_faint()).text_size(px(11.)))
-        .on_click(on_click)
         .into_any_element()
 }
 
-pub fn role_icon(role: &str) -> IconName {
-    match role.to_lowercase().as_str() {
-        "project manager" | "activity coordinator" => IconName::Asterisk,
-        "analyst" | "investigator" => IconName::Search,
-        "verifier" => IconName::CircleCheck,
-        "documentation" => IconName::BookOpen,
-        _ => IconName::SquareTerminal,
-    }
+/// The row of columns, and the strip past the last one that a dragged tab is split off into.
+fn columns(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(agents) = app.agents(cx) else {
+        return div().into_any_element();
+    };
+    let count = agents.columns.len();
+
+    let drawn: Vec<AnyElement> = (0..count)
+        .map(|ix| column::render(app, ix, window, cx))
+        .collect();
+
+    div()
+        .id("agents-columns")
+        .flex()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .overflow_x_scroll()
+        .children(drawn)
+        .child(new_column_strip(app, cx))
+        .into_any_element()
 }
 
-/// A role's glyph, at the size a card and the inspector both draw it.
-pub fn role_mark(role: &str, colour: Rgba, side: f32) -> impl IntoElement {
-    div()
-        .size(px(side))
+/// The narrow strip at the end of the row: where a tab is dropped to get a column of its own.
+///
+/// It is only a drop target — there is no agent to open here without one being dragged, and the
+/// sidebar is where a benched agent is brought on. So it draws as a hairline with a mark on it
+/// while something is in the air, and as nothing the rest of the time.
+///
+/// It lights up only for a drop that would do something: a tab already alone in its column is
+/// already what this strip produces, and a full row has no ninth column to give. A target that
+/// promises a change it will not make is worse than one that does not light.
+fn new_column_strip(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let carrying = app.agents(cx).is_some_and(|agents| {
+        agents.has_room()
+            && agents.dragging.is_some_and(|dragged| {
+                agents
+                    .holds(dragged)
+                    .and_then(|(col, _)| agents.columns.get(col))
+                    .is_some_and(|column| column.grouped())
+            })
+    });
+
+    let mut strip = div()
+        .id("agents-new-column")
+        .w(px(theme::NEW_COLUMN_STRIP))
         .flex()
         .flex_none()
+        .flex_col()
         .items_center()
         .justify_center()
-        .bg(theme::surface_raised())
-        .child(
-            Icon::new(role_icon(role))
+        .border_l_1()
+        .border_color(theme::border())
+        .on_drop(cx.listener(|this, _: &DraggedTab, _, cx| this.drop_tab_at_end(cx)));
+
+    if carrying {
+        strip = strip.bg(theme::accent_soft()).child(
+            Icon::new(IconName::Plus)
                 .with_size(Size::XSmall)
-                .text_color(colour),
-        )
+                .text_color(theme::accent()),
+        );
+    }
+
+    strip.into_any_element()
 }

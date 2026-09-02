@@ -1,7 +1,7 @@
-//! What Ubiq writes down, behind three traits.
+//! What Ubiq writes down, behind four traits.
 //!
-//! The catalogue, a project's tasks and the interface's view state have different durability
-//! rules, and the differences are the point:
+//! The catalogue, a project's tasks, the interface's view state and application settings have
+//! different durability rules, and the differences are the point:
 //!
 //! - **The catalogue is the host's to understand.** It parses it, acts on it, and reports when it
 //!   cannot be written. A corrupt one is preserved rather than truncated.
@@ -11,6 +11,8 @@
 //! - **View state is opaque.** The host stores a string it never reads, on the same discipline
 //!   that keeps terminal bytes uninterpreted — the interface owns that schema, so the interface
 //!   versions it. A failed write is a log line, not an error anybody has to read.
+//! - **Settings split in two.** The Ui layer is opaque, like view state. The Host layer is the
+//!   host's to parse, like the catalogue: a corrupt file is preserved and reported.
 
 pub mod file;
 pub mod memory;
@@ -19,6 +21,7 @@ use std::path::PathBuf;
 
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
+use ubiq_proto::settings::SettingsLayer;
 use ubiq_proto::work::TaskRecord;
 
 /// What can go wrong reaching a store.
@@ -83,4 +86,15 @@ pub trait PreferenceStore: Send + Sync {
     fn get(&self, scope: &Scope) -> Result<Option<String>, StoreError>;
     fn set(&self, scope: &Scope, value: &str) -> Result<(), StoreError>;
     fn clear(&self, scope: &Scope) -> Result<(), StoreError>;
+}
+
+/// Application settings, one file per layer under the config root.
+///
+/// The Ui layer's value is opaque — the host writes it and hands it back. The Host layer's value
+/// is JSON on the wire and TOML on disk; the file store translates, and a blob it cannot read is
+/// an error rather than a discarded default.
+pub trait SettingsStore: Send + Sync {
+    fn get(&self, layer: SettingsLayer) -> Result<Option<String>, StoreError>;
+    fn set(&self, layer: SettingsLayer, value: &str) -> Result<(), StoreError>;
+    fn clear(&self, layer: SettingsLayer) -> Result<(), StoreError>;
 }
