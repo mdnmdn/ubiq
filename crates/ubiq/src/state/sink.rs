@@ -549,7 +549,7 @@ pub fn parse_hex(text: &str) -> Option<u32> {
             let r = (n >> 8) & 0xf;
             let g = (n >> 4) & 0xf;
             let b = n & 0xf;
-            Some((r * 0x11) << 16 | (g * 0x11) << 8 | b * 0x11)
+            Some(((r * 0x11) << 16) | ((g * 0x11) << 8) | (b * 0x11))
         }
         6 => u32::from_str_radix(text, 16).ok(),
         _ => None,

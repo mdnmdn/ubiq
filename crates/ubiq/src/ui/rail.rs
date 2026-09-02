@@ -1,8 +1,10 @@
 //! The activity rail: the app's destinations, grouped, with exactly one active.
 
+use std::sync::Arc;
+
 use gpui::{
-    AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, px,
+    AnyElement, Context, ElementId, Image, ImageFormat, ImageSource, InteractiveElement,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, div, img, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -10,6 +12,11 @@ use crate::app::AppState;
 use crate::state::RailMode;
 use crate::theme;
 use crate::ui::kit::section_label;
+
+/// The mark's two files: the white logo reads on a dark swatch, the blue on a light one. They are
+/// the only assets Ubiq ships, so they are baked in next to the code that draws them.
+const LOGO_WHITE: &[u8] = include_bytes!("../../../../assets/logo-white.png");
+const LOGO_BLUE: &[u8] = include_bytes!("../../../../assets/logo-blue.png");
 
 /// The rail's glyph for a mode. Icons come from the component library's bundle; Ubiq ships none.
 pub fn mode_icon(mode: RailMode) -> IconName {
@@ -23,10 +30,21 @@ pub fn mode_icon(mode: RailMode) -> IconName {
     }
 }
 
-/// The mark: the project's colour and a U, sitting in the titlebar row above the rail so the two
-/// read as one column.
+/// The mark: the project's colour and the logo, sitting in the titlebar row above the rail so the
+/// two read as one column. The logo is the pale file on a dark swatch and the blue one on a light
+/// swatch, so it stays legible on whatever the project is tinted.
 pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let project = app.project_tint(cx);
+    let (tint, white) = match app.project_snapshot(cx) {
+        Some(project) => (
+            theme::project_colour(project.record.colour),
+            theme::project_mark_dark(project.record.colour),
+        ),
+        None => (theme::border(), true),
+    };
+    let logo = Arc::new(Image::from_bytes(
+        ImageFormat::Png,
+        (if white { LOGO_WHITE } else { LOGO_BLUE }).to_vec(),
+    ));
     div()
         .w(px(theme::RAIL_WIDTH))
         .h(px(theme::TITLEBAR_HEIGHT))
@@ -43,10 +61,8 @@ pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(project)
-                .text_color(theme::on_accent())
-                .text_size(px(15.))
-                .child("U"),
+                .bg(tint)
+                .child(img(ImageSource::Image(logo)).size_full()),
         )
 }
 

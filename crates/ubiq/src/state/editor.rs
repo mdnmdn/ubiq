@@ -22,6 +22,8 @@ pub enum FileLanguage {
     Json,
     Rust,
     Markdown,
+    Yaml,
+    Java,
     Plain,
 }
 
@@ -33,6 +35,8 @@ impl FileLanguage {
             FileLanguage::Json => "JSON",
             FileLanguage::Rust => "Rust",
             FileLanguage::Markdown => "Markdown",
+            FileLanguage::Yaml => "YAML",
+            FileLanguage::Java => "Java",
             FileLanguage::Plain => "Plain Text",
         }
     }
@@ -48,6 +52,8 @@ impl FileLanguage {
             "json" | "jsonc" => FileLanguage::Json,
             "rs" => FileLanguage::Rust,
             "md" | "markdown" => FileLanguage::Markdown,
+            "yaml" | "yml" => FileLanguage::Yaml,
+            "java" => FileLanguage::Java,
             _ => FileLanguage::Plain,
         }
     }
@@ -79,18 +85,18 @@ impl ViewerKind {
             "md" | "markdown" => ViewerKind::Markdown,
             "mmd" | "mermaid" => ViewerKind::Mermaid,
             "excalidraw" => ViewerKind::Excalidraw,
-            "png" | "jpg" | "jpeg" | "gif" | "webp" => ViewerKind::Image,
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tif" | "tiff" | "ico" => {
+                ViewerKind::Image
+            }
             _ => ViewerKind::Editor,
         }
     }
 
     /// Whether the viewer has a source to show beside what it drew. The editor is only ever
-    /// source, and an image has none at all.
+    /// source, an image has none at all, and an Excalidraw scene is preview-only: its source is a
+    /// serialised document nobody edits by hand, so there is no source layout to turn to.
     pub fn has_preview(self) -> bool {
-        matches!(
-            self,
-            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Excalidraw
-        )
+        matches!(self, ViewerKind::Markdown | ViewerKind::Mermaid)
     }
 }
 

@@ -6,8 +6,9 @@
 //! right-click menu. The picker ticks and confirms; this panel opens and decorates.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, KeyBinding, MouseButton,
-    MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, div, point, px,
+    AnyElement, ClickEvent, Context, Focusable, InteractiveElement, IntoElement, KeyBinding,
+    MouseButton, MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, Window,
+    div, point, px,
 };
 use gpui_component::IconName;
 use gpui_component::input::Input;
@@ -108,7 +109,7 @@ fn answer(
     }
 }
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     // With no project there is no folder to list. The panel stays, so the emptiness is explained
     // and the width the user dragged survives a project opening.
     if app.project(cx).is_none() {
@@ -134,7 +135,13 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let rows: Vec<AnyElement> = explorer
         .drawn_rows(&app.workbench.file_filter)
         .iter()
-        .map(|row| line(row, tree, selected.as_deref(), cx))
+        .map(|row| {
+            // The tree scales with the project's font size, the same knob as the editor and the
+            // terminal, so a zoom dresses the whole project's workspace at once. The tree is the
+            // densest surface, so it sits a half point under the editor's floor.
+            let font = app.ui_font_size_or_default(cx) - 0.5;
+            line(row, tree, selected.as_deref(), font, cx)
+        })
         .collect();
     let filtered_out = rows.is_empty() && !app.workbench.file_filter.trim().is_empty();
 
@@ -214,6 +221,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         .px_1()
                         .bg(theme::surface_raised()),
                 ),
+            app.file_filter.read(cx).focus_handle(cx).is_focused(window),
         ))
         .child(
             div()
@@ -264,7 +272,13 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     body.into_any_element()
 }
 
-fn line(row: &Row, tree: bool, selected: Option<&str>, cx: &mut Context<AppState>) -> AnyElement {
+fn line(
+    row: &Row,
+    tree: bool,
+    selected: Option<&str>,
+    font_size: f32,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let path = row.path.clone();
     let is_selected = selected == Some(row.path.as_str());
     let readable = row.readable;
@@ -312,7 +326,7 @@ fn line(row: &Row, tree: bool, selected: Option<&str>, cx: &mut Context<AppState
             false => row.path.clone(),
         },
         name_colour(row.git, readable),
-        13.0,
+        font_size,
     ));
 
     if let Some(status) = row.git {

@@ -11,8 +11,8 @@
 //! an interface that draws its own half of a conversation is inventing the other half too.
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, px,
+    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -27,11 +27,11 @@ use crate::theme;
 use crate::ui::agents::{activity_colour, bucket_colour, role_mark};
 use crate::ui::indexed;
 use crate::ui::kit::{
-    Tab, ghost_button, icon_button, mono, panel, pill, progress_ring, section_label, state_chip,
-    tab_strip,
+    Tab, field, ghost_button, icon_button, mono, panel, pill, progress_ring, section_label,
+    state_chip, tab_strip,
 };
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let Some(graph) = app.graph(cx) else {
         return div().into_any_element();
     };
@@ -59,7 +59,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 
     match selection {
         Selection::Session(id) => session_view(app, id, cx),
-        Selection::Agent(id) => agent_view(app, id, cx),
+        Selection::Agent(id) => agent_view(app, id, window, cx),
     }
 }
 
@@ -154,7 +154,12 @@ fn session_view(app: &AppState, id: SessionId, cx: &mut Context<AppState>) -> gp
 }
 
 /// One agent — that is, one workspace: one harness, one terminal, one thread.
-fn agent_view(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> gpui::AnyElement {
+fn agent_view(
+    app: &AppState,
+    id: AgentId,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> gpui::AnyElement {
     let view = cx.entity();
     let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
         return div().into_any_element();
@@ -234,7 +239,7 @@ fn agent_view(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> gpui::
         .child(body);
 
     if graph.tab == InspectorTab::Chat {
-        root = root.child(composer(app, cx));
+        root = root.child(composer(app, window, cx));
     }
 
     root.into_any_element()
@@ -298,7 +303,7 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
 }
 
 /// The composer, in the shape the chat's is: what is typed, what it will reach, and the button.
-fn composer(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+fn composer(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let can_send = app
         .graph(cx)
         .is_some_and(|graph| !graph.draft.trim().is_empty());
@@ -308,14 +313,12 @@ fn composer(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .and_then(|(work, graph)| graph.selected_agent(work))
         .map(|a| a.name.clone())
         .unwrap_or_default();
+    let focused = app.agent_input.read(cx).focus_handle(cx).is_focused(window);
 
-    div()
-        .flex()
+    field(theme::accent(), focused)
         .flex_none()
         .flex_col()
-        .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::accent())
+        .items_stretch()
         .child(
             div()
                 .id("inspector-composer")

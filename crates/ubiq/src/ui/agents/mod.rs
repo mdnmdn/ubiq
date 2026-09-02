@@ -75,7 +75,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .flex_none()
                 .border_l_1()
                 .border_color(theme::border())
-                .child(inspector::render(app, cx).into_any_element()),
+                .child(inspector::render(app, window, cx).into_any_element()),
         );
     }
 

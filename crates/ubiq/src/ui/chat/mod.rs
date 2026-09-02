@@ -7,13 +7,13 @@ pub mod composer;
 pub mod sidebar;
 pub mod transcript;
 
-use gpui::{Context, IntoElement, ParentElement, Styled, div, px};
+use gpui::{Context, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::AppState;
 use crate::theme;
 use crate::ui::kit::panel;
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let mut root = panel()
         .border_l_1()
         .border_color(theme::border())
@@ -29,6 +29,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             div()
                 .flex_none()
                 .min_h(px(0.))
-                .child(composer::render(app, cx)),
+                .child(composer::render(app, window, cx)),
         )
 }

@@ -22,7 +22,7 @@ pub mod overlay;
 pub mod panel;
 
 pub use controls::{
-    badge, card, check_box, choice_pill, disclosure, elided, elided_with, ghost_button,
+    badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
     icon_button, meter, mono, pill, primary_button, progress_ring, section_label, slab, state_chip,
     status_dot, stepper, toggle_pill,
 };

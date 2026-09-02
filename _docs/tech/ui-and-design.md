@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -83,10 +83,11 @@ The project group is the one group whose members carry no role. A swatch means *
 nothing else, and a project keeps the same one everywhere it is drawn: its dot in the picker, the
 fill behind its name in the titlebar, the mark above the rail, and the window's whole left edge.
 `project_colour` wraps, so the number of projects is not bounded by the number of swatches, and
-`project_colour_count` is what project settings offers when a project is recoloured. All four places go
-through `AppState::project_tint`, so a window holding no project — which happens when the catalogue
-is empty — has one neutral appearance decided in a single place rather than four call sites each
-falling back to swatch zero.
+`project_colour_count` is what project settings offers when a project is recoloured. The mark reads
+its swatch's luminance through `project_mark_dark` to pick the pale or the blue logo; the other
+places go through `AppState::project_tint`. A window holding no project — which happens when the
+catalogue is empty — has one neutral appearance decided in a single place rather than four call
+sites each falling back to swatch zero.
 
 Two palettes are built in, dark and light, both defined in the same file and both complete — a token
 that exists in one exists in the other. The active theme is thread-local and read through the
@@ -112,6 +113,7 @@ restyling the shell should be one file to visit.
 | `MONO_FONT` | The family for code, paths, counts and every mono label |
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
 | `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
+| `EDITOR_FONT_SIZE`, `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | The editor's base point size and the range a project's zoom is allowed to live in — the same project font size the editor, the terminal panes and the explorer tree follow |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The agents screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
@@ -131,20 +133,25 @@ the accessor. Adding a group means a role none of the six covers, which is rare 
 arguing about in [`decisions.md`](./decisions.md) — `Project` is the only group added since the
 original five, and it carries `D19`.
 
-Every token has a call site, and for two of them the only one is a specimen. The style reference
-draws all of them by name — that is what the page is for — but `selected` fills no row and
-`border_focus` marks no focused pane, because the conventions they belong to, focus across split
-panes in particular, are designed ahead of the code. That is listed as a gap in
+Every token has a call site, and for one of them the only one is a specimen. The style reference
+draws all of them by name — that is what the page is for — but `selected` fills no row, and
+`border_focus` marks the focused text field rather than a pane: the use it was designed for, focus
+across split panes, is still designed ahead of the code. That is listed as a gap in
 [`../backlog.md`](../backlog.md) rather than quietly resolved by the drawing, because a specimen is
 evidence a token has a value, not evidence anything uses it.
 
 ## Conventions for a screen
 
 - **Focus is shown on the surface's left edge**, through `border_focus`. It is the one signal that
-  must be readable at a glance across a window of panes, so nothing else competes for it. With a
-  single pane on screen there is nothing to contrast against, so the token has no call site yet.
-  A text field that holds the keyboard keeps that left edge and **adds an underline** on the
-  bottom, so the active box is the one that is underlined.
+  must be readable at a glance across a window of panes, so nothing else competes for it — but no
+  pane carries it yet, because focus across split panes is designed ahead of the code. A text field
+  that holds the keyboard keeps that left edge and **adds an underline** on the bottom, so the
+  active box is the one that is underlined. That treatment is `kit::field` in
+  `crates/ubiq/src/ui/kit/controls.rs`, the container every free-text input sits in — a surface with
+  a coloured left edge, joined by a bottom underline in the focus colour while the input holds the
+  keyboard. The command field, the project search, the chat composer, the agents
+  inspector's composer, the board's filter and form fields, and the explorer's and the file picker's
+  filters all draw themselves with it.
 - **Status is shown by colour from the status group**, never by wording alone. A stopped agent and a
   failed one are different colours.
 - **Pane chrome stays two rows at most.** Identity and state on the first, context — folder, model,
@@ -160,6 +167,10 @@ evidence a token has a value, not evidence anything uses it.
   of the layout — chrome heights, panel widths — are constants in `theme.rs` instead.
 - **There are no radii.** See *The shape of a surface* below; a corner radius anywhere is a defect
   in the same way a literal colour is.
+- **The no-file page is the brand, not furniture.** In IDE mode with nothing open the centre shows
+  Ubiq's mark at 200px and half opacity on the window's ground — `welcome(app)` in
+  `crates/ubiq/src/ui/editor.rs` — theme picked exactly as the rail's mark is: the blue logo on a
+  light palette, the white on a dark one, so it reads on the empty page.
 
 ## The shape of a surface
 
@@ -234,7 +245,8 @@ line.
 view and dock are used directly — the dock being the largest widget in the library and the whole of
 the window's arrangement, `D42`. `crates/ubiq/src/ui/kit/` holds only what the library
 does not give us — the slab every surface is drawn in and the card that is a slab you can pick, the
-state dot, the pill, the state chip, the toggle pill for an independent facet and the choice pill
+field every text entry sits in, the state dot, the pill, the state chip, the toggle pill for an
+independent facet and the choice pill
 for one value of a set, the tick box a row is chosen with where several may be, the elided run that
 says the whole of itself on hover, the filled button a screen's single obvious action is drawn as,
 the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared tab

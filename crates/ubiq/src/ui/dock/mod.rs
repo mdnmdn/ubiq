@@ -365,8 +365,8 @@ fn body(
     match kind {
         PanelKind::Terminal(pane_id) => terminal::pane(app, *pane_id, cx),
         PanelKind::Logs => logs::render(app, cx),
-        PanelKind::Explorer => explorer::render(app, cx),
-        PanelKind::Chat => chat::render(app, cx).into_any_element(),
+        PanelKind::Explorer => explorer::render(app, window, cx),
+        PanelKind::Chat => chat::render(app, window, cx).into_any_element(),
         PanelKind::Centre => centre(app, window, cx),
         PanelKind::File(key) => editor::render_file(app, key, cx),
     }
@@ -381,7 +381,7 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
     match wb.rail_mode {
         RailMode::Ide if has_project => editor::render(app, cx),
         RailMode::Agents if has_project => agents::render(app, window, cx).into_any_element(),
-        RailMode::Tasks if has_project => board::render(app, cx).into_any_element(),
+        RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
         // The two modes that are about the application rather than a project answer whether or
         // not one is open: the sink draws its own fixtures, and Control says what it will hold.
         RailMode::Sink => sink::render(app, window, cx),
@@ -626,7 +626,11 @@ pub fn restore(
         dock.set_center(centre, window, cx);
         for (region, layout, size, open) in regions {
             install(dock, region, layout, size, window, cx);
-            if !open {
+            // The blob says whether the region was on screen. A region is forced to match — left
+            // shut by the mode we sat in meanwhile, it is reopened here, and one that was shut is
+            // shut again — because coming back to a mode must restore the whole arrangement, not
+            // just the panels inside a region that already happened to be open.
+            if open != dock.is_dock_open(placement_of(region)) {
                 dock.toggle_dock(placement_of(region), window, cx);
             }
         }

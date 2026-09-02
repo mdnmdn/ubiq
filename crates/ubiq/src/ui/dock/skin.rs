@@ -25,12 +25,35 @@ use gpui_component::dock::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use crate::state::PanelKind;
 use crate::theme;
 use crate::ui::dock::WorkbenchPanel;
 
 /// The tab strip's height, shared with `ui::kit::tab_strip` so a dock tab and an editor tab sit on
 /// the same line.
 const TAB_BAR: f32 = 38.0;
+
+/// The hit function a "new terminal" control calls once it is clicked.
+pub type NewPaneRun = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// The right-click on a file tab, handed across the renderer seam.
+///
+/// The tab bar knows which tab and where the click went down; `AppState` knows what to offer on a
+/// file. The name of the file is the tab key, and the menu itself is painted over the window by
+/// `AppState` rather than here, so the skin only has to say a menu was wanted and on which file.
+pub type FileTabMenuRun = Rc<dyn Fn(&str, f32, f32, &mut Window, &mut App)>;
+
+/// The window's "new terminal" control, which lives on the bottom region's tab bar.
+///
+/// The skin draws panels, never application state, so the action and its availability are handed
+/// to it ready-made by the window that built it rather than recovered through a downcast.
+#[derive(Clone)]
+pub struct NewPane {
+    /// Whether the control may be drawn at all — there is no project for a pane to run in.
+    pub available: Rc<dyn Fn(&App) -> bool>,
+    /// Ask the host for a new pane. Reached only from a click, never during render.
+    pub run: NewPaneRun,
+}
 
 /// The hit area of the strip that resizes a region, and the hairline drawn inside it. Wide enough
 /// to grab, drawn as an edge rather than a bar.
@@ -73,11 +96,33 @@ pub struct Skin {
     /// anywhere in the window rather than only over the strip, so the listener that tracks it sits
     /// on the area's frame — which is not handed a region.
     resizing: Rc<RefCell<Option<DockContext>>>,
+    /// The window's "new terminal" control, drawn at the right of the bottom region's tab bar.
+    /// `None` in windows with no project, where there is nothing to spawn a pane for.
+    new_pane: Option<NewPane>,
+    /// The file-tab right-click, so a tab can ask for its context menu. `None` where the skin has
+    /// no project-facing window to hand the click to.
+    file_tab_menu: Option<FileTabMenuRun>,
 }
 
 impl Skin {
     pub fn new() -> Rc<Self> {
         Rc::new(Self::default())
+    }
+
+    /// Attach the "new terminal" control to the bottom region's tab bar.
+    pub fn with_new_pane(self: &Rc<Self>, action: NewPane) -> Rc<Self> {
+        Rc::new(Self {
+            new_pane: Some(action),
+            ..(**self).clone()
+        })
+    }
+
+    /// Attach the file-tab right-click handler to the IDE's file tabs.
+    pub fn with_file_tab_menu(self: &Rc<Self>, run: FileTabMenuRun) -> Rc<Self> {
+        Rc::new(Self {
+            file_tab_menu: Some(run),
+            ..(**self).clone()
+        })
     }
 
     /// The strip on a region's inner edge that resizes it.
@@ -318,6 +363,19 @@ impl TabGroupRenderer for Skin {
                             })
                         })
                     })
+                    // A file tab's right-click asks `AppState` for its context menu. The menu is
+                    // painted over the window by the window that owns the tab, so this only has to
+                    // say a menu was wanted — the key names the file, the point anchors the menu.
+                    .when_some(self.file_tab_menu.clone(), |this, run| {
+                        let key = file_key_of(panel, cx);
+                        let run = run.clone();
+                        this.when_some(key, move |this, key| {
+                            this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
+                                let at = fence(event.position);
+                                run(&key, at.0, at.1, window, cx);
+                            })
+                        })
+                    })
             })
             .collect();
 
@@ -327,6 +385,26 @@ impl TabGroupRenderer for Skin {
             .active_panel()
             .is_some_and(|panel| panel.zoomable(cx) || group.is_zoomed());
         let zoom = group.clone();
+
+        // The "new terminal" control lives on the tab bar of the panel that hosts terminals — the
+        // bottom region's group in the default arrangement. The skin cannot know a placement, so
+        // the rule it can ask is the panel's own: a group that holds a terminal or the console is
+        // the group new panes join.
+        let hosts_panes = group.panels().iter().any(|panel| {
+            panel
+                .view()
+                .downcast::<WorkbenchPanel>()
+                .is_ok_and(|panel| {
+                    matches!(
+                        panel.read(cx).kind(),
+                        PanelKind::Terminal(_) | PanelKind::Logs
+                    )
+                })
+        });
+        let new_pane = self
+            .new_pane
+            .as_ref()
+            .filter(|action| hosts_panes && (action.available)(cx));
 
         div()
             .h(px(TAB_BAR))
@@ -362,6 +440,29 @@ impl TabGroupRenderer for Skin {
                             .text_color(theme::text_faint()),
                         )
                         .on_click(move |_, window, cx| zoom.toggle_zoom(window, cx)),
+                )
+            })
+            // Last on the strip, past the zoom, so the right edge of the bottom region is where a
+            // new terminal is offered.
+            .when_some(new_pane, |this, action| {
+                let run = action.run.clone();
+                this.child(
+                    div()
+                        .id("ubiq-tab-new-pane")
+                        .mr_2()
+                        .size(px(20.))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .hover(|this| this.bg(theme::hover()))
+                        .child(
+                            Icon::new(IconName::Plus)
+                                .with_size(Size::XSmall)
+                                .text_color(theme::text_faint()),
+                        )
+                        .on_click(move |_, window, cx| run(window, cx)),
                 )
             })
             .into_any_element()
@@ -421,4 +522,23 @@ impl TilesRenderer for Skin {
     fn render_drag_bar(&self, _: &TileContext, _: &mut Window, _: &mut App) -> AnyElement {
         div().into_any_element()
     }
+}
+
+/// The file a tab names, or `None` for a panel that is not a file. Only a file tab gets a
+/// right-click menu, so the skin's right-click begs the question of the panel kind.
+fn file_key_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> Option<String> {
+    panel
+        .view()
+        .downcast::<WorkbenchPanel>()
+        .ok()
+        .and_then(|panel| match panel.read(cx).kind() {
+            PanelKind::File(key) => Some(key.clone()),
+            _ => None,
+        })
+}
+
+/// A pixel point as a plain pair of `f32`s, so the skin's right-click can hand it to a closure
+/// without dragging `gpui`'s geometry into the signature.
+fn fence(point: gpui::Point<gpui::Pixels>) -> (f32, f32) {
+    (f32::from(point.x), f32::from(point.y))
 }

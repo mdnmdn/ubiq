@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-01
-verified: 2026-09-01
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs]
+updated: 2026-09-02
+verified: 2026-09-02
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -36,6 +36,11 @@ subdirectory of the project instead of at its root.
 whose folder is missing, is not a directory or cannot be read answers an error against the project,
 not against a pane — so nothing empty is left on screen — and the picker's row is marked from the
 probe that refusal just made.
+
+**Entering a project opens no pane of its own accord.** The project's files and the arrangement it
+was left in come back, and nothing is asked to run: the first pane appears when the `+` on the tab
+strip is clicked, so a window that opens on a project starts with no harness running until its user
+asks for one.
 
 **A project's panes stay alive while another project is on screen.** A window can hold several
 projects, and switching between them swaps which project's panes are drawn; the ones behind keep
@@ -73,6 +78,11 @@ still believes the old dimensions is the failure this rule exists to prevent.
 
 **Geometry is measured in cells, not pixels.** The conversion happens once, in the UI, where the
 font metrics are known. Everything downstream speaks columns and rows.
+
+**A pane's text scales with its project.** The terminal font size is the active project's — the same
+value the file editor and the explorer tree are drawn at — and an emulator already open is dressed to
+match when it changes rather than waiting for a restart. A zoom that only reached the next pane to
+open would not be a zoom, so `AppState::set_ui_font_size()` reconfigures every emulator it holds.
 
 **A pane starts at 80×24 and is told the truth a frame later.** The harness has to be started before
 the emulator has been given any bounds to measure, so it begins at the conventional size and is
@@ -140,7 +150,9 @@ harness. Which regions a terminal may sit in, and the tab, its dot and its close
 
 **The panel's body is the emulator.** `crates/ubiq/src/ui/terminal.rs` draws it: `pane()` takes a
 pane ID and draws that pane's `TerminalView`, or the line a panel whose emulator has gone shows, and
-`config()` is the `TerminalConfig` every emulator is built with. The pane is named rather than found
+`config()` is the `TerminalConfig` every emulator is built with — taking the font size alongside the
+geometry, so a pane's text follows its project's own (`AppState::set_ui_font_size()` rebuilds it
+from a fresh `config()` when the size changes). The pane is named rather than found
 through focus, because every pane has a panel of its own and which of them the user is typing into
 is the dock's answer. The view comes from the
 vendored `gpui-terminal`, which parses the bytes with `alacritty_terminal` and draws the screen. It
@@ -149,9 +161,11 @@ that are ends of the bus, which is what keeps the UI honest about a pane being a
 stream. The palette it is given is
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md)'s.
 
-**The `+` that opens a pane is in the titlebar.** Opening a terminal is chrome rather than a
-group's own action: a new pane's panel joins whichever region terminals live in, and no one group
-owns the gesture once every group can hold one. It is drawn only with a project open.
+**The `+` that opens a pane sits at the right end of the tab strip.** Opening a terminal is chrome
+rather than a group's own action: `crates/ubiq/src/ui/dock/skin.rs` draws the control in
+`render_tab_bar` on any strip whose group holds a terminal or the console — the `NewPane` closure
+`AppState::for_project` hands the skin — and a new pane's panel joins that group. It is drawn only
+with a project open, because a pane runs in a project's folder.
 
 **`crates/ubiq-proto/src/bus.rs` is the seam.** `hub()` opens the switchboard the one host answers
 through, and `Hub::connect()` gives a window its own `Client` on it.

@@ -19,8 +19,8 @@
 //! moved — a picker for it would be a second way to do the one thing the drag is for.
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, px,
+    AnyElement, App, Context, Focusable, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::input::{Input, Textarea};
 use gpui_component::text::TextView;
@@ -33,13 +33,18 @@ use crate::state::MenuId;
 use crate::state::board::Field;
 use crate::theme;
 use crate::ui::kit::{
-    Picker, PickerStyle, choice_pill, ghost_button, icon_button, mono, primary_button,
+    Picker, PickerStyle, choice_pill, field, ghost_button, icon_button, mono, primary_button,
     section_label, toggle_pill,
 };
 use crate::ui::{eid, eid2, handler, indexed};
 
 /// The title: what the task is called, and the one field that cannot be emptied.
-pub fn title(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+pub fn title(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let editing = app
         .board(cx)
         .is_some_and(|board| board.is_editing(Field::Title));
@@ -58,19 +63,21 @@ pub fn title(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> A
             .into_any_element();
     }
 
+    let focused = app
+        .task_title_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
     div()
         .flex()
         .items_center()
         .gap_1p5()
         .child(
-            div()
+            field(theme::accent(), focused)
                 .flex_1()
                 .min_w(px(0.))
                 .px_2()
                 .py_1()
-                .bg(theme::surface())
-                .border_l(px(theme::ACCENT_EDGE))
-                .border_color(theme::accent())
                 .text_size(px(15.))
                 .child(Input::new(&app.task_title_input).appearance(false)),
         )
@@ -195,7 +202,12 @@ pub fn session(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) ->
 /// component library's defaults are what this wants and each override would be wrong: it is
 /// selectable already, and it must **not** scroll, because the panel around it does and a scroller
 /// inside a scroller would let a long description hide the sub-tasks under it.
-pub fn description(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+pub fn description(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(board) = app.board(cx) else {
         return div().into_any_element();
     };
@@ -229,13 +241,17 @@ pub fn description(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>
         }));
 
     let body = if editing && !preview {
-        div()
+        let focused = app
+            .task_description_input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        field(theme::accent(), focused)
             .id("board-desc-editor")
+            .flex_col()
+            .items_stretch()
             .px_2()
             .py_1()
-            .bg(theme::surface())
-            .border_l(px(theme::ACCENT_EDGE))
-            .border_color(theme::accent())
             .cursor_text()
             .child(
                 Textarea::new(&app.task_description_input)
@@ -372,15 +388,17 @@ pub fn step_controls(
 }
 
 /// The field a sub-task is renamed in, shown in place of its title.
-pub fn step_field(app: &AppState) -> AnyElement {
-    div()
+pub fn step_field(app: &AppState, window: &Window, cx: &App) -> AnyElement {
+    let focused = app
+        .step_title_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    field(theme::accent(), focused)
         .flex_1()
         .min_w(px(0.))
         .px_2()
         .py(px(1.))
-        .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::accent())
         .text_size(px(13.))
         .child(Input::new(&app.step_title_input).appearance(false))
         .into_any_element()
@@ -388,17 +406,17 @@ pub fn step_field(app: &AppState) -> AnyElement {
 
 /// The field at the foot of the list. Enter adds and keeps the focus, so several sub-tasks can be
 /// typed in a row without reaching for the mouse.
-pub fn new_step(app: &AppState) -> AnyElement {
-    div()
+pub fn new_step(app: &AppState, window: &Window, cx: &App) -> AnyElement {
+    let focused = app
+        .new_step_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    field(theme::border(), focused)
         .h(px(26.))
         .px_2()
-        .flex()
         .flex_none()
-        .items_center()
         .gap_2()
-        .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::border())
         .child(
             Icon::new(IconName::Plus)
                 .with_size(Size::XSmall)

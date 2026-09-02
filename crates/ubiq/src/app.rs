@@ -13,6 +13,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,7 +32,7 @@ use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
-    ExplorerView, FileLanguage, LogState, MenuId, OpenFile, PanelKind, ProjectSettings,
+    ExplorerView, FileBody, FileLanguage, LogState, MenuId, OpenFile, PanelKind, ProjectSettings,
     ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
@@ -69,7 +70,7 @@ const CACHE_DEPTH: u8 = 3;
 /// cache on the frame; waiting this long coalesces a burst into one background walk.
 const FILTER_DEBOUNCE: Duration = Duration::from_millis(100);
 
-gpui::actions!(ubiq, [SaveFile]);
+gpui::actions!(ubiq, [SaveFile, ZoomIn, ZoomOut]);
 
 /// The process-wide switchboard, so every window reaches the same host.
 ///
@@ -165,9 +166,6 @@ pub struct OpenProject {
     panes: Vec<PaneState>,
     /// Which of them holds the keyboard while this project is the one on screen.
     focused_pane: Option<PaneId>,
-    /// Whether this project has ever been given a pane in this window, so becoming active twice
-    /// does not spawn twice and a project that had its last pane closed is left alone.
-    seeded: bool,
     pub explorer: ExplorerState,
     pub editor: EditorPaneState,
     /// The host's work for this project, as this window last heard it. Empty rather than absent
@@ -203,7 +201,6 @@ impl OpenProject {
         Self {
             panes: Vec::new(),
             focused_pane: None,
-            seeded: false,
             explorer: ExplorerState::empty(),
             editor: EditorPaneState::empty(),
             work: WorkProjection::empty(),
@@ -267,6 +264,9 @@ pub struct AppState {
     /// A saved arrangement waiting for the same frame. Restoring one needs a window, and it
     /// arrives from the host on a message.
     pending_layout: Option<serde_json::Value>,
+    /// A rail-mode switch whose mode had no arrangement to restore: which edge regions that mode's
+    /// defaults put on screen, for the frame that has a window to force them with.
+    pending_regions: Option<(bool, bool, bool)>,
 
     pub workbench: WorkbenchState,
     pub chat: ChatState,
@@ -536,16 +536,43 @@ impl AppState {
             })
         };
 
-        // The window's arrangement. It is built before anything is put in it, because a panel is
-        // an entity that has to be handed somewhere the moment it exists.
-        let dock = cx.new(|cx| {
-            DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx)
-                .with_renderer(crate::ui::dock::skin::Skin::new())
-        });
-
         // Every panel reads this window's state, and `cx.entity()` is that handle before the state
         // it names exists — the slot is reserved for the duration of the constructor.
         let app = cx.weak_entity();
+
+        // The window's arrangement. It is built before anything is put in it, because a panel is
+        // an entity that has to be handed somewhere the moment it exists.
+        let new_pane = crate::ui::dock::skin::NewPane {
+            available: {
+                let app = app.clone();
+                Rc::new(move |cx| {
+                    app.upgrade()
+                        .is_some_and(|this| this.read(cx).project(cx).is_some())
+                })
+            },
+            run: {
+                let app = app.clone();
+                Rc::new(move |_window, cx| {
+                    if let Some(this) = app.upgrade() {
+                        this.update(cx, |this, cx| this.spawn_pane(None, Vec::new(), cx));
+                    }
+                })
+            },
+        };
+        let dock = cx.new(|cx| {
+            let app = app.clone();
+            let file_tab_menu: crate::ui::dock::skin::FileTabMenuRun =
+                Rc::new(move |key, x, y, _window, cx| {
+                    if let Some(this) = app.upgrade() {
+                        this.update(cx, |this, cx| this.open_file_tab_menu(key, (x, y), cx));
+                    }
+                });
+            DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx).with_renderer(
+                crate::ui::dock::skin::Skin::new()
+                    .with_new_pane(new_pane)
+                    .with_file_tab_menu(file_tab_menu),
+            )
+        });
         let mut panels: HashMap<PanelKind, Entity<WorkbenchPanel>> = HashMap::new();
         {
             let mut build = |kind: PanelKind, cx: &mut App| {
@@ -842,6 +869,7 @@ impl AppState {
             panels,
             pending_panels: Vec::new(),
             pending_layout: None,
+            pending_regions: None,
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
             sink: SinkState::default(),
@@ -1006,8 +1034,6 @@ impl AppState {
         };
         let view = open.prefs.clone();
         let focused = open.focused_pane;
-        let seeded = open.seeded;
-        open.seeded = true;
 
         // A background project keeps its own furniture, so entering one is where it reaches the
         // window rather than the other way round. The window's own fields are part of that: the
@@ -1015,19 +1041,18 @@ impl AppState {
         self.form_filled = None;
         self.refill_fields = true;
         self.workbench.rail_mode = view.rail_mode;
-        self.pending_layout = view.layout.clone();
+        // The arrangement is the mode's own: whichever mode this project was left in is the one
+        // whose window comes back. A mode this project never arranged opens on its defaults — no
+        // blob to restore, and no regions to force, so the window keeps what it already has.
+        self.pending_layout = view
+            .modes
+            .get(&view.rail_mode)
+            .and_then(|mode| mode.layout.clone());
         self.sync_file_panels(project);
 
         self.pending_focus = focused;
         if let Some(pane_id) = focused {
             self.bus.send(Message::Focus { pane_id });
-        }
-
-        // A window opens a project on one pane, running the session's default agent type. The
-        // pane itself arrives with `WorkspaceSpawned`, because only the coordinator knows what
-        // started.
-        if !seeded {
-            self.spawn_pane(None, Vec::new(), cx);
         }
         cx.notify();
     }
@@ -1709,7 +1734,12 @@ impl AppState {
 
         let (output, reader) = bus::pane_output();
         let writer = self.bus.input(pane_id);
-        let config = ui::terminal::config(workspace.cols, workspace.rows);
+        let term_font = self
+            .projects
+            .get(&project)
+            .and_then(|open| open.prefs.ui_font_size)
+            .unwrap_or(theme::TERMINAL_FONT_SIZE);
+        let config = ui::terminal::config(workspace.cols, workspace.rows, term_font);
 
         let to_host = self.bus.sender();
         let geometry = self.geometry.clone();
@@ -1781,9 +1811,34 @@ impl AppState {
     // ── Workbench chrome ────────────────────────────────────────────
 
     pub fn set_rail_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
+        if mode == self.workbench.rail_mode {
+            return;
+        }
+        // The window is leaving one mode and entering another, so the outgoing mode's arrangement
+        // is written down first — the rest of this function is about the incoming one.
+        self.remember_view(cx);
         self.workbench.rail_mode = mode;
         self.workbench.open_menu = None;
-        self.remember_view(cx);
+
+        if let Some(project) = self.project(cx)
+            && let Some(open) = self.projects.get(&project)
+        {
+            let saved = open
+                .prefs
+                .modes
+                .get(&mode)
+                .cloned()
+                .unwrap_or_else(|| prefs::ModeLayout::default_for(mode));
+            // A saved arrangement restores whole, regions included. A mode never arranged has no
+            // blob, so its defaults are forced directly: regions open or shut on the frame, the
+            // tree left as the other mode had it.
+            self.pending_layout = saved.layout.clone();
+            self.pending_regions = saved.layout.is_none().then_some((
+                saved.show_left,
+                saved.show_bottom,
+                saved.show_right,
+            ));
+        }
         cx.notify();
     }
 
@@ -1794,10 +1849,11 @@ impl AppState {
         // The palette belongs to the interface, not to any one project.
         self.remember_interface();
         // The emulator holds its own copy of the palette, so the switch has to reach it.
+        let font = self.ui_font_size_or_default(cx);
         for terminal in self.terminals.values() {
             terminal.view.update(cx, |view, cx| {
                 let (cols, rows) = view.dimensions();
-                view.update_config(ui::terminal::config(cols as u16, rows as u16), cx);
+                view.update_config(ui::terminal::config(cols as u16, rows as u16, font), cx);
             });
         }
         cx.notify();
@@ -1814,6 +1870,7 @@ impl AppState {
     pub fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.pending_close = None;
+        self.workbench.file_tab_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
         cx.notify();
@@ -2419,6 +2476,105 @@ impl AppState {
             .unwrap_or_else(|| "No project".to_string())
     }
 
+    /// The point size the active project's text is drawn at — editors, terminal panes and the
+    /// explorer tree together — or `None` for the interface default. `None` stays `None`, so each
+    /// surface falls back to its own default rather than a value coalesced upstream.
+    pub fn ui_font_size(&self, cx: &App) -> Option<f32> {
+        let id = self.project(cx)?;
+        self.projects
+            .get(&id)
+            .and_then(|open| open.prefs.ui_font_size)
+    }
+
+    /// The active project's text size as a live value, or the interface default when the project
+    /// has not chosen one. This is the value the chrome mutates, so `None` is not allowed through to
+    /// it.
+    pub fn ui_font_size_or_default(&self, cx: &App) -> f32 {
+        self.ui_font_size(cx).unwrap_or(theme::EDITOR_FONT_SIZE)
+    }
+
+    /// Set the active project's text size outright — the status bar's dropdown hands a choice in,
+    /// rather than a nudge — within the range the chrome admits, and write it down as the
+    /// project's own. Emulators already open are dressed to match, since a zoom has to reach a
+    /// pane that is on screen, not wait for a restart.
+    pub fn set_ui_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        let size = size.clamp(theme::EDITOR_FONT_MIN, theme::EDITOR_FONT_MAX);
+        if let Some(open) = self.projects.get_mut(&id) {
+            open.prefs.ui_font_size = Some(size);
+        }
+        let panes: Vec<_> = self
+            .projects
+            .get(&id)
+            .into_iter()
+            .flat_map(|open| open.panes.iter())
+            .filter_map(|pane| self.terminals.get(&pane.id).map(|t| &t.view))
+            .cloned()
+            .collect();
+        for view in panes {
+            view.update(cx, |view, cx| {
+                let (cols, rows) = view.dimensions();
+                view.update_config(ui::terminal::config(cols as u16, rows as u16, size), cx);
+            });
+        }
+        self.remember(id, cx);
+        cx.notify();
+    }
+
+    /// Nudge the active project's text size up or down by one point, within the range the chrome
+    /// admits, and write the result down as the project's own. A zoom is a preference of the
+    /// project, so it travels with a project and survives a restart, and it dresses the editor,
+    /// the terminal panes and the explorer tree together.
+    pub fn nudge_ui_font_size(&mut self, direction: i8, cx: &mut Context<Self>) {
+        let current = self.ui_font_size_or_default(cx);
+        self.set_ui_font_size(
+            (current + direction as f32).clamp(theme::EDITOR_FONT_MIN, theme::EDITOR_FONT_MAX),
+            cx,
+        );
+    }
+
+    /// Whether the active project's file editors soft-wrap long lines. `None` is the editor's own
+    /// default, which is to wrap.
+    pub fn editor_wrap(&self, cx: &App) -> Option<bool> {
+        let id = self.project(cx)?;
+        self.projects
+            .get(&id)
+            .and_then(|open| open.prefs.editor_wrap)
+    }
+
+    /// Flip whether the active project's file editors wrap, and bring every already-open buffer in
+    /// line with the new preference rather than waiting for a reopen.
+    pub fn toggle_editor_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        let next = {
+            let Some(open) = self.projects.get_mut(&id) else {
+                return;
+            };
+            let next = !open.prefs.editor_wrap.unwrap_or(true);
+            open.prefs.editor_wrap = Some(next);
+            next
+        };
+        let buffers: Vec<_> = self
+            .projects
+            .get(&id)
+            .into_iter()
+            .flat_map(|open| open.editor.open.iter())
+            .filter_map(|file| match &file.body {
+                FileBody::Text { state, .. } => Some(state.clone()),
+                _ => None,
+            })
+            .collect();
+        for state in buffers {
+            state.update(cx, |state, cx| state.set_soft_wrap(next, window, cx));
+        }
+        self.remember(id, cx);
+        cx.notify();
+    }
+
     /// The colour the whole window is identified by.
     ///
     /// One place decides what a window with no project looks like, rather than four call sites
@@ -2780,7 +2936,11 @@ impl AppState {
                 let restore = (!open.restored).then(|| view.clone());
                 if showing {
                     self.workbench.rail_mode = view.rail_mode;
-                    self.pending_layout = view.layout.clone();
+                    self.workbench.file_filter = view.file_filter.clone();
+                    self.pending_layout = view
+                        .modes
+                        .get(&view.rail_mode)
+                        .and_then(|mode| mode.layout.clone());
                 }
                 // A project closed and reopened in this session restored from the parked blob
                 // already, and reopening the tabs the user has since closed would be worse than
@@ -2814,21 +2974,29 @@ impl AppState {
             open.prefs.active_file = open.editor.active_file().map(|file| file.key());
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();
+            open.prefs.file_filter = self.workbench.file_filter.clone();
         }
 
         if self.project(cx) == Some(project) {
-            // The whole arrangement in one blob — the tree, the axes, the sizes, and which tab is
-            // displayed. The three region flags are written beside it for a build that has the
-            // blob and cannot read it; the blob is what a restore uses.
+            // The current mode's whole arrangement in one blob — the tree, the axes, the sizes,
+            // and which tab is displayed. The three region flags are written beside it for a mode
+            // that has the flags and cannot read the blob; the blob is what a restore uses. Every
+            // other mode keeps the entry it was last written in, which is what stops the IDE's
+            // side panels coming back undone because the sink was used in between.
+            let rail_mode = self.workbench.rail_mode;
             let layout = self.layout_blob(cx);
             let (left, bottom, right) = self.regions_open(cx);
-            let rail_mode = self.workbench.rail_mode;
             if let Some(open) = self.projects.get_mut(&project) {
                 open.prefs.rail_mode = rail_mode;
-                open.prefs.show_left = left;
-                open.prefs.show_bottom = bottom;
-                open.prefs.show_right = right;
-                open.prefs.layout = layout;
+                open.prefs.modes.insert(
+                    rail_mode,
+                    prefs::ModeLayout {
+                        show_left: left,
+                        show_bottom: bottom,
+                        show_right: right,
+                        layout,
+                    },
+                );
             }
         }
 
@@ -2934,6 +3102,31 @@ impl AppState {
                 }
             }
         }
+    }
+
+    /// Put a rail mode's regions where that mode wants them, on the frame after the switch.
+    ///
+    /// A mode with a saved arrangement is restored whole by [`Self::settle_layout`] and never
+    /// reaches here. A mode with none got its defaults forced instead: the region a mode's default
+    /// says is off screen is put away, a region it says is on screen is brought back. Idempotent —
+    /// a region already where the mode wants it is not toggled.
+    fn settle_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((left, bottom, right)) = self.pending_regions.take() else {
+            return;
+        };
+        let dock = self.dock.clone();
+        dock.update(cx, |dock, cx| {
+            for (region, want_open) in [
+                (Region::Left, left),
+                (Region::Bottom, bottom),
+                (Region::Right, right),
+            ] {
+                let placement = dock::placement_of(region);
+                if want_open != dock.is_dock_open(placement) {
+                    dock.toggle_dock(placement, window, cx);
+                }
+            }
+        });
     }
 
     /// Rebuild a saved arrangement, on the frame after it arrives.
@@ -3337,6 +3530,30 @@ impl AppState {
         window.focus(&field, cx);
     }
 
+    /// Decorate the filter field with the filter the project on screen was left filtering by.
+    ///
+    /// The field is one per window; the filter it should show is the active project's, which
+    /// changes when the window swings to another project. The `SetPreferences` answer that makes
+    /// that true arrives on the bus loop, which has no window to write a field with, so this runs
+    /// where a window is on hand — the dock's render — and only when the field is not being typed
+    /// into, so a half-typed query is never stomped by a restore.
+    pub fn sync_file_filter_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let focused = self
+            .file_filter
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        if focused {
+            return;
+        }
+        let wanted = self.workbench.file_filter.clone();
+        let shown = self.file_filter.read(cx).value().to_string();
+        if shown != wanted {
+            let field = self.file_filter.clone();
+            field.update(cx, |state, cx| state.set_value(wanted, window, cx));
+        }
+    }
+
     pub fn open_explorer_menu(
         &mut self,
         path: Option<String>,
@@ -3705,6 +3922,172 @@ impl AppState {
         cx.notify();
     }
 
+    /// Close every open file tab except `key`, in `EditorPaneState::open` order. A dirty tab is
+    /// asked for rather than closed — see [`Self::close_editor_tab`] for the ask — so a burst of
+    /// "close others" never eats unsaved work.
+    pub fn close_editor_tabs_except(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.close_editor_tabs_filtered(|_, open_key| open_key != key, cx);
+    }
+
+    /// Close the file tabs to the left of `key` in `EditorPaneState::open` order.
+    pub fn close_editor_tabs_left(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(at) = self.editor_index_of_key(key, cx) else {
+            return;
+        };
+        self.close_editor_tabs_in_range(0..at, cx);
+    }
+
+    /// Close the file tabs to the right of `key` in `EditorPaneState::open` order.
+    pub fn close_editor_tabs_right(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(at) = self.editor_index_of_key(key, cx) else {
+            return;
+        };
+        self.close_editor_tabs_in_range(at + 1..usize::MAX, cx);
+    }
+
+    /// Close every open file tab.
+    pub fn close_all_editor_tabs(&mut self, cx: &mut Context<Self>) {
+        self.close_editor_tabs_in_range(0..usize::MAX, cx);
+    }
+
+    /// The index of a file tab in the active project's `EditorPaneState::open`, or `None`.
+    fn editor_index_of_key(&self, key: &str, cx: &App) -> Option<usize> {
+        let project = self.project(cx)?;
+        let open = self.projects.get(&project)?;
+        index_of_key(&open.editor, key)
+    }
+
+    /// Close the tabs the filter names, from the highest index down (so removal never shifts an
+    /// index still to come). Dirty ones are only asked for, by [`Self::close_editor_tab`].
+    fn close_editor_tabs_filtered(
+        &mut self,
+        keep: impl Fn(usize, &str) -> bool + Copy,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let indices = {
+            let Some(open) = self.projects.get(&project) else {
+                return;
+            };
+            (0..open.editor.open.len())
+                .filter(|&ix| {
+                    let key = open.editor.open[ix].key();
+                    keep(ix, &key)
+                })
+                .collect::<Vec<_>>()
+        };
+        for ix in indices.into_iter().rev() {
+            self.close_editor_tab(ix, cx);
+        }
+    }
+
+    /// Close the tabs whose indices fall in `range`, high-to-low, each asked if dirty.
+    fn close_editor_tabs_in_range(
+        &mut self,
+        range: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_editor_tabs_filtered(|ix, _| range.contains(&ix), cx);
+    }
+
+    /// Write the file behind one tab — not just the active one — back, so a context menu can save
+    /// the tab it was opened on. The save is `save_active_file`'s, with the file named by its tab
+    /// key instead of by whatever tab happens to be on screen.
+    pub fn save_file(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            return;
+        };
+        let Some(file) = open.editor.open.get(at) else {
+            return;
+        };
+        if !file.savable() {
+            return;
+        }
+        let Some(buffer) = file.buffer() else {
+            return;
+        };
+        let text = buffer.read(cx).value().to_string();
+        let (rel_path, expected) = (file.path.clone(), file.version());
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_mut(&rel_path)
+        {
+            file.mark_saving(text.clone());
+        }
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path,
+            bytes: text.into_bytes(),
+            expected,
+        });
+        cx.notify();
+    }
+
+    /// Open the right-click menu on a file tab, anchored where the button went down.
+    ///
+    /// The dock's tab bar draws the tab whose key this is and hands the click across the renderer
+    /// seam; the menu itself is painted here, over the window, so it is a fact about `AppState`
+    /// rather than about the dock.
+    pub fn open_file_tab_menu(&mut self, key: &str, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu != Some(MenuId::Explorer) && self.workbench.open_menu.is_some()
+        {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::FileTab);
+        self.workbench.file_tab_menu = Some((key.to_string(), at));
+        cx.notify();
+    }
+
+    /// Act on one row of the open file-tab menu, by the row's index.
+    pub fn pick_file_tab_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((key, _)) = self.workbench.file_tab_menu.clone() else {
+            return;
+        };
+        self.workbench.open_menu = None;
+        self.workbench.file_tab_menu = None;
+        match index {
+            0 => {
+                self.close_editor_tab_at_key(&key, cx);
+            }
+            1 => self.close_editor_tabs_except(&key, cx),
+            2 => self.close_editor_tabs_left(&key, cx),
+            3 => self.close_editor_tabs_right(&key, cx),
+            4 => self.close_all_editor_tabs(cx),
+            5 => self.save_file(&key, cx),
+            6 => self.toggle_editor_wrap(window, cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// Close the one tab named by a key, the way the close button does: a dirty tab is asked for
+    /// rather than silently closed.
+    fn close_editor_tab_at_key(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(at) = self.editor_index_of_key(key, cx) else {
+            return;
+        };
+        self.close_editor_tab(at, cx);
+    }
+
+    /// Dismiss the file tab's menu — an outside click, or a pick already taken it.
+    pub fn dismiss_file_tab_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.file_tab_menu = None;
+        cx.notify();
+    }
+
     /// The caret's one-based position, as the status bar reports it. Absent when nothing is open,
     /// so the status bar omits the segment rather than reporting a caret in a buffer nobody is
     /// looking at.
@@ -3769,12 +4152,29 @@ impl AppState {
 
         // A tab that already holds bytes is never overwritten: there is no reload action, and
         // whatever has been typed into it would go with them.
-        let wanted = self
+        let draws_bytes = self
             .projects
             .get(&project)
             .and_then(|open| open.editor.open.iter().find(|file| file.path == path))
-            .is_some_and(|file| file.is_loading());
-        if !wanted {
+            .is_some_and(|file| file.is_loading() && file.draws_bytes());
+        if !self
+            .projects
+            .get(&project)
+            .and_then(|open| open.editor.open.iter().find(|file| file.path == path))
+            .is_some_and(|file| file.is_loading())
+        {
+            return;
+        }
+
+        // A file whose viewer is a decoder — an image — is handed its own bytes, not a buffer:
+        // it is not text and is not nothing, and the decoder wants what the host read.
+        if draws_bytes {
+            if let Some(open) = self.projects.get_mut(&project)
+                && let Some(file) = open.editor.find_mut(&path)
+            {
+                file.set_bytes(contents.bytes);
+            }
+            cx.notify();
             return;
         }
 
@@ -3792,12 +4192,20 @@ impl AppState {
         // still text somebody wants to read.
         let text = String::from_utf8_lossy(&contents.bytes).into_owned();
         let language = FileLanguage::of(&path);
+        // The project's wrap is a preference of the project rather than of a file, so a buffer
+        // opens the way the project was left rather than the editor's own default.
+        let wrap = self
+            .projects
+            .get(&project)
+            .and_then(|open| open.prefs.editor_wrap)
+            .unwrap_or(true);
         let buffer = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language(ui::editor::highlighter_language(language))
                 .line_number(true)
                 .folding(true)
                 .show_whitespaces(false)
+                .soft_wrap(wrap)
                 .tab_size(TabSize {
                     tab_size: 2,
                     ..Default::default()
@@ -4756,6 +5164,7 @@ impl Render for AppState {
         // before the frame that focuses it, and a restored arrangement before either. Visibility
         // leads, because installing a layout asks every panel for it.
         self.settle_visibility(cx);
+        self.settle_mode(window, cx);
         self.settle_layout(window, cx);
         self.settle_panels(window, cx);
         self.take_focus(window, cx);
@@ -4764,6 +5173,10 @@ impl Render for AppState {
         self.fill_project_form(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
+        // The filter field is one per window; the project on screen's filter is the window's habit
+        // from the frame after the project swings in. Cheap when nothing changed, and it never
+        // fights a query being typed.
+        self.sync_file_filter_field(window, cx);
         // Made anonymous straight away so the frame stops borrowing the window: the queue below
         // is drained on the same `&mut self` the tree was built from.
         let tree = ui::shell::render(self, window, cx).into_any_element();
@@ -4811,6 +5224,9 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-=", ZoomIn, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-shift-=", ZoomIn, Some("Workbench")),
+        gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
     ]);
     // The file picker's and the explorer's, which are the field's as well as the surface's and
     // have to be registered after the component library's own — `ui::file_picker::key_bindings`

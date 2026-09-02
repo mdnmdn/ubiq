@@ -11,7 +11,7 @@
 
 use chrono::Utc;
 use gpui::{
-    AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, WindowId, anchored, deferred, div, px,
 };
 use gpui_component::input::Input;
@@ -22,7 +22,7 @@ use ubiq_proto::projects::ProjectSnapshot;
 use crate::app::{AppState, focus_window, open_project_window};
 use crate::state::{MenuId, RowAction, when};
 use crate::theme;
-use crate::ui::kit::{mono, section_label};
+use crate::ui::kit::{field, mono, section_label};
 
 /// Where a row sits, which is what decides the actions it carries.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,7 @@ enum Group {
     History,
 }
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let colour = app.project_tint(cx);
     let open = app.workbench.open_menu == Some(MenuId::Project);
     let label = app.window_label(cx);
@@ -65,15 +65,20 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .on_click(cx.listener(|this, _, _, cx| this.open_menu(MenuId::Project, cx)));
 
     if open {
-        trigger = trigger.child(panel(app, cx));
+        trigger = trigger.child(panel(app, window, cx));
     }
 
     trigger
 }
 
-fn panel(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let groups = app.project_groups(cx);
     let empty = crate::state::WindowRegistry::read(cx).is_empty();
+    let focused = app
+        .project_search
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
 
     let mut body = div()
         .w(px(340.))
@@ -84,12 +89,9 @@ fn panel(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .border_color(app.project_tint(cx))
         .shadow_lg()
         .child(
-            div()
+            field(app.project_tint(cx), focused)
                 .h(px(34.))
-                .px_2()
-                .flex()
                 .flex_none()
-                .items_center()
                 .gap_2()
                 .border_b_1()
                 .border_color(theme::border())

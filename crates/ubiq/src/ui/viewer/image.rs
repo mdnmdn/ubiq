@@ -15,7 +15,7 @@ use crate::theme;
 
 /// The format a path's extension names.
 ///
-/// Only the four the platform decodes are named, and they are the four
+/// Only the formats the platform decodes are named, and they are the formats
 /// [`crate::state::editor::ViewerKind`] sends here. An extension with nothing behind it is not
 /// guessed at.
 fn format(path: &str) -> Option<ImageFormat> {
@@ -29,6 +29,10 @@ fn format(path: &str) -> Option<ImageFormat> {
         "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
         "gif" => Some(ImageFormat::Gif),
         "webp" => Some(ImageFormat::Webp),
+        "svg" => Some(ImageFormat::Svg),
+        "bmp" => Some(ImageFormat::Bmp),
+        "tif" | "tiff" => Some(ImageFormat::Tiff),
+        "ico" => Some(ImageFormat::Ico),
         _ => None,
     }
 }

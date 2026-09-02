@@ -24,9 +24,9 @@ pub mod detail;
 pub mod form;
 
 use gpui::{
-    AnyElement, App, AppContext as _, Context, DragMoveEvent, InteractiveElement, IntoElement,
-    ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    prelude::FluentBuilder, px,
+    AnyElement, App, AppContext as _, Context, DragMoveEvent, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -39,7 +39,7 @@ use crate::state::work;
 use crate::theme;
 use crate::ui::agents::{activity_colour, bucket_colour};
 use crate::ui::eid;
-use crate::ui::kit::{card, choice_pill, meter, mono, primary_button, section_label};
+use crate::ui::kit::{card, choice_pill, field, meter, mono, primary_button, section_label};
 
 /// The task under the pointer. It carries the id alone: where the task belongs is the column's
 /// answer, not the drag's.
@@ -76,7 +76,7 @@ pub fn status_colour(status: Status) -> Rgba {
     }
 }
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // The board is a view of one project's work, and the shell keeps a window with no project off
     // it entirely — so there is nothing here to draw rather than an empty board to explain.
     let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
@@ -97,7 +97,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .flex_none()
                 .border_l_1()
                 .border_color(theme::border())
-                .child(detail::render(app, task, cx)),
+                .child(detail::render(app, task, window, cx)),
         );
     }
 
@@ -108,13 +108,13 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::app_bg())
-        .child(toolbar(app, cx))
+        .child(toolbar(app, window, cx))
         .child(body)
         .into_any_element()
 }
 
 /// The strip over the columns: what is being looked for, whose work it is, and the way to add one.
-fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
@@ -145,7 +145,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .child(filter_field(app))
+        .child(filter_field(app, window, cx))
         .child(
             div()
                 .flex_1()
@@ -172,18 +172,13 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 }
 
 /// One field, doing both jobs: it filters the cards, and what is in it names the next one.
-fn filter_field(app: &AppState) -> impl IntoElement {
-    div()
+fn filter_field(app: &AppState, window: &Window, cx: &App) -> impl IntoElement {
+    let focused = app.task_filter.read(cx).focus_handle(cx).is_focused(window);
+    field(theme::border(), focused)
         .w(px(260.))
         .h(px(28.))
         .px_2()
-        .flex()
-        .flex_none()
-        .items_center()
         .gap_2()
-        .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::border())
         .child(
             Icon::new(IconName::Search)
                 .with_size(Size::XSmall)
