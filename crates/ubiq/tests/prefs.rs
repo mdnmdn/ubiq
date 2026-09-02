@@ -113,7 +113,10 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     // each mode the way a fresh one does.
     assert!(view.modes.is_empty());
     let arranged = ModeLayout::default_for(RailMode::Ide);
-    assert!(arranged.show_left && arranged.show_bottom && arranged.show_right);
+    // The IDE's two side regions are furniture and open with the window; the pane region is not,
+    // and opens empty and put away.
+    assert!(arranged.show_left && arranged.show_right);
+    assert!(!arranged.show_bottom);
 
     assert!(view.open_files.is_empty());
     assert_eq!(view.active_file, None);
@@ -206,5 +209,5 @@ fn the_arrangement_may_be_absent() {
 
     assert!(view.modes.is_empty());
     let fresh = ModeLayout::default_for(RailMode::Ide);
-    assert!(fresh.show_left && fresh.show_bottom && fresh.show_right);
+    assert!(fresh.show_left && fresh.show_right && !fresh.show_bottom);
 }

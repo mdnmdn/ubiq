@@ -128,6 +128,11 @@ restyling the shell should be one file to visit.
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
 | `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
 
+The Git screen's own four — `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT` and the graph's
+`LANE_PITCH` — are in `state::git` rather than here, on the same reasoning `COLUMN_MIN_WIDTH` is in
+`state::agents`: a screen's furniture is the screen's, and only the window's own areas belong in
+`theme.rs`.
+
 A region's constant is what a fresh window opens it at; what the drag will not pass is the dock's
 own, so a region is one number rather than a triple. The orchestration screen's three are the same
 shape for a different reason: its inspector and its drawer are shown and hidden rather than dragged,
@@ -271,8 +276,10 @@ says the whole of itself on hover, the filled button a screen's single obvious a
 the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared tab
 strip, the progress ring, the painted layers in `canvas.rs`, the file-list chrome the picker and the
 explorer share in `files.rs`, and the one dropdown mechanism every menu in the window uses — plus
-the context menu a right-click raises, which is that same panel opened at the pointer rather than
-from a trigger.
+the context menu a right-click, or a control that has no room for a trigger, raises at the pointer:
+that same panel, opened at a point rather than under a chip. Its rows are labels, a disabled label,
+or a separator — a hairline that still takes an index, because a menu's rows and the actions behind
+them are matched by position.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two

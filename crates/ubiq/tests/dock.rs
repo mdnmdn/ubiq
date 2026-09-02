@@ -7,7 +7,7 @@
 
 use ubiq::state::dock::{PanelKind, Region, Visibility};
 use ubiq::state::editor::ViewLayout;
-use ubiq::ui::dock::{file_from_payload, file_payload};
+use ubiq::ui::dock::{file_from_payload, file_payload, pane_from_payload, pane_payload};
 use ubiq_proto::ids::PaneId;
 
 const REGIONS: [Region; 4] = [Region::Centre, Region::Left, Region::Right, Region::Bottom];
@@ -162,14 +162,42 @@ fn every_name_but_a_terminal_s_rebuilds() {
     );
 }
 
-/// Closing a tab means killing a harness or closing a file. Every other panel is the window's own
-/// furniture: it is hidden and brought back, never closed.
+/// Closing a tab means killing a harness, closing a file, or putting the console away. The
+/// explorer, the chat and the centre are the window's own furniture: they are hidden and brought
+/// back, never closed.
 #[test]
-fn only_a_terminal_s_and_a_file_s_tab_close() {
+fn a_pane_a_file_and_the_console_close_and_nothing_else_does() {
     for kind in every_kind() {
-        let closes = kind.pane().is_some() || kind.tab_key().is_some();
+        let closes =
+            matches!(kind, PanelKind::Logs) || kind.pane().is_some() || kind.tab_key().is_some();
         assert_eq!(kind.closable(), closes, "{kind:?}");
     }
+}
+
+/// A terminal panel writes down which pane it draws, which is what lets a rebuilt arrangement put
+/// a pane back where the user left it. It is still not rebuilt from its name — a pane exists
+/// because the coordinator says so — so the payload is the whole of the claim.
+#[test]
+fn a_terminal_panel_writes_down_the_pane_it_draws() {
+    let pane_id = PaneId::generate();
+    let payload = pane_payload(pane_id);
+    assert_eq!(
+        pane_from_payload(&payload),
+        Some(PanelKind::Terminal(pane_id))
+    );
+
+    // A payload from a build that wrote none, or one naming something that is not an id, names no
+    // pane — and a leaf that names no pane is dropped rather than drawn empty.
+    assert_eq!(pane_from_payload(&serde_json::json!({})), None);
+    assert_eq!(
+        pane_from_payload(&serde_json::json!({ "pane": "not-an-id" })),
+        None
+    );
+
+    // The name is a constant because a saved leaf has to be recognised before there is an id to
+    // build the kind with. It never changes: it is the key the rebuild reads.
+    assert_eq!(PanelKind::TERMINAL, "ubiq.terminal");
+    assert_eq!(PanelKind::Terminal(pane_id).name(), PanelKind::TERMINAL);
 }
 
 /// The explorer and the chat leave with IDE mode; the chat also wants a project. A terminal is

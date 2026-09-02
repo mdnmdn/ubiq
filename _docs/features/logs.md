@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/main.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -65,10 +65,13 @@ started, stream ended, exited, failed.
 
 **The console is a panel.** It has its own tab, its own toolbar and its own place in the
 arrangement, so it is dragged, tabbed beside a terminal, split, zoomed and moved between the centre
-and the bottom region like anything else in the dock, which is what lets a pane and the console be
-read at once. It is always present and is never closed — it is the window's own output rather than a
-process someone started, so it is put away by collapsing the region it sits in. It is drawn in every
-rail mode and with no project open, which is the state in which it is most worth reaching.
+and the pane region like anything else in the dock, which is what lets a pane and the console be
+read at once. **It is opened on demand and closes like anything else.** A fresh window's arrangement does not
+hold it: the `Logs` row on the new-pane control's menu is what puts it on screen — the region it
+sits in opens and its tab comes to the front — and its tab's × takes it away again. That row is
+drawn whether or not a project is open, which is the state the console is most worth reaching in. A
+window that was left with the console open comes back with it, like every other panel in a saved
+arrangement.
 
 **The console's panel holds the keyboard while it is displayed.** A pane that is off screen must
 not keep receiving keystrokes, so a panel that is not a terminal becoming its group's displayed tab

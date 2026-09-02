@@ -16,6 +16,7 @@ pub mod dock;
 pub mod editor;
 pub mod explorer;
 pub mod file_picker;
+pub mod git;
 pub mod layout;
 pub mod logs;
 pub mod orchestration;
@@ -47,6 +48,7 @@ pub use file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest,
     PickerRow, PickerView,
 };
+pub use git::{CommitRow, GitView, RefRow, RefSection, Side};
 pub use layout::Layout;
 pub use logs::LogState;
 pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
@@ -55,5 +57,5 @@ pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    MenuId, ProjectSettings, ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
+    MenuId, NewPaneRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
 };

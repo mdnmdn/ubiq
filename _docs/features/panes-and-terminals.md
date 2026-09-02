@@ -7,7 +7,7 @@ summary: What a pane shows, how exactly one of them holds focus, how a resize re
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-09-02
 verified: 2026-09-02
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -38,9 +38,40 @@ not against a pane — so nothing empty is left on screen — and the picker's r
 probe that refusal just made.
 
 **Entering a project opens no pane of its own accord.** The project's files and the arrangement it
-was left in come back, and nothing is asked to run: the first pane appears when the `+` on the tab
-strip is clicked, so a window that opens on a project starts with no harness running until its user
-asks for one.
+was left in come back, and nothing is asked to run: the first pane appears when the user asks for
+one, so a window that opens on a project starts with no harness running.
+
+**The pane region opens empty and put away, and opening it starts a pane.** A fresh window's bottom
+region holds nothing — the console is not installed in it and there is no pane until one is asked
+for — so what it gives the window is its size and its tab strip. Bringing it on screen from the
+titlebar's switch starts a pane in it, the platform's default shell, because a region that exists to
+hold panes and opens onto a bar of nothing has not answered what the switch was asked for.
+
+**A pane's tab is its program and a number.** `zsh 1`, `zsh 2`, `fish 1` — each program numbered in
+its own sequence, per project, from the lowest number no pane of that program is using. Closing
+`zsh 2` gives that name back to the next one rather than counting upwards for ever.
+
+**The `+` opens the platform's default shell; the chevron beside it says what else can run
+here.** A bare click starts `$SHELL` — `COMSPEC` on Windows — which is what a terminal application
+starting no particular program means. The chevron opens a menu of every shell the machine actually
+has, the default one marked, and picking one starts a pane running that shell instead. The list is a
+fixed set of known shells the host checked for — `zsh`, `bash`, `fish` and `sh`, or PowerShell and
+the command processor on Windows — not a launcher for anything on disk, and a shell that is not
+installed is not offered. Below a separator — everything above it starts something — one row puts
+the console on screen, which is the one thing on that menu that is not a pane. The `+` needs a
+project and is not drawn without one; the chevron is drawn either way, and with no project the
+console is the only row it offers, because a shell that cannot be started is not worth a row.
+
+**A shell pane is a login shell.** It is started the way the user's own terminal starts one, so
+`.zprofile`, `.zlogin` and `.profile` run and a pane's `PATH` is the `PATH` the user has everywhere
+else. Without it a tool that is genuinely installed reports as `command not found` in a pane while
+working in Terminal.app, because Ubiq launched from Finder inherits a `PATH` that nothing has set up
+yet. Only a shell started with no arguments is treated this way: a harness, or a shell handed a
+command to run, is started as itself.
+
+**Which shells exist is the host's answer, asked for and never assumed.** The interface may not look
+on disk, so it asks — as it attaches, and again every time the menu opens, which is what makes a
+shell installed since the window opened available without a restart.
 
 **A project's panes stay alive while another project is on screen.** A window can hold several
 projects, and switching between them swaps which project's panes are drawn; the ones behind keep
@@ -146,7 +177,9 @@ The pane family of the transport contract: `TerminalOutput`, `TerminalInput`, `T
 `Focus`, `PaneExited` and `PaneError`. A pane's own lifecycle uses two of the session family,
 `SpawnWorkspace` with its `WorkspaceSpawned` answer, and `CloseWorkspace`. `SpawnWorkspace` carries a
 `project_id` that is not optional and an optional `rel_path`, and it can answer `ProjectError`
-instead — a refusal names the project, because there is no pane yet to name. Variant names, payload
+instead — a refusal names the project, because there is no pane yet to name. Which shell a pane runs
+is `SpawnWorkspace`'s existing `agent_type`, and the menu's own rows come from `ListShells` and its
+`ShellList` answer, whose `ShellInfo` carries a label, a program and whether it is the default. Variant names, payload
 fields, the byte-sequence rule and the per-pane ordering guarantee are owned by
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
@@ -192,7 +225,26 @@ send `Focus`. A `PaneExited` is `close_pane()`.
 rather than a group's own action: `crates/ubiq/src/ui/dock/skin.rs` draws the control in
 `render_tab_bar` on any strip whose group holds a terminal or the console — the `NewPane` closure
 `AppState::for_project` hands the skin — and a new pane's panel joins that group. It is drawn only
-with a project open, because a pane runs in a project's folder.
+with a project open, because a pane runs in a project's folder. `NewPane` carries two closures: the
+click, which is `spawn_pane(None, ..)`, and the chevron, which hands `AppState` the point the click
+landed on and nothing else. `crates/ubiq/src/ui/new_pane_menu.rs` paints the menu over the window,
+for the reason the file tab's menu is painted there — the skin does not name `AppState`, so it
+cannot draw a menu with state in it. **The rows themselves are `WorkbenchState::new_pane_rows()`**,
+which both the drawing and the pick read: a menu matched by position cannot have two lists.
+`pick_new_pane_menu()` maps a row back — a shell is `spawn_pane(Some(program), ..)`, the separator
+is a row and does nothing, and the console is `reveal_console()`, which is `dock::reveal()`: a
+panel already in the tree has its region brought back and its tab brought forward, and one that is
+not is added to its home region first. `AppState::toggle_region()` is where opening an empty pane
+region starts a pane, and `pane_title()` is where a tab gets its number.
+
+**`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** `available()`
+checks a fixed candidate list against `PATH` and the usual homes — the homes as well, because the
+`PATH` Ubiq itself was launched with is exactly the one that cannot be trusted — and always includes
+`default_program()`, whatever it is. `pty::spawn` asks the same module whether the program it was
+handed is a shell, and `command_for()` builds a login shell when it is: `portable-pty` prefixes argv0
+with `-` only for a builder made with `new_default_prog`, which takes no program name and reads the
+shell out of `SHELL`, so that is where the chosen shell is handed to it. The coordinator answers
+`ListShells` straight from `available()`.
 
 **`crates/ubiq-proto/src/bus.rs` is the seam.** `hub()` opens the switchboard the one host answers
 through, and `Hub::connect()` gives a window its own `Client` on it.
@@ -248,6 +300,9 @@ stalled reader stalls the harness.
 | The harness exits while its pane is a background tab | The same close: the tab leaves that project's dock, and the pane the user is typing into is untouched |
 | The harness cannot be started | `PaneError` against a pane ID the UI never drew; no tab appears |
 | A spawn is asked for with no project open | Nothing is sent; there is no folder to start a harness in |
+| The shell list has not been answered yet | The menu offers the console row alone, and no separator. The list is asked for again on every open, so the next one has it |
+| The pane region is opened with no project | Nothing is started; the region opens empty, and the chevron's menu still reaches the console |
+| A shell is uninstalled between the list and the pick | The spawn fails the way any unstartable program does: `PaneError` against a pane the UI never drew |
 | A spawn names a project whose folder has gone | `ProjectError`, and the picker's row is marked. No pseudo-terminal is opened and no tab appears |
 | A spawn names a `rel_path` that escapes the project | Refused with the same `ProjectError`, before anything is opened |
 | A pane is announced for a project the window no longer holds | The window closes it again rather than draw it, so no harness is left running with nothing on screen |

@@ -92,13 +92,18 @@ change what Ubiq does (here), or where a document lives (there)?
 | G73 | explorer file wrong spacing and disposition |
 | G74 | explorer hide hidden files, and force hidden files and folder on selection |
 | G75 | spacing on project selector |
-| G76 | memory on tab disposition (eg terminals), hide logs by default |
 | G77 | manage autorefresh of git/tree on fs events |
 | G78 | The settings overlay's Add harness button is present and does nothing. Definitions belong to agent-manager; the catalog messages that would list and add them are not on the wire yet | [`features/workbench.md`](./features/workbench.md), [`tech/agent-manager.md`](./tech/agent-manager.md) |
 | G79 | The titlebar's centre holds the command field on every screen, where the design shows the screen's own name — `Agents · parallel columns`. A per-mode title needs somewhere for the field to go, which is `G16`'s question from the other side | [`features/workbench.md`](./features/workbench.md) |
 | G80 | A column's footer draws no mode chip, because `WorkAgent` carries no mode. The design shows one beside the harness and the model, so it needs a field on the wire before the footer can report it | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench.md`](./features/workbench.md) |
 | G81 | The agents sidebar's session note is the title of a task in that session, because `WorkSession` has no description on the wire. A session that is for something no task names has no line to draw | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench.md`](./features/workbench.md) |
 | G82 | `COLUMNS_MAX` caps the agents screen at eight columns because each owns a composer out of a fixed pool built before the first frame. An unbounded row needs a text area a column can be given when it opens | [`features/workbench.md`](./features/workbench.md) |
+| G83 | The Git screen's refs and history are fixtures: the branch list, the remotes, the tags, the stashes, the submodules and every commit on it are invented, because the git family carries no refs list and no log. This is `G70` seen from the screen that wants it | [`features/workbench.md`](./features/workbench.md), [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G84 | The Git screen's fetch, pull, push, branch, stash, undo and commit are drawn and inert. Version control is read-only, so they wait on a write family and everything it needs — a confirmation surface, an undo, and an answer for the agent in pane two who is mid-rebase | [`features/workbench.md`](./features/workbench.md), [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G85 | A staged path's row is compared against HEAD rather than against the index, because the file family offers `DiffBase::Head` and `DiffBase::Index` and no index-against-HEAD. A staged-only comparison needs a third base on the wire | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench.md`](./features/workbench.md) |
+| G86 | The Git screen has no specimen on the kitchen sink and no wireframe under `design/`; it is built against `inbox/design/git-proposal.png`, which is raw material rather than a captured asset | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
+| G87 | A pane's environment starts from Ubiq's own — `portable-pty` captures the process env at spawn — so a variable Ubiq was launched without reaches the harness only because the login shell's profile sets it. Nothing computes a fresh environment for a pane | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
+| G88 | A mode or a project with no saved arrangement is given that mode's regions but inherits whatever tree was on screen, rather than the default arrangement | [`features/workbench.md`](./features/workbench.md) |
 
 
 

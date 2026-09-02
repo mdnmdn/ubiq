@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it.
 read_when: you changed a file and need to know which documents owe an update, or you are looking for where something lives
-updated: 2026-09-01
-verified: 2026-09-01
+updated: 2026-09-02
+verified: 2026-09-02
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -69,7 +69,8 @@ crates/ubiq-host/src/
 ├── git/
 │   ├── mod.rs
 │   └── observe.rs
-└── settings.rs
+├── settings.rs
+└── shells.rs
 
 crates/ubiq/src/
 ├── state/
@@ -94,6 +95,7 @@ crates/ubiq/src/
 │   ├── viewport.rs
 │   ├── file_picker.rs
 │   ├── orchestration.rs
+│   ├── git.rs
 │   └── settings.rs
 ├── ui/
 │   ├── mod.rs
@@ -154,8 +156,15 @@ crates/ubiq/src/
 │   │   ├── inspector.rs
 │   │   ├── mod.rs
 │   │   └── tasks.rs
+│   ├── git/
+│   │   ├── changes.rs
+│   │   ├── diff.rs
+│   │   ├── history.rs
+│   │   ├── mod.rs
+│   │   └── refs.rs
 │   ├── settings.rs
-│   └── work.rs
+│   ├── work.rs
+│   └── new_pane_menu.rs
 ├── app.rs
 ├── lib.rs
 └── theme.rs
@@ -196,6 +205,7 @@ the documents in its row.
 | `crates/ubiq-host/src/projects.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-host/src/settings.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/shells.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-host/src/store/file.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/store/memory.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/store/mod.rs` | [`architecture.md`](./architecture.md) |
@@ -222,6 +232,7 @@ the documents in its row.
 | `crates/ubiq/src/state/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/file_picker.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/state/git.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/layout.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/logs.rs` | [`features/logs.md`](../features/logs.md) |
 | `crates/ubiq/src/state/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -253,6 +264,11 @@ the documents in its row.
 | `crates/ubiq/src/ui/empty.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/file_picker.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/git/changes.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/git/diff.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/git/history.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/git/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/git/refs.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/kit/canvas.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/controls.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/files.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
@@ -262,6 +278,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/kit/settings.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/logs.rs` | [`features/logs.md`](../features/logs.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/mod.rs` | [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/new_pane_menu.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq/src/ui/orchestration/graph.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/orchestration/inspector.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/orchestration/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -293,6 +310,7 @@ the documents in its row.
 | `crates/ubiq/tests/dock.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/file_picker.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/tests/git.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/mode_restore.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/orchestration.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/scene.rs` | [`features/workbench.md`](../features/workbench.md) |

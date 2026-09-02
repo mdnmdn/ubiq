@@ -3,11 +3,11 @@ id: feat-workbench
 title: The workbench
 kind: feature
 status: draft
-summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
+summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
+read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
 updated: 2026-09-02
 verified: 2026-09-02
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -23,18 +23,18 @@ seen through, and it is built against [`../design/ubiq-layout.png`](../design/ub
 
 ## Behaviour
 
-**The rail selects what the middle of the window is for.** Seven destinations in two groups:
-`Control` and `Sink` under `APP`, and `IDE`, `Agents`, `Orchestration`, `KB` and `Tasks` under
-`PROJECT`. Exactly one
+**The rail selects what the middle of the window is for.** Eight destinations in two groups:
+`Control` and `Sink` under `APP`, and `IDE`, `Git`, `Agents`, `Orchestration`, `KB` and `Tasks`
+under `PROJECT`. Exactly one
 is active, and the active one is shown by the accent colour on both its icon and its label. The
 group is not decoration: a `PROJECT` mode with no folder open draws the page saying so, and an `APP`
 mode answers whether or not one is open.
 
-**Five modes are built.** What the rail selects between is the centre. Agents fills it with the
-parallel columns, Orchestration with the graph, Tasks with the board, Sink with the kitchen sink,
-and the centre panel's tab is named for the mode. IDE fills it with the open files, one panel each, and the centre panel steps
-aside for as long as any is open. `Control` and `KB` render one empty page naming the mode and what
-it will hold. This is a stated gap, not an error state.
+**Six modes are built.** What the rail selects between is the centre. Git fills it with the
+repository, Agents with the parallel columns, Orchestration with the graph, Tasks with the board,
+Sink with the kitchen sink, and the centre panel's tab is named for the mode. IDE fills it with the
+open files, one panel each, and the centre panel steps aside for as long as any is open. `Control`
+and `KB` render one empty page naming the mode and what it will hold. This is a stated gap, not an error state.
 
 **The explorer and the chat belong to IDE mode.** They are IDE furniture and leave together when the
 mode changes; the console, the terminals and the centre panel itself outlive a mode switch. The chat
@@ -299,6 +299,40 @@ one does.
 was asked for. A task the user wants to intervene in is a conversation with an agent, and the
 conversation is a column.
 
+**The Git screen is what version control knows, whole.** The refs down the left, the history in the
+middle, the uncommitted changes on the right and the comparison under both. It is the same facts
+the explorer's badges and the status bar's branch carry, at the size they can be read at: the tree
+answers "is this file changed" and this screen answers "what has this repository been doing".
+
+**The screen reads and never writes.** Fetch, pull, push, branch, stash, undo and the commit button
+are drawn as the shape the screen will have when there is a write family behind them, and none of
+them takes a click; the toolbar carries a `read-only` chip that says why. What is typed into the
+commit box is kept with the project, because a message is worth keeping even when nothing can send
+it.
+
+**The uncommitted row is the top row of the history.** What is not committed yet is selected the
+same way a commit is and is what the screen opens on; picking a commit points the panel beside it
+at that commit instead. The panel says what the log said and no more — a commit's own file list
+needs a log the git family does not carry.
+
+**The change lists are the pair, not the projection.** A path whose index differs from HEAD is in
+the staged list and a path whose worktree differs from the index is in the unstaged one, so a path
+that is both is in both — which is exactly what one badge on an explorer row cannot say.
+Conflicted paths are a list of their own, drawn first. A row takes the colour the explorer paints
+the same path in, so the two never disagree.
+
+**Picking a changed path compares it, and the comparison is the host's.** The pane under the
+history draws the hunks `DiffProjectFile` answers with, through the same renderer a diff tab uses.
+An unstaged row is compared against the index and a staged or conflicted row against HEAD, because
+the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
+shrinking, and switches between unified and side by side.
+
+**The history and the refs are fixtures.** The branch list, the remotes, the tags, the stashes, the
+submodules and every commit on the screen are invented, because the git family carries no refs list
+and no log — `G70`. Everything else on it is answered: the branch, the tracking counts, the
+in-progress operation, the totals, the changed paths and the diff. The search over the history and
+its `my commits` filter are real controls over the fixture, and both clear together.
+
 **A project is a colour.** Each project owns one of the theme's swatches, and wears it in four
 places at once: its dot in the picker, the fill behind its name in the titlebar, the mark above the
 rail, and the window's left edge. Two windows on two projects are told apart without reading
@@ -324,11 +358,12 @@ into another window leaves the one it came from.
 **Ubiq never closes a window.** Only the user does, and the application quits with its last one. A
 window holding nothing is a window waiting for a project, not an error to be tidied away.
 
-**The empty state is three panels at once.** The centre panel says no project is open and offers to
-add one; the explorer keeps its place in the arrangement and its size, with one muted line in it
-rather than a tree; the chat is hidden, because a conversation about nothing is a fiction. The log
-console keeps its place too — the one panel a window with no project has a reason to show — and the
-`+` at the end of the bottom region's tab strip is not offered, because there is no folder to starta harness in.
+**The empty state is two panels and a strip.** The centre panel says no project is open and offers
+to add one; the explorer keeps its place in the arrangement and its size, with one muted line in it
+rather than a tree; the chat is hidden, because a conversation about nothing is a fiction. The `+`
+at the end of the pane region's tab strip is not offered, because there is no folder to start a
+harness in — but the chevron beside it is, and its menu offers the console: the one panel a window
+with no project has a reason to show.
 
 **The explorer, the open files and the terminals belong to a project, not to the window.** A window
 holds one set of each per project open in it, and switching between them is a lookup: the tree, the
@@ -418,10 +453,14 @@ when the last tab closes rather than rebuilding it somewhere else.
 **The titlebar's switches open and close the dock's edge regions**, and read the dock rather than a
 flag beside it — so a region the user emptied by dragging its last panel out reads as closed. The
 left and right switches are drawn only in IDE mode, because the side regions are IDE furniture and
-hide in place in every other mode; the bottom switch is offered in every rail mode. The `+` that
-opens a terminal sits at the right end of the bottom region's tab strip, drawn only in a group that
-holds a terminal or the console and only while a project is open, because a pane runs in a
-project's folder. Past a divider, the titlebar offers search and a bell (both stubs), a gear that
+hide in place in every other mode; the bottom switch is offered in every rail mode. **Opening the pane region with nothing in it starts a pane**: the region exists to hold them, it
+opens empty, and a switch that gave the user a bar of nothing would not have answered what was
+asked. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
+group that holds a terminal or the console, in the pane region even when it holds neither, and only
+while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
+whether or not a project is, which opens the menu of what else can be reached here: the shells this
+machine has, and a row that puts the console on screen. What the rows are and what a click does is
+`feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a gear that
 raises application settings, and the theme switch. The gear lights while settings are up. Settings
 are interface-wide, so the overlay opens with no project.
 
@@ -655,21 +694,29 @@ to the interface. Both are stored by the host, which keeps them as an opaque blo
 the schema stays the interface's own. The arrangement is remembered **per rail mode**: each mode
 keeps its own record of which regions were on screen and its own dock blob, so the IDE's side
 panels are not undone by a visit to the sink, and a visit back does not summon them where the sink
-was arranging. A mode with no record of its own opens on its defaults — the IDE with its three side
-regions on, every other mode with all three off. A blob it cannot parse is discarded and the window
-opens on defaults.
+was arranging. A mode with no record of its own opens on its defaults — the IDE with its two side
+regions on and the pane region put away, every other mode with all three off — and **so does a
+project that has never been arranged in the mode it is entered in**, so a project reached from
+another one does not inherit that one's edges and then have them written down as its own. A blob it
+cannot parse is discarded and the window opens on defaults. Which mode the window is in is written
+down when the mode is chosen rather than when the arrangement next changes, so two modes that
+arrange nothing between them still reopen in the right one.
 
 **Layout persists; harnesses do not.** The arrangement carries a version of its own, and one written
 for another version is discarded whole for the default arrangement rather than half-applied. A saved
-terminal panel is dropped on load and the tree normalises around the gap, so a project reopens with
-its side panels, its console and its open files where they were, and no terminals. Restoring a
-mode's arrangement forces every region back to the state that mode left it in — a region another
-mode shut in between is reopened, and one that was shut is closed — so a visit away does not leave
-the mode's edges silently gone.
+terminal panel names its pane, so a pane the window still holds keeps its place — its group, its
+split and its tab position — across the two things that rebuild the tree under it, a rail-mode
+switch and a project switch. One naming a pane the window does not hold is dropped and the tree
+normalises around the gap: a project reopens after a restart with its side panels and its open files
+where they were, and no terminals. Restoring a mode's arrangement forces every region back to the
+state that mode left it in — a region another mode shut in between is reopened, one that was shut is
+closed, and a region whose every panel was dropped is installed empty rather than left holding the
+last mode's — so a visit away does not leave the mode's edges silently gone. A panel the window
+holds that the restored arrangement does not name is put back in its home region rather than lost.
 
 **A panel writes down what it is looking at, not what it drew.** A file panel carries its tab and
-the layout its viewer was left in, and nothing else — never a parsed scene, a computed diff or a
-rendered diagram. Each of those is a function of bytes: the host will send the file again, and the
+the layout its viewer was left in, a terminal panel carries its pane's id, and nothing else — never
+a parsed scene, a computed diff or a rendered diagram. Each of those is a function of bytes: the host will send the file again, and the
 scene, the diff and the picture are made from it again, the last of them off the workarea's cache. Every other panel is
 its name and nothing more.
 
@@ -869,12 +916,14 @@ before `centre()`'s no-project case rather than after it.
 A window is one `AppState`, and inside it one `OpenProject` per project open in that window. The
 split between them is the feature's spine. **A project owns what is about that project** — its
 explorer tree, its open files and their buffers, its panes, which of them holds the keyboard, the
-furniture it was last left in, the work the host last described to it, and the graph's, the columns'
-and the board's own views of that work. **The window owns what is about the window** — the dock and one
+furniture it was last left in, the work the host last described to it, the repository as the host
+last described it, and the graph's, the columns', the board's and the Git screen's own views of
+those. **The window owns what is about the window** — the dock and one
 panel per kind in it, the palette, the chat, the log console, and one flat map from pane id to
 emulator, because an emulator does not care which list draws it.
 
-The task panel's four fields and the board's filter sit across that line: the entities are the
+The task panel's four fields, the board's filter and the Git screen's search and commit box sit
+across that line: the entities are the
 **window's**, because a text field is a component the window builds and there is one of each, while
 the text in them is the **project's**, because it is about the task that project has open. So a
 project switch refills them from whichever project came forward. That is the `file_filter` precedent
@@ -930,6 +979,33 @@ screen. `toggle_editor_wrap()` flips a project's wrap and brings every open buff
 `remember()` writes the explorer's filter down with the rest of the view prefs. The file-tab
 context menu's handlers are `open_file_tab_menu()`, `pick_file_tab_menu()`, the four
 `close_editor_tabs*` helpers, `save_file()` and `dismiss_file_tab_menu()`.
+
+`state/git.rs` is the Git screen's view of one project's repository, held on `OpenProject` beside
+the graph's and the board's: which sidebar sections are shut, which ref and which commit are
+selected, what is typed in the search and the commit box, which changed path the diff is about and
+what it is compared against. It holds no working-tree records — `staged()`, `unstaged()` and
+`conflicted()` take the `GitEntry` pairs the host sent, which `OpenProject::git_entries` keeps whole
+beside the projection the explorer got — and `settle()` drops a selection whose path has gone
+clean.
+`Side::base()` is where a list's comparison base is decided, and `RefRow` and `CommitRow` are the
+fixtures `state/sample.rs` seeds, which is the whole of what the screen invents. Its four widths and
+the graph's lane pitch are constants there, the way the board's and the columns' are theirs.
+
+`ui/git/` draws it, one file per area: `mod.rs` is the frame and the toolbar, `refs.rs` the
+sections and their rows — the file list's own row chrome, so a ref reads the way a path does —
+`history.rs` the search, the lanes and the commits, `changes.rs` the three lists and the commit
+box, and `diff.rs` the pane under both, which hands the hunks to `ui/viewer/diff.rs` rather than
+drawing them again. The toolbar's branch wording is `ui/status_bar.rs`'s `operation_label()` and
+`capped()`, shared so the strip and the screen cannot say different things about one repository.
+
+`AppState` holds the screen's two text entities — `git_search` and `git_message` — mirroring them
+into the project's view through subscriptions, with `sync_git_fields()` filling them back on the
+frame after a project swings in, on the explorer filter's rule. `git_view()`, `git_view_mut()` and
+`git_entries()` are the accessors; `select_git_path()` is the one mutator that sends anything, and
+it sends `DiffProjectFile` only when the selection actually moved. `refresh_git()` asks for the
+overview and the working tree together. `ProjectFileDiffed` feeds whichever of the screen and a diff
+tab was waiting on that path and base. The whole of it is tested without a frame in
+`crates/ubiq/tests/git.rs`.
 
 `open_project_window` in `crates/ubiq/src/app.rs` is the only place a window is created, so the
 first window and "open in a new window" reach the same code. It seeds the registry, allocates the
@@ -990,8 +1066,12 @@ three renderer traits and draws every pixel the library would otherwise style: t
 same height as `ui::kit::tab_strip`, the active tab marked on its bottom edge, the dot beside a tab,
 the close only where the panel allows one, the drop indicator and the strips that resize a region —
 and, at the right end of a tab strip whose group holds a terminal or the console, the `+` that asks
-the host for a new pane. The control is a `NewPane` closure `AppState::for_project` hands the skin,
-drawn only while that window holds a project. A file tab's right-click crosses the same seam through
+the host for a new pane and the chevron that asks for the menu of what else it could reach. The
+control is the `NewPane` value `AppState::for_project` hands the skin: one closure per half, plus a
+third — `AppState::is_pane_region()` — that answers whether a group is the pane region's, because a
+group says which node it is and nothing about where it sits, and the control has to stay on the
+strip of a region the user has emptied. The `+` is drawn only while that window holds a project. The
+chevron crosses the same seam the file tab's right-click does, and for the same reason. A file tab's right-click crosses the same seam through
 the `with_file_tab_menu` builder and its `FileTabMenuRun` type: the skin cannot name `AppState`, so
 the tab's key and the click's point are handed across, and the window paints the menu over the dock.
 Ubiq writes no drag, no drop geometry and no layout
@@ -1029,8 +1109,10 @@ the conventions behind that split are in
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
 project settings dialog, the application settings overlay, what was typed into the picker's and the
 explorer's filters, and the two menus that came later — `MenuId::FontSize` for the status bar's
-text-size dropdown, and `MenuId::FileTab` with the tab's key and anchor in
-`WorkbenchState::file_tab_menu` for the file tab's right-click; `settings.rs` for the Ui-layer
+text-size dropdown, `MenuId::FileTab` with the tab's key and anchor in
+`WorkbenchState::file_tab_menu` for the file tab's right-click, and `MenuId::NewPane` with its anchor
+in `WorkbenchState::new_pane_menu` and its rows in `WorkbenchState::shells` for the new-pane
+control's chevron; `settings.rs` for the Ui-layer
 schema, the overlay's nav, and how a blob is read;
 `explorer.rs` for the tree, the list, the keyboard and the right-click menu, drawing through the
 shared chrome in `ui/kit/files.rs`; `editor.rs`
@@ -1324,16 +1406,25 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A filter matches nothing | The panel says nothing matches; the filter field keeps what was typed. Hits still filling in the background appear as their listings land |
 | Every edge region is closed | The rail, titlebar and status bar remain; the centre region fills the dock |
 | A region is closed while it holds the console | The console goes with the region and comes back where it was left. Nothing leaves the tree |
+| The console's tab is closed | It leaves the arrangement, and the new-pane menu's `Logs` row is what brings it back |
 | The user empties a region by dragging its last panel out | The titlebar's switch for it reads as closed, because it reports the dock |
 | A panel is dropped in a region its class forbids | It is moved back to its home region on the same edit, so the drop reads as refused |
 | A saved arrangement is from another version, or is unreadable | It is discarded whole and the window opens on the default arrangement |
-| A saved arrangement names a terminal | The panel is dropped and the tree normalises around the gap. Layout persists; harnesses do not |
+| A saved arrangement names a pane the window still holds | The pane comes back where it was — its group, its split and its tab position |
+| A saved arrangement names a pane the window does not hold | The panel is dropped and the tree normalises around the gap. Layout persists; harnesses do not |
+| A saved region's every panel was dropped | The region is installed empty, at the size and open state the blob says. The tab strip is still where a pane is opened from |
+| The pane region is opened with nothing in it | A pane is started in it, the platform's default shell, as a bare click on `+` would |
 | The last project in a window is closed | The window stays, on the empty state. Its harnesses are killed with the project, and what it remembered is written down |
 | A project with terminals is closed | The row asks first, and closes only on a second, explicit click |
 | A project open in another window is opened here | It leaves that window, which stays open on the empty state if it held nothing else. Its panes are killed rather than moved |
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
+| The Git screen is opened on a folder that is not a repository | The toolbar says so, the lists are empty and nothing is drawn as clean. No error to dismiss |
+| A repository is open and the working tree has nothing to say | The panel says there is nothing to commit, which is the answer clean gives and unread does not |
+| A changed path is picked and the host has not answered yet | The pane says it is reading. The last comparison is never left under the new name |
+| The path the diff pane is about goes clean | The selection and the comparison go with it, and the pane asks for another path |
+| A commit is selected | The panel reports what the log said and states that a commit's file list needs a message the git family does not carry |
 | The row of columns is full | A split is refused and the tab stays in the column it was in. A click in the sidebar still brings a benched agent on, grouped into the focused column, and the `+` still groups into the column it belongs to — the ceiling is on columns, not on tabs |
 | A benched agent stops being reported | It stops being listed, and there is nothing to clean up: the bench is computed from the work rather than written down |
 | An agent arrives after the screen has laid itself out | It is listed on the bench rather than put in a column. Every listing after the first only prunes, because the arrangement is the user's |

@@ -720,6 +720,88 @@ inspector the orchestration screen carries, and which is not where a day's work 
 Two arrangements per project rather than one, and a user who closes a tab on one screen sees
 nothing change on the other, because a column and a card are not the same claim about an agent.
 
+### D48 — Version control gets a screen of its own, and it reads
+
+`Git` is a rail mode beside `IDE`, holding the refs, the history, the uncommitted changes and the
+diff on one screen. It draws the working tree from the pairs the git family already sends and the
+comparison from the file family's `DiffProjectFile`; its branch list and its log are fixtures until
+the family carries them. Nothing on it writes: the actions a write version would offer are drawn
+inert, and the toolbar says why.
+
+**Why:** the explorer's badges answer "is this file changed" and the status bar's branch answers
+"where am I", and neither can answer "what has this repository been doing" — which is the question
+a user asks before every commit and after every agent's turn. A screen is also where the *pair*
+finally has somewhere to go: staged and unstaged are two lists here and one badge in the tree, so
+the fact the wire already carries stops being thrown away at the edge. Drawing the write shape now
+and refusing to wire it is what keeps the read version shippable: the layout is settled, and the
+write family is one message set rather than a redesign.
+
+**Cost:** a screen whose two most eye-catching areas are invented, which is a standing obligation
+to say so — in its module headers, on the screen itself, and in `G83`. Controls that do nothing,
+which is a defect anywhere else in this interface and is only defensible because the toolbar names
+the reason. And a staged row compared against HEAD rather than the index, because the file family
+has no third base — `G85`.
+
+### D49 — A shell pane is a login shell, and which shells exist is the host's answer
+
+`pty::spawn` starts a program with no arguments that `shells::is_shell()` recognises the way a
+terminal application starts a shell: argv0 prefixed with `-` on Unix, which is what makes
+`.zprofile` and `.profile` run. The menu on the new-pane control offers a fixed candidate list the
+host checked for existence — never a path the interface guessed at, and never an open field.
+
+**Why:** a non-login shell reads `.zshrc` and not the profile that put Homebrew, `pyenv` and the
+rest on `PATH`, so a pane reported `command not found` for tools that were installed and worked in
+every other terminal — and Ubiq launched from Finder starts from a `PATH` that nothing has set up,
+which is exactly the case the profile exists to fix. Picking a different shell from a menu would
+have moved that same defect onto a different program, so the spawn path was fixed first. The list
+being the host's is not a preference: a program on disk is a local fact, and no path crosses into
+UI code.
+
+**Cost:** `portable-pty` only does the argv0 prefixing for a builder made with `new_default_prog`,
+which takes no program name and reads the shell out of `SHELL` — so the chosen shell is handed to it
+there, and the login path is available only to a shell started with no arguments. A fixed candidate
+list means a shell nobody thought of is not offered even when it is installed and is the user's own
+default — the default is always listed, whatever it is, but nothing else outside the list is. And a
+menu that re-probes on every open does a handful of `stat` calls on the coordinator's own thread.
+
+### D50 — The pane region is not furniture: it opens empty, and opening it starts a pane
+
+A fresh window's bottom region holds nothing. The console is not installed in it — the `Logs` row on
+the new-pane control's menu is what puts it there, and its tab's × takes it away — and the region
+starts put away, at its size, with its tab strip. The titlebar's switch that brings it on screen
+starts a pane in it.
+
+**Why:** the console was in every window's arrangement whether or not anyone had asked for it, which
+is a panel's worth of screen spent on the window's own diagnostics. Making it a row on the menu the new-pane
+control carries costs nothing and gives the region back. The region cannot simply be left out
+instead: it is where a pane lands and where the control that opens one is drawn, so it has to exist
+before the first pane does — and once it exists, opening it has to give the user something, which is
+the pane they were reaching for.
+
+**Cost:** `feat-logs`'s "always present and never closed" is reversed, and a window with no project
+reaches its own diagnostics through one menu row rather than a panel in front of it. An empty
+region is a legal arrangement, which the tab-strip control has to be told about: the skin is
+handed a group and knows nothing about placement, so the window answers `is_pane_region()` for it.
+And the IDE's default regions changed under existing users — a window that had arranged its bottom
+region keeps it, one that had not opens without it.
+
+### D51 — A pane's place in the arrangement survives a rebuild
+
+A terminal panel writes its pane's id into the saved layout, and a saved leaf naming a pane the
+window still holds is rebuilt where it was. One naming a pane the window does not hold is dropped,
+as before.
+
+**Why:** "layout persists, harnesses do not" was read as "a terminal leaf is always dropped", which
+is right across a restart and wrong within a session: switching rail mode or project rebuilds the
+tree, and every pane in it was re-added to the first group of the bottom region — losing its group,
+its split, its tab position, and shifting whichever tab was displayed beside it. The pane is alive
+and the window is holding it; the only thing missing was a name in the file to put it back by.
+
+**Cost:** a payload on a panel that carried none, and a build closure that may refuse — `restore`
+asks the window for each panel rather than assuming it can have one, because whether a pane exists
+is the coordinator's answer and not the layout's. A blob written before this carries terminal leaves
+with no payload; they are dropped, which is what the old code did with all of them.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

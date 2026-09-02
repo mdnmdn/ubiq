@@ -23,6 +23,7 @@ pub fn mode_icon(mode: RailMode) -> IconName {
     match mode {
         RailMode::Control => IconName::LayoutDashboard,
         RailMode::Ide => IconName::SquareTerminal,
+        RailMode::Git => IconName::GalleryVerticalEnd,
         RailMode::Agents => IconName::Asterisk,
         RailMode::Orchestration => IconName::Network,
         RailMode::Kb => IconName::BookOpen,

@@ -81,4 +81,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             (app.workbench.open_menu == Some(crate::state::MenuId::FileTab))
                 .then(|| crate::ui::file_tab_menu::overlay(app, window, cx)),
         )
+        // The new-pane control's chevron menu, named a point by a click on the bottom region's tab
+        // bar. It is painted here for the same reason the file tab's menu is: the skin that drew
+        // the chevron does not know what there is to offer.
+        .children(
+            (app.workbench.open_menu == Some(crate::state::MenuId::NewPane))
+                .then(|| crate::ui::new_pane_menu::overlay(app, window, cx)),
+        )
 }

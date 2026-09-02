@@ -14,8 +14,7 @@ depends_on: [feat-panes, feat-logs, tech-transport]
 **Today the "+" on the bottom region's tab bar does one thing: it opens `$SHELL` with no args.**
 `NewPane.run` (`crates/ubiq/src/ui/dock/skin.rs:57`) calls `spawn_pane(None, Vec::new(), cx)`
 (`crates/ubiq/src/app.rs:1187`), which sends `SpawnWorkspace { agent_type: None, .. }`. The
-coordinator resolves `None` to `default_agent_type()` — `$SHELL`, or `/bin/sh`
-(`crates/ubiq-host/src/coordinator.rs:755`) — and that is the only program a pane has ever been
+coordinator resolves `None` to `shells::default_program()` — `$SHELL`, or `/bin/sh` — and that is the only program a pane has ever been
 started with from the UI; `agent_type: Some(..)` exists on the message and is exercised only by
 `crates/ubiq-host/tests/coordinator.rs`. There is no way, today, to open a pane running a shell other
 than the user's default one.
@@ -28,7 +27,7 @@ program if the pane spawn path itself did not run each one as its platform expec
 ## Motivation
 
 **The current spawn is not a login shell, so PATH-setting init is silently skipped.** Both
-`pty::spawn` (`crates/ubiq-host/src/pty/mod.rs:49`) and `default_agent_type()` build the shell with
+`pty::spawn` (`crates/ubiq-host/src/pty/mod.rs:49`) and the coordinator's default built the shell with
 `CommandBuilder::new(program)`. In `portable-pty` 0.9.0, only `CommandBuilder::new_default_prog()`
 takes the branch that prefixes argv0 with `-` (`cmdbuilder.rs:510-517` in the vendored crate source);
 `new(program)` always takes the plain branch. A non-login zsh/bash never sources `.zprofile` /
@@ -140,3 +139,14 @@ were not built to be extended with a list.
   proposal's item 1 fixes
 - [`./terminal-interaction-proposal.md`](./terminal-interaction-proposal.md) — the keyboard
   pass-through audit, unrelated to this but touching the same dock tab bar
+
+## Status (2026-09-02)
+
+Items 1, 2 and 3 landed: the login-shell fix in `crates/ubiq-host/src/pty/mod.rs`, shell discovery
+in `crates/ubiq-host/src/shells.rs` behind `ListShells`/`ShellList`, and the chevron menu in
+`crates/ubiq/src/ui/new_pane_menu.rs`. The behaviour is
+[`../features/panes-and-terminals.md`](../features/panes-and-terminals.md)'s and the trade is `D49`.
+Item 4 landed too, asked for directly: the console is not in a fresh window's arrangement, it closes
+like any other panel, and the menu's `Logs` row is what puts it on screen. What the proposal did not
+foresee is that the control it adds is drawn on the pane region's own strip, so an empty region has
+to stay a legal arrangement and the switch that opens one starts a pane in it — `D50`.

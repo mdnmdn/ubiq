@@ -41,13 +41,15 @@ use gpui_component::dock::{
     PanelEvent, PanelId, PanelInfo, PanelState, TabGroup, panel_handle,
 };
 
+use ubiq_proto::ids::PaneId;
+
 use crate::app::AppState;
 use crate::state::RailMode;
 use crate::state::dock::{PanelKind, Region};
 use crate::state::editor::ViewLayout;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, logs, orchestration, rail, sink, terminal,
+    agents, board, chat, editor, empty, explorer, git, logs, orchestration, rail, sink, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -358,14 +360,18 @@ impl BasePanel for WorkbenchPanel {
 
     /// What a saved layout carries for this panel: **what it is looking at, never what it drew.**
     ///
-    /// Every panel but a file is rebuilt from its name alone and writes nothing else. A file writes
-    /// the one thing its name cannot carry — the tab key — and the one thing the viewer keeps, which
-    /// is which of its layouts is on screen. Never a parsed scene, a computed diff or a rendered
+    /// Two panels write more than their name, because their name is the same for every one of
+    /// them. A file writes its tab key and the layout its viewer was left in; a terminal writes
+    /// its pane's id, which is what lets the arrangement put a pane back where the user left it
+    /// when the window still holds it. Never a parsed scene, a computed diff or a rendered
     /// diagram: those are functions of bytes the host will send again.
     fn dump(&self, _: &App) -> PanelState {
         let mut state = PanelState::new(self.kind.name());
         if let Some(key) = self.kind.tab_key() {
             state.info = PanelInfo::panel(file_payload(key, self.layout));
+        }
+        if let Some(pane_id) = self.kind.pane() {
+            state.info = PanelInfo::panel(pane_payload(pane_id));
         }
         state
     }
@@ -444,6 +450,7 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
 
     match wb.rail_mode {
         RailMode::Ide if has_project => editor::render(app, cx),
+        RailMode::Git if has_project => git::render(app, window, cx).into_any_element(),
         RailMode::Agents if has_project => agents::render(app, window, cx).into_any_element(),
         RailMode::Orchestration if has_project => {
             orchestration::render(app, window, cx).into_any_element()
@@ -474,20 +481,29 @@ fn not_built(mode: RailMode) -> AnyElement {
 // ── Building the arrangement ────────────────────────────────────────
 
 /// The arrangement a window opens in, and the one a discarded layout falls back to: the explorer
-/// on the left border, the chat on the right, the centre above a bottom region holding the console.
+/// on the left border, the chat on the right, the centre above an empty bottom region.
 ///
-/// Terminals are not here — a pane exists because the coordinator says it does, so its panel
-/// arrives with `WorkspaceSpawned` and joins the bottom region then.
+/// **Nothing is in the bottom region and it opens closed.** A pane exists because the coordinator
+/// says it does, so its panel arrives with `WorkspaceSpawned`; the console is opened from the
+/// new-pane control's menu. What the region gives a fresh window is its size and its strip, so
+/// there is somewhere for the first of either to land.
 pub fn default_layout(
     dock: &Entity<DockArea>,
-    panel: &mut impl FnMut(PanelKind, &mut App) -> Entity<WorkbenchPanel>,
+    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let explorer = WorkbenchPanel::handle(&panel(PanelKind::Explorer, cx));
-    let chat = WorkbenchPanel::handle(&panel(PanelKind::Chat, cx));
-    let centre = WorkbenchPanel::handle(&panel(PanelKind::Centre, cx));
-    let console = WorkbenchPanel::handle(&panel(PanelKind::Logs, cx));
+    // Only a terminal is ever refused, and none of these is one.
+    let (Some(explorer), Some(chat), Some(centre)) = (
+        panel(PanelKind::Explorer, cx),
+        panel(PanelKind::Chat, cx),
+        panel(PanelKind::Centre, cx),
+    ) else {
+        return;
+    };
+    let explorer = WorkbenchPanel::handle(&explorer);
+    let chat = WorkbenchPanel::handle(&chat);
+    let centre = WorkbenchPanel::handle(&centre);
 
     dock.update(cx, |dock, cx| {
         dock.set_center(DockLayout::tabs().panel_view(centre, cx), window, cx);
@@ -510,11 +526,17 @@ pub fn default_layout(
         install(
             dock,
             Region::Bottom,
-            DockLayout::tabs().panel_view(console, cx),
+            DockLayout::tabs(),
             px(theme::DOCK_HEIGHT),
             window,
             cx,
         );
+        // A region with nothing in it is a strip of nothing, so it starts put away. It is opened
+        // by the titlebar's switch — which starts a pane in it — or by the first pane or console
+        // that asks for it.
+        if dock.is_dock_open(placement_of(Region::Bottom)) {
+            dock.toggle_dock(placement_of(Region::Bottom), window, cx);
+        }
     });
 }
 
@@ -559,6 +581,50 @@ pub fn add(
     let handle = WorkbenchPanel::handle(panel);
     dock.update(cx, |dock, cx| {
         dock.add_panel_view(handle, placement_of(region), None, window, cx);
+    });
+}
+
+/// Bring a panel that is already in the arrangement back on screen.
+///
+/// The console is not closable — it keeps its place in the tree — so "show me the console" is a
+/// reveal rather than an add: whichever region holds it is brought back if it was put away, and its
+/// tab is made the one its group displays. A panel the tree does not hold is put in its home region
+/// first, which is what makes this safe to call for a panel that has never been installed.
+pub fn reveal(
+    dock: &Entity<DockArea>,
+    panel: &Entity<WorkbenchPanel>,
+    home: Region,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if !holds(dock, panel, cx) {
+        add(dock, panel, home, window, cx);
+    }
+    let id = PanelId::from(panel.entity_id());
+    dock.update(cx, |dock, cx| {
+        let found = [Region::Bottom, Region::Left, Region::Right, Region::Centre]
+            .into_iter()
+            .find_map(|region| {
+                dock.layout(placement_of(region))
+                    .and_then(|tree| tree.find_panel_node(id))
+                    .map(|node| (region, node))
+            });
+        let Some((region, node)) = found else { return };
+        // The centre is not a region that can be put away, so only an edge is ever brought back.
+        let placement = placement_of(region);
+        if region != Region::Centre && !dock.is_dock_open(placement) {
+            dock.toggle_dock(placement, window, cx);
+        }
+        dock.move_panel(
+            id,
+            InsertTarget::Tabs {
+                node,
+                ix: None,
+                activate: true,
+            },
+            window,
+            cx,
+        );
     });
 }
 
@@ -653,7 +719,7 @@ fn first_group(dock: &DockArea, region: Region) -> Option<gpui_component::dock::
 pub fn restore(
     dock: &Entity<DockArea>,
     saved: &serde_json::Value,
-    panel: &mut impl FnMut(PanelKind, &mut App) -> Entity<WorkbenchPanel>,
+    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     layouts: &mut Vec<(String, ViewLayout)>,
     window: &mut Window,
     cx: &mut App,
@@ -679,9 +745,11 @@ pub fn restore(
         (&state.bottom_dock, Region::Bottom),
     ] {
         let Some(saved) = saved else { continue };
-        let Some(layout) = rebuild(saved.panel(), panel, layouts, cx) else {
-            continue;
-        };
+        // A region whose every panel was dropped is installed empty rather than left out. Leaving
+        // it out kept whatever the mode before it had in that region on screen, under the incoming
+        // mode's rail — and an empty region is a legal arrangement here: the pane region starts
+        // that way, and its strip is where a pane is opened from.
+        let layout = rebuild(saved.panel(), panel, layouts, cx).unwrap_or_else(DockLayout::tabs);
         regions.push((region, layout, saved.size(), saved.open()));
     }
 
@@ -716,7 +784,7 @@ pub fn restore(
 /// leaves the slot out rather than installing an empty container.
 fn rebuild(
     state: &PanelState,
-    panel: &mut impl FnMut(PanelKind, &mut App) -> Entity<WorkbenchPanel>,
+    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     layouts: &mut Vec<(String, ViewLayout)>,
     cx: &mut App,
 ) -> Option<DockLayout> {
@@ -744,7 +812,12 @@ fn rebuild(
                 let Some(kind) = leaf(child, layouts) else {
                     continue;
                 };
-                layout = layout.panel_view(WorkbenchPanel::handle(&panel(kind, cx)), cx);
+                // A panel the window will not supply — a terminal whose pane has gone — is dropped
+                // the same way an unreadable leaf is.
+                let Some(built) = panel(kind, cx) else {
+                    continue;
+                };
+                layout = layout.panel_view(WorkbenchPanel::handle(&built), cx);
                 count += 1;
             }
             (count > 0).then(|| layout.active_index((*active_index).min(count - 1)))
@@ -753,7 +826,8 @@ fn rebuild(
         // read as a group of one so a hand-edited file cannot lose a panel.
         PanelInfo::Panel(_) | PanelInfo::Tiles { .. } => {
             let kind = leaf(state, layouts)?;
-            Some(DockLayout::tabs().panel_view(WorkbenchPanel::handle(&panel(kind, cx)), cx))
+            let built = panel(kind, cx)?;
+            Some(DockLayout::tabs().panel_view(WorkbenchPanel::handle(&built), cx))
         }
     }
 }
@@ -765,6 +839,13 @@ fn rebuild(
 /// is handed back for the caller to put on the file rather than applied here: this function knows
 /// nothing about open files.
 fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<PanelKind> {
+    if state.panel_name == PanelKind::TERMINAL {
+        let PanelInfo::Panel(payload) = &state.info else {
+            // A terminal panel from a build that wrote no payload names no pane.
+            return None;
+        };
+        return pane_from_payload(payload);
+    }
     if state.panel_name != PanelKind::File(String::new()).name() {
         return PanelKind::from_name(&state.panel_name);
     }
@@ -784,6 +865,21 @@ fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<P
 /// viewer was left in, because that is the one thing a viewer keeps.
 pub fn file_payload(key: &str, layout: ViewLayout) -> serde_json::Value {
     serde_json::json!({ "key": key, "layout": layout })
+}
+
+/// What a terminal panel writes into the dock's saved layout: the pane it draws.
+///
+/// **Layout persists and harnesses do not**, so this is not a promise that the pane comes back — a
+/// leaf naming a pane the window no longer holds is dropped. It is what keeps a pane's *place*
+/// across the two things that rebuild the tree under it: a rail-mode switch and a project switch.
+pub fn pane_payload(pane_id: PaneId) -> serde_json::Value {
+    serde_json::json!({ "pane": pane_id.to_string() })
+}
+
+/// The same payload read back, or nothing for a payload that names no pane.
+pub fn pane_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
+    let pane_id = payload.get("pane")?.as_str()?.parse::<PaneId>().ok()?;
+    Some(PanelKind::Terminal(pane_id))
 }
 
 /// The same payload read back. A payload with no key names no tab and rebuilds to nothing; one

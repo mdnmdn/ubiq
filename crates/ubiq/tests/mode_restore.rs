@@ -135,6 +135,7 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
     for mode in [RailMode::Tasks, RailMode::Control] {
         // Leave IDE: the side panels go, but nothing is removed from the arrangement.
         let before = fixture.dump(cx);
+        let regions_before = fixture.regions_open(cx);
         fixture.switch_to(mode, cx);
         assert_eq!(fixture.mode(cx), mode);
         let in_non_ide = names(&fixture.dump(cx));
@@ -155,8 +156,13 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
         );
         assert_eq!(
             fixture.regions_open(cx),
-            (true, true, true),
-            "coming back from {mode:?} reopens the IDE's three regions"
+            regions_before,
+            "coming back from {mode:?} restores the regions IDE was left with"
+        );
+        assert_eq!(
+            regions_before,
+            (true, false, true),
+            "the IDE opens with its side panels and an empty pane region put away"
         );
         assert_eq!(
             fixture.state.read_with(cx, |state, cx| state.project(cx)),

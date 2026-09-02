@@ -13,12 +13,13 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use ubiq_proto::ids::ProjectId;
+use ubiq_proto::messages::ShellInfo;
 
 use crate::state::settings::SettingsState;
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. `Ide`, `Agents`, `Orchestration`, `Tasks` and `Sink` are built;
-/// the rest render an empty page.
+/// The left rail's destinations. `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and `Sink` are
+/// built; the rest render an empty page.
 ///
 /// `Agents` and `Orchestration` are two screens over the same records, and the split is the point.
 /// `Agents` is where the user *talks to* the agents — parallel columns, one conversation each.
@@ -28,6 +29,7 @@ use crate::theme::ThemeId;
 pub enum RailMode {
     Control,
     Ide,
+    Git,
     Agents,
     Orchestration,
     Kb,
@@ -47,6 +49,7 @@ impl RailMode {
         match self {
             RailMode::Control => "Control",
             RailMode::Ide => "IDE",
+            RailMode::Git => "Git",
             RailMode::Agents => "Agents",
             RailMode::Orchestration => "Orchestration",
             RailMode::Kb => "KB",
@@ -60,6 +63,7 @@ impl RailMode {
         match self {
             RailMode::Control => "Sessions, workspaces and the agents running in them.",
             RailMode::Ide => "",
+            RailMode::Git => "What version control knows about this project.",
             RailMode::Agents => "The agents running in this project, one column each.",
             RailMode::Orchestration => "How the agents are arranged, and which task each serves.",
             RailMode::Kb => "Notes and documents the agents can read.",
@@ -76,6 +80,7 @@ impl RailMode {
                 "PROJECT",
                 &[
                     RailMode::Ide,
+                    RailMode::Git,
                     RailMode::Agents,
                     RailMode::Orchestration,
                     RailMode::Kb,
@@ -143,6 +148,24 @@ pub enum MenuId {
     /// The file tab's right-click menu. Which tab it opened on, and where, is
     /// `WorkbenchState::file_tab_menu`.
     FileTab,
+    /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
+    /// opened is `WorkbenchState::new_pane_menu`.
+    NewPane,
+}
+
+/// One row of the new-pane control's menu, in the order it is drawn.
+///
+/// The rows are here rather than in the module that paints them because the pick is matched by
+/// position: the menu and the action behind it read the same list, so a row that is not offered
+/// cannot be picked by an index that has shifted under it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NewPaneRow {
+    /// A shell, by its index in [`WorkbenchState::shells`].
+    Shell(usize),
+    /// The line between what starts something and what does not.
+    Separator,
+    /// The console, which is revealed rather than started.
+    Console,
 }
 
 pub struct WorkbenchState {
@@ -182,6 +205,13 @@ pub struct WorkbenchState {
     /// at a time, so this is a single `Option` like `open_menu`; the tab key names the file, the
     /// point anchors the `context_menu` over the window.
     pub file_tab_menu: Option<(String, (f32, f32))>,
+    /// Where the new-pane menu's chevron was clicked, which is what anchors the menu over the
+    /// window. `Some` exactly while `open_menu` is `MenuId::NewPane`.
+    pub new_pane_menu: Option<(f32, f32)>,
+    /// The shells the host says this machine has, in the order the menu offers them. Empty until
+    /// the host answers — a window asks as it attaches and again every time the menu opens, so a
+    /// shell installed since is offered without a restart.
+    pub shells: Vec<ShellInfo>,
 }
 
 impl Default for WorkbenchState {
@@ -201,11 +231,30 @@ impl Default for WorkbenchState {
             work_error: None,
             file_filter: String::new(),
             file_tab_menu: None,
+            new_pane_menu: None,
+            shells: Vec::new(),
         }
     }
 }
 
 impl WorkbenchState {
+    /// What the new-pane control's menu offers.
+    ///
+    /// A window with no project can start no pane — there is no folder to run one in — so it is
+    /// offered the console alone rather than shells that would do nothing. The separator is a row
+    /// like any other, and there is none when there is nothing above it to separate.
+    pub fn new_pane_rows(&self, has_project: bool) -> Vec<NewPaneRow> {
+        let mut rows = Vec::new();
+        if has_project {
+            rows.extend((0..self.shells.len()).map(NewPaneRow::Shell));
+            if !self.shells.is_empty() {
+                rows.push(NewPaneRow::Separator);
+            }
+        }
+        rows.push(NewPaneRow::Console);
+        rows
+    }
+
     /// Whether the explorer and the chat are on screen at all. They are IDE furniture and leave
     /// together — every other panel outlives a rail-mode switch, and the centre panel is what the
     /// mode actually selects between.

@@ -32,3 +32,10 @@ the keyboard pass-through work already tracked in
 keystroke reaches the harness correctly" — Shift+Enter is a gap in that claim, worth folding in
 there). The login-shell issue has no existing tracking document; it belongs wherever PTY spawn
 behavior is documented next.
+
+**Status (2026-09-02).** The login-shell half is fixed: `crates/ubiq-host/src/shells.rs` says what a
+shell is, `pty::command_for` starts one the way a terminal does, and
+`crates/ubiq-host/tests/coordinator.rs` asserts a shell pane's argv0. The behaviour is
+`_docs/features/panes-and-terminals.md`'s and the trade is `D49`; the base-environment factor is
+`G87`. The Shift+Enter half is untouched and stays with the keyboard pass-through work in
+[`terminal-interaction-proposal.md`](./terminal-interaction-proposal.md).
