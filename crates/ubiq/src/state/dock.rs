@@ -89,6 +89,11 @@ pub enum PanelKind {
 }
 
 impl PanelKind {
+    /// The name every terminal panel answers. Named as a constant because a saved leaf has to be
+    /// recognised as a terminal *before* there is a pane id to build the kind with — see
+    /// `ui::dock::leaf`.
+    pub const TERMINAL: &'static str = "ubiq.terminal";
+
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
@@ -117,7 +122,7 @@ impl PanelKind {
     /// looked up by name and rebuilt from what they carried.
     pub fn name(&self) -> &'static str {
         match self {
-            PanelKind::Terminal(_) => "ubiq.terminal",
+            PanelKind::Terminal(_) => Self::TERMINAL,
             PanelKind::Logs => "ubiq.logs",
             PanelKind::Explorer => "ubiq.explorer",
             PanelKind::Chat => "ubiq.chat",
@@ -189,6 +194,9 @@ impl PanelKind {
     /// closes its tab; every other panel is the window's own furniture and is hidden rather than
     /// closed.
     pub fn closable(&self) -> bool {
-        matches!(self, PanelKind::Terminal(_) | PanelKind::File(_))
+        matches!(
+            self,
+            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Logs
+        )
     }
 }

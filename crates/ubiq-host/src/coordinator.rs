@@ -23,6 +23,7 @@ use crate::projects::Projects;
 use crate::pty::{self, Pty};
 use crate::reply::Reply;
 use crate::settings::Settings;
+use crate::shells;
 use crate::work::Work;
 
 /// The geometry a pane starts at, before the emulator has measured its own bounds and said what it
@@ -281,6 +282,17 @@ impl Coordinator {
                     self.focused.remove(&client);
                 }
                 self.pane_gone(client, pane_id);
+            }
+
+            // What can be started here, asked by the new-pane menu as it opens. Probed on every
+            // ask: a shell installed since the window opened is offered without a restart.
+            Message::ListShells => {
+                self.host.send(
+                    To::Client(client),
+                    Message::ShellList {
+                        shells: shells::available(),
+                    },
+                );
             }
 
             // ── the project family ──────────────────────────────────
@@ -635,7 +647,7 @@ impl Coordinator {
         };
 
         let pane_id = PaneId::generate();
-        let agent_type = agent_type.unwrap_or_else(default_agent_type);
+        let agent_type = agent_type.unwrap_or_else(shells::default_program);
 
         let spawned = pty::spawn(
             &agent_type,
@@ -768,9 +780,4 @@ impl Coordinator {
             self.answer(client, replies);
         }
     }
-}
-
-/// What a session starts when it is not told what to start: the user's own shell.
-fn default_agent_type() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }

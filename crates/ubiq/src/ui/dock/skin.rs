@@ -20,8 +20,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::dock::{
-    BasePanelView, DockAreaRenderer, DockContext, DockPlacement, DropIndicator, TabGroupContext,
-    TabGroupRenderer, TileContext, TilesRenderer,
+    BasePanelView, DockAreaRenderer, DockContext, DockPlacement, DropIndicator, NodeId,
+    TabGroupContext, TabGroupRenderer, TileContext, TilesRenderer,
 };
 use gpui_component::{Icon, IconName, InteractiveElementExt as _, Sizable as _, Size};
 
@@ -49,16 +49,36 @@ pub type FileTabMenuRun = Rc<dyn Fn(&str, f32, f32, &mut Window, &mut App)>;
 /// row that opened it. The name of the file is the tab key; `AppState` knows how to promote it.
 pub type FileTabPromoteRun = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
+/// The chevron beside the new-pane control, handed across the renderer seam.
+///
+/// The skin says a menu was wanted and where the click landed; which shells there are to offer is
+/// `AppState`'s, and so is painting the menu over the window.
+pub type NewPaneMenuRun = Rc<dyn Fn(f32, f32, &mut Window, &mut App)>;
+
+/// Whether a tab group is the one an empty pane region draws.
+///
+/// The skin cannot know a placement — the group it is handed names a node and says nothing about
+/// where it sits — so the window, which holds the dock, answers. This is what keeps the control on
+/// the strip of a pane region the user has emptied: without it, closing the last pane would leave
+/// the one place a pane is opened from with nothing on it.
+pub type NewPaneRegion = Rc<dyn Fn(NodeId, &App) -> bool>;
+
 /// The window's "new terminal" control, which lives on the bottom region's tab bar.
 ///
 /// The skin draws panels, never application state, so the action and its availability are handed
 /// to it ready-made by the window that built it rather than recovered through a downcast.
 #[derive(Clone)]
 pub struct NewPane {
-    /// Whether the control may be drawn at all — there is no project for a pane to run in.
+    /// Whether a pane can be started at all, which is what the `+` half needs: with no project
+    /// there is no folder to run a harness in, so it is not drawn. The chevron still is, because
+    /// its menu reaches the console too.
     pub available: Rc<dyn Fn(&App) -> bool>,
     /// Ask the host for a new pane. Reached only from a click, never during render.
     pub run: NewPaneRun,
+    /// Ask for the menu of everything else that can be started here, anchored at the click.
+    pub menu: NewPaneMenuRun,
+    /// Whether this group is the pane region's, for the frames where it holds nothing.
+    pub region: NewPaneRegion,
 }
 
 /// The hit area of the strip that resizes a region, and the hairline drawn inside it. Wide enough
@@ -453,10 +473,13 @@ impl TabGroupRenderer for Skin {
                     )
                 })
         });
+        // A group with no panel at all is a pane region the user has emptied — the console is not
+        // installed by default, and a closed pane takes its tab with it — so the control stays on
+        // its strip rather than leaving the window with nowhere to open a pane from.
         let new_pane = self
             .new_pane
             .as_ref()
-            .filter(|action| hosts_panes && (action.available)(cx));
+            .filter(|action| hosts_panes || (action.region)(group.node(), cx));
 
         let scroll = self.tab_scroll.clone();
         let left = scroll.clone();
@@ -578,11 +601,37 @@ impl TabGroupRenderer for Skin {
             // new terminal is offered.
             .when_some(new_pane, |this, action| {
                 let run = action.run.clone();
-                this.child(
+                let menu = action.menu.clone();
+                // The `+` starts a pane, so it is drawn only where one can be started; the chevron
+                // beside it is drawn either way, because the console is on its menu.
+                this.when((action.available)(cx), |this| {
+                    this.child(
+                        div()
+                            .id("ubiq-tab-new-pane")
+                            .size(px(20.))
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .hover(|this| this.bg(theme::hover()))
+                            .child(
+                                Icon::new(IconName::Plus)
+                                    .with_size(Size::XSmall)
+                                    .text_color(theme::text_faint()),
+                            )
+                            .on_click(move |_, window, cx| run(window, cx)),
+                    )
+                })
+                // The chevron is the same control's second half: the click opens the default
+                // shell, this says what else this machine can run here. Narrower than the "+",
+                // because it qualifies it rather than standing on its own.
+                .child(
                     div()
-                        .id("ubiq-tab-new-pane")
+                        .id("ubiq-tab-new-pane-menu")
                         .mr_2()
-                        .size(px(20.))
+                        .h(px(20.))
+                        .w(px(14.))
                         .flex()
                         .flex_none()
                         .items_center()
@@ -590,11 +639,14 @@ impl TabGroupRenderer for Skin {
                         .cursor_pointer()
                         .hover(|this| this.bg(theme::hover()))
                         .child(
-                            Icon::new(IconName::Plus)
+                            Icon::new(IconName::ChevronDown)
                                 .with_size(Size::XSmall)
                                 .text_color(theme::text_faint()),
                         )
-                        .on_click(move |_, window, cx| run(window, cx)),
+                        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                            let at = fence(event.position);
+                            menu(at.0, at.1, window, cx);
+                        }),
                 )
             })
             .into_any_element()

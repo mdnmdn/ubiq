@@ -77,10 +77,10 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-09-02 |
-| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-01 |
+| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-02 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-02 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-02 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-02 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-02 |
 
 ### Tech
 
@@ -89,7 +89,7 @@ states the boundary once.
 | [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-02 |
 | [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-08-31 |
 | [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-02 |
-| [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-01 |
+| [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-02 |
 | [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-02 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-09-01 |
@@ -136,6 +136,7 @@ a link.
 | The window's areas, their sizes, and what owns each | `features/workbench.md` |
 | Rail modes, panel visibility, projects, what a window owns | `features/workbench.md` |
 | The agents screen: its columns, what a tab drag means, and the bench | `features/workbench.md` |
+| The Git screen: its refs, history, change lists and diff | `features/workbench.md` |
 | The orchestration screen: the graph, its selection model, the inspector and the tasks drawer | `features/workbench.md` |
 | The tasks board: its columns, its cards, what a drag means and the task panel | `features/workbench.md` |
 | Commands, prerequisites, environment variables | `tech/operations.md` |
@@ -168,6 +169,7 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Changing pane layout, focus, resize or chrome | `features/panes-and-terminals.md`, then `tech/ui-and-design.md` |
 | Building or restyling a screen, adding a colour or a size | `tech/ui-and-design.md` |
 | Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
+| Changing the Git screen — its refs, history, change lists or diff | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the agents screen — its columns, its sidebar or what a tab drag does | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the orchestration screen — its graph, inspector or tasks drawer | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the tasks board — its columns, cards or task panel | `features/workbench.md`, then `tech/ui-and-design.md` |

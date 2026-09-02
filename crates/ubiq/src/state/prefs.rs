@@ -48,7 +48,9 @@ impl ModeLayout {
         if mode.is_ide() {
             Self {
                 show_left: true,
-                show_bottom: true,
+                // The pane region is not furniture: it opens empty, and what puts it on screen is
+                // a pane, the console, or the switch that asks for one — see `feat-panes`.
+                show_bottom: false,
                 show_right: true,
                 layout: None,
             }

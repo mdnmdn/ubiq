@@ -127,6 +127,8 @@ recolour and a move on disk.
 | `Settings` | host → UI | `layer`, `value?` | — |
 | `SettingsError` | host → UI | `layer`, `error` | — |
 | `HostInfo` | host → UI | `config_root`, `is_default` | — |
+| `ListShells` | UI → host | — | `ShellList` |
+| `ShellList` | host → UI | `shells` | — |
 
 **`ProjectChanged`, `ProjectAdded` and `ProjectForgotten` are broadcast** to every attached window,
 so every picker agrees by construction rather than by each window asking again. A `ProjectList`, a
@@ -155,6 +157,13 @@ path in it is relative.
 
 **`HostInfo` is unsolicited**, sent once to each window as it attaches. The interface reads no
 disk, so it is the only way the status bar can say that a run is not writing to the usual place.
+
+**`ListShells` is asked repeatedly and answered from a fresh probe.** Which programs are on the
+machine is another fact the interface cannot read, and unlike a config root it can change while a
+window is open, so it is a request rather than something stamped at attach — the new-pane menu asks
+every time it opens. A pane is then started with the `program` a `ShellInfo` carried, on
+`SpawnWorkspace`'s existing `agent_type`; nothing about the spawn changes for a shell picked from a
+menu.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
@@ -384,12 +393,13 @@ either way, because a `Box` serialises as what is inside it.
 
 ## The payload records
 
-Seventeen records travel inside payloads.
+Eighteen records travel inside payloads.
 
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
+| `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `name`, `command`, `description`, `default_args` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes` and `workarea` |

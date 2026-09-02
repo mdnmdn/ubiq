@@ -19,6 +19,7 @@
 //! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
 //! - `pty`: pseudo-terminal streams, the one place a descriptor or a process is held
+//! - `shells`: which shells this machine has, and how one is started
 //! - `agent`: agent-type definitions and the registry over them
 //! - `mcp_server`: the MCP surface Ubiq exposes to the agents it hosts
 
@@ -35,5 +36,6 @@ pub mod projects;
 pub mod pty;
 pub mod reply;
 pub mod settings;
+pub mod shells;
 pub mod store;
 pub mod work;

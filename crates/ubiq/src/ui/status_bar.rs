@@ -320,7 +320,9 @@ fn git_readout(app: &AppState, cx: &App) -> Option<impl IntoElement> {
     Some(mono(parts.join("  "), theme::text_muted()))
 }
 
-fn operation_label(operation: GitOperation) -> &'static str {
+/// The word for an in-progress operation. Shared with the Git screen's toolbar, so the two say the
+/// same thing about the same repository.
+pub fn operation_label(operation: GitOperation) -> &'static str {
     match operation {
         GitOperation::Merge => "merge",
         GitOperation::Rebase | GitOperation::RebaseInteractive => "rebase",
@@ -331,7 +333,8 @@ fn operation_label(operation: GitOperation) -> &'static str {
     }
 }
 
-fn capped(n: u32) -> String {
+/// Ahead or behind, as the number or the cap. Shared with the Git screen for the reason above.
+pub fn capped(n: u32) -> String {
     if n >= AHEAD_BEHIND_CAP {
         "99+".to_string()
     } else {

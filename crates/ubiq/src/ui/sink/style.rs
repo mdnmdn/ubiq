@@ -547,6 +547,7 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             vec![
                 ContextItem::new("Open"),
                 ContextItem::new("Copy path"),
+                ContextItem::separator(),
                 ContextItem::new("New file").disabled(),
             ],
             None,

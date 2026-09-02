@@ -1110,3 +1110,60 @@ fn expect_work_error(ui: &Client) -> (ProjectId, String) {
         }
     }
 }
+
+#[test]
+fn a_shell_pane_is_a_login_shell() {
+    let (_hub, ui) = coordinator();
+    let pane_id = spawn(&ui, "/bin/sh", &[]);
+
+    // A login shell's argv0 is its name with a `-` on it, which is the whole reason
+    // `.zprofile`/`.profile` run at all — without it a pane's `PATH` is not the user's.
+    ui.send(Message::TerminalInput {
+        pane_id,
+        bytes: b"echo argv0=$0\n".to_vec(),
+    });
+    wait_for_output(&ui, "argv0=-sh");
+
+    ui.send(Message::CloseWorkspace { pane_id });
+}
+
+#[test]
+fn a_program_with_arguments_is_started_plainly() {
+    let (_hub, ui) = coordinator();
+    // The login prefix is a shell's business: anything handed a command line is started as itself,
+    // so a harness never sees a `-` on its own argv0.
+    spawn(&ui, "/bin/sh", &["-c", "echo argv0=$0"]);
+
+    wait_for_output(&ui, "argv0=/bin/sh");
+}
+
+#[test]
+fn the_shell_list_offers_what_is_installed_with_the_default_marked() {
+    let (_hub, ui) = coordinator();
+    ui.send(Message::ListShells);
+
+    let shells = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ShellList { shells }) => break shells,
+            Ok(Message::HostInfo { .. }) => continue,
+            other => panic!("expected the shell list, got {other:?}"),
+        }
+    };
+
+    assert!(
+        !shells.is_empty(),
+        "a machine with no shell cannot run this"
+    );
+    assert_eq!(
+        shells.iter().filter(|shell| shell.is_default).count(),
+        1,
+        "exactly one row is the default: {shells:?}"
+    );
+    for shell in &shells {
+        assert!(
+            std::path::Path::new(&shell.program).is_file(),
+            "{} is offered but not there",
+            shell.program
+        );
+    }
+}

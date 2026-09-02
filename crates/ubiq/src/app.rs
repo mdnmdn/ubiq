@@ -25,6 +25,7 @@ use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
 use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
+use crate::state::git::{GitView, RefSection, Side as GitSide};
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{self as ui_settings, MarkdownOpen, SettingsSection};
 use crate::state::sink::{
@@ -34,8 +35,9 @@ use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
-    ExplorerView, FileBody, FileLanguage, LogState, MenuId, OpenFile, PanelKind, ProjectSettings,
-    ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
+    ExplorerView, FileBody, FileLanguage, LogState, MenuId, NewPaneRow, OpenFile, PanelKind,
+    ProjectSettings, ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState,
+    prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -50,7 +52,7 @@ use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, Textar
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
 use ubiq_proto::files::{DiffBase, FileContents, FileError};
-use ubiq_proto::git::{GitError as GitFailure, RepoOverview};
+use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
@@ -199,6 +201,13 @@ pub struct OpenProject {
     pub git: Option<RepoOverview>,
     /// The working-tree map was cut at the ceiling, so the explorer is drawing a prefix.
     pub git_truncated: bool,
+    /// Every path the last working-tree map had something to say about, as the pairs the host
+    /// sent. The explorer keeps the projection of these; the Git screen's change lists need the
+    /// pair itself, because staged-and-modified is two rows there and one badge in the tree.
+    pub git_entries: Vec<GitEntry>,
+    /// The Git screen's view of all of it: which sections are open, what is selected, what is
+    /// typed in the commit box. Per project, for the reason the graph's view is.
+    pub git_view: GitView,
 }
 
 impl OpenProject {
@@ -218,6 +227,8 @@ impl OpenProject {
             wanted: Vec::new(),
             git: None,
             git_truncated: false,
+            git_entries: Vec::new(),
+            git_view: GitView::new(sample::git_refs(), sample::git_history()),
         }
     }
 }
@@ -335,6 +346,10 @@ pub struct AppState {
     /// half, indexed the same way.
     pub column_inputs: Vec<Entity<TextareaState>>,
     pub file_filter: Entity<InputState>,
+    /// The Git screen's search over the log, and its commit box. The entities are the window's and
+    /// the text in them is the project's, so both are mirrored into the project's `GitView`.
+    pub git_search: Entity<InputState>,
+    pub git_message: Entity<TextareaState>,
     /// The file picker's own field. Separate from the explorer's because the two are up at once
     /// and one state drawn twice is one field in two places.
     pub picker_filter: Entity<InputState>,
@@ -458,6 +473,15 @@ impl AppState {
 
         let file_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Go to file\u{2026}"));
+
+        let git_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search message, author or SHA\u{2026}")
+        });
+        let git_message = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Commit message \u{2014} subject, blank line, body")
+                .auto_grow(3, 8)
+        });
 
         let picker_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter by name or path\u{2026}"));
@@ -600,6 +624,21 @@ impl AppState {
                     }
                 })
             },
+            menu: {
+                let app = app.clone();
+                Rc::new(move |x, y, _window, cx| {
+                    if let Some(this) = app.upgrade() {
+                        this.update(cx, |this, cx| this.open_new_pane_menu((x, y), cx));
+                    }
+                })
+            },
+            region: {
+                let app = app.clone();
+                Rc::new(move |node, cx| {
+                    app.upgrade()
+                        .is_some_and(|this| this.read(cx).is_pane_region(node, cx))
+                })
+            },
         };
         let dock = cx.new(|cx| {
             let menu_app = app.clone();
@@ -626,11 +665,15 @@ impl AppState {
         });
         let mut panels: HashMap<PanelKind, Entity<WorkbenchPanel>> = HashMap::new();
         {
+            // The default arrangement asks for no terminal, so nothing here is ever refused; the
+            // answer is an `Option` because a restored arrangement's can be — see `settle_layout`.
             let mut build = |kind: PanelKind, cx: &mut App| {
-                panels
-                    .entry(kind.clone())
-                    .or_insert_with(|| WorkbenchPanel::new(kind, app.clone(), cx))
-                    .clone()
+                Some(
+                    panels
+                        .entry(kind.clone())
+                        .or_insert_with(|| WorkbenchPanel::new(kind, app.clone(), cx))
+                        .clone(),
+                )
             };
             dock::default_layout(&dock, &mut build, window, cx);
         }
@@ -721,6 +764,36 @@ impl AppState {
                 if matches!(event, InputEvent::Change) {
                     let draft = input.read(cx).value().to_string();
                     this.schedule_explorer_filter(draft, cx);
+                }
+            },
+        ));
+
+        // The Git screen's two fields mirror into the project's own view. Neither commits
+        // anything: the search filters as it is typed, and the message is a draft nothing writes.
+        subscriptions.push(cx.subscribe_in(
+            &git_search,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let search = input.read(cx).value().to_string();
+                    if let Some(git) = this.git_view_mut(cx) {
+                        git.search = search;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &git_message,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let message = input.read(cx).value().to_string();
+                    if let Some(git) = this.git_view_mut(cx) {
+                        git.message = message;
+                    }
+                    cx.notify();
                 }
             },
         ));
@@ -960,6 +1033,8 @@ impl AppState {
             agent_input,
             column_inputs,
             file_filter,
+            git_search,
+            git_message,
             picker_filter,
             task_filter,
             task_title_input,
@@ -1076,6 +1151,12 @@ impl AppState {
         }
 
         if self.active_seen != active {
+            // The project on screen is leaving it, so its arrangement is written down here rather
+            // than trusted to whatever the dock last happened to emit — what comes back when the
+            // user returns is what they were looking at.
+            if let Some(previous) = self.active_seen.filter(|id| self.projects.contains_key(id)) {
+                self.remember(previous, cx);
+            }
             self.active_seen = active;
             if let Some(id) = active {
                 self.enter_project(id, cx);
@@ -1129,12 +1210,21 @@ impl AppState {
         self.refill_columns = true;
         self.workbench.rail_mode = view.rail_mode;
         // The arrangement is the mode's own: whichever mode this project was left in is the one
-        // whose window comes back. A mode this project never arranged opens on its defaults — no
-        // blob to restore, and no regions to force, so the window keeps what it already has.
-        self.pending_layout = view
+        // whose window comes back. A mode this project never arranged opens on that mode's
+        // defaults, regions and all — the same answer a mode switch gives — because otherwise a
+        // project that has never been arranged inherits the regions of the one that was on screen,
+        // and the next thing the dock says writes them down as its own.
+        let saved = view
             .modes
             .get(&view.rail_mode)
-            .and_then(|mode| mode.layout.clone());
+            .cloned()
+            .unwrap_or_else(|| prefs::ModeLayout::default_for(view.rail_mode));
+        self.pending_layout = saved.layout.clone();
+        self.pending_regions = saved.layout.is_none().then_some((
+            saved.show_left,
+            saved.show_bottom,
+            saved.show_right,
+        ));
         self.sync_file_panels(project);
 
         self.pending_focus = focused;
@@ -1197,6 +1287,150 @@ impl AppState {
     pub fn graph_mut(&mut self, cx: &App) -> Option<&mut GraphView> {
         let id = self.project(cx)?;
         self.projects.get_mut(&id).map(|open| &mut open.graph)
+    }
+
+    // ── the Git screen ──────────────────────────────────────────────
+
+    /// The Git screen's view of the project on screen. Absent with no project, which is what keeps
+    /// the screen from drawing an empty repository.
+    pub fn git_view(&self, cx: &App) -> Option<&GitView> {
+        self.open_project(cx).map(|open| &open.git_view)
+    }
+
+    pub fn git_view_mut(&mut self, cx: &App) -> Option<&mut GitView> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.git_view)
+    }
+
+    /// Every path the last working-tree map had something to say about. **Absent is "nothing has
+    /// been read"** and empty is "nothing has changed", which are two different screens.
+    pub fn git_entries(&self, cx: &App) -> Option<&[GitEntry]> {
+        let open = self.open_project(cx)?;
+        open.git.as_ref().map(|_| open.git_entries.as_slice())
+    }
+
+    /// Ask for the repository again, overview and working tree together. What the readout in the
+    /// status bar does, from the screen that is about it.
+    pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::ProjectGit { project_id });
+        self.bus.send(Message::RefreshProjectGit {
+            project_id,
+            full: true,
+        });
+        cx.notify();
+    }
+
+    pub fn toggle_git_section(&mut self, section: RefSection, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.toggle_section(section);
+        }
+        cx.notify();
+    }
+
+    pub fn select_git_ref(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.selected_ref = Some(index);
+        }
+        cx.notify();
+    }
+
+    /// Point the screen at a commit, or at the working tree. `None` is the uncommitted row, which
+    /// is a selection like any other rather than nothing selected.
+    pub fn select_git_commit(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.selected_commit = index;
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_git_mine(&mut self, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.mine_only = !git.mine_only;
+        }
+        cx.notify();
+    }
+
+    pub fn clear_git_filters(&mut self, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.clear_filters();
+        }
+        cx.notify();
+    }
+
+    /// Point the diff pane at a changed path, and ask the host for the comparison. Nothing is sent
+    /// when the selection did not move: a second click on the row already being compared is not a
+    /// second question.
+    pub fn select_git_path(&mut self, side: GitSide, path: &str, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(git) = self.git_view_mut(cx) else {
+            return;
+        };
+        let moved = git.select_path(side, path);
+        let base = git.base;
+        if moved {
+            self.bus.send(Message::DiffProjectFile {
+                project_id,
+                rel_path: path.to_string(),
+                base,
+            });
+        }
+        cx.notify();
+    }
+
+    pub fn set_git_split(&mut self, split: bool, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.split = split;
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_git_diff_pane(&mut self, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.diff_open = !git.diff_open;
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_git_amend(&mut self, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.amend = !git.amend;
+        }
+        cx.notify();
+    }
+
+    /// The Git screen's two fields hold the project on screen's text, on the explorer filter's
+    /// rule: mirrored from the frame after a project swings in, and never while it is being typed
+    /// into.
+    pub fn sync_git_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((search, message)) = self
+            .git_view(cx)
+            .map(|git| (git.search.clone(), git.message.clone()))
+        else {
+            return;
+        };
+
+        if !self.git_search.read(cx).focus_handle(cx).is_focused(window)
+            && self.git_search.read(cx).value() != search.as_str()
+        {
+            let field = self.git_search.clone();
+            field.update(cx, |state, cx| state.set_value(search, window, cx));
+        }
+
+        if !self
+            .git_message
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+            && self.git_message.read(cx).value() != message.as_str()
+        {
+            let field = self.git_message.clone();
+            field.update(cx, |state, cx| state.set_value(message, window, cx));
+        }
     }
 
     pub fn board_mut(&mut self, cx: &App) -> Option<&mut BoardState> {
@@ -1543,10 +1777,17 @@ impl AppState {
                 // The base is echoed because the interface may have switched since it asked, and
                 // it is the base that says which of a file's tabs this belongs in.
                 let key = tab_key(&rel_path, Subject::Diff(diff.base));
-                if let Some(open) = self.projects.get_mut(&project_id)
-                    && let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key)
-                {
-                    file.attach_diff(diff);
+                if let Some(open) = self.projects.get_mut(&project_id) {
+                    // The Git screen's pane asked for the same comparison a diff tab would, so the
+                    // one reply serves whichever of the two is waiting for this path.
+                    if open.git_view.path() == Some(rel_path.as_str())
+                        && open.git_view.base == diff.base
+                    {
+                        open.git_view.diff = Some(diff.clone());
+                    }
+                    if let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key) {
+                        file.attach_diff(diff);
+                    }
                 }
                 cx.notify();
             }
@@ -1570,6 +1811,8 @@ impl AppState {
                         open.git = None;
                         open.git_truncated = false;
                         open.explorer.clear_git();
+                        open.git_entries.clear();
+                        open.git_view.settle(&open.git_entries);
                     }
                     Some(next) => {
                         if let Some(held) = &open.git
@@ -1604,6 +1847,10 @@ impl AppState {
                     return;
                 }
                 open.git_truncated = truncated;
+                // The Git screen's lists are the pairs themselves, so the map is kept whole beside
+                // the projection the tree got. A selection whose path has gone clean goes with it.
+                open.git_entries = entries;
+                open.git_view.settle(&open.git_entries);
                 cx.notify();
             }
 
@@ -1617,6 +1864,8 @@ impl AppState {
                         open.git = None;
                         open.git_truncated = false;
                         open.explorer.clear_git();
+                        open.git_entries.clear();
+                        open.git_view.settle(&open.git_entries);
                     }
                     GitFailure::Interrupted => {}
                     GitFailure::Denied | GitFailure::Failed(_) => {}
@@ -1775,6 +2024,17 @@ impl AppState {
             } => {
                 self.workbench.config_root = Some(config_root);
                 self.workbench.config_root_is_default = is_default;
+                // The new-pane menu offers what this machine has, and only the host can say what
+                // that is. Asked on attach so the first menu is not empty, and again on every
+                // open — see `open_new_pane_menu`.
+                self.bus.send(Message::ListShells);
+                cx.notify();
+            }
+
+            // What can be started here. Replaced whole rather than merged: the host's answer is
+            // the list, and a shell that has been uninstalled has to leave the menu.
+            Message::ShellList { shells } => {
+                self.workbench.shells = shells;
                 cx.notify();
             }
 
@@ -1837,7 +2097,12 @@ impl AppState {
     fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
         let pane_id = workspace.id;
         let project = workspace.project_id;
-        let title = agent_title(&workspace.agent_type);
+        let taken: Vec<String> = self
+            .projects
+            .get(&project)
+            .map(|open| open.panes.iter().map(|pane| pane.title.clone()).collect())
+            .unwrap_or_default();
+        let title = pane_title(&workspace.agent_type, &taken);
 
         // A pane for a project this window no longer holds has nowhere to be drawn, and a harness
         // nobody can see is a leak: it is closed rather than kept.
@@ -1994,6 +2259,14 @@ impl AppState {
                 saved.show_bottom,
                 saved.show_right,
             ));
+            // Which mode the window is in is settled now, and is written down now rather than
+            // waiting for the arrangement to change: two modes that arrange nothing between them
+            // would otherwise leave the window reopening in the one it left. The arrangement
+            // itself is not written here — this mode's has not been restored yet.
+            if let Some(open) = self.projects.get_mut(&project) {
+                open.prefs.rail_mode = mode;
+            }
+            self.store_prefs(project);
         }
         cx.notify();
     }
@@ -2027,6 +2300,7 @@ impl AppState {
         self.workbench.open_menu = None;
         self.workbench.pending_close = None;
         self.workbench.file_tab_menu = None;
+        self.workbench.new_pane_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
         cx.notify();
@@ -3158,6 +3432,15 @@ impl AppState {
             }
         }
 
+        self.store_prefs(project);
+    }
+
+    /// Send a project's stored view to the host as it stands, reading nothing off the window.
+    ///
+    /// [`Self::remember`] is how the arrangement on screen gets into it; this is for the fields
+    /// that are settled without looking at the dock — the rail mode a switch has just chosen,
+    /// whose own arrangement has not been restored yet and must not be written down as if it had.
+    fn store_prefs(&self, project: ProjectId) {
         let Some(open) = self.projects.get(&project) else {
             return;
         };
@@ -3185,12 +3468,37 @@ impl AppState {
         )
     }
 
+    /// Whether a tab group is one of the pane region's.
+    ///
+    /// The new-pane control has to stay on the strip of a region the user has emptied, and the
+    /// skin that draws it is handed a node and knows nothing about placement — so the window,
+    /// which holds the dock, answers.
+    pub fn is_pane_region(&self, node: gpui_component::dock::NodeId, cx: &App) -> bool {
+        self.dock
+            .read(cx)
+            .layout(dock::placement_of(Region::Bottom))
+            .is_some_and(|tree| tree.node_ids().contains(&node))
+    }
+
     /// Put a region away, or bring it back. The dock remembers the size either way, which is what
     /// makes a toggle non-destructive.
+    ///
+    /// **Opening the pane region with nothing in it starts a pane.** The region exists to hold
+    /// them, it opens empty — the console is not installed and a closed pane takes its tab with it
+    /// — and a region that opens onto a bar of nothing is not what the switch was asked for. So
+    /// the gesture that asks for the region is the gesture that fills it.
     pub fn toggle_region(&mut self, region: Region, window: &mut Window, cx: &mut Context<Self>) {
         self.dock.update(cx, |dock, cx| {
             dock.toggle_dock(dock::placement_of(region), window, cx);
         });
+        let wants_pane = region == Region::Bottom && {
+            let placement = dock::placement_of(region);
+            let dock = self.dock.read(cx);
+            dock.is_dock_open(placement) && dock.is_empty(placement, cx)
+        };
+        if wants_pane {
+            self.spawn_pane(None, Vec::new(), cx);
+        }
         cx.notify();
     }
 
@@ -3302,23 +3610,37 @@ impl AppState {
         let mut layouts: Vec<(String, ViewLayout)> = Vec::new();
         {
             let mut build = |kind: PanelKind, cx: &mut App| {
-                kept.entry(kind.clone())
-                    .or_insert_with(|| {
-                        panels
-                            .get(&kind)
-                            .cloned()
-                            .unwrap_or_else(|| WorkbenchPanel::new(kind, app.clone(), cx))
-                    })
-                    .clone()
+                // **A terminal panel is never built here.** A saved leaf names a pane, and a pane
+                // exists only because the coordinator says so — one this window does not hold is
+                // a pane from another session, and the leaf is dropped rather than drawn as a
+                // terminal with no stream behind it.
+                if kind.pane().is_some() && !panels.contains_key(&kind) && !kept.contains_key(&kind)
+                {
+                    return None;
+                }
+                Some(
+                    kept.entry(kind.clone())
+                        .or_insert_with(|| {
+                            panels
+                                .get(&kind)
+                                .cloned()
+                                .unwrap_or_else(|| WorkbenchPanel::new(kind, app.clone(), cx))
+                        })
+                        .clone(),
+                )
             };
             if !dock::restore(&dock, &saved, &mut build, &mut layouts, window, cx) {
                 dock::default_layout(&dock, &mut build, window, cx);
             }
         }
-        // A terminal's panel is never in a saved layout — harnesses do not persist — so the ones
-        // this window still holds are put back beside whatever was restored.
+        // A panel the window holds that the restored arrangement does not name is put back in its
+        // home region rather than dropped: a pane spawned in another mode, a file opened while a
+        // different arrangement was on screen, or anything at all when the blob was discarded and
+        // the default arrangement was installed over it. Losing one would leave a live pane or an
+        // open tab with nothing drawing it.
         for (kind, panel) in panels {
-            if kind.pane().is_some() && !kept.contains_key(&kind) {
+            let restorable = kind.pane().is_some() || kind.tab_key().is_some();
+            if restorable && !kept.contains_key(&kind) {
                 let home = kind.home();
                 dock::add(&dock, &panel, home, window, cx);
                 kept.insert(kind, panel);
@@ -4436,6 +4758,73 @@ impl AppState {
             return;
         };
         self.close_editor_tab(at, cx);
+    }
+
+    /// Open the new-pane control's chevron menu, anchored where the button went down.
+    ///
+    /// The list is asked for again here rather than trusted from attach: a shell installed since
+    /// the window opened is offered, and the probe is a handful of `stat` calls on the host's own
+    /// thread. Whatever is already known is what this frame draws; the answer replaces it.
+    pub fn open_new_pane_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::NewPane);
+        self.workbench.new_pane_menu = Some(at);
+        self.bus.send(Message::ListShells);
+        cx.notify();
+    }
+
+    /// Act on one row of the open new-pane menu, by the row's index.
+    ///
+    /// A shell row starts a pane running that shell — the same call the "+" makes, with a program
+    /// on it. Past the last shell is the separator, which is a row and does nothing, and then the
+    /// console, which is revealed rather than started.
+    pub fn pick_new_pane_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.open_menu = None;
+        self.workbench.new_pane_menu = None;
+        let has_project = self.project(cx).is_some();
+        match self.workbench.new_pane_rows(has_project).get(index) {
+            Some(NewPaneRow::Shell(shell)) => {
+                let Some(program) = self
+                    .workbench
+                    .shells
+                    .get(*shell)
+                    .map(|shell| shell.program.clone())
+                else {
+                    return;
+                };
+                self.spawn_pane(Some(program), Vec::new(), cx);
+            }
+            Some(NewPaneRow::Console) => self.reveal_console(window, cx),
+            Some(NewPaneRow::Separator) | None => {}
+        }
+        cx.notify();
+    }
+
+    /// Dismiss the new-pane menu — an outside click, or a pick already taken it.
+    pub fn dismiss_new_pane_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.new_pane_menu = None;
+        cx.notify();
+    }
+
+    /// Bring the console on screen: its region back if it was put away, and its tab to the front.
+    pub fn reveal_console(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = self.panel(PanelKind::Logs, cx);
+        dock::reveal(
+            &self.dock.clone(),
+            &panel,
+            PanelKind::Logs.home(),
+            window,
+            cx,
+        );
+        cx.notify();
     }
 
     /// Dismiss the file tab's menu — an outside click, or a pick already taken it.
@@ -5742,6 +6131,7 @@ impl Render for AppState {
         // from the frame after the project swings in. Cheap when nothing changed, and it never
         // fights a query being typed.
         self.sync_file_filter_field(window, cx);
+        self.sync_git_fields(window, cx);
         // Made anonymous straight away so the frame stops borrowing the window: the queue below
         // is drained on the same `&mut self` the tree was built from.
         let tree = ui::shell::render(self, window, cx).into_any_element();
@@ -5814,13 +6204,21 @@ fn is_terminal_defocus(keystroke: &gpui::Keystroke) -> bool {
     shift_only || ctrl_only || cmd_only
 }
 
-/// What a pane calls itself before its harness says otherwise: the program, without its path.
-fn agent_title(agent_type: &str) -> String {
-    agent_type
-        .rsplit('/')
-        .next()
-        .unwrap_or(agent_type)
-        .to_string()
+/// What a pane calls itself before its harness says otherwise: the program without its path, and a
+/// number, because a project with three shells in it needs three different tabs.
+///
+/// The number is the lowest one no pane of that program is using in that project, so closing
+/// `zsh 2` gives the name back to the next one rather than counting upwards for ever. `taken` is
+/// the titles already in use.
+///
+/// Public because it is the one part of a pane's tab that is a rule rather than a redraw, and
+/// `crates/ubiq/tests/new_pane.rs` asserts it without a window.
+pub fn pane_title(agent_type: &str, taken: &[String]) -> String {
+    let base = agent_type.rsplit('/').next().unwrap_or(agent_type);
+    (1..)
+        .map(|n| format!("{base} {n}"))
+        .find(|name| !taken.iter().any(|used| used == name))
+        .unwrap_or_else(|| base.to_string())
 }
 
 /// Re-exported so `main.rs` can name the palette it boots with.

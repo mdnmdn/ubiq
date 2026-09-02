@@ -46,10 +46,7 @@ pub fn spawn(
         })
         .context("opening a pseudo-terminal")?;
 
-    let mut command = CommandBuilder::new(program);
-    for arg in args {
-        command.arg(arg);
-    }
+    let mut command = command_for(program, args);
     if let Some(folder) = folder {
         command.cwd(folder);
     }
@@ -79,6 +76,34 @@ pub fn spawn(
         },
         child,
     ))
+}
+
+/// The command a pane runs, built the way the program it names expects to be started.
+///
+/// **A shell has to be a login shell.** Started as anything else it never sources
+/// `.zprofile`/`.zlogin`/`.profile` — where Homebrew's `shellenv` and most `pyenv`, `nvm` and
+/// `starship` setup puts things on `PATH` — so tools that are genuinely installed report as
+/// `command not found` inside a pane while working in every other terminal on the machine. On Unix
+/// a login shell is argv0 prefixed with `-`. `portable-pty` does that prefixing itself, but only
+/// for a builder made with `new_default_prog`, which takes no program name and reads the shell out
+/// of `SHELL` instead — so the shell being started is handed to it there. Windows has no
+/// login/non-login split and nothing about `pwsh.exe` or `cmd.exe` changes.
+///
+/// Everything else — a harness, or a shell handed a command to run — is built plainly: a `-` on
+/// argv0 means "login shell" to a shell and nothing at all to any other program.
+fn command_for(program: &str, args: &[String]) -> CommandBuilder {
+    #[cfg(unix)]
+    if args.is_empty() && crate::shells::is_shell(program) {
+        let mut command = CommandBuilder::new_default_prog();
+        command.env("SHELL", program);
+        return command;
+    }
+
+    let mut command = CommandBuilder::new(program);
+    for arg in args {
+        command.arg(arg);
+    }
+    command
 }
 
 impl Pty {

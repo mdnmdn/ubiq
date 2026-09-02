@@ -264,6 +264,9 @@ fn menu_panel(
 pub struct ContextItem {
     pub label: SharedString,
     pub enabled: bool,
+    /// A hairline instead of a row. It still occupies an index, because a menu's rows and the
+    /// actions behind them are matched by position.
+    pub separator: bool,
 }
 
 impl ContextItem {
@@ -271,6 +274,7 @@ impl ContextItem {
         Self {
             label: label.into(),
             enabled: true,
+            separator: false,
         }
     }
 
@@ -278,6 +282,15 @@ impl ContextItem {
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self
+    }
+
+    /// The line between two groups of rows — what tells "start this" from "show me that".
+    pub fn separator() -> Self {
+        Self {
+            label: SharedString::default(),
+            enabled: false,
+            separator: true,
+        }
     }
 }
 
@@ -320,6 +333,14 @@ pub fn context_panel(
         .into_iter()
         .enumerate()
         .map(|(ix, item)| {
+            if item.separator {
+                return div()
+                    .id(("menu-separator", ix))
+                    .my_1()
+                    .h(px(1.))
+                    .flex_none()
+                    .bg(theme::border());
+            }
             let pick = on_pick.clone();
             let enabled = item.enabled;
             let mut row = div()

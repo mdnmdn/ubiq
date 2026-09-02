@@ -88,6 +88,17 @@ pub enum Message {
         is_default: bool,
     },
 
+    /// Which shells this machine actually has. Answered with [`Message::ShellList`].
+    ///
+    /// The interface may not look for itself — a program on disk is exactly the kind of local fact
+    /// it is not allowed to read — so the new-pane menu asks. It asks again each time it opens
+    /// rather than caching the answer, so a shell installed after the window did is offered.
+    ListShells,
+    /// The shells the host found, in the order the menu offers them.
+    ShellList {
+        shells: Vec<ShellInfo>,
+    },
+
     // ── Project family: UI → host ───────────────────────────────────
     /// Every project in the catalogue, probed. Answered with [`Message::ProjectList`].
     ListProjects,
@@ -434,6 +445,21 @@ pub enum Message {
         task_id: Option<TaskId>,
         error: String,
     },
+}
+
+/// One shell the host found on this machine, as the new-pane menu offers it.
+///
+/// `program` is what a spawn asks for, and it is an absolute path wherever the probe found one, so
+/// a pane does not depend on the `PATH` Ubiq itself was launched with. The interface reads nothing
+/// out of it: it shows `label` and hands `program` straight back on
+/// [`Message::SpawnWorkspace`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShellInfo {
+    /// What the row says — the shell's own name, `zsh` or `pwsh`.
+    pub label: String,
+    pub program: String,
+    /// Whether this is the one a bare click on the new-pane control already starts.
+    pub is_default: bool,
 }
 
 /// One running workspace, as the UI is told about it. It carries no process, no writer and no
