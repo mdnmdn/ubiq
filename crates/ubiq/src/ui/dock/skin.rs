@@ -23,11 +23,11 @@ use gpui_component::dock::{
     BasePanelView, DockAreaRenderer, DockContext, DockPlacement, DropIndicator, TabGroupContext,
     TabGroupRenderer, TileContext, TilesRenderer,
 };
-use gpui_component::{Icon, IconName, Sizable as _, Size};
+use gpui_component::{Icon, IconName, InteractiveElementExt as _, Sizable as _, Size};
 
 use crate::state::PanelKind;
 use crate::theme;
-use crate::ui::dock::WorkbenchPanel;
+use crate::ui::dock::{TabInfo, WorkbenchPanel};
 
 /// The tab strip's height, shared with `ui::kit::tab_strip` so a dock tab and an editor tab sit on
 /// the same line.
@@ -42,6 +42,12 @@ pub type NewPaneRun = Rc<dyn Fn(&mut Window, &mut App)>;
 /// file. The name of the file is the tab key, and the menu itself is painted over the window by
 /// `AppState` rather than here, so the skin only has to say a menu was wanted and on which file.
 pub type FileTabMenuRun = Rc<dyn Fn(&str, f32, f32, &mut Window, &mut App)>;
+
+/// The double-click on a file tab, handed across the renderer seam.
+///
+/// A preview tab becomes permanent when it is double-clicked, the same gesture as on the explorer
+/// row that opened it. The name of the file is the tab key; `AppState` knows how to promote it.
+pub type FileTabPromoteRun = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 /// The window's "new terminal" control, which lives on the bottom region's tab bar.
 ///
@@ -61,10 +67,13 @@ const RESIZE_STRIP: f32 = 4.0;
 
 /// What a panel's tab says. Recovered across the renderer seam: the library carries every panel as
 /// a name and a view, and a title is presentation.
-fn tab_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> (SharedString, Option<gpui::Rgba>) {
+fn tab_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> TabInfo {
     match panel.view().downcast::<WorkbenchPanel>() {
         Ok(panel) => panel.read(cx).tab(cx),
-        Err(_) => (SharedString::from(panel.panel_name(cx)), None),
+        Err(_) => TabInfo {
+            label: SharedString::from(panel.panel_name(cx)),
+            ..TabInfo::default()
+        },
     }
 }
 
@@ -90,7 +99,7 @@ impl gpui::Render for DragLabel {
 
 /// Everything Ubiq draws around a panel. One value implements all three renderer traits, because
 /// they share a palette and nothing else.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Skin {
     /// The region a resize drag is sizing, captured on mouse down. A resize follows the pointer
     /// anywhere in the window rather than only over the strip, so the listener that tracks it sits
@@ -102,6 +111,23 @@ pub struct Skin {
     /// The file-tab right-click, so a tab can ask for its context menu. `None` where the skin has
     /// no project-facing window to hand the click to.
     file_tab_menu: Option<FileTabMenuRun>,
+    /// The file-tab double-click, so a preview tab can be promoted to permanent. `None` where the
+    /// skin has no project-facing window to hand the click to.
+    file_tab_promote: Option<FileTabPromoteRun>,
+    /// The scroll handle shared by every tab bar the skin draws.
+    tab_scroll: gpui::ScrollHandle,
+}
+
+impl Default for Skin {
+    fn default() -> Self {
+        Self {
+            resizing: Rc::new(RefCell::new(None)),
+            new_pane: None,
+            file_tab_menu: None,
+            file_tab_promote: None,
+            tab_scroll: gpui::ScrollHandle::new(),
+        }
+    }
 }
 
 impl Skin {
@@ -121,6 +147,14 @@ impl Skin {
     pub fn with_file_tab_menu(self: &Rc<Self>, run: FileTabMenuRun) -> Rc<Self> {
         Rc::new(Self {
             file_tab_menu: Some(run),
+            ..(**self).clone()
+        })
+    }
+
+    /// Attach the file-tab double-click handler, which promotes a preview to permanent.
+    pub fn with_file_tab_promote(self: &Rc<Self>, run: FileTabPromoteRun) -> Rc<Self> {
+        Rc::new(Self {
+            file_tab_promote: Some(run),
             ..(**self).clone()
         })
     }
@@ -283,7 +317,15 @@ impl TabGroupRenderer for Skin {
 
     /// The group's tabs: one per panel, the displayed one marked on its bottom edge, each carrying
     /// the panel's own dot and — where the panel allows it — a close.
-    fn render_tab_bar(&self, group: &TabGroupContext, _: &mut Window, cx: &mut App) -> AnyElement {
+    fn render_tab_bar(
+        &self,
+        group: &TabGroupContext,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let active_ix = group.active_ix();
+        let mut active_tab_ix = 0usize;
+        let mut next_tab_ix = 0usize;
         let tabs: Vec<_> = group
             .panels()
             .iter()
@@ -292,8 +334,12 @@ impl TabGroupRenderer for Skin {
             // it undrawn.
             .filter(|(_, panel)| panel.visible(cx))
             .map(|(ix, panel)| {
-                let active = ix == group.active_ix();
-                let (title, dot) = tab_of(panel, cx);
+                let active = ix == active_ix;
+                if active {
+                    active_tab_ix = next_tab_ix;
+                }
+                next_tab_ix += 1;
+                let info = tab_of(panel, cx);
                 let panel_id = panel.panel_id(cx);
                 let closable = group.is_closable() && panel.closable(cx);
 
@@ -312,11 +358,9 @@ impl TabGroupRenderer for Skin {
                         theme::border()
                     })
                     .text_size(px(12.5))
-                    .text_color(if active {
-                        theme::text()
-                    } else {
-                        theme::text_muted()
-                    })
+                    .text_color(info.title_colour)
+                    .when(info.temporary, |tab| tab.italic())
+                    .when(info.temporary, |tab| tab.bg(theme::surface().opacity(0.3)))
                     .cursor_pointer()
                     .hover(|this| this.text_color(theme::text()));
 
@@ -324,11 +368,11 @@ impl TabGroupRenderer for Skin {
                     tab = tab.bg(theme::app_bg());
                 }
 
-                if let Some(colour) = dot {
+                tab = tab.child(info.label.clone());
+
+                if let Some(colour) = info.dot_colour {
                     tab = tab.child(div().size(px(7.)).flex_none().rounded_full().bg(colour));
                 }
-
-                tab = tab.child(title.clone());
 
                 if closable {
                     let group = group.clone();
@@ -356,7 +400,7 @@ impl TabGroupRenderer for Skin {
                     // The drag is the library's: dropping this tab re-parents a panel *id*, so the
                     // entity behind it is never rebuilt and a dragged terminal keeps its stream.
                     .when_some(group.drag_panel(ix, cx), |this, drag| {
-                        let title = title.clone();
+                        let title = info.label.clone();
                         this.on_drag(drag, move |_, _, _, cx| {
                             cx.new(|_| DragLabel {
                                 title: title.clone(),
@@ -374,6 +418,14 @@ impl TabGroupRenderer for Skin {
                                 let at = fence(event.position);
                                 run(&key, at.0, at.1, window, cx);
                             })
+                        })
+                    })
+                    // A file tab's double-click promotes a preview to permanent, the same gesture as
+                    // on the explorer row that opened it as a preview.
+                    .when_some(self.file_tab_promote.clone(), |this, run| {
+                        let key = file_key_of(panel, cx);
+                        this.when_some(key, move |this, key| {
+                            this.on_double_click(move |_, window, cx| run(&key, window, cx))
                         })
                     })
             })
@@ -406,6 +458,32 @@ impl TabGroupRenderer for Skin {
             .as_ref()
             .filter(|action| hosts_panes && (action.available)(cx));
 
+        let scroll = self.tab_scroll.clone();
+        let left = scroll.clone();
+        let right = scroll.clone();
+
+        // Auto-scroll the active tab into view. The track handle's geometry is filled in at
+        // prepaint, after render has handed the tree over, so the frame a tab first becomes active
+        // the handle still reports last frame's (zeroed) offsets and `scroll_to_item` has nothing
+        // to nudge with. A chase refresh is therefore issued the first time a new tab index turns
+        // active, which lets the next frame measure the strip for real and land the tab in view —
+        // and only once, keyed on the previous active index, so a strip that fits is never
+        // redrawn every frame.
+        let chase_key = format!("ubiq-tab-chase-{}", group.node().as_u64());
+        let prev_active = _window.use_keyed_state(chase_key, cx, |_, _| None::<usize>);
+        let newly_active = *prev_active.read(cx) != Some(active_tab_ix);
+        if newly_active {
+            prev_active.update(cx, |state, _| *state = Some(active_tab_ix));
+        }
+        scroll.scroll_to_item(active_tab_ix);
+        if newly_active && tabs.len() > 1 {
+            _window.refresh();
+        }
+
+        // The chevrons nudge the band by a step each way. They are always present so the user can
+        // tell an overflowed strip can be pushed aside; the strip itself clips whatever runs past
+        // its edge, and the offset is shared state read on the next layout, so a click nudges it
+        // and then asks for a fresh frame rather than trusting a missed one.
         div()
             .h(px(TAB_BAR))
             .flex()
@@ -415,13 +493,67 @@ impl TabGroupRenderer for Skin {
             .border_b_1()
             .border_color(theme::border())
             .font_weight(FontWeight::NORMAL)
-            .overflow_hidden()
-            .children(tabs)
-            .child(div().flex_1().min_w(px(0.)))
+            .child(
+                div()
+                    .id("ubiq-tab-scroll-left")
+                    .h_full()
+                    .w(px(20.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme::hover()))
+                    .child(
+                        Icon::new(IconName::ChevronLeft)
+                            .with_size(Size::XSmall)
+                            .text_color(theme::text_faint()),
+                    )
+                    .on_click(move |_, window, _| {
+                        let mut pos = left.offset();
+                        pos.x += px(120.);
+                        left.set_offset(pos);
+                        window.refresh();
+                    }),
+            )
+            .child(
+                div()
+                    .id("ubiq-tab-strip")
+                    .flex_1()
+                    .min_w(px(0.))
+                    .overflow_x_scroll()
+                    .track_scroll(&self.tab_scroll)
+                    .flex()
+                    .children(tabs),
+            )
+            .child(
+                div()
+                    .id("ubiq-tab-scroll-right")
+                    .h_full()
+                    .w(px(20.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme::hover()))
+                    .child(
+                        Icon::new(IconName::ChevronRight)
+                            .with_size(Size::XSmall)
+                            .text_color(theme::text_faint()),
+                    )
+                    .on_click(move |_, window, _| {
+                        let mut pos = right.offset();
+                        pos.x -= px(120.);
+                        right.set_offset(pos);
+                        window.refresh();
+                    }),
+            )
             .when(zoomable, |this| {
                 this.child(
                     div()
                         .id("ubiq-tab-zoom")
+                        .ml_1()
                         .mr_2()
                         .size(px(20.))
                         .flex()

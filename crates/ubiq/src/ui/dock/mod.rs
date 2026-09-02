@@ -33,7 +33,8 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    IntoElement, ParentElement as _, Pixels, Render, SharedString, WeakEntity, Window, div, px,
+    IntoElement, ParentElement as _, Pixels, Render, Rgba, SharedString, WeakEntity, Window, div,
+    px,
 };
 use gpui_component::dock::{
     BasePanel, BasePanelView, DockArea, DockLayout, DockPlacement, InsertTarget, PaneRef, Panel,
@@ -146,11 +147,13 @@ impl WorkbenchPanel {
         panel_handle(panel.clone())
     }
 
-    /// What the tab says, and the colour of the dot beside it. The dot is the panel's own state —
-    /// a harness still running, the loudest thing the log ring holds — never its selection.
-    pub fn tab(&self, cx: &App) -> (SharedString, Option<gpui::Rgba>) {
+    /// What the tab says and how it is drawn.
+    pub fn tab(&self, cx: &App) -> TabInfo {
         let Some(app) = self.app.upgrade() else {
-            return (SharedString::from(self.kind.name()), None);
+            return TabInfo {
+                label: SharedString::from(self.kind.name()),
+                ..TabInfo::default()
+            };
         };
         let app = app.read(cx);
         match &self.kind {
@@ -163,18 +166,35 @@ impl WorkbenchPanel {
                     Some(true) => theme::success(),
                     _ => theme::text_faint(),
                 };
-                (SharedString::from(title), Some(dot))
+                TabInfo {
+                    label: SharedString::from(title),
+                    dot_colour: Some(dot),
+                    ..TabInfo::default()
+                }
             }
             PanelKind::Logs => {
                 let dot = ubiq_proto::log::logs()
                     .loudest()
                     .filter(|level| *level >= ubiq_proto::log::LogLevel::Warn)
                     .map(logs::level_colour);
-                ("Logs".into(), dot)
+                TabInfo {
+                    label: "Logs".into(),
+                    dot_colour: dot,
+                    ..TabInfo::default()
+                }
             }
-            PanelKind::Explorer => ("Explorer".into(), None),
-            PanelKind::Chat => ("Chat".into(), None),
-            PanelKind::Centre => (centre_title(app.workbench.rail_mode).into(), None),
+            PanelKind::Explorer => TabInfo {
+                label: "Explorer".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::Chat => TabInfo {
+                label: "Chat".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::Centre => TabInfo {
+                label: centre_title(app.workbench.rail_mode).into(),
+                ..TabInfo::default()
+            },
             // A file's tab is the file's own report — its name, what it is looking at, whether it
             // is dirty and whether its close is a question — which is `ui/editor.rs`'s to say.
             PanelKind::File(key) => match app.file(key, cx) {
@@ -183,20 +203,41 @@ impl WorkbenchPanel {
                         .editor(cx)
                         .and_then(|editor| editor.pending_tab_close.clone())
                         == Some(key.clone());
-                    (
-                        editor::label(file, asking),
-                        Some(editor::state_colour(file)),
-                    )
+                    let explorer = app.explorer(cx);
+                    TabInfo {
+                        label: editor::label(file, asking),
+                        title_colour: explorer
+                            .map(|explorer| editor::git_colour(file, explorer))
+                            .unwrap_or_else(theme::text_muted),
+                        dot_colour: did_save_or_dirty(file).then(|| editor::dirty_colour(file)),
+                        temporary: file.temporary,
+                    }
                 }
                 // The tab of a file this window no longer holds. It is hidden rather than drawn,
                 // so this is the name it keeps its slot under.
-                None => (
-                    SharedString::from(crate::state::editor::from_tab_key(key).0),
-                    None,
-                ),
+                None => TabInfo {
+                    label: SharedString::from(crate::state::editor::from_tab_key(key).0),
+                    ..TabInfo::default()
+                },
             },
         }
     }
+}
+
+/// The dirty/save indicator appears only while the file has something to say — a dot on a
+/// clean, idle tab would be furniture, not information.
+fn did_save_or_dirty(file: &crate::state::OpenFile) -> bool {
+    file.dirty()
+        || matches!(
+            (&file.save, &file.body),
+            (
+                crate::state::SaveState::Failed(_) | crate::state::SaveState::Saving(_),
+                _
+            ) | (
+                _,
+                crate::state::FileBody::Failed(_) | crate::state::FileBody::Loading
+            )
+        )
 }
 
 /// What the centre's tab is called. It follows the rail mode, because the centre is what the rail
@@ -206,6 +247,27 @@ fn centre_title(mode: RailMode) -> &'static str {
         RailMode::Ide => "Editor",
         RailMode::Sink => "Kitchen sink",
         other => other.label(),
+    }
+}
+
+/// Everything a tab's skin needs to draw it: the label, the title's colour, whether a status dot
+/// sits at the row's right edge and what it says, and whether the tab is a temporary preview.
+#[derive(Clone)]
+pub struct TabInfo {
+    pub label: SharedString,
+    pub title_colour: Rgba,
+    pub dot_colour: Option<Rgba>,
+    pub temporary: bool,
+}
+
+impl Default for TabInfo {
+    fn default() -> Self {
+        Self {
+            label: SharedString::default(),
+            title_colour: theme::text(),
+            dot_colour: None,
+            temporary: false,
+        }
     }
 }
 
@@ -309,7 +371,7 @@ impl BasePanel for WorkbenchPanel {
 
 impl Panel for WorkbenchPanel {
     fn title(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (label, _) = self.tab(cx);
+        let TabInfo { label, .. } = self.tab(cx);
         div().child(label)
     }
 

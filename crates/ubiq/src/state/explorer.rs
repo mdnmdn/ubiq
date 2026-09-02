@@ -187,6 +187,8 @@ pub enum ExplorerKey {
     Right,
     /// Open the file the keyboard is on, or toggle the folder.
     Enter,
+    /// Shift+Enter: open the file permanently (opposite of temp preview).
+    ShiftEnter,
     Dismiss,
 }
 
@@ -218,6 +220,9 @@ pub enum ExplorerAction {
     Open,
     OpenDiff,
     CopyPath,
+    CopyFullPath,
+    OpenInSystem,
+    Refresh,
     NewFile,
     NewFolder,
     Rename,
@@ -233,6 +238,9 @@ impl ExplorerAction {
             ExplorerAction::Open => "Open",
             ExplorerAction::OpenDiff => "Open diff vs HEAD",
             ExplorerAction::CopyPath => "Copy path",
+            ExplorerAction::CopyFullPath => "Copy full path",
+            ExplorerAction::OpenInSystem => open_in_system_label(),
+            ExplorerAction::Refresh => "Refresh",
             ExplorerAction::NewFile => "New file",
             ExplorerAction::NewFolder => "New folder",
             ExplorerAction::Rename => "Rename",
@@ -252,6 +260,16 @@ impl ExplorerAction {
                 | ExplorerAction::Rename
                 | ExplorerAction::Delete
         )
+    }
+}
+
+fn open_in_system_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Open in Finder"
+    } else if cfg!(target_os = "windows") {
+        "Open in Explorer"
+    } else {
+        "Open in File Manager"
     }
 }
 
@@ -422,6 +440,15 @@ impl ExplorerState {
     /// Whether the project's top level has arrived.
     pub fn is_listed(&self) -> bool {
         self.root_listed
+    }
+
+    /// The status the repository reports for an exact path, if it has been read at all.
+    pub fn git_status(&self, path: &str) -> Option<GitStatus> {
+        if self.git_known {
+            self.git_marks.get(path).copied()
+        } else {
+            None
+        }
     }
 
     /// The rows the explorer draws, in the view it is in.
@@ -934,6 +961,7 @@ impl ExplorerState {
             ExplorerKey::Left => self.step_out(filter),
             ExplorerKey::Right => self.step_in(filter),
             ExplorerKey::Enter => self.enter(filter),
+            ExplorerKey::ShiftEnter => self.enter(filter),
         };
         self.sync_hit_cursors();
         pressed
@@ -1229,6 +1257,11 @@ pub fn menu_entries(
                 ]);
             }
             items.push(entry(ExplorerAction::CopyPath));
+            items.push(entry(ExplorerAction::CopyFullPath));
+            items.push(entry(ExplorerAction::OpenInSystem));
+            if readable {
+                items.push(entry(ExplorerAction::Refresh));
+            }
             if readable {
                 items.extend([entry(ExplorerAction::Rename), entry(ExplorerAction::Delete)]);
             }
@@ -1240,6 +1273,8 @@ pub fn menu_entries(
                 items.extend([entry(ExplorerAction::Open), entry(ExplorerAction::OpenDiff)]);
             }
             items.push(entry(ExplorerAction::CopyPath));
+            items.push(entry(ExplorerAction::CopyFullPath));
+            items.push(entry(ExplorerAction::OpenInSystem));
             if readable {
                 items.extend([entry(ExplorerAction::Rename), entry(ExplorerAction::Delete)]);
             }

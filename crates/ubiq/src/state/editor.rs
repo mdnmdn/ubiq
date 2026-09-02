@@ -246,6 +246,9 @@ pub struct OpenFile {
     pub layout: ViewLayout,
     pub body: FileBody,
     pub save: SaveState,
+    /// A temporary preview tab: not yet promoted. The first edit or an explicit open makes it
+    /// permanent, and opening another temp tab closes the one before it.
+    pub temporary: bool,
     /// Cached rather than compared every frame: a per-frame comparison is the file's length times
     /// the tabs open times the frame rate.
     dirty: bool,
@@ -276,8 +279,17 @@ impl OpenFile {
             },
             body: FileBody::Loading,
             save: SaveState::Idle,
+            temporary: false,
             dirty: false,
             _change: None,
+        }
+    }
+
+    /// A temporary preview tab with no bytes yet.
+    pub fn temporary(path: &str) -> Self {
+        Self {
+            temporary: true,
+            ..Self::pending_on(path, Subject::File)
         }
     }
 
@@ -393,8 +405,19 @@ impl OpenFile {
     /// Recompute dirty from what the buffer now holds.
     ///
     /// Driven by the buffer's own change event, and given the text rather than reading it, so this
-    /// module needs no context.
-    pub fn refresh_dirty(&mut self, text: &str) {
+    /// module needs no context. Answering `true` means the first edit promoted a temporary preview
+    /// to a permanent tab, so the pane can forget the preview its `temporary_key` named.
+    pub fn refresh_dirty(&mut self, text: &str) -> bool {
+        // The first edit promotes a temporary preview to a permanent tab. A preview that is still
+        // showing its file unchanged stays replaceable.
+        let mut promoted = false;
+        if self.temporary
+            && let Some(base) = self.baseline()
+            && text != base
+        {
+            self.temporary = false;
+            promoted = true;
+        }
         if let FileBody::Text { baseline, .. } = &self.body {
             self.dirty = text != baseline;
         }
@@ -402,6 +425,15 @@ impl OpenFile {
         // a changed buffer says nothing true.
         if matches!(self.save, SaveState::Failed(_)) {
             self.save = SaveState::Idle;
+        }
+        promoted
+    }
+
+    /// The last text the host actually sent, when there is one.
+    pub fn baseline(&self) -> Option<&str> {
+        match &self.body {
+            FileBody::Text { baseline, .. } => Some(baseline),
+            _ => None,
         }
     }
 
@@ -442,6 +474,8 @@ pub struct EditorPaneState {
     /// A tab whose close is waiting on an answer, because its buffer holds unsaved changes. The
     /// close takes a second, explicit click rather than losing an edit silently.
     pub pending_tab_close: Option<String>,
+    /// The key of the current temporary preview tab, if any. Only one preview exists at a time.
+    pub temporary_key: Option<String>,
 }
 
 impl EditorPaneState {
@@ -451,6 +485,7 @@ impl EditorPaneState {
             open: Vec::new(),
             active: 0,
             pending_tab_close: None,
+            temporary_key: None,
         }
     }
 
@@ -499,10 +534,39 @@ impl EditorPaneState {
         }
     }
 
+    /// Open a temporary preview on a path, keeping at most one preview tab.
+    ///
+    /// A path already open answers where it is, keeping it permanent. The preview already open is
+    /// replaced by this one: the returned `closed` names the tab whose panel the caller has to
+    /// take away, `None` when nothing was displaced.
+    pub fn open_temporary(&mut self, path: &str) -> (usize, Option<String>) {
+        let key = tab_key(path, Subject::File);
+        if let Some(at) = self.index_of_key(&key) {
+            return (at, None);
+        }
+        let closed = self.temporary_key.clone();
+        if let Some(closed) = &closed
+            && let Some(at) = self.index_of_key(closed)
+        {
+            self.open.remove(at);
+            if self.active >= self.open.len() {
+                self.active = self.open.len().saturating_sub(1);
+            } else if at < self.active {
+                self.active -= 1;
+            }
+        }
+        self.open.push(OpenFile::temporary(path));
+        self.temporary_key = Some(key);
+        (self.open.len() - 1, closed)
+    }
+
     /// Close a tab, keeping the active index pointing at something that still exists.
     pub fn close(&mut self, index: usize) {
         if index >= self.open.len() {
             return;
+        }
+        if self.open[index].key() == self.temporary_key.clone().unwrap_or_default() {
+            self.temporary_key = None;
         }
         self.open.remove(index);
         if self.active >= self.open.len() {
@@ -511,6 +575,28 @@ impl EditorPaneState {
             self.active -= 1;
         }
         self.pending_tab_close = None;
+    }
+
+    /// Make the preview for a path permanent, if it is one. Also forget it as the preview, so
+    /// opening another file as a preview can no longer displace a tab the user has since kept.
+    pub fn promote(&mut self, path: &str) -> bool {
+        self.promote_key(&tab_key(path, Subject::File))
+    }
+
+    /// [`Self::promote`] by tab key.
+    pub fn promote_key(&mut self, key: &str) -> bool {
+        let promoted = self.find_key_mut(key).is_some_and(|file| {
+            if file.temporary {
+                file.temporary = false;
+                true
+            } else {
+                false
+            }
+        });
+        if promoted && self.temporary_key.as_deref() == Some(key) {
+            self.temporary_key = None;
+        }
+        promoted
     }
 
     /// The tab order, as the project remembers it.
