@@ -110,7 +110,7 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
-| [Plan: Explorer & Editor Tab Improvements](./wip/plan.md) | — | — |
+| [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages that turn the mocked agents screen into a real conversation with a composed harness — and the honest inventory of what today's library cannot yet deliver. | 2026-09-03 |
 
 <!-- generated:end catalogue -->
 

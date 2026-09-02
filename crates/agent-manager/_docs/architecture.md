@@ -171,7 +171,7 @@ src/
 ├── run.rs            # spawn + supervise the child; owns the process lifecycle
 ├── io/               # I/O bridging (core: model + bridges; pty-gated: passthrough)
 │   ├── mod.rs        #   neutral model (core)
-│   ├── model.rs      #   AgentInput/AgentEvent/AgentParams          (P2)
+│   ├── model.rs      #   AgentInput/AgentEvent/ApprovalDecision      (P2)
 │   ├── passthrough.rs#   raw-tty pump                               (pty-gated)
 │   ├── structured.rs #   IoBridge trait                             (core, P2)
 │   ├── jsonl.rs      #   Claude stream-json input                   (P2)
