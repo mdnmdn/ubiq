@@ -63,6 +63,10 @@ pub struct RunFlags {
     /// `Some(None)` = bare `--isolate` (sandboxed, no named profile);
     /// `Some(Some(profile))` = `--isolate=<profile>`.
     pub isolate: Option<Option<String>>,
+    /// `--no-isolate`: opt out of isolation even when a settings file or
+    /// profile would otherwise turn it on. Highest precedence — see the
+    /// isolation block in [`resolve`].
+    pub no_isolate: bool,
     /// `--resume <id>`, if given: a raw harness-native session id to resume
     /// (no catalog/store lookup — passed straight through to `spec.resume`).
     pub resume: Option<String>,
@@ -400,14 +404,28 @@ pub fn resolve(
         Some(initial)
     };
 
-    // --- isolation: --isolate[=profile] > the profile's `isolate` default ---
-    spec.isolation = match &flags.isolate {
-        Some(Some(name)) => Isolation::Sandboxed(name.clone()),
-        Some(None) => Isolation::Sandboxed(String::new()),
-        None => match profile.as_ref().and_then(|p| p.isolate.clone()) {
-            Some(ProfileIsolate::Sandboxed(name)) => Isolation::Sandboxed(name),
-            Some(ProfileIsolate::Off) | None => Isolation::None,
-        },
+    // --- isolation: --no-isolate > --isolate[=profile] > the profile's
+    // `isolate` default > [isolate].enabled in settings ---
+    spec.isolation = if flags.no_isolate {
+        Isolation::None
+    } else {
+        match &flags.isolate {
+            Some(Some(name)) => Isolation::Sandboxed(name.clone()),
+            Some(None) => {
+                Isolation::Sandboxed(settings.isolate.profile.clone().unwrap_or_default())
+            }
+            None => match profile.as_ref().and_then(|p| p.isolate.clone()) {
+                Some(ProfileIsolate::Sandboxed(name)) => Isolation::Sandboxed(name),
+                Some(ProfileIsolate::Off) => Isolation::None,
+                None => {
+                    if settings.isolate.enabled == Some(true) {
+                        Isolation::Sandboxed(settings.isolate.profile.clone().unwrap_or_default())
+                    } else {
+                        Isolation::None
+                    }
+                }
+            },
+        }
     };
 
     // --- --resume <id>: a raw harness-native id, no lookup needed ---
@@ -814,6 +832,58 @@ mod tests {
 
         match spec.isolation {
             crate::spec::Isolation::Sandboxed(profile) => assert_eq!(profile, ""),
+            other => panic!("expected Sandboxed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_isolate_flag_beats_settings_enabled_true() {
+        let mut f = flags("claude");
+        f.no_isolate = true;
+
+        let mut settings = Settings::default();
+        settings.isolate.enabled = Some(true);
+        settings.isolate.profile = Some("default".to_string());
+
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+
+        assert!(matches!(spec.isolation, crate::spec::Isolation::None));
+    }
+
+    #[test]
+    fn settings_enabled_true_confines_with_no_flag() {
+        let f = flags("claude");
+
+        let mut settings = Settings::default();
+        settings.isolate.enabled = Some(true);
+        settings.isolate.profile = Some("default".to_string());
+
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+
+        match spec.isolation {
+            Isolation::Sandboxed(name) => assert_eq!(name, "default"),
+            other => panic!("expected Sandboxed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_isolate_flag_uses_settings_isolate_profile_as_layer_name() {
+        let mut f = flags("claude");
+        f.isolate = Some(None);
+
+        let mut settings = Settings::default();
+        settings.isolate.profile = Some("default".to_string());
+
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+
+        match spec.isolation {
+            Isolation::Sandboxed(name) => assert_eq!(name, "default"),
             other => panic!("expected Sandboxed, got {other:?}"),
         }
     }

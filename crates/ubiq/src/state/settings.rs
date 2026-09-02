@@ -5,6 +5,7 @@
 //! not know, is discarded and the window opens on defaults.
 
 use serde::{Deserialize, Serialize};
+use ubiq_proto::settings::HostSettings;
 
 use crate::state::editor::ViewLayout;
 
@@ -99,6 +100,9 @@ pub struct SettingsState {
     pub open: bool,
     pub nav: SettingsSection,
     pub ui: UiSettings,
+    /// The Host layer's own record. Owned and parsed by the host — this is only ever what the
+    /// host last said it held, or the default while nothing has answered yet.
+    pub host: HostSettings,
 }
 
 impl Default for SettingsState {
@@ -107,6 +111,7 @@ impl Default for SettingsState {
             open: false,
             nav: SettingsSection::FileExplorer,
             ui: UiSettings::default(),
+            host: HostSettings::default(),
         }
     }
 }

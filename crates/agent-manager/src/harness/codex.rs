@@ -276,6 +276,7 @@ impl Harness for Codex {
             args,
             env,
             env_remove: Vec::new(),
+            env_clear: false,
         })
     }
 
@@ -316,6 +317,7 @@ impl Harness for Codex {
                 args,
                 env,
                 env_remove: Vec::new(),
+                env_clear: false,
             },
             credential_files: vec![std::path::PathBuf::from("auth.json")],
         })

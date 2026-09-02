@@ -10,6 +10,11 @@ publish = false
 # `just host` is the check that says so.
 [dependencies]
 ubiq-proto = { path = "../ubiq-proto" }
+# The harness library, embedded. It owns every fact about how an agent is configured and launched;
+# this crate owns the pseudo-terminal it lands in. `default-features = false` drops its own CLI and
+# TUI front ends — an application with a window needs neither — and leaves the core that composes a
+# run. See `_docs/tech/agent-manager.md` for the rules across this edge.
+agent-manager = { path = "../agent-manager", default-features = false }
 portable-pty = "0.9"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

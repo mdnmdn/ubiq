@@ -133,7 +133,7 @@ agent-manager/
     │   ├── mod.rs         #   McpService trait for embedders (core, P2)
     │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
     ├── session.rs         # SessionStore/SessionRecorder traits + FsSessionStore; history + transcripts (core, P3)
-    ├── isolate.rs         # isol8 sandbox integration (core, P3)
+    ├── isolate.rs         # RunSpec -> isol8 Spec/Context in-process; confined_launch (macOS-only stopgap, execs sandbox-exec) (core, P3)
     ├── cli/               # the `am` command surface (feature: cli)
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
@@ -283,7 +283,7 @@ Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**; **
 - [x] in-process MCP (lib mode): `McpService` trait for embedders, hosted on loopback HTTP MCP endpoint
 
 **Phase 3 ✅**
-- [x] isolation (`--isolate[=profile]` via isol8): `src/isolate.rs`, settings template, core-gated
+- [x] isolation (`--isolate[=profile]` / `--no-isolate` via isol8, a core library dependency, not an external binary): `src/isolate.rs` builds the policy in-process; settings `[isolate] enabled|profile|home`; confining a run in a caller-owned terminal is macOS-only today (execs `sandbox-exec`) — see `refs/isol8-pty-seam-update.md`
 - [x] session history: `am session ls|show|resume`; persistent transcripts + metadata; `--resume <id>` (harness-native)
 - [x] output adapters: `--output <events|acp|agui>` on structured runs; stateless best-effort mappers (`src/io/{acp,agui}.rs`)
 - [x] hooks: per-run hook selection (`--hooks a,b`); provisioner wires into harness-native slots (Claude/codex/opencode)

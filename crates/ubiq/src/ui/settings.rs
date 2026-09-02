@@ -143,7 +143,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let content = match app.workbench.settings.nav {
         SettingsSection::FileExplorer => file_explorer(app, cx),
         SettingsSection::Editor => editor(app, cx),
-        SettingsSection::Harnesses => harnesses(),
+        SettingsSection::Harnesses => harnesses(app, cx),
     };
 
     div()
@@ -211,12 +211,24 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     ])
 }
 
-fn harnesses() -> AnyElement {
+fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let isolated = app.workbench.settings.host.isolate_agents;
     column(vec![
         heading(
             "Harnesses",
             "Every agent runs on a harness. Register as many as you like — the same tool twice \
              with different credentials is normal, and each entry carries its own defaults.",
+        ),
+        setting_row(
+            "Confine agents to their project",
+            "An agent reads and writes only its project's folder, plus a throwaway configuration \
+             of its own. Off, an agent can reach anywhere on the machine.",
+            check_box(
+                "app-settings-isolate-agents",
+                isolated,
+                cx.listener(|this, _, _, cx| this.toggle_isolate_agents(cx)),
+            )
+            .into_any_element(),
         ),
         div()
             .flex()

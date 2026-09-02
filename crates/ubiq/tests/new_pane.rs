@@ -15,9 +15,10 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::dock::Region;
+use ubiq::state::{NewPaneRow, WorkbenchState};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::messages::{Message, ShellInfo};
+use ubiq_proto::messages::{AgentTypeInfo, Message, ShellInfo};
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 
 /// Long enough for a message to cross a channel in the same process.
@@ -86,6 +87,13 @@ impl Fixture {
         cx.run_until_parked();
     }
 
+    /// Answer the agent-type list, as the embedded harness library's own list would.
+    fn answer_agent_types(&self, agent_types: Vec<AgentTypeInfo>, cx: &mut TestAppContext) {
+        self.host
+            .send(To::Everyone, Message::AgentTypes { agent_types });
+        cx.run_until_parked();
+    }
+
     /// Open the menu, and pick one of its rows — the two gestures, on the same indexing the menu
     /// is drawn with.
     fn pick(&self, index: usize, cx: &mut TestAppContext) {
@@ -128,6 +136,14 @@ fn a_shell(label: &str, program: &str, is_default: bool) -> ShellInfo {
     }
 }
 
+fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
+    AgentTypeInfo {
+        id: id.to_string(),
+        label: label.to_string(),
+        available,
+    }
+}
+
 fn a_project() -> ProjectSnapshot {
     ProjectSnapshot {
         record: ProjectRecord {
@@ -144,17 +160,83 @@ fn a_project() -> ProjectSnapshot {
     }
 }
 
+/// `new_pane_rows` is pure state — no window needed to check the order it puts rows in.
+#[test]
+fn agent_rows_come_before_shells_with_a_separator_between() {
+    let workbench = WorkbenchState {
+        agent_types: vec![
+            an_agent("claude-code", "Claude Code", true),
+            an_agent("codex", "Codex", false),
+        ],
+        shells: vec![a_shell("zsh", "/bin/zsh", true)],
+        ..Default::default()
+    };
+
+    let rows = workbench.new_pane_rows(true);
+    assert_eq!(
+        rows,
+        vec![
+            NewPaneRow::Agent(0),
+            NewPaneRow::Agent(1),
+            NewPaneRow::Separator,
+            NewPaneRow::Shell(0),
+            NewPaneRow::Separator,
+            NewPaneRow::Console,
+        ],
+        "agents lead, then a separator, then the shells, then the console"
+    );
+}
+
+/// No folder, no pane — the menu with no project open offers nothing to start, agents included.
+#[test]
+fn no_rows_are_offered_without_a_project() {
+    let workbench = WorkbenchState {
+        agent_types: vec![an_agent("claude-code", "Claude Code", true)],
+        shells: vec![a_shell("zsh", "/bin/zsh", true)],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        workbench.new_pane_rows(false),
+        vec![NewPaneRow::Console],
+        "a window with no project was offered more than the console"
+    );
+}
+
+/// A machine with no agent harnesses installed sees exactly the menu it saw before agents existed.
+#[test]
+fn an_empty_agent_list_degrades_to_todays_menu() {
+    let workbench = WorkbenchState {
+        shells: vec![a_shell("zsh", "/bin/zsh", true)],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        workbench.new_pane_rows(true),
+        vec![
+            NewPaneRow::Shell(0),
+            NewPaneRow::Separator,
+            NewPaneRow::Console
+        ],
+        "an empty agent list left a stray separator or row ahead of the shells"
+    );
+}
+
 #[gpui::test]
 fn a_window_asks_the_host_what_can_be_started_here(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.attach(cx);
 
+    let said = fixture.said();
     assert!(
-        fixture
-            .said()
-            .iter()
+        said.iter()
             .any(|message| matches!(message, Message::ListShells)),
         "the window never asked for the shell list"
+    );
+    assert!(
+        said.iter()
+            .any(|message| matches!(message, Message::ListAgentTypes)),
+        "the window never asked for the agent-type list"
     );
 }
 
@@ -225,6 +307,65 @@ fn picking_a_shell_starts_a_pane_running_it(cx: &mut TestAppContext) {
             .read_with(cx, |state, _| state.workbench.open_menu),
         None,
         "a pick closes the menu"
+    );
+}
+
+#[gpui::test]
+fn picking_an_agent_starts_a_pane_running_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(
+        vec![
+            an_agent("claude-code", "Claude Code", true),
+            an_agent("codex", "Codex", true),
+        ],
+        cx,
+    );
+    let _ = fixture.said();
+
+    fixture.pick(1, cx);
+
+    let spawned = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SpawnWorkspace {
+                agent_type, args, ..
+            } => Some((agent_type, args)),
+            _ => None,
+        })
+        .expect("picking an agent asks for a pane");
+    assert_eq!(
+        spawned.0,
+        Some("codex".to_string()),
+        "the harness's id is what a spawn asks for, never its label"
+    );
+    assert!(
+        spawned.1.is_empty(),
+        "an agent is started with no arguments"
+    );
+    assert_eq!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.open_menu),
+        None,
+        "a pick closes the menu"
+    );
+}
+
+#[gpui::test]
+fn picking_an_unavailable_agent_does_nothing(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("codex", "Codex", false)], cx);
+    let _ = fixture.said();
+
+    fixture.pick(0, cx);
+
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::SpawnWorkspace { .. })),
+        "an unavailable harness was started anyway"
     );
 }
 

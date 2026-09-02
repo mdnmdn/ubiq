@@ -61,6 +61,11 @@ pub fn spawn_in_pty(
 /// `launch.env_remove` and then setting `launch.env` yields exactly
 /// "inherit the parent env, minus `env_remove`, plus `env`".
 fn apply_env(cmd: &mut CommandBuilder, launch: &Launch) {
+    // A confined launch carries the whole environment the policy computed, so
+    // inheriting the parent's would put back what the sandbox took out.
+    if launch.env_clear {
+        cmd.env_clear();
+    }
     for var in &launch.env_remove {
         cmd.env_remove(var);
     }
@@ -73,8 +78,22 @@ fn apply_env(cmd: &mut CommandBuilder, launch: &Launch) {
 /// tty, resizing on `SIGWINCH`, and propagating the child's exit code.
 /// Cleans up the ephemeral config dir afterwards unless `keep_config` or the
 /// dir was pinned (`!provisioned.ephemeral`). Returns the child's exit code.
-pub fn run(provisioned: &Provisioned, cwd: &Path, keep_config: bool) -> Result<i32> {
-    let (child, master) = spawn_in_pty(&provisioned.launch, cwd, terminal_size())?;
+///
+/// `confined` is the policy the run was resolved into, when it is isolated;
+/// the harness is then exec'd under it rather than directly, and everything
+/// after the spawn — the pump, the resize watcher, the exit code, the cleanup
+/// — is the same, because confinement replaces the argv and nothing else.
+pub fn run(
+    provisioned: &Provisioned,
+    cwd: &Path,
+    keep_config: bool,
+    confined: Option<&crate::isolate::Confined>,
+) -> Result<i32> {
+    let launch = match confined {
+        Some(confined) => crate::isolate::confined_launch(confined)?,
+        None => provisioned.launch.clone(),
+    };
+    let (child, master) = spawn_in_pty(&launch, cwd, terminal_size())?;
     let code = run_with(child, master, cwd)?;
 
     cleanup(provisioned, keep_config);
@@ -188,6 +207,7 @@ mod tests {
             args: vec![],
             env: vec![("CLAUDE_CONFIG_DIR".to_string(), "/tmp/x".to_string())],
             env_remove: vec!["PATH".to_string()],
+            env_clear: false,
         };
 
         let mut cmd = CommandBuilder::new(&launch.program);

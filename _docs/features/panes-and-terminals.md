@@ -57,7 +57,11 @@ starting no particular program means. The chevron opens a menu of every shell th
 has, the default one marked, and picking one starts a pane running that shell instead. The list is a
 fixed set of known shells the host checked for — `zsh`, `bash`, `fish` and `sh`, or PowerShell and
 the command processor on Windows — not a launcher for anything on disk, and a shell that is not
-installed is not offered. Below a separator — everything above it starts something — one row puts
+installed is not offered. Above the shells, and separated from them, the menu offers every agent
+harness the harness library knows; picking one starts a composed agent rather than a program, which
+[`sessions-and-workspaces.md`](./sessions-and-workspaces.md) describes. A harness whose binary is
+not on this machine is offered as an unavailable row rather than left out, because the row is how a
+user learns it could be there. Below a separator — everything above it starts something — one row puts
 the console on screen, which is the one thing on that menu that is not a pane. The `+` needs a
 project and is not drawn without one; the chevron is drawn either way, and with no project the
 console is the only row it offers, because a shell that cannot be started is not worth a row.
@@ -71,7 +75,14 @@ command to run, is started as itself.
 
 **Which shells exist is the host's answer, asked for and never assumed.** The interface may not look
 on disk, so it asks — as it attaches, and again every time the menu opens, which is what makes a
-shell installed since the window opened available without a restart.
+shell installed since the window opened available without a restart. It asks for the agent types the
+same way, and for the same reason.
+
+**A pane's environment is whatever started it.** A shell inherits Ubiq's own, plus the `TERM` and
+`COLORTERM` every pane is given. A composed agent adds the variables that point it at the throwaway
+configuration it was provisioned into — without them the harness reads the user's real
+configuration instead — and a confined one replaces the environment entirely, because its policy
+computed the whole of it and inheriting Ubiq's would put back what the sandbox took out.
 
 **A project's panes stay alive while another project is on screen.** A window can hold several
 projects, and switching between them swaps which project's panes are drawn; the ones behind keep
@@ -244,7 +255,13 @@ checks a fixed candidate list against `PATH` and the usual homes — the homes a
 handed is a shell, and `command_for()` builds a login shell when it is: `portable-pty` prefixes argv0
 with `-` only for a builder made with `new_default_prog`, which takes no program name and reads the
 shell out of `SHELL`, so that is where the chosen shell is handed to it. The coordinator answers
-`ListShells` straight from `available()`.
+`ListShells` straight from `available()`, and `ListAgentTypes` from `agent::Agents::types()`.
+
+**`pty::spawn` is handed a `Program`, not a program name.** It carries the argv and the environment
+a pane starts from — variables to set, variables to drop, and whether to start from an empty one at
+all — because a composed agent brings its own and a confined one brings all of it. `Program::plain`
+is the shell case: argv and nothing else. `crate::shells::locate` is shared with the agent registry,
+so which `PATH` a program is looked up on is answered in one place.
 
 **`crates/ubiq-proto/src/bus.rs` is the seam.** `hub()` opens the switchboard the one host answers
 through, and `Hub::connect()` gives a window its own `Client` on it.

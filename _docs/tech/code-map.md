@@ -190,12 +190,13 @@ the documents in its row.
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
 | `_tools/excalidraw.py` | [`diagram-format.md`](./diagram-format.md) |
 | `_tools/icns.py` | [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md) |
+| `crates/agent-manager/src/isolate.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/lib.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/spec.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq-app/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-app/src/main.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
-| `crates/ubiq-host/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
-| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) |
+| `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq-host/src/coordinator.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/files/diff.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/files/mod.rs` | [`architecture.md`](./architecture.md) |
@@ -221,7 +222,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/projects.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/settings.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md) |
-| `crates/ubiq/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md) |

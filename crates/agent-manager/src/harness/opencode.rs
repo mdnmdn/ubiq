@@ -260,6 +260,7 @@ impl Harness for Opencode {
             args,
             env,
             env_remove: Vec::new(),
+            env_clear: false,
         })
     }
 
@@ -293,6 +294,7 @@ impl Harness for Opencode {
                 args,
                 env,
                 env_remove: Vec::new(),
+                env_clear: false,
             },
             credential_files: vec![std::path::PathBuf::from(".local/share/opencode/auth.json")],
         })

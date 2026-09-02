@@ -284,6 +284,7 @@ impl Harness for Grok {
             args,
             env,
             env_remove: Vec::new(),
+            env_clear: false,
         })
     }
 
@@ -313,6 +314,7 @@ impl Harness for Grok {
                 args: Vec::new(),
                 env,
                 env_remove: Vec::new(),
+                env_clear: false,
             },
             credential_files: vec![std::path::PathBuf::from(".grok/auth.json")],
         })

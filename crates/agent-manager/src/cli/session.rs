@@ -180,9 +180,15 @@ fn cmd_resume(id: &str) -> Result<()> {
         &spec,
         &provisioned,
         &meta.cwd,
-        super::OutputMode::Events,
-        new_sessions_root,
-        true,
+        super::run::RunTail {
+            output: super::OutputMode::Events,
+            sessions_root: new_sessions_root,
+            keep_config: true,
+            // A resume reconstructs a minimal spec that names no isolation, so
+            // there is no policy to hand on. Resuming a confined run under its
+            // original policy is a row in `_docs/open-points.md`.
+            confined: None,
+        },
     )
 }
 

@@ -75,7 +75,7 @@ pub(crate) fn write_mcp_as_skill_pointers(spec: &RunSpec, skills_dir: &Path) -> 
 }
 
 /// How to launch the real harness binary after provisioning.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Launch {
     /// Program to exec, e.g. `"claude"`.
     pub program: String,
@@ -85,6 +85,12 @@ pub struct Launch {
     pub env: Vec<(String, String)>,
     /// Environment variables to REMOVE from the inherited env (hygiene).
     pub env_remove: Vec<String>,
+    /// Start from an empty environment rather than inheriting the parent's.
+    ///
+    /// A confined launch sets this: the sandbox computes the whole environment
+    /// it wants, so inheriting the host's would defeat it. `env_remove` is
+    /// meaningless when this is set, and `env` is then the complete environment.
+    pub env_clear: bool,
 }
 
 /// One model a harness can run, as surfaced by `am <harness> --list-models`.
@@ -677,6 +683,7 @@ mod tests {
                 args: vec![],
                 env: vec![],
                 env_remove: vec![],
+                env_clear: false,
             },
             ephemeral: true,
             #[cfg(feature = "inproc-mcp")]

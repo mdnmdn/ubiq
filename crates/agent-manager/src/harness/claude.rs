@@ -283,6 +283,7 @@ impl Harness for Claude {
             args,
             env,
             env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
+            env_clear: false,
         })
     }
 
@@ -311,6 +312,7 @@ impl Harness for Claude {
                 args,
                 env,
                 env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
+                env_clear: false,
             },
             credential_files: vec![
                 std::path::PathBuf::from(".claude/.credentials.json"), // required

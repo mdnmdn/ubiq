@@ -63,7 +63,7 @@ pub struct Settings {
     /// Hook catalog (`[hooks.<id>]`), keyed by hook id. Mirrors `presets`.
     #[serde(default)]
     pub hooks: BTreeMap<String, HookDef>,
-    /// isol8 sandbox settings (`[isolate]`).
+    /// Whether and how a run is confined (`[isolate]`).
     #[serde(default)]
     pub isolate: IsolateSettings,
     /// Credential store settings (`[credentials]`) — see
@@ -102,14 +102,21 @@ pub struct HarnessDefaults {
     pub profile: Option<String>,
 }
 
-/// The `[isolate]` settings table: overrides how `--isolate` wraps the
-/// launch command in an isol8 invocation.
+/// The `[isolate]` settings table: whether a run is confined by default and,
+/// when it is, which isol8 layer and home mode it uses. See
+/// [`crate::resolve`] for how these combine with `--isolate`/`--no-isolate`
+/// and a profile's own `isolate` field.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct IsolateSettings {
-    /// Custom command template (see [`crate::isolate::IsolateTemplate`]).
-    /// `None` means "use the built-in default template".
+    /// Confine runs that do not say otherwise.
     #[serde(default)]
-    pub command: Option<String>,
+    pub enabled: Option<bool>,
+    /// Layer name added when a confined run names no profile of its own.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// `"ephemeral"` (the default) or `"managed"`.
+    #[serde(default)]
+    pub home: Option<String>,
 }
 
 /// The `[credentials]` settings table: which [`crate::credentials::SecretStore`]
@@ -378,22 +385,23 @@ hooks = ["notify"]
     }
 
     #[test]
-    fn test_load_toml_isolate_command() -> Result<()> {
+    fn test_load_toml_isolate_settings() -> Result<()> {
         let temp = tempfile::TempDir::new()?;
         let path = temp.path().join("am.toml");
         fs::write(
             &path,
             r#"
 [isolate]
-command = "isol8 run {profile_opt} -- {cmd}"
+enabled = true
+profile = "default"
+home = "managed"
 "#,
         )?;
 
         let settings = load(&path)?;
-        assert_eq!(
-            settings.isolate.command.as_deref(),
-            Some("isol8 run {profile_opt} -- {cmd}")
-        );
+        assert_eq!(settings.isolate.enabled, Some(true));
+        assert_eq!(settings.isolate.profile.as_deref(), Some("default"));
+        assert_eq!(settings.isolate.home.as_deref(), Some("managed"));
 
         Ok(())
     }

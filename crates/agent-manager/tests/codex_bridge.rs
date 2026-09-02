@@ -31,6 +31,7 @@ fn launch() -> Launch {
         args: Vec::new(),
         env: Vec::new(),
         env_remove: Vec::new(),
+        env_clear: false,
     }
 }
 

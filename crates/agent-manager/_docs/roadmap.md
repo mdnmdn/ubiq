@@ -52,9 +52,13 @@ normalized events. All three harnesses wrap and launch end-to-end.
 
 **Goal:** production-grade runs and outward-facing event streams. **Done.**
 
-- **Isolation:** `--isolate[=profile]` wraps the harness launch in an
-  [isol8](https://github.com/mdnmdn/isol8) sandbox (filesystem/network confinement). Configurable
-  via settings `[isolate] command` template (default `isol8 run {profile_opt} -- {cmd}`).
+- **Isolation:** `--isolate[=profile]` / `--no-isolate` confine the run under an
+  [isol8](https://github.com/mdnmdn/isol8) sandbox policy (filesystem/network confinement).
+  isol8 is a core library dependency, not an external binary: `src/isolate.rs` builds the
+  policy (a `Spec` + `Context`) in-process from the provisioned `Launch`, configurable via
+  settings `[isolate] enabled|profile|home`. Confining a run in a caller-owned terminal is
+  macOS-only today (renders the policy and execs `sandbox-exec`); other platforms need
+  isol8's pseudo-terminal seam — see `refs/isol8-pty-seam-update.md`.
 - **Session history:** `am session ls|show|resume`; persist transcripts +
   metadata under `am`'s own state dir; resume a prior run via `am session resume <id>` or
   direct `--resume <harness-session-id>` (Claude + opencode; codex deferred to app-server).

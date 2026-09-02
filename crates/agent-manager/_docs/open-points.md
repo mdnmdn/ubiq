@@ -166,3 +166,25 @@ catalog, sessions, runs), each with its own env override
 **Why it's open.** Harnesses refresh OAuth tokens **in place** during a run. Because credentials are copied *in* but never copied *back*, a token the harness refreshes lives only in the throwaway run dir and is **discarded at cleanup** — the next run re-seeds the older token from the base and forces another refresh (and, once the refresh token itself rotates or expires, may force a re-login).
 
 **What to check / do next.** Persist refreshes back through the store write seam: after a run, `AccountStore::capture_login` / `ProfileStore::put_base` can copy the changed credential files from the run dir back into the base (copy-back-on-exit), or the base credential file can be symlinked with care (harnesses that replace the file via rename break a symlink). Because the persistence path is now a store-trait method, a database-backed store persists the refreshed token the same way the filesystem one does. Cross-reference `_docs/profiles.md` §9 and §12 (decision B-2, "copy for now").
+
+---
+
+## 10. A resumed run carries no isolation
+
+**What exists today.** `am session resume <id>` reconstructs a minimal `RunSpec` from the recorded
+`SessionMeta` (`cli/session.rs::spec_for_resume`): the harness, the cwd, `config = Fixed(meta.config_dir)`
+and the harness-native resume id. `RunSpec.isolation` is left at its default, so the resumed run is
+**unconfined even when the original run was confined**, and `run_provisioned` is handed
+`RunTail { confined: None, .. }`.
+
+**Why it's open.** `SessionMeta` records the argv, the account and the config dir, not the policy. A
+faithful resume needs the isolation the original run resolved — at least the layer name and the home
+mode — persisted alongside the rest, and a decision about a *managed* home whose contents the resume
+expects to still be there (an ephemeral one is gone by definition, so a resumed run gets a fresh
+`$HOME` and the harness re-does its first-run work).
+
+**What to check / do next.** Add the run's isolation to `SessionMeta` (the layer, the home mode, and
+the managed id when there is one), rebuild it in `spec_for_resume`, and decide whether resuming a run
+whose home was ephemeral is confined with a new scratch home or refused as unresumable. Until then a
+resume is a deliberate step down in confinement, which is the kind of thing that should be said out
+loud rather than inferred from a `None`.

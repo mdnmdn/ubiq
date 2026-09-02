@@ -19,6 +19,23 @@ impl Settings {
         Self { store }
     }
 
+    /// The host layer, parsed, for the parts of the host that act on it.
+    ///
+    /// An absent record answers the defaults, and so does one this build cannot
+    /// read — the error belongs to whoever asked for it over the bus, and a
+    /// spawn is not the place to relitigate it. What is on disk is preserved
+    /// either way; nothing here writes.
+    pub fn host(&self) -> HostSettings {
+        match self.store.get(SettingsLayer::Host) {
+            Ok(Some(value)) => parse_host(&value).unwrap_or_default(),
+            Ok(None) => HostSettings::default(),
+            Err(error) => {
+                tracing::warn!("host settings were not read, using defaults: {error}");
+                HostSettings::default()
+            }
+        }
+    }
+
     pub fn get(&self, layer: SettingsLayer) -> Reply {
         match self.store.get(layer) {
             Ok(value) => Reply::Asker(Message::Settings { layer, value }),
