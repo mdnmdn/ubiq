@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::conversation::{ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion};
 use crate::git::{self, GitEntry, GitRollup, RepoOverview};
-use crate::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
+use crate::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
+use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
 
@@ -542,6 +543,52 @@ pub enum Message {
     ConversationError {
         agent_id: AgentId,
         error: String,
+    },
+
+    // ── Search family: UI → host ────────────────────────────────────
+    /// Start a content search across a project. One live search per project; a new one supersedes
+    /// the old, which is interrupted mid-file. The interface mints `search_id` and discards every
+    /// reply naming a search it is not holding.
+    SearchProject {
+        project_id: ProjectId,
+        search_id: SearchId,
+        query: Query,
+        scope: search::Scope,
+    },
+    /// Stop a running search. The flag is checked between files and between matched lines.
+    CancelSearch {
+        project_id: ProjectId,
+        search_id: SearchId,
+    },
+
+    // ── Search family: host → UI ────────────────────────────────────
+    /// A bounded batch of results. Flushed on whichever comes first: 64 files, 512 hits, or a
+    /// short interval. Batches arrive in the file walk's order, not sorted.
+    SearchMatches {
+        project_id: ProjectId,
+        search_id: SearchId,
+        batch: Batch,
+    },
+    /// How many files the walker has seen, so an empty result can be trusted — a search that
+    /// finds nothing and a search that has not started look identical without it.
+    SearchProgress {
+        project_id: ProjectId,
+        search_id: SearchId,
+        files_seen: usize,
+    },
+    /// The walk is done. `searched` names what was actually looked at — in v1, `File` only.
+    /// `truncated` is true when any ceiling was hit.
+    SearchFinished {
+        project_id: ProjectId,
+        search_id: SearchId,
+        searched: Vec<Source>,
+        truncated: bool,
+    },
+    /// The search itself failed — the root is gone, the query is bad, the walk refused.
+    SearchError {
+        project_id: ProjectId,
+        search_id: SearchId,
+        error: search::SearchError,
     },
 }
 

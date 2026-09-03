@@ -22,7 +22,11 @@ document; file it instead.
 
 - Agressively use subagents, including cheaper models, for all the grunt work, delegate in every
   occasion it makes sense, do not burn the main context on it.
+- Unless the task is trivial, the main agent should act as a pm/coordinator an spawn subagents to performs
+  the effective activities
 - Keep it simple.
+- Follow the project conventions and existing patterns if possible
+- Be coincise and efficient
 - Say what the tree actually does. A `status: draft` document describes a settled design; the gaps
   between it and the code are rows in `_docs/backlog.md`, not hedges in prose.
 - Use tools and scripts in a smart way: always use the most efficient way to do the operation: if it's cheper using 

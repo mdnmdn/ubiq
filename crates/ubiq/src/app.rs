@@ -37,8 +37,8 @@ use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
     ExplorerView, FileBody, FileLanguage, LogState, MenuId, NewPaneRow, OpenFile, PanelKind,
-    ProjectSettings, ProjectSettingsMode, RailMode, Region, Toggle, WindowRegistry, WorkbenchState,
-    prefs, sample,
+    ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry,
+    WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -76,7 +76,7 @@ const CACHE_DEPTH: u8 = 3;
 /// cache on the frame; waiting this long coalesces a burst into one background walk.
 const FILTER_DEBOUNCE: Duration = Duration::from_millis(100);
 
-gpui::actions!(ubiq, [SaveFile, ZoomIn, ZoomOut]);
+gpui::actions!(ubiq, [OpenSearch, SaveFile, ZoomIn, ZoomOut]);
 
 /// The process-wide switchboard, so every window reaches the same host.
 ///
@@ -334,6 +334,8 @@ pub struct AppState {
     pub sink: SinkState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
+    /// The project search panel's state: query, options, results.
+    pub search: SearchState,
     /// The file picker, when one is up. It belongs to the window rather than to the screen that
     /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
     /// who is owed the answer.
@@ -400,6 +402,8 @@ pub struct AppState {
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
     pub project_search: Entity<InputState>,
+    /// The search panel's query field.
+    pub search_query: Entity<InputState>,
     /// The project settings dialog's name field. Also what a picker row used to become while
     /// renaming; that editor now lives in the dialog.
     pub rename_input: Entity<InputState>,
@@ -547,6 +551,9 @@ impl AppState {
 
         let project_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
+
+        let search_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search in project\u{2026}"));
 
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
         let project_form_about = cx.new(|cx| {
@@ -1057,6 +1064,7 @@ impl AppState {
             sink: SinkState::default(),
             file_picker: None,
             logs: LogState::default(),
+            search: SearchState::new(search_query.clone()),
             adopt_on_list: false,
             adding: false,
             pending_files: Vec::new(),
@@ -1078,6 +1086,7 @@ impl AppState {
             new_step_input,
             command_input,
             project_search,
+            search_query,
             rename_input,
             project_form_about,
             project_form_hex,
@@ -2186,6 +2195,100 @@ impl AppState {
             // a harness that has been uninstalled has to leave the menu, or read as unavailable.
             Message::AgentTypes { agent_types } => {
                 self.workbench.agent_types = agent_types;
+                cx.notify();
+            }
+
+            // ── the search family ────────────────────────────────────
+            Message::SearchMatches {
+                project_id,
+                search_id,
+                batch,
+            } => {
+                let dominated = self
+                    .search
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
+                if !dominated {
+                    return;
+                }
+                if let ubiq_proto::search::Batch::Files(file_hits) = batch {
+                    for hit in file_hits {
+                        self.search.total_hits += hit.lines.len();
+                        if let Some(existing) = self
+                            .search
+                            .results
+                            .iter_mut()
+                            .find(|r| r.rel_path == hit.rel_path)
+                        {
+                            existing.hits.extend(hit.lines);
+                            existing.truncated |= hit.truncated;
+                        } else {
+                            self.search.truncated |= hit.truncated;
+                            self.search.results.push(crate::state::search::FileResult {
+                                rel_path: hit.rel_path,
+                                hits: hit.lines,
+                                truncated: hit.truncated,
+                            });
+                        }
+                    }
+                }
+                cx.notify();
+            }
+
+            Message::SearchProgress {
+                project_id,
+                search_id,
+                files_seen,
+            } => {
+                let dominated = self
+                    .search
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
+                if !dominated {
+                    return;
+                }
+                self.search.files_seen = files_seen;
+                cx.notify();
+            }
+
+            Message::SearchFinished {
+                project_id,
+                search_id,
+                searched: _,
+                truncated,
+            } => {
+                let dominated = self
+                    .search
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
+                if !dominated {
+                    return;
+                }
+                self.search.truncated |= truncated;
+                self.search.finished = true;
+                self.search.active = None;
+                cx.notify();
+            }
+
+            Message::SearchError {
+                project_id,
+                search_id,
+                error,
+            } => {
+                let dominated = self
+                    .search
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
+                if !dominated {
+                    return;
+                }
+                self.search.error = Some(error);
+                self.search.finished = true;
+                self.search.active = None;
                 cx.notify();
             }
 
@@ -3696,6 +3799,13 @@ impl AppState {
     /// Drained in `render`, which is the same device the pending focus and the arrived files use,
     /// and for the same reason: both halves of a panel's life need a window.
     fn settle_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // When a search is active, ensure the search panel is in the dock.
+        if self.search.active.is_some() {
+            let panel = self.panel(PanelKind::Search, cx);
+            if !dock::holds(&self.dock.clone(), &panel, cx) {
+                self.pending_panels.push(PanelEdit::Open(PanelKind::Search));
+            }
+        }
         if self.pending_panels.is_empty() {
             return;
         }
@@ -5034,6 +5144,25 @@ impl AppState {
             cx,
         );
         cx.notify();
+    }
+
+    /// Bring the search panel on screen: its region back if it was put away, and its tab to the
+    /// front.
+    pub fn reveal_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = self.panel(PanelKind::Search, cx);
+        dock::reveal(
+            &self.dock.clone(),
+            &panel,
+            PanelKind::Search.home(),
+            window,
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Open the search panel and bring it into focus.
+    pub fn open_search(&mut self, _: &OpenSearch, window: &mut Window, cx: &mut Context<Self>) {
+        self.reveal_search(window, cx);
     }
 
     /// Dismiss the file tab's menu — an outside click, or a pick already taken it.
@@ -6528,6 +6657,7 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
     ]);
     // The file picker's and the explorer's, which are the field's as well as the surface's and
     // have to be registered after the component library's own — `ui::file_picker::key_bindings`

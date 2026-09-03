@@ -86,6 +86,8 @@ pub enum PanelKind {
     Centre,
     /// One open file, named by its tab key.
     File(String),
+    /// Project content search.
+    Search,
 }
 
 impl PanelKind {
@@ -97,7 +99,7 @@ impl PanelKind {
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
-            PanelKind::Terminal(_) | PanelKind::Logs => PanelClass::Free,
+            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => PanelClass::Free,
             PanelKind::Explorer | PanelKind::Chat => PanelClass::Edge,
             PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
         }
@@ -107,7 +109,7 @@ impl PanelKind {
     /// back. Every kind's home satisfies its own class.
     pub fn home(&self) -> Region {
         match self {
-            PanelKind::Terminal(_) | PanelKind::Logs => Region::Bottom,
+            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
             PanelKind::Explorer => Region::Left,
             PanelKind::Chat => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
@@ -128,6 +130,7 @@ impl PanelKind {
             PanelKind::Chat => "ubiq.chat",
             PanelKind::Centre => "ubiq.centre",
             PanelKind::File(_) => "ubiq.file",
+            PanelKind::Search => "ubiq.search",
         }
     }
 
@@ -144,6 +147,7 @@ impl PanelKind {
             "ubiq.explorer" => Some(PanelKind::Explorer),
             "ubiq.chat" => Some(PanelKind::Chat),
             "ubiq.centre" => Some(PanelKind::Centre),
+            "ubiq.search" => Some(PanelKind::Search),
             _ => None,
         }
     }
@@ -187,6 +191,7 @@ impl PanelKind {
             PanelKind::Logs => true,
             PanelKind::Centre => !at.is_ide || !at.any_file_open,
             PanelKind::File(_) => at.is_ide && at.file_open,
+            PanelKind::Search => at.is_ide && at.has_project,
         }
     }
 
@@ -196,7 +201,7 @@ impl PanelKind {
     pub fn closable(&self) -> bool {
         matches!(
             self,
-            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Logs
+            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Logs | PanelKind::Search
         )
     }
 }

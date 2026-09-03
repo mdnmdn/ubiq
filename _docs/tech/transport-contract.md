@@ -576,6 +576,35 @@ or `Agent`. Which token any of them reads in stays the interface's alone.
 coordinator and stay there — a record that crosses the bus must survive serialisation, which is the
 mechanical form of the rule that the UI never assumes the pseudo-terminal is local.
 
+## The search family
+
+The eighth family. **Every variant names a project and a search**, because a search is scoped to a
+project and identified by the UI-created `SearchId` that rides on every message.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `SearchProject` | UI → host | `search_id`, `project_id`, `query` | `SearchMatches`, `SearchProgress`, `SearchFinished`, or `SearchError` |
+| `CancelSearch` | UI → host | `search_id`, `project_id` | — |
+| `SearchMatches` | host → UI | `search_id`, `project_id`, `batch` | — |
+| `SearchProgress` | host → UI | `search_id`, `project_id`, `files_seen` | — |
+| `SearchFinished` | host → UI | `search_id`, `project_id`, `searched`, `truncated` | — |
+| `SearchError` | host → UI | `search_id`, `project_id`, `error` | — |
+
+**One live search per project.** A new `SearchProject` for a project that already has one in flight
+supersedes it: the host cancels the old walk and starts the new one. The UI creates a `SearchId`
+before the first request hits the wire, so the first `SearchProject` message carries the id.
+
+**Batching.** The worker flushes on 64 files or 512 hits, whichever comes first. There is no timer.
+A batch carries zero or more `FileHit` records, each with a `rel_path`, a list of `LineHit`s and a
+`truncated` flag. `SearchFinished` carries the total count of files with hits and a global
+`truncated` flag.
+
+**Ceilings.** `HITS_PER_FILE` is 100, `FILES_WITH_HITS` is 1 000, `TOTAL_HITS` is 10 000. A ceiling
+that bites sets the relevant `truncated` flag.
+
+**Progress.** `SearchProgress` is sent every 100 files the walker sees, so the UI can show a spinner
+that advances.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -596,7 +625,8 @@ mechanical form of the rule that the UI never assumes the pseudo-terminal is loc
 
 1. Decide the family. If it names a pane, the pane family. If it names a project **and a path inside
    it**, the file family. If it names a project **and a piece of work inside it** — a task, a step or
-   an agent — the work family. If it names a project alone, the project family. Otherwise the
+   an agent — the work family. If it names a project **and a search inside it**, the search family.
+   If it names a project alone, the project family. Otherwise the
    session family.
    If it names an **agent** and carries something that agent said, the conversation family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no

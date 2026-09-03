@@ -49,7 +49,8 @@ use crate::state::dock::{PanelKind, Region};
 use crate::state::editor::ViewLayout;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, logs, orchestration, rail, sink, terminal,
+    agents, board, chat, editor, empty, explorer, git, logs, orchestration, rail, search, sink,
+    terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -187,6 +188,10 @@ impl WorkbenchPanel {
                     ..TabInfo::default()
                 }
             }
+            PanelKind::Search => TabInfo {
+                label: "Search".into(),
+                ..TabInfo::default()
+            },
             PanelKind::Explorer => TabInfo {
                 label: "Explorer".into(),
                 ..TabInfo::default()
@@ -435,6 +440,7 @@ fn body(
     match kind {
         PanelKind::Terminal(pane_id) => terminal::pane(app, *pane_id, cx),
         PanelKind::Logs => logs::render(app, cx),
+        PanelKind::Search => search::render(app, window, cx),
         PanelKind::Explorer => explorer::render(app, window, cx),
         PanelKind::Chat => chat::render(app, window, cx).into_any_element(),
         PanelKind::Centre => centre(app, window, cx),

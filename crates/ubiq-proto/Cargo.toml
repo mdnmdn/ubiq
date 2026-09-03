@@ -18,6 +18,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Wall-clock timestamps for the log console, in the reader's own zone
 chrono = { version = "0.4", features = ["serde"] }
+# Query validation — already in the build graph via gpui, so this costs a line and no compile time
+regex = "1"
 
 [dev-dependencies]
 # The wire form of an id is asserted against JSON; nothing in the crate itself needs it

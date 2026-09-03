@@ -6,13 +6,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Instant;
 
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
 use ubiq_proto::conversation::StopReason;
 use ubiq_proto::files::FileError;
-use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
+use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::ProjectHealth;
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
@@ -26,6 +28,7 @@ use crate::health;
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
 use crate::reply::Reply;
+use crate::search::{self, Search};
 use crate::settings::Settings;
 use crate::shells;
 use crate::work::Work;
@@ -72,6 +75,12 @@ struct Coordinator {
     /// The thread that reads a project's repository. A status walk is seconds on a large tree, and
     /// seconds here would stall every pane behind it.
     git: Git,
+    /// The thread that walks a project's files for content search. Long-running by nature, so it
+    /// has its own queue: a search behind a slow one would stall every folder expand.
+    search: Search,
+    /// One live search per project. The cancel flag is set when a second search arrives, and
+    /// forgotten on finish.
+    active_searches: HashMap<ProjectId, (SearchId, Arc<AtomicBool>)>,
     /// Anything the catalogue wanted said before a window existed to hear it — a corrupt store,
     /// most usefully. Delivered to the first window that attaches.
     pending: Vec<Reply>,
@@ -117,6 +126,8 @@ impl Coordinator {
             agents,
             files: Files::start(),
             git: Git::start(),
+            search: Search::start(),
+            active_searches: HashMap::new(),
             pending,
             pane_projects: HashMap::new(),
             panes: HashMap::new(),
@@ -624,6 +635,28 @@ impl Coordinator {
                 self.end_conversation(agent_id, StopReason::Cancelled);
             }
 
+            // ── the search family ───────────────────────────────────
+            // Two arms. The walk runs on the search worker, not here; this thread only resolves
+            // the project and hands over a job.
+            Message::SearchProject {
+                project_id,
+                search_id,
+                query,
+                scope,
+            } => {
+                self.search_job(client, project_id, search_id, query, scope);
+            }
+            Message::CancelSearch {
+                project_id,
+                search_id,
+            } => {
+                if let Some((active_id, cancel)) = self.active_searches.get(&project_id)
+                    && *active_id == search_id
+                {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            }
+
             // Response-direction variants are never received here. Dropping one silently would
             // hide a wiring mistake, so it is named.
             other => {
@@ -889,6 +922,46 @@ impl Coordinator {
             project_id,
             root: PathBuf::new(),
             request: git::Request::Forget,
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
+    fn search_job(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        search_id: SearchId,
+        query: ubiq_proto::search::Query,
+        scope: ubiq_proto::search::Scope,
+    ) {
+        let Some(record) = self.projects.record(project_id) else {
+            self.host.send(
+                To::Client(client),
+                Message::SearchError {
+                    project_id,
+                    search_id,
+                    error: ubiq_proto::search::SearchError::Root,
+                },
+            );
+            return;
+        };
+
+        // Cancel any active search for this project.
+        if let Some((_, cancel)) = self.active_searches.remove(&project_id) {
+            cancel.store(true, Ordering::Relaxed);
+        }
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.active_searches
+            .insert(project_id, (search_id, cancel.clone()));
+
+        self.search.submit(search::Job {
+            project_id,
+            search_id,
+            root: PathBuf::from(&record.path),
+            query,
+            scope,
+            cancel,
             reply_to: self.host.mailbox(To::Client(client)),
         });
     }

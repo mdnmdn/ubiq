@@ -28,5 +28,6 @@ pub mod ids;
 pub mod log;
 pub mod messages;
 pub mod projects;
+pub mod search;
 pub mod settings;
 pub mod work;

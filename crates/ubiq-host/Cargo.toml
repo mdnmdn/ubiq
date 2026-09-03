@@ -30,6 +30,13 @@ flume = "0.12"
 git2 = { version = "0.21", default-features = false }
 # The hunks themselves. A diff library lives here and never in the interface.
 similar = "2"
+# Content search: walk the tree with the project's own ignore rules, match with the ripgrep
+# libraries. None of these draw; `just host` stays green.
+ignore = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+num_cpus = "1"
 
 [dev-dependencies]
 tempfile = "3"
