@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
-updated: 2026-09-02
-verified: 2026-09-02
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+updated: 2026-09-03
+verified: 2026-09-03
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -61,7 +61,12 @@ drop would group into lights up, and the strip at the end of the row lights only
 would do something: a target that promises a change it will not make is worse than one that stays
 dark. The strip over the columns counts them — how many there are, how many agents they hold and how
 many of them are grouped — and names both gestures, because neither leaves a mark on the interface
-to be discovered from.
+to be discovered from. Its one control is `New agent`: the harness library's agent types, the same
+`ListAgentTypes` answer the new-pane menu reads so the two lists cannot disagree, and a pick starts a
+live conversation here, in this project. A type whose binary is not on this machine is listed and
+refuses the click rather than being started into a failure. What a pick makes is a conversation
+rather than a pane — the same question asked of the other face of a workspace, and a conversation
+has no size.
 
 **Closing a tab benches the agent; it does not end it.** This is the one place the screen
 deliberately reads differently from a terminal pane, whose close kills the harness behind it —
@@ -95,14 +100,28 @@ click in the sidebar is never refused: with the row full, a benched agent is gro
 focused column rather than given one of its own, because "show me this agent" is a request the
 screen can honour whatever the row looks like.
 
-**Nothing writes into a transcript.** The composer sends `SendToAgent` — the one thing this screen
-puts on the bus — and the line appears in the thread when the host answers with the agent carrying
-it. A screen that drew its own half of a conversation would be inventing the other half too.
+**A column draws a live conversation when there is one and a mock when there is not**, both in the
+same list and the same sidebar — `G94`. A live one is drawn by
+`crates/ubiq/src/ui/conversation/mod.rs`, the one interface for talking to an agent, and it knows
+nothing about the screen hosting it: the chat panel and the kitchen sink adopt it by passing a
+different `ConversationView` — an id prefix, a composer slot, whether a footer and a composer come
+with it — rather than by growing a renderer each, which would drift the frame a tool block gained a
+field. A block is markdown, a thinking block, or a tool call whose header carries a verb from the
+tool's kind, its target and its status, and which expands onto its output or its diff.
 
-**A column's footer reports the harness and no mode.** Which harness is behind the agent, which
-model, the ring of context left and the token count. A harness's mode is not on the `WorkAgent`
-record, and a chip reading the chat panel's selection would report a setting that has nothing to do
-with this agent.
+**Nothing writes into a transcript.** The composer sends — `PromptAgent` to a live agent,
+`SendToAgent` to a mock — and appends nothing itself; the user's own line appears when the harness
+echoes it back, which is what the harness received rather than what was typed at it. A screen that
+drew its own half of a conversation would be inventing the other half too.
+
+**The run pill, the activity badge and the context ring are read off the stream** the window holds
+rather than asked for, because asking would be a round trip per token.
+
+**A column's footer reports the harness, and a ring only where there is one.** The harness, the
+model, what the turn has cost, and the context used out of the size the harness reported. **No ring
+is drawn when no context window was reported** — a ratio over an invented denominator reads as a fact
+and is not one, and `G96` names who reports none. A mock's footer draws no mode chip, because
+`WorkAgent` carries none — `G80`.
 
 **The sidebar lists everything the host reports, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
@@ -845,6 +864,13 @@ work draw from the same projection of it. What no message carries is the arrange
 records — which column an agent's conversation is drawn in, and where a card sits. The full family, with its payloads and its rules, is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
+**A live conversation is a family of its own, and every message in it names an agent.** Going out:
+`StartConversation`, `PromptAgent`, `CancelTurn`, `AnswerPermission`, `SetAgentConfig` and
+`EndConversation`, with `ListAgentTypes` behind the `New agent` menu. Coming back:
+`ConversationStarted`, `ConversationUpdate`, `ConversationEnded` and `ConversationError`. An update
+is a delta rather than a record, so the transcript is a fold the window keeps and the host never
+re-sends; the family's payloads and its ordering rule belong to the transport contract.
+
 One fixture is left. `crates/ubiq/src/state/sample.rs` holds the chat, the one screen with no
 transport family behind it: its composer sends to nothing and its reply is canned, which is
 [`chat.md`](./chat.md)'s. The terminals have a family of their own, in
@@ -885,6 +911,7 @@ saying no file is open, because the files are panels of their own:
 | Agents sidebar | `ui/agents/sidebar.rs` | The agents screen, left | `AGENT_SIDEBAR_WIDTH`, fixed | The same projection, and `AgentsView::collapsed`, with `AppState::agents_scroll` |
 | A column | `ui/agents/column.rs` | The agents screen, one per column in the row | Shares the row and is floored at `COLUMN_MIN_WIDTH` in `state/agents.rs`; the row scrolls sideways | The `Column` it draws, and the window's composer for that column's slot |
 | New-column strip | `ui/agents/mod.rs`, `new_column_strip()` | The agents screen, past the last column | `NEW_COLUMN_STRIP`, fixed | `AgentsView::dragging` |
+| A conversation | `ui/conversation/mod.rs` | Inside whichever surface hosts one — a column today | Fills what its host gives it | The `Conversation` in `AppState::conversations`, and the `ConversationView` its host passes |
 | Orchestration screen | `ui/orchestration/mod.rs` | The centre panel in Orchestration mode | Fills it; its toolbar takes `TITLEBAR_HEIGHT` | `GraphView`, over the project's `WorkProjection` |
 | Orchestration graph | `ui/orchestration/graph.rs` | The orchestration screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
 | Inspector | `ui/orchestration/inspector.rs` | The orchestration screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
@@ -1200,6 +1227,18 @@ read. `COLUMNS_MAX` and `COLUMN_MIN_WIDTH` live here rather than in `theme.rs`, 
 conversations fit and how narrow one may get are facts about a conversation. Nothing in it draws,
 nothing in it names a colour, and it is tested without a frame in `crates/ubiq/tests/agents.rs`.
 
+`state/conversation.rs` is one live agent's transcript as the window holds it. `Conversation::apply`
+folds a delta in — a chunk extends the block its message id names, a change of id starts a new one, a
+patch reaches its call through an index rather than a scan — and `activity()`, `context_pct()`,
+`tokens()` and `cost_usd()` are what the badge, the ring and the pill are drawn from; `is_next()` is
+the gap check. `AppState` holds them per project as `conversations`, kept after the harness ends, and
+`refresh_agent_record()` writes the badge, the ring, the token count and the model onto the
+`WorkAgent` record, so the sidebar, the graph and a column's header keep one source.
+`ui/conversation/mod.rs` draws one — `render()` over a `ConversationView`, then `tool_block()`,
+`diff()`, `permission()`, `footer()` and `composer()` — `prompt_agent()` sends and appends nothing,
+`steer_column()` chooses between it and the mock's path, and `pick_new_agent_menu()` starts a
+conversation on the harness at that row. `crates/ubiq/tests/conversation.rs` covers both.
+
 `AppState` carries it as `agents`, the composers as `column_inputs` — a fixed pool of `COLUMNS_MAX`
 `TextareaState` entities built in the constructor, each with a subscription that mirrors what is
 typed onto that slot's draft and steers the column on a bare Enter — and the sidebar's scroll as
@@ -1444,7 +1483,10 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A card is dropped on open ground | It keeps its task and its parent, and stays where it was put |
 | A container is dragged onto another | Nothing is filed anywhere. The outlines overlap until one is moved or the graph is tidied |
 | The composer sends with a session selected, or with nothing | Nothing is sent, and Send reads as disabled while the draft is empty |
-| A message is sent to an agent | The host puts it in that agent's thread and answers with the agent carrying it. Nothing replies, and the thread says so rather than inventing one |
+| A message is sent to a mock agent | The host puts it in that agent's thread and answers with the agent carrying it. Nothing replies, and the thread says so rather than inventing one |
+| A conversation's update does not follow the last one | The window reports the gap and applies the update anyway, because half a transcript is worth more than none |
+| A harness reports no context window | No ring is drawn, and the footer reports the harness and the model without one |
+| A conversation's harness exits | The transcript stays and the agent takes no further turn. Closing the tab is what takes it off screen |
 | A screen over the work is opened with no project | The centre draws nothing. All three are views of one project's work and there is none; the rail, titlebar and status bar stay |
 | A move is never answered | The card stays in the column it came from, drawn muted and saying it is waiting. Nothing times it out, and the mark comes off on the next answer naming that task |
 | An edit is never answered | The field closes and the panel goes on reporting the task the host last confirmed, so the change reads as not having happened. What was typed stays in the form until the selection changes or the project is entered again |

@@ -7,7 +7,7 @@
 //! stream exists.
 //!
 //! This is **core** (always compiled, no feature gate): only `std::process`,
-//! `std::sync`, `std::thread`, and `serde_json` are used, matching
+//! `std::sync`, `std::thread`, `serde_json` and `tracing` are used, matching
 //! [`super::structured`]'s "no pty, no clap" discipline so a lib-mode
 //! embedder can use it without the `pty`/`cli` features.
 //!
@@ -19,13 +19,30 @@
 //! [`AgentEvent`]s onto an `mpsc` channel. stdin is dropped immediately since
 //! Copilot is one-shot and accepts no further input (the prompt is part of
 //! the argv). On stdout EOF, the reader thread emits a terminal
-//! `AgentEvent::Result` (if not already sent by an explicit error event)
+//! `AgentEvent::TurnEnded` (if not already sent by an explicit error event)
 //! and closes the channel.
 //!
 //! The same reader-thread architecture as [`super::jsonl`] prevents blocking
 //! on writes, even though Copilot takes no stdin input: the child might
 //! buffer output, and keeping the reader draining stdout prevents that from
 //! stalling the process (a full pipe blocks the producer).
+//!
+//! ## What Copilot never reports
+//!
+//! There is no on-stream approval handshake — the CLI runs headless with
+//! `--allow-all --no-ask-user` — so [`AgentEvent::PermissionRequest`] never
+//! appears. Nor is there a `tool`-start event: `tool.execution_complete` is
+//! the only tool event the protocol has, so this bridge only ever emits a
+//! [`AgentEvent::ToolCallUpdate`] for a call it never announced, and that
+//! update carries no `kind` (nothing here ever learns the tool's name).
+//! And no event carries a context window — or any token count at all — so
+//! [`AgentEvent::UsageUpdate`] is never emitted either.
+//!
+//! ## Logging
+//!
+//! Every raw line is a `trace!`; every mapped event is a `debug!`. Raw frames
+//! carry prompts and file contents, which is why they sit a level below
+//! everything else.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdout};
@@ -34,7 +51,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::{AgentEvent, AgentInput, IoBridge};
+use super::{
+    AgentEvent, AgentInput, Content, IoBridge, StopReason, ToolCallUpdate, ToolContent, ToolStatus,
+};
 
 /// How long [`Drop`] waits for the child to exit after the reader thread
 /// finishes draining stdout before killing it. Mirrors
@@ -47,11 +66,11 @@ pub struct CopilotBridge {
     child: Child,
     events: mpsc::Receiver<AgentEvent>,
     reader: Option<std::thread::JoinHandle<()>>,
-    /// Track whether a terminal `Result` event has been emitted via the
-    /// stream (an explicit error) so we don't double-emit at EOF.
-    /// Shared with the reader thread via Arc<Mutex<bool>>.
+    /// Whether a terminal `TurnEnded` has already been emitted via the stream
+    /// (an explicit `result`/`session.error`), so EOF doesn't send a second
+    /// one. Shared with the reader thread via `Arc<Mutex<bool>>`.
     #[allow(dead_code)]
-    result_sent: Arc<Mutex<bool>>,
+    turn_ended: Arc<Mutex<bool>>,
 }
 
 impl CopilotBridge {
@@ -71,16 +90,16 @@ impl CopilotBridge {
         let _ = child.stdin.take();
 
         let (tx, rx) = mpsc::channel();
-        let result_sent = Arc::new(Mutex::new(false));
-        let result_sent_clone = Arc::clone(&result_sent);
+        let turn_ended = Arc::new(Mutex::new(false));
+        let turn_ended_clone = Arc::clone(&turn_ended);
 
-        let reader = std::thread::spawn(move || read_loop(stdout, tx, result_sent_clone));
+        let reader = std::thread::spawn(move || read_loop(stdout, tx, turn_ended_clone));
 
         Ok(Self {
             child,
             events: rx,
             reader: Some(reader),
-            result_sent,
+            turn_ended,
         })
     }
 }
@@ -93,17 +112,20 @@ impl IoBridge for CopilotBridge {
                 // launch. Sending a prompt on the bridge is a no-op.
                 Ok(())
             }
-            AgentInput::ApproveTool { .. } => {
-                // Copilot runs headless with `--allow-all --no-ask-user`,
-                // so every tool runs automatically without an approval handshake.
-                // Approval inputs are a no-op.
+            AgentInput::AnswerPermission { .. } => {
+                // Copilot runs headless with `--allow-all --no-ask-user`, so
+                // no `PermissionRequest` is ever emitted for this to answer.
+                // A no-op rather than an error: nothing is waiting.
                 Ok(())
             }
-            AgentInput::Interrupt => {
-                // Best-effort signal: kill the process group so the run stops.
+            AgentInput::Cancel => {
+                // Best-effort signal: kill the process so the run stops.
                 let _ = self.child.kill();
                 Ok(())
             }
+            AgentInput::SetConfigOption { config_id, .. } => Err(anyhow::anyhow!(
+                "copilot's one-shot bridge cannot change '{config_id}' mid-session"
+            )),
         }
     }
 
@@ -114,6 +136,9 @@ impl IoBridge for CopilotBridge {
             Err(mpsc::RecvError) => Ok(None),
         }
     }
+
+    // `input()` keeps the default `None`: Copilot takes no input after
+    // launch (the prompt is argv-only), so there is no sink to hand a caller.
 }
 
 impl Drop for CopilotBridge {
@@ -149,9 +174,9 @@ impl Drop for CopilotBridge {
 
 /// The reader thread body: scan stdout line-by-line (NDJSON), map each line
 /// to zero-or-more [`AgentEvent`]s and push them onto `tx`. On stream end,
-/// emit a terminal `AgentEvent::Result` if one hasn't been sent already
+/// emit a terminal [`AgentEvent::TurnEnded`] if one hasn't been sent already
 /// (no explicit error), then drop `tx` (closing the channel).
-fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc<Mutex<bool>>) {
+fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, turn_ended: Arc<Mutex<bool>>) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -159,18 +184,18 @@ fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc
         if line.is_empty() {
             continue;
         }
+        tracing::trace!(direction = "in", frame = %line, "copilot ndjson");
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             // Not a recognized JSON line — ignore.
             continue;
         };
 
         for ev in map_event(&value) {
-            // Track if this is a terminal Result event (from an explicit error
-            // in the stream, not EOF).
-            if matches!(ev, AgentEvent::Result { .. })
-                && let Ok(mut sent) = result_sent.lock()
+            tracing::debug!(event = ?ev, "copilot event");
+            if matches!(ev, AgentEvent::TurnEnded { .. })
+                && let Ok(mut ended) = turn_ended.lock()
             {
-                *sent = true;
+                *ended = true;
             }
             if tx.send(ev).is_err() {
                 // No one is listening anymore.
@@ -179,15 +204,17 @@ fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc
         }
     }
 
-    // EOF: emit a success Result if not already sent.
-    if let Ok(mut sent) = result_sent.lock()
-        && !*sent
+    // EOF: emit a successful turn end if the stream didn't already end one.
+    if let Ok(mut ended) = turn_ended.lock()
+        && !*ended
     {
-        let _ = tx.send(AgentEvent::Result {
-            success: true,
+        let ev = AgentEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
             error: None,
-        });
-        *sent = true;
+        };
+        tracing::debug!(event = ?ev, "copilot event");
+        let _ = tx.send(ev);
+        *ended = true;
     }
 }
 
@@ -204,6 +231,14 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                     .and_then(|d| d.get("sessionId"))
                     .and_then(Value::as_str)
                     .map(str::to_string),
+                model: value
+                    .get("data")
+                    .and_then(|d| d.get("selectedModel"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                mode: None,
+                tools: Vec::new(),
+                agents: Vec::new(),
             }]
         }
         Some("assistant.message_delta") => {
@@ -212,8 +247,10 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(|d| d.get("deltaContent"))
                 .and_then(Value::as_str)
             {
-                vec![AgentEvent::AssistantText {
-                    text: text.to_string(),
+                vec![AgentEvent::AgentMessageChunk {
+                    content: Content::text(text),
+                    // Copilot doesn't tag a delta with a message id.
+                    message_id: None,
                 }]
             } else {
                 Vec::new()
@@ -225,34 +262,58 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(|d| d.get("content"))
                 .and_then(Value::as_str)
             {
-                vec![AgentEvent::Thinking {
-                    text: text.to_string(),
+                vec![AgentEvent::AgentThoughtChunk {
+                    content: Content::text(text),
+                    message_id: None,
                 }]
             } else {
                 Vec::new()
             }
         }
         Some("tool.execution_complete") => {
-            // Note: no tool-call/start event is documented for this protocol,
-            // only completion. We emit only the result event.
-            vec![AgentEvent::ToolResult {
-                id: value
-                    .get("data")
-                    .and_then(|d| d.get("toolCallId"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                content: value
-                    .get("data")
-                    .and_then(|d| d.get("result"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
+            // No tool-call/start event is documented for this protocol, only
+            // completion, so this is an update to a call this bridge never
+            // announced — no `kind`, since the tool's name never appears.
+            let data = value.get("data");
+            let id = data
+                .and_then(|d| d.get("toolCallId"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let succeeded = data
+                .and_then(|d| d.get("success"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let output = data.and_then(|d| d.get("result")).cloned();
+
+            vec![AgentEvent::ToolCallUpdate {
+                update: ToolCallUpdate {
+                    content: output.as_ref().and_then(Value::as_str).map(|text| {
+                        vec![ToolContent::Content {
+                            content: Content::text(text),
+                        }]
+                    }),
+                    raw_output: output,
+                    ..ToolCallUpdate::finished(
+                        id,
+                        if succeeded {
+                            ToolStatus::Completed
+                        } else {
+                            ToolStatus::Failed
+                        },
+                    )
+                },
             }]
         }
         Some("result") => {
             let exit_code = value.get("exitCode").and_then(Value::as_i64);
-            let success = exit_code == Some(0);
-            vec![AgentEvent::Result {
-                success,
+            let stop_reason = if exit_code == Some(0) {
+                StopReason::EndTurn
+            } else {
+                StopReason::Failed
+            };
+            vec![AgentEvent::TurnEnded {
+                stop_reason,
                 error: None,
             }]
         }
@@ -263,12 +324,15 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| "unknown error".to_string());
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: Some(message),
             }]
         }
-        _ => Vec::new(),
+        other => {
+            tracing::trace!(kind = ?other, "copilot event ignored");
+            Vec::new()
+        }
     }
 }
 
@@ -284,38 +348,44 @@ mod tests {
         assert_eq!(
             events,
             vec![AgentEvent::SessionStarted {
-                session_id: Some("sess-123".to_string())
+                session_id: Some("sess-123".to_string()),
+                model: Some("claude".to_string()),
+                mode: None,
+                tools: Vec::new(),
+                agents: Vec::new(),
             }]
         );
     }
 
     #[test]
-    fn map_event_assistant_message_delta_is_assistant_text() {
+    fn map_event_assistant_message_delta_is_agent_message_chunk() {
         let v = json!({"type":"assistant.message_delta","data":{"deltaContent":"hello world"}});
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::AssistantText {
-                text: "hello world".to_string()
+            vec![AgentEvent::AgentMessageChunk {
+                content: Content::text("hello world"),
+                message_id: None,
             }]
         );
     }
 
     #[test]
-    fn map_event_assistant_reasoning_is_thinking() {
+    fn map_event_assistant_reasoning_is_agent_thought_chunk() {
         let v =
             json!({"type":"assistant.reasoning","data":{"content":"thinking about the problem"}});
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Thinking {
-                text: "thinking about the problem".to_string()
+            vec![AgentEvent::AgentThoughtChunk {
+                content: Content::text("thinking about the problem"),
+                message_id: None,
             }]
         );
     }
 
     #[test]
-    fn map_event_tool_execution_complete_is_tool_result() {
+    fn map_event_tool_execution_complete_is_a_completed_update() {
         let v = json!({
             "type":"tool.execution_complete",
             "data":{
@@ -326,23 +396,48 @@ mod tests {
             }
         });
         let events = map_event(&v);
+        let AgentEvent::ToolCallUpdate { update } = &events[0] else {
+            panic!("expected an update, got {events:?}");
+        };
+        assert_eq!(update.id, "tool-1");
+        assert_eq!(update.status, Some(ToolStatus::Completed));
         assert_eq!(
-            events,
-            vec![AgentEvent::ToolResult {
-                id: Some("tool-1".to_string()),
-                content: json!({"stdout":"file.txt\nfile2.txt"}),
-            }]
+            update.kind, None,
+            "the tool's name never appears on the wire"
+        );
+        assert_eq!(
+            update.raw_output,
+            Some(json!({"stdout":"file.txt\nfile2.txt"}))
         );
     }
 
     #[test]
-    fn map_event_result_success() {
+    fn map_event_tool_execution_complete_failure_is_a_failed_update() {
+        let v = json!({
+            "type":"tool.execution_complete",
+            "data":{"toolCallId":"tool-1","success":false,"result":"boom"}
+        });
+        let events = map_event(&v);
+        let AgentEvent::ToolCallUpdate { update } = &events[0] else {
+            panic!("expected an update, got {events:?}");
+        };
+        assert_eq!(update.status, Some(ToolStatus::Failed));
+        assert_eq!(
+            update.content,
+            Some(vec![ToolContent::Content {
+                content: Content::text("boom"),
+            }])
+        );
+    }
+
+    #[test]
+    fn map_event_result_success_ends_the_turn() {
         let v = json!({"type":"result","sessionId":"sess-123","exitCode":0});
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Result {
-                success: true,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::EndTurn,
                 error: None,
             }]
         );
@@ -354,8 +449,8 @@ mod tests {
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: None,
             }]
         );
@@ -367,21 +462,21 @@ mod tests {
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: None,
             }]
         );
     }
 
     #[test]
-    fn map_event_session_error_is_result_failure() {
+    fn map_event_session_error_ends_the_turn_as_failed() {
         let v = json!({"type":"session.error","data":{"message":"something went wrong"}});
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: Some("something went wrong".to_string()),
             }]
         );
@@ -393,8 +488,8 @@ mod tests {
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: Some("unknown error".to_string()),
             }]
         );

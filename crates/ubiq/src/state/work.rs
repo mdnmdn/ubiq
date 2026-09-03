@@ -104,6 +104,13 @@ impl WorkProjection {
         self.agents.iter().find(|a| a.id == id)
     }
 
+    /// The same record, to be written into. The conversation family refreshes what it derives —
+    /// the activity, the ring, the token count — straight onto the record the two screens over the
+    /// work already read, rather than teaching each of them a second source.
+    pub fn agent_mut(&mut self, id: AgentId) -> Option<&mut WorkAgent> {
+        self.agents.iter_mut().find(|a| a.id == id)
+    }
+
     pub fn task(&self, id: TaskId) -> Option<&TaskRecord> {
         self.tasks.iter().find(|t| t.id == id)
     }

@@ -42,6 +42,7 @@ rows contradict what a reader would reasonably assume.
 | `AgentEvent` has no turn boundary, no delta-versus-whole distinction, no tool verb, no diff, no plan | The chat panel's `Block`, `ToolCall` and `DiffLine` cannot be filled from it without inventing the missing half in the host |
 | `WorkAgent.thread` is `Vec<Turn>` of `{ from, text }`, replaced whole on every `AgentChanged` | A token stream would re-send the entire conversation per token |
 | The library cannot kill a process **group** — it is `#![forbid(unsafe_code)]` with no `libc` | A cancelled turn can leave grandchildren. multica solves this with process groups; we cannot copy that directly |
+| The mapper reads four `assistant` content-block kinds and ignores every other field of every event | Tokens, cost, subagent provenance, rate limits and stop reasons are all on the wire and none of them reach a consumer. The next section is what is actually there |
 | `AgentParams` is named in the library's own architecture doc and **does not exist** | Corrected in this pass. The type the docs promised is exactly what packages P3 needs |
 
 ## The shape: one workspace, two faces
@@ -70,15 +71,16 @@ Three reasons, in order of weight:
 
 1. **Nine harnesses in the library's reference table speak ACP natively** — `hermes`, `kimi`,
    `kiro` and `qoder` are launched as `<binary> acp`. An ACP-shaped neutral model makes an inbound
-   ACP bridge a *reader of its own vocabulary* instead of a third translation. `refs/multica` has
-   working ACP clients for exactly those four, and they are the primary source for the names below.
+   ACP bridge a *reader of its own vocabulary* instead of a third translation.
 2. **`io/acp.rs` becomes a real adapter rather than a lossy projection**, which is what makes
    `am --output acp` worth having for a client that is not Ubiq.
 3. **The UI's render model is already ACP-shaped** by coincidence: `agent_message_chunk` is a
    markdown `Block`, `agent_thought_chunk` is a thinking block, `tool_call` and `tool_call_update`
    are a `ToolCall` with its status and diff.
 
-The vocabulary to adopt, as confirmed against multica's clients:
+The vocabulary to adopt, from the published schema — `refs/acp-protocol.md` is the reference, and
+`refs/multica` holds no ACP code, so an earlier claim that these were confirmed against its clients
+was unsupported:
 
 | ACP | Meaning | Where it lands here |
 |---|---|---|
@@ -90,16 +92,16 @@ The vocabulary to adopt, as confirmed against multica's clients:
 | `tool_call`, `tool_call_update` | a tool's start and its progress or completion | `ToolCall`, `ToolResult`, with the fields the UI's blocks need |
 | `plan` | the agent's todo list, flat, each entry with a priority and a status | the orchestration screen's steps, and a block in a transcript |
 | `session/request_permission` | ask the human, embedding the whole tool call so the client can show what it is authorising | a real `ApprovalRequest`, with options — P7 |
-| `session/set_mode`, `SessionModeState`, `current_mode_update` | the modes a session advertises, the one it is in, and a switch either side can make | P3 |
+| `session/set_config_option`, `config_option_update` | every session-level knob the harness advertises — the model, the mode, the thinking level — as one list. `session/set_mode` is the deprecated predecessor | P3 |
 | `fs/read_text_file`, `fs/write_text_file`, `terminal/*` | the agent asking the *client* to act | deferred: this is what Ubiq's own MCP surface would answer |
 
-Two corrections to what a reader would assume from the harness docs and from multica's clients.
-**`session/set_model`, `availableModels` and `currentModelId` are not core ACP** — they are a
-convention four ACP-native harnesses converged on, so a model picker is our own mechanism whichever
-way we build it, and copying that convention is a legitimate choice rather than conformance. And
-ACP's `terminal/*` is a side-channel for the agent to run a command and read its output — there is
-no method to type into it and none to resize it, so it is not a pane and cannot host an interactive
-harness. That stays Ubiq's job, exactly as today.
+Two corrections to what a reader would assume from the harness documents.
+**`session/set_model`, `availableModels` and `currentModelId` are not in the schema at all** — but a
+model picker is still core ACP, expressed as a config option whose `category` is `model`. That is
+one mechanism for the model, the mode, the model's parameters and the thinking level, and it is what
+`session/set_mode` was deprecated in favour of. And ACP's `terminal/*` is a side-channel for the
+agent to run a command and read its output — there is no method to type into it and none to resize
+it, so it is not a pane and cannot host an interactive harness. That stays Ubiq's job.
 
 What ACP does not give us, and stays ours: which pane a conversation is drawn in, which project it
 belongs to, and the arrangement over it. That is the same split `tech/agent-manager.md` already
@@ -123,17 +125,14 @@ that is the harness's list, and "Plan / Edit / Ask" is a label set the UI invent
 discovered entry whose id is passed through, which is what `Policy` already does for the string it
 carries.
 
-**ACP reached the same conclusion for modes, and its shape is the one to copy** — a session
-advertises the modes it has, each an id with a name and an optional description, says which one it
-is in, and either side may change it. Whether the *stable* protocol expresses that through a
-dedicated mode method or through a generic "config option" that carries the model and the thinking
-level in the same shape is an open question below; the research disagreed with itself and I would
-rather leave the discrepancy visible than pick a winner.
+**ACP reached the same conclusion, and settled it in favour of one generic mechanism.** A session
+advertises its config options — each an id, a name, an optional description, a category, and either
+a current value with a list of choices or a boolean — and either side may change one. The dedicated
+mode methods are deprecated and gone from the v2 draft; models never had methods of their own. So
+the model, the mode, the thinking level and whatever a harness invents next are one shape.
 
-Either way the design here is the same, because both are lists of `{ id, label, description }` the
-harness advertises and the client echoes back by id. That is what P3 builds, and it means the
-composer's pickers are generated from a list rather than enumerated in code — so a harness that
-grows a fourth knob needs no change in `crates/ubiq`.
+That is what P3 builds, and it means the composer's pickers are generated from a list rather than
+enumerated in code — so a harness that grows a fourth knob needs no change in `crates/ubiq`.
 
 ## The protocol
 
@@ -165,6 +164,45 @@ without them:
 `AgentInput` grows `SetMode`, `SetModel` and an answer that names a permission option. `Harness`
 grows a capability query so the composer can only offer what the harness has.
 
+### What Claude actually puts on the wire
+
+Verified by running `claude -p --output-format stream-json --verbose` against Claude Code 2.1.259,
+not read from a document. Everything the status surfaces need is already there, and the bridge keeps
+almost none of it.
+
+| Event | Fields that matter | What it gives the UI |
+|---|---|---|
+| `rate_limit_event` | `rate_limit_info.unifiedWindows.{five_hour,seven_day}.utilization`, `resetsAt`, `status`, `overageStatus` | how much of the user's window is spent, and when it resets — a gauge nobody had planned for |
+| `system` / `init` | `session_id`, `model`, `permissionMode`, `tools[]`, `agents[]`, `skills[]`, `slash_commands[]`, `mcp_servers[]` each with a `status`, `capabilities[]`, `claude_code_version`, `apiKeySource` | capability discovery, **free and per session**: the modes, the tools, the subagent types this run can spawn, and whether each MCP server is connected or needs auth |
+| `assistant` | `message.usage.{input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}`, `message.model`, `parent_tool_use_id`, `request_id` | tokens **per message as the turn streams**, not only at the end — and `parent_tool_use_id` is the subagent attribution |
+| `result` | `total_cost_usd`, `stop_reason`, `num_turns`, `ttft_ms`, `duration_ms`, `permission_denials[]`, `modelUsage.<model>.{inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens, contextWindow, maxOutputTokens, costUSD, thinkingTokens}`, `subagent_stats.{spawned, max_depth, completed, failed, killed, by_type}` | the turn's cost, its shape, and the context window **per model** |
+
+Three consequences worth stating plainly:
+
+- **The context ring is computable and currently wrong.** `context_pct` is
+  `(input + cache_read + cache_creation) / contextWindow`, and `contextWindow` arrives per model —
+  200 000 for Sonnet, 1 000 000 for the Opus variant this probe ran on. `crates/ubiq/src/state/chat.rs`
+  hard-codes a 200 000 constant, so a million-token model would draw a ring four fifths full at the
+  start.
+- **Subagents are attributable, and the UI already has the shape for it.** A `Task` tool call is the
+  spawn; every message a subagent produces carries `parent_tool_use_id` naming that call. `WorkAgent`
+  already has `parent`, and the orchestration graph already draws a connector from it — so a subagent
+  becomes a child agent rather than a new concept.
+- **A bug, found while checking this, and it starts in a document.** The Claude runtime contract in
+  `crates/agent-manager/_docs/harness/claude-code.md` writes `modelUsage` with snake_case keys;
+  the real event uses camelCase — `inputTokens`, `outputTokens`, `contextWindow`. `extract_usage`
+  followed the document, so its per-model branch matches nothing and only survives through its
+  fallback to the top-level `usage` object, which *is* snake_case. Per-model attribution and every
+  cache-token field are silently dropped, and `AgentEvent::Usage` has nowhere to put them anyway.
+  The document is the thing to fix first, since the code and its test both faithfully implement it.
+
+Three smaller drops worth listing, because each is a feature the UI would otherwise have to invent:
+**per-message `usage` and `model`** on every `assistant` event go unread, so live per-turn accounting
+is invisible; a **`tool_result` carrying `status: "async_launched"`** is the one progress signal
+between a tool starting and finishing, and it passes through as opaque content; and every `system`
+event whose subtype is not `init` falls through the mapper, which is where `rate_limit_event` and
+anything added later go to die.
+
 ### Ubiq side
 
 A **conversation family** on the wire, beside the work family. The rules it must obey, all of which
@@ -187,34 +225,102 @@ two-field `Turn` beside a block model would leave two half-truths about the same
 
 ## Packages, in order
 
-Each is shippable on its own, and each ends with something a human can look at.
+The order is deliberately a **thin vertical slice first, fully observable, then iterate**. One
+harness, no isolation, no composition, nothing configurable — and both halves of the traffic written
+down, so the features after it are discovered from real frames rather than designed from documents.
 
-### P1 — The debug sink: an agent beside its log
+### P1 — One Claude conversation, end to end, with everything logged — **landed**
 
-**First**, because everything after it is easier to see than to reason about. A new `SinkSection`
-with the chat panel's transcript and composer on one side and the log console on the other, over one
-real structured workspace. It needs `Subsystem::Harness` to carry something, and today the library
-emits no `tracing` events at all (`G25`), so this package is also where the library starts logging:
-one event per bridge send, per event mapped, and per process lifecycle change.
+The whole flow at its narrowest: `SpawnWorkspace` with a conversation face starts `claude` through
+the existing stream-json bridge — **no sandbox, no skills, no MCP servers, no account selection, no
+model or mode** — the host pumps its events onto the bus, and the agents column renders them.
 
-**Done when** a `claude` run started from the sink page streams text into the transcript while its
-mapped events scroll in the log beside it.
+**Both layers are logged, and that is the point of the package.** Two streams, distinguishable:
 
-### P2 — A conversation face for a workspace
+- the **harness frames**, raw and unmapped, exactly as the child wrote them, and exactly as we write
+  back to it. This is the record that tells us what a harness really emits — the probe above is a
+  one-off of what this makes permanent.
+- the **bus messages**, after mapping, as the UI receives them.
 
-The spine. `SpawnWorkspace` chooses a face; the host builds the bridge through
-`Harness::structured_bridge`, starts a pump thread, and forwards deltas; the composer's
-`SendToAgent` becomes a prompt on the bridge; closing the workspace drops the bridge and reaps the
-child. The agents screen's columns and the chat panel both render from the conversation rather than
-from a fixture.
+`Subsystem::Harness` exists in the log console for the first and nothing has ever filled it (`G25`).
+The pair is what makes a disagreement between "what Claude said" and "what the UI drew" a two-line
+diff rather than a debugging session. Raw frames carry prompts and file contents, so the raw stream
+is opt-in and off by default — a log the user might paste into an issue must not carry their code.
+
+Isolation stays off here, and conveniently cannot be otherwise: `--isolate` with structured I/O is
+refused today, so "no sandbox" is the current behaviour rather than a decision to unwind later.
+
+**Done when** a prompt typed in a column reaches Claude, its reply streams back into the transcript,
+and the log console shows the frames that produced it beside the messages the window received.
+
+What it settled, beyond the slice itself: the vocabulary is `D53`, the family is documented in the
+transport contract, the wire reference is [`../../refs/acp-protocol.md`](../../refs/acp-protocol.md),
+and the conversation view is one component rather than one per screen. What it left open is `G92`
+through `G99`. Three vocabulary items are on the wire and unimplemented — the permission request,
+the config options and the plan — and P3 and P7 are what fill them.
+
+### P2 — The debug sink, and a second variation
+
+A `SinkSection` with the transcript and composer on one side and the log console on the other, over
+one conversation. P1 makes it possible; this makes it comfortable, and it is where every later
+package gets looked at.
+
+Then the second harness variation, which is what proves the seam is a seam: either **Claude over
+ACP** through Zed's adapter, or **Codex** over its JSON-RPC bridge. Claude-over-ACP is the more
+interesting of the two, because it makes ACP an *input* protocol here for the first time and the
+same harness then has two variations to diff against each other — the same conversation, two wire
+formats, one rendered result. It also needs an ACP client bridge, which does not exist yet: today's
+`io/acp.rs` is an output mapper only.
 
 **Watch for:** a one-shot harness (opencode, Copilot) accepts no second prompt — the composer must
 be told by the capability query, not discover it by sending into a void. And `spawn_piped` inherits
 this process's environment unless a launch says otherwise, which is why `Launch::env_clear` now
 reaches it.
 
-**Done when** two columns hold two live Claude conversations in one project, and closing a column's
-tab leaves the harness running while closing the workspace ends it.
+**Done when** the same prompt, run as both variations, produces the same transcript, and the two
+raw logs show why any difference exists.
+
+### P2b — Status from what the stream already carries
+
+Cheap, and the visible payoff of P1's logging: the run pill driven by real activity, the token count
+and the context ring from real usage, the cost of a turn, and the rate-limit window. Every field is
+in the table above and every render target already exists — `Activity`, `tokens`, `context_pct` and
+the footer are drawn from fixtures today.
+
+This is also where the two token bugs get fixed: the camelCase mismatch in the bridge, and the
+hard-coded context window in the interface.
+
+**Done when** a column's footer reports the real model, the real tokens and a ring computed from
+that model's real context window.
+
+### P2c — The session record, made portable, harness by harness
+
+A harness writes its own transcript to disk, and it is richer than anything it streams: Claude's
+session file carries the sidechain flag, per-message uuids, the parent tool-use id, timestamps and
+full tool payloads — the whole record, not the projection the wire carries.
+
+**And Ubiq is currently destroying it.** Claude keeps those transcripts under `projects/<hash>/`
+*inside* its configuration directory, and the library relocates that directory into the throwaway
+run directory — which the pane deletes when it closes. Correct for configuration, wrong for the
+record, and invisible until someone goes looking for a conversation that should still exist. The
+harness contract already documents that path as state a credential import must not copy; this is the
+same path wanted for the opposite reason.
+
+So: at teardown, before the sweep, copy the harness's own transcript into the library's session
+store beside the `SessionMeta` it already writes. `ConfigAnchor` already knows where each harness
+keeps its files, which is why this is a per-harness step rather than one implementation — and why it
+is worth doing one harness at a time, starting with the one P1 uses.
+
+That record is what makes the statistics worth having: tokens, cost, duration and turn count per
+session, per model and per agent definition, over conversations that outlive the pane that ran them.
+The live stream can only report the turn in front of you; the file is the history.
+
+**Watch for:** a captured transcript holds prompts, file contents and tool output. It is the user's
+data, it belongs under Ubiq's own root rather than in a project, and deleting a session has to mean
+deleting it.
+
+**Done when** a conversation's full record survives closing its pane, and a second run of the same
+agent definition can be compared with the first on tokens, cost and duration.
 
 ### P3 — Models, thinking and modes
 
@@ -329,11 +435,7 @@ P1 to P6.
    the event vocabulary and none of the runtime, since the transport stays our bus.
 3. **One pump thread per workspace, or one per window?** Per workspace is simpler and matches how a
    pseudo-terminal reader already works; per window bounds the thread count if someone opens forty.
-4. **Which mode mechanism is the stable one?** The research contradicted itself: one pass has a
-   dedicated mode method with a generic config-option mechanism superseding it as of early 2026, the
-   other has the dedicated method as first-class and the generic one as an unreleased draft. Settle
-   it against the published schema before P3 — it changes a method name and nothing about the design.
-5. **Where does "allow always" live?** Per conversation is the protocol's scope; per agent
+4. **Where does "allow always" live?** Per conversation is the protocol's scope; per agent
    definition is what a user would expect to survive a restart. P7 needs an answer.
 
 ## Related docs

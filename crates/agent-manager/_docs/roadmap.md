@@ -63,8 +63,9 @@ normalized events. All three harnesses wrap and launch end-to-end.
   metadata under `am`'s own state dir; resume a prior run via `am session resume <id>` or
   direct `--resume <harness-session-id>` (Claude + opencode; codex deferred to app-server).
 - **Output protocols:** `--output <events|acp|agui>` on structured runs; stateless best-effort
-  mappers (`crate::io::{to_acp, to_agui}`) over the neutral event model, covering core event types
-  (AssistantText, Thinking, ToolCall, ToolResult, SessionStarted, Result).
+  mappers (`crate::io::{to_acp, to_agui}`) over the neutral `AgentEvent` model — ACP's
+  `session/update` vocabulary itself, so `to_acp` is a rename rather than a translation; `to_agui`
+  covers the variants that translate cleanly to a single AG-UI event.
 - **Hooks:** per-run hook selection (`--hooks a,b` / settings `[defaults].hooks`); wired into
   harness-native hook slots (Claude `settings.json`, Codex `hooks.json`; opencode no-op).
 - **MCP-as-skill:** schema + stepping stone only — `[[mcp]] expose = "tools" | "skill"` and `summary`

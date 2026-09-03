@@ -242,6 +242,7 @@ impl FsSessionRecorder {
     pub fn record_event(&mut self, event: &AgentEvent) -> Result<()> {
         if let AgentEvent::SessionStarted {
             session_id: Some(id),
+            ..
         } = event
         {
             self.captured_harness_session_id = Some(id.clone());
@@ -368,11 +369,16 @@ mod tests {
         recorder
             .record_event(&AgentEvent::SessionStarted {
                 session_id: Some("harness-abc".to_string()),
+                model: None,
+                mode: None,
+                tools: Vec::new(),
+                agents: Vec::new(),
             })
             .unwrap();
         recorder
-            .record_event(&AgentEvent::AssistantText {
-                text: "hi".to_string(),
+            .record_event(&AgentEvent::AgentMessageChunk {
+                content: crate::io::Content::text("hi"),
+                message_id: None,
             })
             .unwrap();
 
@@ -451,13 +457,14 @@ mod tests {
 
         let mut recorder = start(root, sample_meta("555-666")).unwrap();
         recorder
-            .record_event(&AgentEvent::AssistantText {
-                text: "hello".to_string(),
+            .record_event(&AgentEvent::AgentMessageChunk {
+                content: crate::io::Content::text("hello"),
+                message_id: None,
             })
             .unwrap();
         recorder
-            .record_event(&AgentEvent::Result {
-                success: true,
+            .record_event(&AgentEvent::TurnEnded {
+                stop_reason: crate::io::StopReason::EndTurn,
                 error: None,
             })
             .unwrap();
@@ -467,8 +474,9 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(
             events[0],
-            AgentEvent::AssistantText {
-                text: "hello".to_string()
+            AgentEvent::AgentMessageChunk {
+                content: crate::io::Content::text("hello"),
+                message_id: None,
             }
         );
     }

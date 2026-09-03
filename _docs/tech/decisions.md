@@ -832,8 +832,50 @@ specified in `refs/isol8-pty-seam-update.md` and the stopgap renders the policy 
 `sandbox-exec`. And a harness whose toolchain lives outside the project reads as broken until a
 recipe grants it — both are rows in the backlog register.
 
+### D53 — The agent conversation is ACP-shaped, bus-transported, and keyed by agent id
+
+A live agent's traffic uses the Agent Client Protocol's `session/update` vocabulary — its event
+names, its tool-call shape with a kind and a status and a diff, its permission options, its config
+options — in three places: the library's neutral event model, the message family in
+`crates/ubiq-proto/src/conversation.rs`, and the one mapper between them in
+`crates/ubiq-host/src/conversation.rs`. The transport stays the in-memory bus, and the identity that
+routes a conversation is the `agent_id` on every variant.
+
+**Why the vocabulary and not the protocol:** `D9` says Ubiq embeds the harness library rather than
+shelling out to `am`. Putting JSON-RPC between two halves of one process would undo that for no
+gain. What is worth borrowing is the shape, because it was designed for exactly this problem by
+people who had to make it work against several harnesses — and because several harnesses in the
+library's own reference table are launched as `<binary> acp`, so an inbound ACP bridge reads its own
+vocabulary instead of being translated a third time.
+
+**Why the identity is on the message and not on the event:** an event a bridge produces carries no
+session id at all. Whoever holds the table of live bridges attaches one — the host attaches an
+`agent_id`, and a server exposing the same library over ACP would attach a `sessionId` to the very
+same event. That is what keeps one mapping serving both, and it is the whole reason the library
+could later be an ACP agent without a second projection.
+
+**Why one mechanism for models, modes and thinking levels:** upstream deprecated its dedicated mode
+methods in favour of a generic config option, and never had model methods at all — a model picker is
+a config option whose category says `model`. Copying that gives one shape for every knob, so a
+harness that grows a fourth needs no change in the interface, and the pickers are generated from a
+list rather than enumerated in code.
+
+**Why deltas rather than records:** the work family echoes a whole record on every change, which is
+right for a record that changes rarely. A token stream is the case that breaks it — re-sending a
+conversation per token is quadratic in what was said. So a conversation update carries one thing and
+the window folds it in, with a per-agent sequence number so a lost message is visible rather than
+silent.
+
+**Cost:** three of them. Our vocabulary lags upstream's, and a v2 that reshapes diffs into structured
+file changes and makes the message id required is drafted — every one of those is a change here, and
+`refs/acp-protocol.md` records what is coming. Two variants are on the wire and refused, because the
+family was designed whole rather than grown one at a time. And a conversation and a pane are two
+spawn messages rather than one, which is the price of a record that does not carry geometry nobody
+set.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
 - [`agent-manager.md`](./agent-manager.md) — the boundary D8 and D9 create
+- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes
 - [`../backlog.md`](../backlog.md) — the choices still open

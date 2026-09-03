@@ -14,6 +14,11 @@
 //! Nothing here writes into a transcript. What is typed reaches the host and the line appears in
 //! the thread when the host answers with the agent carrying it: an interface that draws its own
 //! half of a conversation is inventing the other half too.
+//!
+//! **A column draws one of two things below its header.** An agent the host is streaming is drawn
+//! by [`crate::ui::conversation`], the one view every surface that shows a conversation shares; an
+//! agent that is a record and nothing more keeps the thread and the composer below. The chrome
+//! above is the same either way, because a column is a column whichever it holds.
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, ElementId, Focusable, InteractiveElement,
@@ -31,6 +36,7 @@ use crate::state::agents::COLUMN_MIN_WIDTH;
 use crate::state::work;
 use crate::theme;
 use crate::ui::agents::DraggedTab;
+use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::{
     Picker, PickerStyle, field, ghost_button, mono, pill, progress_ring, section_label, state_chip,
     status_dot,
@@ -86,24 +92,46 @@ pub fn render(
         root = root.bg(theme::accent_soft());
     }
 
-    root.child(
-        div()
-            .h(px(38.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .bg(theme::pane_bg())
-            .border_b_1()
-            .border_color(theme::border())
-            .children(tabs)
-            .child(div().flex_1().min_w(px(0.)))
-            .child(add_tab(app, column, cx)),
-    )
-    .child(header(agent, held.tabs.len(), work, colour))
-    .child(thread(app, agent.id, cx))
-    .child(footer(agent))
-    .child(composer(app, column, slot, window, cx))
-    .into_any_element()
+    let strip = div()
+        .h(px(38.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .bg(theme::pane_bg())
+        .border_b_1()
+        .border_color(theme::border())
+        .children(tabs)
+        .child(div().flex_1().min_w(px(0.)))
+        .child(add_tab(app, column, cx));
+
+    let root = root
+        .child(strip)
+        .child(header(agent, held.tabs.len(), work, colour));
+
+    // A live agent is drawn by the one conversation view every surface shares; a mock keeps the
+    // thread and the composer it has always had. Both are on screen at once, and which it is comes
+    // down to whether the host is streaming this agent.
+    match app.conversation(agent.id, cx) {
+        Some(live) => root
+            .child(conversation::render(
+                app,
+                live,
+                ConversationView {
+                    id: SharedString::from(format!("agents-column-{column}")),
+                    slot,
+                    footer: true,
+                    composer: true,
+                },
+                window,
+                cx,
+            ))
+            .into_any_element(),
+        None => root
+            .child(thread(app, agent.id, cx))
+            .child(footer(agent))
+            .child(composer(app, column, slot, window, cx))
+            .into_any_element(),
+    }
 }
 
 /// One tab: a state dot, the agent's name, and the close that benches it.

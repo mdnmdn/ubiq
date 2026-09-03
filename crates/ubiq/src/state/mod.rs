@@ -11,6 +11,7 @@
 pub mod agents;
 pub mod board;
 pub mod chat;
+pub mod conversation;
 pub mod diagrams;
 pub mod dock;
 pub mod editor;
@@ -37,6 +38,7 @@ pub use chat::{
     Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
     THINKING, ToolCall, ToolKind,
 };
+pub use conversation::{ConvBlock, Conversation, Pending, Run};
 pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{PanelClass, PanelKind, Region};
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};

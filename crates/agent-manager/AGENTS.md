@@ -119,16 +119,16 @@ agent-manager/
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
     ├── run.rs             # PTY spawn/supervise + exit-code + cleanup (feature: pty)
     ├── io/                # I/O bridging (core: model + bridges; passthrough: pty-gated)
-    │   ├── mod.rs         #   neutral AgentInput/AgentEvent model (core)
-    │   ├── model.rs       #   AgentInput/AgentEvent/ApprovalDecision (core, P2)
+    │   ├── mod.rs         #   re-exports (core)
+    │   ├── model.rs       #   AgentInput/AgentEvent/IoBridge — ACP's session/update vocabulary (core)
     │   ├── passthrough.rs #   raw-tty pump (SIGWINCH resize, cooked-mode restore; pty)
-    │   ├── structured.rs  #   IoBridge trait for harness-neutral structured I/O (core, P2)
-    │   ├── jsonl.rs       #   Claude stream-json input bridge (core, P2)
-    │   ├── codex.rs       #   Codex JSON-RPC app-server input bridge (core, P2)
-    │   ├── opencode.rs    #   opencode NDJSON run input bridge (core, P2)
-    │   ├── copilot.rs     #   GitHub Copilot CLI NDJSON output bridge (core)
-    │   ├── acp.rs         #   ACP event adapter (core, P3)
-    │   └── agui.rs        #   AG-UI event adapter (core, P3)
+    │   ├── structured.rs  #   spawn_piped, shared by every structured bridge (core)
+    │   ├── jsonl.rs       #   Claude stream-json bridge (core)
+    │   ├── codex.rs       #   Codex JSON-RPC app-server bridge (core)
+    │   ├── opencode.rs    #   opencode NDJSON one-shot bridge (core)
+    │   ├── copilot.rs     #   GitHub Copilot CLI NDJSON one-shot bridge (core)
+    │   ├── acp.rs         #   ACP session/update projection — a rename, not a translation (core)
+    │   └── agui.rs        #   AG-UI event adapter, a stateless mapper (core)
     ├── mcp/               # in-process MCP hosting (feature: inproc-mcp)
     │   ├── mod.rs         #   McpService trait for embedders (core, P2)
     │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
@@ -146,8 +146,8 @@ agent-manager/
 The library in `src/lib.rs` owns all real logic; `src/main.rs` is a thin shim.
 Modules marked **(core)** build with `--no-default-features` for lib mode; `io/passthrough`
 and `run` are `pty`-gated; `mcp/server` is feature `inproc-mcp`-gated; CLI is
-feature-gated. Core module `io/` is no longer `pty`-gated (structured bridges + neutral model
-are core).
+feature-gated. `io/`'s structured bridges and neutral model are core, with no `pty` gate:
+a lib-mode embedder gets them without pulling in a terminal.
 
 ## How a run works
 

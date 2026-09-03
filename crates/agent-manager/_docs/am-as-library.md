@@ -280,9 +280,42 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
   server backed by it and rewrites the entry to a normal inline MCP before
   handing the spec to the harness. See `src/mcp/mod.rs` and
   [architecture.md](./architecture.md).
-- **`io::IoBridge`** — structured I/O: drive the agent via input events
-  (ACP/JSONL) and receive neutral `AgentEvent`s instead of a raw tty. See
-  [io-modes.md](./io-modes.md).
+- **`io::IoBridge`** — structured I/O: drive the agent by sending
+  `AgentInput` and receive neutral `AgentEvent`s instead of a raw tty. The
+  trait is `Send` because `next_event` **blocks** — an embedder puts the
+  bridge on a thread of its own (a pump thread) and reads it there rather
+  than polling. That thread ends up owning `&mut dyn IoBridge`, which is a
+  problem the moment a prompt has to arrive from somewhere else — a UI
+  thread, an HTTP handler — while the pump thread is parked in
+  `next_event`. `IoBridge::input(&self) -> Option<Arc<dyn AgentInputSink>>`
+  is the way out: where the bridge has one, it hands back a detached
+  `Send + Sync` handle whose `send(&self, AgentInput)` feeds the same
+  process from any thread, so the embedder's prompt-sending code never needs
+  the pump thread's `&mut self` at all. A typical embedder shape:
+
+  ```rust
+  let mut bridge: Box<dyn agent_manager::io::IoBridge> = /* … */;
+  let input = bridge.input();               // Option<Arc<dyn AgentInputSink>>, before moving the bridge
+  std::thread::spawn(move || {
+      while let Ok(Some(event)) = bridge.next_event() {
+          // forward `event` to the UI / bus / transcript
+      }
+  });
+  // elsewhere, from any thread, whenever a prompt is ready:
+  if let Some(input) = &input {
+      input.send(agent_manager::io::AgentInput::prompt("go ahead"))?;
+  }
+  ```
+
+  **A `None` from `input()` is a real capability signal, not a gap to work
+  around.** `JsonlBridge` (Claude Code) and `CodexBridge` answer `Some` —
+  both harnesses stay open for a second prompt. `OpencodeBridge` and
+  `CopilotBridge` answer `None`, because both harnesses are one-shot: the
+  prompt is delivered via argv at launch and there is no second turn to send
+  into. An embedder that gets `None` learns this from the type — a chat box
+  greyed out after the first turn, say — rather than by sending into a bridge
+  that silently drops everything after the first prompt. See
+  [io-modes.md](./io-modes.md) for the full model.
 - **`harness::Harness`** — the trait for adding a new harness entirely
   (`id`, `command`, `provision`, `config_anchor`, `templates`, `io_support`).
   Not a storage seam, but the other axis to extend along. See

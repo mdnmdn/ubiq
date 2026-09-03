@@ -571,12 +571,19 @@ Event shapes emitted on stdout:
 {"type":"system","subtype":"init","session_id":"..."}
 {"type":"assistant","message":{"content":[{"type":"text","text":"..."},{"type":"thinking","thinking":"..."},{"type":"tool_use","id":"...","name":"...","input":{}}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"...","content":[]}]}}
-{"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"<model-id>":{"input_tokens":0}}}
+{"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"<model-id>":{"inputTokens":0,"contextWindow":200000}}}
 {"type":"log","log":{"level":"info","message":"..."}}
 {"type":"control_request","request_id":"...","request":{"type":"tool_use","tool_use":{"id":"...","name":"...","input":{}}}}
 ```
 
-Note: token usage is best read from the per-model `modelUsage` map in the `result` event, falling back to the top-level `usage`.
+Note: token usage is best read from the per-model `modelUsage` map in the `result` event, falling
+back to the top-level `usage`. **The two objects are cased differently, and a reader that assumes
+otherwise silently gets nothing.** `modelUsage`'s keys are camelCase — `inputTokens`,
+`outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`, `contextWindow`,
+`maxOutputTokens`, `costUSD`, `thinkingTokens` — while the top-level `usage` is snake_case
+(`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`).
+`contextWindow` is the only place the model's window is stated, and it is per model: 200 000 for
+Sonnet, 1 000 000 for the extended-context variants. Verified against 2.1.259.
 
 ### Model & reasoning at launch
 

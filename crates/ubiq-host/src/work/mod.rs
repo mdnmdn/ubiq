@@ -34,6 +34,10 @@ pub struct Work {
     loaded: HashMap<ProjectId, Vec<TaskRecord>>,
     /// The mocks, minted per project on the first ask.
     mocks: HashMap<ProjectId, Mock>,
+    /// The agents that are actually running, per project. These are not
+    /// invented and not written down: a live agent exists for as long as its
+    /// harness does, and a restart starts none of them.
+    live: HashMap<ProjectId, Vec<WorkAgent>>,
     /// Which projects have already been told their tasks are not durable, so the user hears it
     /// once per project rather than on every edit.
     warned: HashSet<ProjectId>,
@@ -56,6 +60,7 @@ impl Work {
             tasks,
             loaded: HashMap::new(),
             mocks: HashMap::new(),
+            live: HashMap::new(),
             warned: HashSet::new(),
             sealed: HashSet::new(),
         }
@@ -301,13 +306,37 @@ impl Work {
         let mut replies = self.prepare(project);
 
         let mock = &self.mocks[&project];
+        // Live agents first: a real one belongs above the invented ones for as
+        // long as both are in the list.
+        let mut agents = self.live.get(&project).cloned().unwrap_or_default();
+        agents.extend(mock.agents.iter().cloned());
         replies.push(Reply::Asker(Message::WorkList {
             project_id: project,
             sessions: mock.sessions.clone(),
-            agents: mock.agents.clone(),
+            agents,
             tasks: self.loaded.get(&project).cloned().unwrap_or_default(),
         }));
         replies
+    }
+
+    /// Put a running agent in the project's list.
+    ///
+    /// It joins the same list the sidebar and the graph already read, so
+    /// nothing downstream has to learn that some agents are real.
+    pub fn add_live_agent(&mut self, project: ProjectId, agent: WorkAgent) {
+        let agents = self.live.entry(project).or_default();
+        match agents.iter_mut().find(|held| held.id == agent.id) {
+            Some(held) => *held = agent,
+            None => agents.push(agent),
+        }
+    }
+
+    /// Take a running agent out of the project's list, once its harness has
+    /// gone and its transcript is all that is left.
+    pub fn remove_live_agent(&mut self, project: ProjectId, agent: AgentId) {
+        if let Some(agents) = self.live.get_mut(&project) {
+            agents.retain(|held| held.id != agent);
+        }
     }
 
     pub fn create(

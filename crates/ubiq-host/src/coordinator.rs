@@ -10,13 +10,16 @@ use std::thread;
 use std::time::Instant;
 
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
+use ubiq_proto::conversation::StopReason;
 use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::ProjectHealth;
+use ubiq_proto::work::{Activity, AgentId, WorkAgent};
 
 use crate::agent::Agents;
 use crate::config::ConfigRoot;
+use crate::conversation::Conversation;
 use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
@@ -82,6 +85,13 @@ struct Coordinator {
     /// Which pane each window says has focus. Exactly one per window — two attached windows have
     /// two focused panes, and neither is more focused than the other.
     focused: HashMap<ClientId, PaneId>,
+    /// The agents being talked to, keyed by the id that multiplexes them onto the bus. One entry
+    /// is one harness on one pump thread.
+    conversations: HashMap<AgentId, Conversation>,
+    /// Which project and window each conversation belongs to — the same routing table the panes
+    /// have, for the same two reasons: a reply goes to the window that asked, and a project's
+    /// count changes when one ends.
+    conversation_owners: HashMap<AgentId, (ClientId, ProjectId)>,
 }
 
 impl Coordinator {
@@ -112,6 +122,8 @@ impl Coordinator {
             panes: HashMap::new(),
             owners: HashMap::new(),
             focused: HashMap::new(),
+            conversations: HashMap::new(),
+            conversation_owners: HashMap::new(),
         }
     }
 
@@ -196,6 +208,17 @@ impl Coordinator {
                 pane.kill();
             }
             self.pane_gone(client, pane_id);
+        }
+
+        let talking: Vec<AgentId> = self
+            .conversation_owners
+            .iter()
+            .filter(|(_, (owner, _))| *owner == client)
+            .map(|(agent_id, _)| *agent_id)
+            .collect();
+        for agent_id in talking {
+            tracing::info!("{client} has gone; stopping agent {agent_id}");
+            self.end_conversation(agent_id, StopReason::Cancelled);
         }
     }
 
@@ -565,12 +588,207 @@ impl Coordinator {
                 });
             }
 
+            Message::StartConversation {
+                project_id,
+                session_id,
+                rel_path,
+                agent_type,
+            } => {
+                self.start_conversation(client, project_id, session_id, rel_path, agent_type);
+            }
+            Message::PromptAgent { agent_id, text } => {
+                self.drive(client, agent_id, |conversation| conversation.prompt(text));
+            }
+            Message::CancelTurn { agent_id } => {
+                self.drive(client, agent_id, |conversation| conversation.cancel());
+            }
+            Message::AnswerPermission {
+                agent_id,
+                request_id,
+                option_id,
+            } => {
+                self.drive(client, agent_id, |conversation| {
+                    conversation.answer_permission(request_id, option_id)
+                });
+            }
+            Message::SetAgentConfig {
+                agent_id,
+                config_id,
+                value,
+            } => {
+                self.drive(client, agent_id, |conversation| {
+                    conversation.set_config(config_id, value)
+                });
+            }
+            Message::EndConversation { agent_id } => {
+                self.end_conversation(agent_id, StopReason::Cancelled);
+            }
+
             // Response-direction variants are never received here. Dropping one silently would
             // hide a wiring mistake, so it is named.
             other => {
                 tracing::warn!("the coordinator was sent a message only it may send: {other:?}")
             }
         }
+    }
+
+    /// Start a live agent: compose the harness, drive it over structured I/O, and pump what it
+    /// says onto the bus.
+    ///
+    /// The conversation sibling of [`Self::spawn_workspace`], and the shape is deliberately the
+    /// same — settle the folder, mint the id, compose, then wire the reader — because the two are
+    /// one workspace wearing different faces. What differs is that this one has no pseudo-terminal
+    /// and so no geometry, and that its id is an agent's.
+    fn start_conversation(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        session_id: SessionId,
+        rel_path: Option<String>,
+        agent_type: String,
+    ) {
+        let agent_id = AgentId::generate();
+
+        let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
+            return;
+        };
+
+        if !self.agents.is_agent_type(&agent_type) {
+            // A shell is a pane, not a conversation: there is nothing on the other end of a pipe
+            // to have a conversation with.
+            self.refuse_conversation(
+                client,
+                agent_id,
+                format!("'{agent_type}' is not an agent type"),
+            );
+            return;
+        }
+
+        let (composed, bridge) = match self.agents.converse(agent_id, &agent_type, &cwd) {
+            Ok(started) => started,
+            Err(error) => {
+                tracing::error!("agent {agent_id}: starting {agent_type} failed: {error:#}");
+                self.agents.retire_agent(agent_id);
+                self.refuse_conversation(client, agent_id, format!("{error:#}"));
+                return;
+            }
+        };
+        tracing::info!(
+            agent = %agent_id,
+            harness = %agent_type,
+            dir = %composed.dir.display(),
+            "conversation started"
+        );
+
+        let label = self
+            .agents
+            .types()
+            .into_iter()
+            .find(|offered| offered.id == agent_type)
+            .map(|offered| offered.label)
+            .unwrap_or_else(|| agent_type.clone());
+
+        let agent = WorkAgent {
+            id: agent_id,
+            session: session_id,
+            task: None,
+            parent: None,
+            name: label.clone(),
+            role: "agent".to_string(),
+            activity: Activity::Thinking,
+            note: String::new(),
+            branch: String::new(),
+            tokens: 0.0,
+            harness: label,
+            // Empty until the harness says which model answered — it is the only thing that
+            // knows, and guessing would put a wrong name under a real conversation.
+            model: String::new(),
+            context_pct: 0,
+            thread: Vec::new(),
+        };
+        self.work.add_live_agent(project_id, agent.clone());
+        self.conversation_owners
+            .insert(agent_id, (client, project_id));
+
+        // The pump starts before the window is told, so the capability the window needs — whether
+        // this harness takes a second turn — is known by the time the message carrying it goes.
+        let mailbox = self.host.mailbox(To::Client(client));
+        let conversation = Conversation::start(agent_id, bridge, mailbox.clone());
+        mailbox.send(Message::ConversationStarted {
+            project_id,
+            agent: Box::new(agent),
+            accepts_input: conversation.accepts_input(),
+        });
+        self.conversations.insert(agent_id, conversation);
+    }
+
+    /// Hand one conversation-family message to the agent it names.
+    ///
+    /// A window may only drive an agent it started, on the same terms as a pane; and a harness
+    /// that takes no input after launch refuses here rather than swallowing the turn, so a
+    /// composer that should not have offered to send finds out.
+    fn drive(
+        &mut self,
+        client: ClientId,
+        agent_id: AgentId,
+        act: impl FnOnce(&Conversation) -> anyhow::Result<()>,
+    ) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let Some(conversation) = self.conversations.get(&agent_id) else {
+            return;
+        };
+        if let Err(error) = act(conversation) {
+            tracing::warn!("agent {agent_id}: {error:#}");
+            self.host.send(
+                To::Client(client),
+                Message::ConversationError {
+                    agent_id,
+                    error: format!("{error:#}"),
+                },
+            );
+        }
+    }
+
+    /// Whether this window is the one that started the agent.
+    fn drives(&self, client: ClientId, agent_id: AgentId) -> bool {
+        match self.conversation_owners.get(&agent_id) {
+            Some((owner, _)) if *owner == client => true,
+            Some(_) => {
+                tracing::warn!(
+                    "{client} sent a message about agent {agent_id}, which it does not own"
+                );
+                false
+            }
+            // The agent has already gone; its last messages are in flight behind it.
+            None => false,
+        }
+    }
+
+    /// Stop an agent and take everything it owned with it.
+    ///
+    /// The pump answers its own `ConversationEnded` on the way out, so nothing is said here: two
+    /// endings for one agent would leave a window unsure which it was.
+    fn end_conversation(&mut self, agent_id: AgentId, reason: StopReason) {
+        if let Some(conversation) = self.conversations.remove(&agent_id) {
+            tracing::info!("agent {agent_id} ending: {reason:?}");
+            conversation.stop();
+        }
+        if let Some((_, project_id)) = self.conversation_owners.remove(&agent_id) {
+            self.work.remove_live_agent(project_id, agent_id);
+        }
+        // The agent owned its run's configuration directory — credentials seeded into it included
+        // — so that goes when the agent does.
+        self.agents.retire_agent(agent_id);
+    }
+
+    /// Tell the window that asked that its agent never started.
+    fn refuse_conversation(&self, client: ClientId, agent_id: AgentId, error: String) {
+        self.host.send(
+            To::Client(client),
+            Message::ConversationError { agent_id, error },
+        );
     }
 
     /// Hand one work-family message to the work.

@@ -171,14 +171,15 @@ src/
 ├── run.rs            # spawn + supervise the child; owns the process lifecycle
 ├── io/               # I/O bridging (core: model + bridges; pty-gated: passthrough)
 │   ├── mod.rs        #   neutral model (core)
-│   ├── model.rs      #   AgentInput/AgentEvent/ApprovalDecision      (P2)
+│   ├── model.rs      #   AgentInput/AgentEvent/IoBridge — ACP's session/update vocabulary (core)
 │   ├── passthrough.rs#   raw-tty pump                               (pty-gated)
-│   ├── structured.rs #   IoBridge trait                             (core, P2)
-│   ├── jsonl.rs      #   Claude stream-json input                   (P2)
-│   ├── codex.rs      #   Codex JSON-RPC app-server input            (P2)
-│   ├── opencode.rs   #   opencode NDJSON run input                  (P2)
-│   ├── acp.rs        #   ACP event adapter (stateless mapper)       (P3 ✅)
-│   └── agui.rs       #   AG-UI event adapter (stateless mapper)     (P3 ✅)
+│   ├── structured.rs #   spawn_piped, shared by every bridge        (core)
+│   ├── jsonl.rs      #   Claude stream-json bridge                  (core)
+│   ├── codex.rs      #   Codex JSON-RPC app-server bridge           (core)
+│   ├── opencode.rs   #   opencode NDJSON one-shot bridge            (core)
+│   ├── copilot.rs    #   GitHub Copilot CLI NDJSON one-shot bridge  (core)
+│   ├── acp.rs        #   ACP session/update projection (rename, not translation)
+│   └── agui.rs       #   AG-UI event adapter (stateless mapper)
 ├── mcp/              # in-process MCP hosting (feature: inproc-mcp)
 │   ├── mod.rs        #   McpService trait for embedders    (core, P2)
 │   └── server.rs     #   HTTP server for in-process MCPs   (feature: inproc-mcp, P2)
@@ -189,7 +190,9 @@ src/
 Phase 1 needs `spec`, `resolve`, `settings`, `registry`, `harness` (claude),
 `provision`, `run`, and `io/passthrough`. Phase 2 adds `account`, `harness`
 (codex/opencode), `io/{model,structured,jsonl,codex,opencode}`, and `mcp`.
-Phase 3 completes the set with `session`, `isolate`, `io/{acp,agui}`, and `cli/session`.
+Phase 3 completes the set with `session`, `isolate`, `io/{acp,agui}`, and
+`cli/session`; `harness::copilot` and `io::copilot` land alongside them,
+completing the structured-I/O harness set.
 
 ## The `Harness` trait
 

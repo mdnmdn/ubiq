@@ -151,6 +151,9 @@ pub enum MenuId {
     /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
     /// opened is `WorkbenchState::new_pane_menu`.
     NewPane,
+    /// The agents screen's "New agent": which harness a conversation is started on. Where it
+    /// opened is `WorkbenchState::new_agent_menu`.
+    NewAgent,
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.
@@ -210,6 +213,10 @@ pub struct WorkbenchState {
     /// Where the new-pane menu's chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::NewPane`.
     pub new_pane_menu: Option<(f32, f32)>,
+    /// Where the agents screen's "New agent" was clicked. `Some` exactly while `open_menu` is
+    /// `MenuId::NewAgent`, and it reads the same [`WorkbenchState::agent_types`] the new-pane menu
+    /// does: which harnesses this machine has is one answer, asked once.
+    pub new_agent_menu: Option<(f32, f32)>,
     /// The shells the host says this machine has, in the order the menu offers them. Empty until
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
@@ -240,6 +247,7 @@ impl Default for WorkbenchState {
             file_filter: String::new(),
             file_tab_menu: None,
             new_pane_menu: None,
+            new_agent_menu: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
         }

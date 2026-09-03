@@ -5,7 +5,10 @@
 //! [`AgentEvent`]s.
 
 use agent_manager::harness::Launch;
-use agent_manager::io::{AgentEvent, IoBridge, OpencodeBridge, spawn_piped};
+use agent_manager::io::{
+    AgentEvent, Content, IoBridge, OpencodeBridge, StopReason, ToolContent, ToolKind, ToolStatus,
+    spawn_piped,
+};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -59,75 +62,70 @@ fn opencode_bridge_drains_fake_stream_to_completion() {
         "expected events but got none (bridge hung?)"
     );
 
-    // Event 0: SessionStarted with session id from step_start.
-    // We expect 6 events: step_start, text, tool_use (call+result), step_finish (usage), and terminal Result (from EOF).
-    assert_eq!(events.len(), 6, "expected 6 events, got {}", events.len());
+    // We expect 5 events: step_start, text, tool_use (call+update), and the
+    // terminal TurnEnded from EOF. step_finish's tokens carry no context
+    // window, so it contributes no UsageUpdate — see `io/opencode.rs`.
+    assert_eq!(events.len(), 5, "expected 5 events, got {events:#?}");
 
     match &events[0] {
         AgentEvent::SessionStarted {
             session_id: Some(sid),
-        } => assert_eq!(sid, "fake-sess-123"),
-        other => panic!("event 0: expected SessionStarted, got {:?}", other),
-    }
-
-    // Event 1: AssistantText.
-    match &events[1] {
-        AgentEvent::AssistantText { text } => {
-            assert_eq!(text, "hello from fake opencode");
-        }
-        other => panic!("event 1: expected AssistantText, got {:?}", other),
-    }
-
-    // Event 2: ToolCall.
-    match &events[2] {
-        AgentEvent::ToolCall {
-            id: Some(cid),
-            name,
-            input,
+            model: None,
+            mode: None,
+            tools,
+            agents,
         } => {
-            assert_eq!(cid, "call-1");
-            assert_eq!(name, "bash");
+            assert_eq!(sid, "fake-sess-123");
+            assert!(tools.is_empty());
+            assert!(agents.is_empty());
+        }
+        other => panic!("event 0: expected SessionStarted, got {other:?}"),
+    }
+
+    // Event 1: AgentMessageChunk.
+    match &events[1] {
+        AgentEvent::AgentMessageChunk { content, .. } => {
+            assert_eq!(content, &Content::text("hello from fake opencode"));
+        }
+        other => panic!("event 1: expected AgentMessageChunk, got {other:?}"),
+    }
+
+    // Event 2: ToolCall, with the kind and status the new vocabulary carries.
+    match &events[2] {
+        AgentEvent::ToolCall { call } => {
+            assert_eq!(call.id, "call-1");
+            assert_eq!(call.title, "bash echo test");
+            assert_eq!(call.kind, ToolKind::Execute);
+            assert_eq!(call.status, ToolStatus::InProgress);
+        }
+        other => panic!("event 2: expected ToolCall, got {other:?}"),
+    }
+
+    // Event 3: ToolCallUpdate completing that same call.
+    match &events[3] {
+        AgentEvent::ToolCallUpdate { update } => {
+            assert_eq!(update.id, "call-1");
+            assert_eq!(update.status, Some(ToolStatus::Completed));
             assert_eq!(
-                input.get("command").and_then(|v| v.as_str()),
-                Some("echo test")
+                update.content,
+                Some(vec![ToolContent::Content {
+                    content: Content::text("test"),
+                }])
             );
         }
-        other => panic!("event 2: expected ToolCall, got {:?}", other),
+        other => panic!("event 3: expected ToolCallUpdate, got {other:?}"),
     }
 
-    // Event 3: ToolResult.
-    match &events[3] {
-        AgentEvent::ToolResult {
-            id: Some(rid),
-            content,
-        } => {
-            assert_eq!(rid, "call-1");
-            assert_eq!(content.as_str(), Some("test"));
-        }
-        other => panic!("event 3: expected ToolResult, got {:?}", other),
-    }
-
-    // Event 4: Usage.
+    // Event 4: the terminal TurnEnded, emitted at EOF since the stream never
+    // sent one of its own (no `error` line).
     match &events[4] {
-        AgentEvent::Usage {
-            input_tokens: Some(in_tok),
-            output_tokens: Some(out_tok),
-        } => {
-            assert_eq!(*in_tok, 42);
-            assert_eq!(*out_tok, 13);
-        }
-        other => panic!("event 4: expected Usage, got {:?}", other),
-    }
-
-    // Event 5: Terminal Result (emitted at EOF).
-    match &events[5] {
-        AgentEvent::Result {
-            success: true,
+        AgentEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
             error: None,
         } => {
             // Expected: successful completion at stream end.
         }
-        other => panic!("event 5: expected Result{{success:true}}, got {:?}", other),
+        other => panic!("event 4: expected TurnEnded{{EndTurn}}, got {other:?}"),
     }
 
     // Verify the bridge terminated cleanly (no more events and no error).
@@ -135,6 +133,6 @@ fn opencode_bridge_drains_fake_stream_to_completion() {
         Ok(None) => {
             // Expected: stream closed.
         }
-        other => panic!("expected stream end, got {:?}", other),
+        other => panic!("expected stream end, got {other:?}"),
     }
 }

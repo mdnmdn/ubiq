@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-03
+verified: 2026-09-03
 review_cycle: monthly
 ---
 
@@ -27,6 +27,14 @@ change what Ubiq does (here), or where a document lives (there)?
 
 | # | Item | Affects |
 |---|---|---|
+| G92 | A conversation runs unconfined and auto-approved. Structured I/O refuses isolation, because a bridge owns its child's descriptors and the sandbox needs them; and the Claude launch passes `bypassPermissions` while every bridge answers each approval itself. So an agent in a column edits any file the user can, with no prompt. Deliberate for the first end-to-end slice and the next thing to close | [`tech/decisions.md`](./tech/decisions.md), [`tech/agent-manager.md`](./tech/agent-manager.md) |
+| G93 | `AnswerPermission` and `SetAgentConfig` are on the wire and refused. Nothing emits a permission request a human could answer, and no harness advertises its models as config options yet | [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G94 | Live agents sit beside mock ones in the same list. `crates/ubiq-host/src/work/mod.rs` holds both, and the sidebar draws them together, so a screen can show an agent that answers next to eleven that cannot | [`features/workbench.md`](./features/workbench.md) |
+| G95 | A conversation is only Claude's. The Codex bridge takes input and is not offered; `opencode` and `copilot` are one-shot and would look broken the moment a second turn was typed, which is what `IoBridge::input()` answering `None` is for | [`tech/agent-manager.md`](./tech/agent-manager.md) |
+| G96 | Only Claude reports a context window, so only Claude draws a ring. Codex, opencode and Copilot report tokens with no window, and a ratio with an invented denominator is worse than none | [`features/workbench.md`](./features/workbench.md) |
+| G97 | A conversation does not survive a restart, and its transcript is held only in the window. The harness writes a richer record of its own inside the run directory the agent deletes when it closes | [`tech/agent-manager.md`](./tech/agent-manager.md) |
+| G98 | Ubiq's conversation vocabulary is the Agent Client Protocol's v1. A v2 draft reshapes diffs into structured file changes, makes the message id required, and removes the mode methods outright — `refs/acp-protocol.md` records what is coming | [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G99 | Raw harness frames reach the log console only when `RUST_LOG` asks for them by name, because they carry prompts and file contents. There is no control in the console for it | [`features/logs.md`](./features/logs.md) |
 | G89 | An agent is composed with no skills, MCP servers, account or model: `crates/ubiq-host/src/agent.rs` builds a `RunSpec` naming a harness and a folder, because nothing on the wire carries a composition. This is `G31` seen from the half that would consume it | [`tech/agent-manager.md`](./tech/agent-manager.md) |
 | G90 | An agent confined in a pane is macOS-only: `agent_manager::isolate::confined_launch` renders the policy and execs `sandbox-exec`, which macOS supports and Landlock cannot. isol8's pty seam replaces it and is in the pinned revision, but `PtyChild` fuses the child with the master — `resize` borrows it and `child` borrows it mutably — so a pane cannot resize on one thread while another waits. The master-only handle that unblocks the switch is requested in `refs/isol8-pty-seam-update.md` §8 | [`tech/agent-manager.md`](./tech/agent-manager.md), [`features/sessions-and-workspaces.md`](./features/sessions-and-workspaces.md) |
 | G91 | A confined agent reaches no toolchain outside its project — a `node` under `nvm`, a `cargo` under `rustup` — because the policy grants the project's folder and the run's own directory and nothing else. isol8 has recipes for exactly this, and nothing selects one | [`tech/agent-manager.md`](./tech/agent-manager.md) |
@@ -44,7 +52,6 @@ change what Ubiq does (here), or where a document lives (there)?
 | G18 | No pane shows focus on its edge, because focus across split panes is designed ahead of the code. `selected` and `border_focus` are drawn on the file picker's keyboard cursor and nowhere in a pane | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G19 | Of the session family, only `SpawnWorkspace`, `WorkspaceSpawned` and `CloseWorkspace` are implemented (the project family is complete). `ListSessions`/`SessionList`, `CreateSession`/`SessionCreated`, `AttachToSession`/`SessionAttached`, `DetachFromSession`, `ListAgentTypes`/`AgentTypes`, `Status`, `Error` and the `SessionInfo` and `AgentTypeInfo` records exist in the transport contract document and in no code. The work family's `WorkSession` is a session on the wire, seen from the other side, and the two records merge when the session family lands | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | G22 | Keyboard scrollback navigation is absent — Page Up/Down still go to the harness. The wheel in normal screen moves through scrollback | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
-| G25 | The harness library emits no `tracing` events, so the log console's Harness subsystem has nothing to show |
 | G27 | Ubiq's four crates pin `serde`, `tracing` and `flume` independently; the workspace has no `[workspace.dependencies]` table to make a skew impossible | [`tech/project-structure.md`](./tech/project-structure.md) |
 | G28 | The config root holds an agent's run directories, its preference templates and its isolation state, and not the library's catalogue, accounts or credentials — those keep their own roots, so a development run is self-contained in what a pane writes and not in what it reads | [`tech/agent-manager.md`](./tech/agent-manager.md) |
 | G29 | Two hosts on one config root are last-writer-wins over `projects.toml`; an advisory lock around the read-modify-write would close it | [`tech/architecture.md`](./tech/architecture.md) |
@@ -118,8 +125,8 @@ change what Ubiq does (here), or where a document lives (there)?
 | Q5 | The bus is unbounded, so nothing blocks and nothing is dropped. Should the queue be bounded instead, and if it is, what goes: the oldest chunks, a coalesced screen, or the whole pane's backlog? | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | Q6 | How does a subagent's pane show its parentage, and who decides where it opens? | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
 | Q7 | Is scrollback owned by the emulator, or does the coordinator keep a buffer so a reattaching UI can be repainted? This one is load-bearing for detach | [`tech/architecture.md`](./tech/architecture.md) |
-| Q9 | A workspace is its pane today, so `WorkspaceInfo` carries a `PaneId` while `WorkspaceId` reaches the wire only as the work family's `AgentId`. Does a workspace ever keep an id distinct from its pane's, and if so does the record carry both? | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | Q8 | A detached coordinator cannot write into the window's log ring. Does it carry its records over the transport as a message, keep its own ring the console queries, or write to a file the console reads? | [`features/logs.md`](./features/logs.md) |
+| Q11 | Where does "allow always" live? A permission option carries the kind, and something has to remember the answer. Per conversation is the protocol's scope; per agent definition is what a user would expect to survive a restart | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | Q10 | The workarea is an absolute path on the host's machine, and the interface uses it directly. A detached host on another machine hands over a path the interface cannot open — does the interface fall back to a root of its own, does the host learn to serve the directory over the bus, or does a remote host simply mean no cached renders? | [`tech/architecture.md`](./tech/architecture.md) |
 
 ## Deferred — decided to wait
