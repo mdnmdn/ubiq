@@ -22,6 +22,14 @@ pub struct ProjectRecord {
     pub path: String,
     /// Index into the theme's project swatches. The interface chooses it; the host only keeps it.
     pub colour: usize,
+    /// A colour picked outside the swatches, packed as `0x00RRGGBB`. When set it wins over
+    /// `colour`, which stays as the swatch the project would fall back to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_colour: Option<u32>,
+    /// A folder opened by a drop rather than added to the catalogue. It is never written down, so
+    /// it is gone at the next launch; naming it in project settings is what keeps it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub temporary: bool,
     /// When the project entered the catalogue.
     pub created_at: DateTime<Utc>,
     /// Stamped by the host when a window opens it. Absent until first opened.

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-03
+verified: 2026-09-03
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -872,6 +872,38 @@ file changes and makes the message id required is drafted — every one of those
 family was designed whole rather than grown one at a time. And a conversation and a pane are two
 spawn messages rather than one, which is the price of a record that does not carry geometry nobody
 set.
+
+### D54 — A dropped folder opens as a temporary project; a dropped file outside every project is a read-only guest tab
+
+A folder dropped on the editor centre or a file tab opens immediately as a project — the host mints
+an ordinary `ProjectRecord` with a `temporary` flag and keeps it in memory only, never writing it to
+`projects.toml` — rather than opening project settings prefilled and waiting on `AddProject`. A file
+dropped that lands outside every open project opens as a read-only guest tab that the interface
+reads itself with `std::fs`, rather than through the host as a loose project. Both reverse rows (a)
+and (c) of `_docs/inbox/shell-integration-proposal.md` §12, settled here 2026-09-03.
+
+**Why a temporary project instead of prefilled settings:** naming and colouring a folder before it
+has proven worth keeping is friction the drop was supposed to remove. Opening it at once and putting
+the only decision — keep it — behind the same settings dialog costs nothing extra: `UpdateProject`
+on a temporary record is what clears the flag and writes it down, so there is no separate promote
+message, and every file, git, work and pane operation resolves a project through the host's
+in-memory lookup, temporary or not.
+
+**Why a guest tab instead of a loose project:** the direct read was rejected once, in the proposal's
+own §3, for what it costs — reimplementing `FileVersion`, `is_binary`, `truncated` and every
+`FileError` arm, or shipping an editor whose save can eat an agent's work. That argument holds; what
+is different is the answer to what a guest file may do with what it read. `OpenFile::savable()` also
+requires `version: Some(_)`, so a guest file — built with `version: None` — cannot reach a save at
+all. The failure §3 feared, a save landing on a change an agent made a second earlier, cannot happen
+to a buffer that has no save button. That is narrower than a loose project's read-write editor, and
+it is the whole of why the interface is allowed to read the bytes itself here: nothing it produces
+can be written back.
+
+**Cost:** two of them. `crates/ubiq/src/app.rs` calls `Path::is_dir` and `std::fs::read` directly,
+which architecture rule 2 otherwise forbids the interface — see the exception recorded in
+[`architecture.md`](./architecture.md), rule 2. And a guest tab is read-only for good: promoting one
+to a real, savable file means dropping it again inside the project that holds it, not an in-place
+upgrade.
 
 ## Related docs
 

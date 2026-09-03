@@ -108,9 +108,9 @@ recolour and a move on disk.
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListProjects` | UI → host | — | `ProjectList` |
-| `AddProject` | UI → host | `path`, `name?`, `colour?` | `ProjectAdded` or `ProjectError` |
+| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -169,6 +169,22 @@ false is offered and not pickable, so the interface never has to decide what a m
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
+
+**The two colour fields travel together.** `colour` is an index into the theme's swatches and
+`custom_colour` is a packed `0x00RRGGBB` that wins over it, which is what lets project settings
+offer a colour outside the swatches and have it survive a restart. `custom_colour` is applied only
+when `colour` is `Some`, and a `None` `custom_colour` beside a `Some` `colour` clears the custom
+colour back to the swatch — so the pair needs no third state to mean "leave it alone". A name-only
+`UpdateProject` carries neither and touches neither. A swatch index is stored, so the swatch list is
+only ever appended to: reordering it would recolour every project in the catalogue.
+
+**`AddProject.temporary` opens a folder without writing it to the catalogue.** The record it mints
+carries `ProjectRecord.temporary: true` and lives only in the host's memory — nothing is written to
+`projects.toml`, and it is gone at the next launch. Every other message treats it exactly like any
+other project, because they all resolve a project through the host's in-memory record lookup. There
+is deliberately no separate "promote" message: `UpdateProject` on a temporary record is what clears
+the flag and writes it down, and adding the same folder again through `AddProject` (with
+`temporary: false`) promotes it the same way. See `D54`.
 
 **`ForgetProject` is not deleting.** It removes the record and the project's own directory in
 Ubiq's config, and touches nothing inside the project's folder.
@@ -509,7 +525,7 @@ Twenty-eight records travel inside payloads.
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `id`, `label`, `available` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `created_at`, `last_opened_at?` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes` and `workarea` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |

@@ -69,7 +69,7 @@ a palette swap changes every surface consistently.
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
-| Project | `project_colour(n)`, `project_colour_count()` | The identity of one project, wherever it appears |
+| Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(...)`, `mark_dark(...)` | The identity of one project, wherever it appears |
 
 The `_soft` variants are declared with their own alpha in `theme.rs` rather than computed at a call
 site with `.alpha(...)`. A shade that only exists at one call site is a shade a palette swap cannot
@@ -90,11 +90,11 @@ The project group is the one group whose members carry no role. A swatch means *
 nothing else, and a project keeps the same one everywhere it is drawn: its dot in the picker, the
 fill behind its name in the titlebar, the mark above the rail, and the window's whole left edge.
 `project_colour` wraps, so the number of projects is not bounded by the number of swatches, and
-`project_colour_count` is what project settings offers when a project is recoloured. The mark reads
-its swatch's luminance through `project_mark_dark` to pick the pale or the blue logo; the other
-places go through `AppState::project_tint`. A window holding no project — which happens when the
-catalogue is empty — has one neutral appearance decided in a single place rather than four call
-sites each falling back to swatch zero.
+`project_colour_count` is what project settings offers. `project_tint` ranks the three sources — the
+temporary grey, a custom colour, then the swatch — and `mark_dark` takes the *resolved* colour, so
+one function answers for all three and for the border a window with no project falls back to, in one
+place rather than four call sites each falling back to swatch zero. A swatch index is stored, so the
+swatches are only ever **appended to**: reordering them recolours every project the catalogue holds.
 
 Two palettes are built in, dark and light, both defined in the same file and both complete — a token
 that exists in one exists in the other. The active theme is thread-local and read through the

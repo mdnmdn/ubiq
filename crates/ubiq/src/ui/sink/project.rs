@@ -551,7 +551,7 @@ fn colour_picker(
                 .h(px(14.))
                 .flex_none()
                 .cursor_pointer()
-                .bg(rgba_of(hsv_to_rgb(h, 1.0, 1.0)))
+                .bg(theme::rgba_of(hsv_to_rgb(h, 1.0, 1.0)))
                 .when((h - hue).abs() < 0.5 / HUE_STEPS as f32, |this| {
                     this.border_1().border_color(theme::text())
                 })
@@ -625,7 +625,7 @@ fn sv_plane(hue: f32) -> impl IntoElement {
                             bounds.origin + point(px(x), px(y)),
                             size(px(step), px(step)),
                         ),
-                        rgba_of(hsv_to_rgb(hue, sat, val)),
+                        theme::rgba_of(hsv_to_rgb(hue, sat, val)),
                     ));
                     x += step;
                 }
@@ -649,17 +649,8 @@ fn sv_mark(sat: f32, val: f32) -> impl IntoElement {
 fn current_rgba(app: &AppState, form: Form) -> Rgba {
     let picked = colour_of(app, form);
     match picked.custom {
-        Some(rgb) => rgba_of(rgb),
+        Some(rgb) => theme::rgba_of(rgb),
         None => theme::project_colour(picked.colour),
-    }
-}
-
-fn rgba_of(rgb: u32) -> Rgba {
-    Rgba {
-        r: ((rgb >> 16) & 0xff) as f32 / 255.0,
-        g: ((rgb >> 8) & 0xff) as f32 / 255.0,
-        b: (rgb & 0xff) as f32 / 255.0,
-        a: 1.0,
     }
 }
 
@@ -736,7 +727,19 @@ fn footer(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement 
                 app.workbench.project_settings.as_ref().map(|s| &s.mode),
                 Some(ProjectSettingsMode::Create { .. })
             );
-            let label = if creating { "Create" } else { "Save changes" };
+            // Editing a temporary project is its first real save: the dialog is the same "Edit"
+            // mode, but the button should still say what is about to happen.
+            let temporary = match app.workbench.project_settings.as_ref().map(|s| &s.mode) {
+                Some(ProjectSettingsMode::Edit { project }) => WindowRegistry::read(cx)
+                    .project(*project)
+                    .is_some_and(|entry| entry.record.temporary),
+                _ => false,
+            };
+            let label = if creating || temporary {
+                "Create"
+            } else {
+                "Save changes"
+            };
             (
                 if creating {
                     "New project"
@@ -831,8 +834,18 @@ fn colour_name(index: usize) -> &'static str {
         1 => "violet",
         2 => "teal",
         3 => "gold",
-        4 => "rose",
+        4 => "pink",
         5 => "green",
+        6 => "red",
+        7 => "orange",
+        8 => "lime",
+        9 => "cyan",
+        10 => "indigo",
+        11 => "magenta",
+        12 => "brown",
+        13 => "slate",
+        14 => "olive",
+        15 => "rose",
         _ => "custom",
     }
 }

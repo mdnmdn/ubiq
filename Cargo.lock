@@ -8912,6 +8912,9 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tracing",
+ "tree-sitter",
+ "tree-sitter-c-sharp",
+ "tree-sitter-swift",
  "ubiq-proto",
 ]
 
@@ -8920,10 +8923,12 @@ name = "ubiq-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flume",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "percent-encoding",
  "tracing",
  "ubiq",
  "ubiq-host",

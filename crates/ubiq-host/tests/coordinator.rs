@@ -83,6 +83,8 @@ fn add_project(ui: &Client, path: &std::path::Path) -> ProjectId {
         path: path.to_string_lossy().into_owned(),
         name: None,
         colour: None,
+        custom_colour: None,
+        temporary: false,
     });
 
     loop {
@@ -900,6 +902,135 @@ fn a_project_arrives_with_a_workarea_the_host_reserves_and_leaves_alone() {
         std::fs::read_dir(&expected).unwrap().count(),
         0,
         "the host reserves the workarea and never writes inside it"
+    );
+}
+
+/// The same as [`coordinator_on_disk`], but the catalogue itself is the real file store — the
+/// other one keeps it in memory, which is right for tests that watch tasks or the workarea, and
+/// wrong for the two below, which watch `projects.toml` itself.
+fn coordinator_with_catalogue() -> (Hub, Client, std::path::PathBuf) {
+    let (hub, host) = bus::hub();
+    let root = tempfile::TempDir::new().unwrap();
+    let path = root.path().to_path_buf();
+    let config = ConfigRoot {
+        path: path.clone(),
+        source: RootSource::Flag,
+    };
+    let (projects, pending) = Projects::open(
+        config.path.clone(),
+        Box::new(ubiq_host::store::file::FileProjectStore::new(
+            path.join("projects.toml"),
+        )),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    std::mem::forget(root);
+    let work = Work::open(Box::new(MemoryTaskStore::new()));
+    let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+    coordinator::start(host, config, projects, work, settings, pending);
+    let client = hub.connect();
+    (hub, client, path)
+}
+
+/// A temporary project is never in `projects.toml`, and still resolves like any other.
+///
+/// The whole point of "temporary" in one test: the catalogue file never learns the folder exists,
+/// yet a `ProjectTree` against the id it was handed comes back a listing, not a refusal — because
+/// `record()` reads the in-memory list, and that is where a dropped folder actually lives.
+#[test]
+fn a_temporary_project_never_reaches_the_catalogue_file_but_still_resolves() {
+    let (_hub, ui, root) = coordinator_with_catalogue();
+    let folder = tempfile::TempDir::new().unwrap();
+
+    ui.send(Message::AddProject {
+        path: folder.path().to_string_lossy().into_owned(),
+        name: None,
+        colour: None,
+        custom_colour: None,
+        temporary: true,
+    });
+    let project_id = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectAdded { project }) => break project.id(),
+            Ok(Message::HostInfo { .. }) => continue,
+            other => panic!("expected the project, got {other:?}"),
+        }
+    };
+
+    let catalogue = root.join("projects.toml");
+    let body = std::fs::read_to_string(&catalogue).unwrap_or_default();
+    assert!(
+        !body.contains(&folder.path().to_string_lossy().into_owned()),
+        "a temporary project must never land in the catalogue file: {body}"
+    );
+
+    ui.send(Message::ProjectTree {
+        project_id,
+        rel_path: String::new(),
+        depth: 1,
+    });
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectTreeListing { project_id: id, .. }) => {
+                assert_eq!(id, project_id);
+                return;
+            }
+            Ok(Message::ProjectFileError { error, .. }) => {
+                panic!("a temporary project must resolve, not answer {error:?}")
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the tree was never answered"),
+        }
+    }
+}
+
+/// Naming a temporary project in settings is the promotion: it lands in `projects.toml` and the
+/// broadcast is the same `ProjectChanged` a rename always sends — there is no separate message.
+#[test]
+fn naming_a_temporary_project_makes_it_durable() {
+    let (_hub, ui, root) = coordinator_with_catalogue();
+    let folder = tempfile::TempDir::new().unwrap();
+
+    ui.send(Message::AddProject {
+        path: folder.path().to_string_lossy().into_owned(),
+        name: None,
+        colour: None,
+        custom_colour: None,
+        temporary: true,
+    });
+    let project_id = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectAdded { project }) => break project.id(),
+            Ok(Message::HostInfo { .. }) => continue,
+            other => panic!("expected the project, got {other:?}"),
+        }
+    };
+
+    ui.send(Message::UpdateProject {
+        project_id,
+        name: Some("kept".to_string()),
+        colour: None,
+        custom_colour: None,
+    });
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectChanged { project }) if project.id() == project_id => {
+                assert_eq!(project.record.name, "kept");
+                assert!(
+                    !project.record.temporary,
+                    "naming it in settings is what keeps it"
+                );
+                break;
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the rename was never answered"),
+        }
+    }
+
+    let path = root.join("projects.toml");
+    let body = wait_for_body(&path, "kept");
+    assert!(
+        body.contains(&folder.path().to_string_lossy().into_owned()),
+        "the folder itself is in the catalogue now too: {body}"
     );
 }
 

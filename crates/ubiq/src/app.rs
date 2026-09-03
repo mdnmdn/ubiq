@@ -13,6 +13,9 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -360,6 +363,9 @@ pub struct AppState {
     /// Whether an `AddProject` this window asked for is still outstanding, so the project it
     /// answers with is opened here rather than merely appearing in every picker.
     adding: bool,
+    /// A file dropped with no project open: its folder is added as `adding` above, and this is the
+    /// leaf to select once the project the host answers with is actually open.
+    adding_select: Option<String>,
     /// Contents the host sent that still need a window to become buffers. Drained in `render`.
     pending_files: Vec<FileArrival>,
 
@@ -509,6 +515,9 @@ impl AppState {
         let window_id = window.window_handle().window_id();
         cx.global_mut::<WindowRegistry>()
             .register(window_id, label, project);
+        // A handle back to this window's own state, so a path arriving from outside it — the
+        // command line, a Finder open, a dock-icon drop — has somewhere to be delivered.
+        OpenWindows::register(window_id, cx.weak_entity(), cx);
 
         let chat_input = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -531,7 +540,7 @@ impl AppState {
             .map(|_| {
                 cx.new(|cx| {
                     TextareaState::new(window, cx)
-                        .placeholder("Steer this agent\u{2026}")
+                        .placeholder("Ask me\u{2026}")
                         .auto_grow(1, 5)
                         .submit_on_enter(true)
                 })
@@ -1106,6 +1115,7 @@ impl AppState {
             search: SearchState::new(search_query.clone()),
             adopt_on_list: false,
             adding: false,
+            adding_select: None,
             pending_files: Vec::new(),
             diagrams: RefCell::new(HashMap::new()),
             diagram_asks: RefCell::new(Vec::new()),
@@ -1780,11 +1790,19 @@ impl AppState {
 
             Message::ProjectAdded { project } => {
                 let id = project.record.id;
+                let root = project.record.path.clone();
                 cx.global_mut::<WindowRegistry>().apply(project);
                 // Whoever asked for it is the window that opens it.
                 if self.adding {
                     self.adding = false;
                     self.take_project(id, cx);
+                    // A file dropped with no project open named this folder's leaf as what to
+                    // show once the project it became was actually open.
+                    if let Some(dropped) = self.adding_select.take()
+                        && let Ok(rel) = Path::new(&dropped).strip_prefix(&root)
+                    {
+                        self.select_file(rel.to_string_lossy().into_owned(), cx);
+                    }
                 }
                 cx.notify();
             }
@@ -3429,7 +3447,11 @@ impl AppState {
     /// each falling back to swatch zero and claiming to be a project that is not there.
     pub fn project_tint(&self, cx: &App) -> gpui::Rgba {
         match self.project_snapshot(cx) {
-            Some(project) => theme::project_colour(project.record.colour),
+            Some(project) => theme::project_tint(
+                project.record.temporary,
+                project.record.colour,
+                project.record.custom_colour,
+            ),
             None => theme::border(),
         }
     }
@@ -3507,8 +3529,21 @@ impl AppState {
 
         self.workbench.pending_close = None;
         let id = self.window_id;
+        // Read before the close, while the registry still answers for this project: `close` only
+        // drops it from this window's slot, but the snapshot is the same one either side of that.
+        let temporary = WindowRegistry::read(cx)
+            .project(project)
+            .is_some_and(|p| p.record.temporary);
         cx.global_mut::<WindowRegistry>().close(id, project);
         self.sync_projects(cx);
+        // Project messages are broadcast, so another window may still hold this project — a
+        // temporary one is only forgotten once nothing points at it any more, or that window's
+        // project would close out from under it.
+        if temporary && WindowRegistry::read(cx).holder(project).is_none() {
+            self.bus.send(Message::ForgetProject {
+                project_id: project,
+            });
+        }
     }
 
     pub fn cancel_close(&mut self, cx: &mut Context<Self>) {
@@ -3524,12 +3559,14 @@ impl AppState {
         project: ProjectId,
         name: Option<String>,
         colour: Option<usize>,
+        custom: Option<u32>,
         cx: &mut Context<Self>,
     ) {
         self.bus.send(Message::UpdateProject {
             project_id: project,
             name,
             colour,
+            custom_colour: custom,
         });
         self.workbench.row_action = None;
         cx.notify();
@@ -3563,15 +3600,26 @@ impl AppState {
     }
 
     /// Take a folder into the catalogue. This window opens whatever the host answers with.
+    ///
+    /// `temporary` is a folder dropped in rather than chosen: it opens the same way, but the host
+    /// never writes it to the catalogue unless the user later keeps it from the titlebar.
     pub fn add_project(
         &mut self,
         path: String,
         name: Option<String>,
         colour: Option<usize>,
+        custom: Option<u32>,
+        temporary: bool,
         cx: &mut Context<Self>,
     ) {
         self.adding = true;
-        self.bus.send(Message::AddProject { path, name, colour });
+        self.bus.send(Message::AddProject {
+            path,
+            name,
+            colour,
+            custom_colour: custom,
+            temporary,
+        });
         cx.notify();
     }
 
@@ -3657,13 +3705,26 @@ impl AppState {
             return;
         };
         let project = snapshot.record.id;
-        let colour = snapshot.record.colour;
+        // A temporary project was never let choose its own colour — it drew the grey instead — so
+        // this seeds a real one rather than carrying that grey's index into the form.
+        let colour = if snapshot.record.temporary {
+            self.next_colour(cx)
+        } else {
+            snapshot.record.colour
+        };
+        // A temporary project's grey was never a real colour either, so its custom colour, if any,
+        // does not carry over — the same reasoning that seeds `colour` from `next_colour` above.
+        let custom = if snapshot.record.temporary {
+            None
+        } else {
+            snapshot.record.custom_colour
+        };
         self.workbench.open_menu = None;
         self.workbench.settings.open = false;
         self.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Edit { project },
             colour,
-            custom: None,
+            custom,
             picker_open: false,
             hue: 0.6,
             sat: 0.6,
@@ -3690,12 +3751,15 @@ impl AppState {
             return;
         }
         let colour = settings.colour;
+        let custom = settings.custom;
         match settings.mode {
             ProjectSettingsMode::Create { path } => {
-                self.add_project(path, Some(name), Some(colour), cx);
+                self.add_project(path, Some(name), Some(colour), custom, false, cx);
             }
             ProjectSettingsMode::Edit { project } => {
-                self.update_project(project, Some(name), Some(colour), cx);
+                // Nothing marks this as a promotion: the host treats an `UpdateProject` on a
+                // temporary record as the project's entry into the real catalogue.
+                self.update_project(project, Some(name), Some(colour), custom, cx);
             }
         }
     }
@@ -3715,8 +3779,9 @@ impl AppState {
                 .map(|entry| entry.record.name.clone())
                 .unwrap_or_default(),
         };
-        let colour = settings.colour;
-        let rgb = project_swatch_rgb(colour);
+        let rgb = settings
+            .custom
+            .unwrap_or_else(|| project_swatch_rgb(settings.colour));
         let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             settings.hue = hue;
@@ -4914,6 +4979,130 @@ impl AppState {
         self.remember(project, cx);
         cx.notify();
     }
+
+    /// Open a file from outside every project this window holds — dropped in, not opened from the
+    /// tree. It is read-only and hosted by the active project so it has somewhere to live among
+    /// the panels, but the bus is never asked: there is no project to answer for a path outside
+    /// its own.
+    ///
+    /// The tab key is the absolute path itself: `tab_key` is `subject.tag() + path` and
+    /// `Subject::File`'s tag is empty, so a project-relative path (which never starts with `/`)
+    /// cannot collide with it.
+    pub fn open_guest_file(&mut self, abs: &Path, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let path = abs.to_string_lossy().into_owned();
+        let markdown_open = self.workbench.settings.ui.markdown_open.layout();
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+
+        let fresh = open.editor.index_of(&path).is_none();
+        let index = open.editor.open_pending(&path, markdown_open);
+        open.editor.open[index].guest = true;
+        open.editor.active = index;
+        self.pending_editor_focus = Some(tab_key(&path, Subject::File));
+
+        if !fresh {
+            cx.notify();
+            return;
+        }
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::File(tab_key(
+                &path,
+                Subject::File,
+            ))));
+        cx.notify();
+
+        // The tab above is what `attach_file` requires before it will fill anything in — it finds
+        // a tab by project and path and only fills one that `is_loading()` — so the read has to
+        // happen after the tab exists, not before it.
+        match read_guest_file(abs) {
+            Ok(contents) => self.pending_files.push(FileArrival {
+                project,
+                path,
+                contents,
+            }),
+            Err(reason) => {
+                if let Some(open) = self.projects.get_mut(&project)
+                    && let Some(file) = open.editor.find_mut(&path)
+                {
+                    file.set_failed(reason);
+                }
+            }
+        }
+    }
+
+    /// A drop from outside the app: a folder becomes a project (temporary, until kept from the
+    /// titlebar), a file under a project this window holds opens there, a file with a project open
+    /// but outside all of them opens as a read-only guest, and a file with none open takes its
+    /// folder in as a project and waits to select the file once the host answers.
+    pub fn deliver_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        for path in paths {
+            if path.is_dir() {
+                self.add_project(
+                    path.to_string_lossy().into_owned(),
+                    None,
+                    None,
+                    None,
+                    true,
+                    cx,
+                );
+                continue;
+            }
+
+            // Every project *this window* holds, not the whole catalogue: a file under a project
+            // open in another window is exactly as much a stranger here as one under no project.
+            let mut roots: Vec<(ProjectId, String)> = {
+                let registry = WindowRegistry::read(cx);
+                registry
+                    .slot(self.window_id)
+                    .into_iter()
+                    .flat_map(|slot| slot.projects.iter().copied())
+                    .filter_map(|id| registry.project(id).map(|s| (id, s.record.path.clone())))
+                    .collect()
+            };
+            // Longest root first, so a project nested inside another one wins the match.
+            roots.sort_by_key(|(_, root)| std::cmp::Reverse(root.len()));
+            let hit = roots.into_iter().find_map(|(id, root)| {
+                path.strip_prefix(&root)
+                    .ok()
+                    .map(|rel| (id, rel.to_string_lossy().into_owned()))
+            });
+
+            if let Some((id, rel)) = hit {
+                // The match can be a project this window holds but is not showing; a drop opens
+                // it, the same as clicking its row would.
+                if self.project(cx) != Some(id) {
+                    self.activate_project(id, cx);
+                }
+                self.select_file(rel, cx);
+                continue;
+            }
+
+            if self.project(cx).is_some() {
+                self.open_guest_file(path, cx);
+                continue;
+            }
+
+            // No project open at all: the drop's folder becomes one, and the file is what
+            // `Message::ProjectAdded` selects once that folder is actually open.
+            let Some(parent) = path.parent() else {
+                continue;
+            };
+            self.adding_select = Some(path.to_string_lossy().into_owned());
+            self.add_project(
+                parent.to_string_lossy().into_owned(),
+                None,
+                None,
+                None,
+                true,
+                cx,
+            );
+        }
+    }
+
     ///
     /// A diff is not the file, so it is a tab of its own beside it rather than something the file's
     /// tab switches into: opening a comparison never takes over what is being read or edited.
@@ -5347,6 +5536,9 @@ impl AppState {
     fn copy_full_path_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
         let (rel, _) = from_tab_key(key);
         if let Some(snap) = self.project_snapshot(cx) {
+            // A guest tab's key is already an absolute path, and `Path::join` with an absolute
+            // argument replaces the base rather than concatenating with it — so this resolves a
+            // guest file correctly without a special case here.
             let full = std::path::Path::new(&snap.record.path)
                 .join(&rel)
                 .to_string_lossy()
@@ -5359,6 +5551,8 @@ impl AppState {
     fn open_in_finder_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
         let (rel, _) = from_tab_key(key);
         if let Some(snap) = self.project_snapshot(cx) {
+            // See `copy_full_path_for_tab`: `join` with an absolute `rel` replaces the base, so a
+            // guest file's absolute key resolves to itself here too.
             let full = std::path::Path::new(&snap.record.path)
                 .join(&rel)
                 .to_string_lossy()
@@ -6185,7 +6379,7 @@ impl AppState {
                             .unwrap_or_else(|| "this agent".to_string());
                         (
                             column.slot,
-                            format!("Steer {name}\u{2026}"),
+                            format!("Ask {name}\u{2026}"),
                             agents.draft(column.slot).to_string(),
                         )
                     })
@@ -7181,6 +7375,39 @@ fn leaf_name(path: &str) -> &str {
         .unwrap_or(path)
 }
 
+/// Read a guest file's prefix, since there is no host round trip for a path outside every project.
+/// Mirrors `ubiq_host::files::contents`: the same stat guard against a FIFO or a device blocking
+/// this thread forever, the same truncation ceiling, and the same NUL sniff for binary. There is no
+/// version, because there is no project record to keep one consistent against — `OpenFile::savable`
+/// is what turns that absence into an unwritable tab rather than a merely unwritten one.
+fn read_guest_file(path: &Path) -> Result<FileContents, String> {
+    let stat = fs::metadata(path).map_err(|error| error.to_string())?;
+    if !stat.is_file() {
+        return Err("not a regular file".to_string());
+    }
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+
+    let truncated = bytes.len() as u64 > MAX_FILE_BYTES;
+    if truncated {
+        bytes.truncate(MAX_FILE_BYTES as usize);
+    }
+    const SNIFF_BYTES: usize = 8 * 1024;
+    let is_binary = bytes[..SNIFF_BYTES.min(bytes.len())].contains(&0);
+    let len = fs::metadata(path).map(|m| m.len()).unwrap_or(stat.len());
+
+    Ok(FileContents {
+        bytes,
+        len,
+        truncated,
+        is_binary,
+        version: None,
+    })
+}
+
 fn project_swatch_rgb(index: usize) -> u32 {
     let colour = theme::project_colour(index);
     crate::state::sink::rgb_from_channels(colour.r, colour.g, colour.b)
@@ -7269,7 +7496,7 @@ pub fn boot_theme() -> ThemeId {
 /// The project comes with it: a project is open in one window at a time, so the new window takes it
 /// from whichever window held it, and that window is left showing nothing.
 pub fn open_project_window(project: Option<ProjectId>, cx: &mut App) {
-    open_window(project, false, cx)
+    open_window(project, false, Vec::new(), cx)
 }
 
 /// The first window, which takes a project from the first catalogue that arrives.
@@ -7277,10 +7504,41 @@ pub fn open_project_window(project: Option<ProjectId>, cx: &mut App) {
 /// The binary cannot name one: it has not asked the host what exists yet, and the interface may
 /// not look for itself.
 pub fn open_first_window(cx: &mut App) {
-    open_window(None, true, cx)
+    open_window(None, true, Vec::new(), cx)
 }
 
-fn open_window(project: Option<ProjectId>, adopt: bool, cx: &mut App) {
+/// Hand paths from outside the window — the command line, a Finder open, a dock-icon drop — to a
+/// window that can act on them.
+///
+/// The front-most window gets it; failing that, whichever the registry opened first. With no
+/// window at all, one is opened the same as a cold launch, and the paths are delivered into it
+/// before it asks the host for anything — `deliver_paths` runs first, so if `adopt_if_owed` later
+/// adopts a remembered project from the catalogue, `Message::ProjectAdded` for the delivered path
+/// still lands after and takes the window over unconditionally. The delivered path always wins.
+pub fn deliver_paths_to_a_window(paths: Vec<PathBuf>, cx: &mut App) {
+    if paths.is_empty() {
+        return;
+    }
+
+    let target = cx
+        .active_window()
+        .and_then(|handle| OpenWindows::get(cx, handle.window_id()))
+        .or_else(|| {
+            WindowRegistry::read(cx)
+                .windows
+                .first()
+                .and_then(|slot| OpenWindows::get(cx, slot.id))
+        });
+
+    match target {
+        Some(view) => {
+            view.update(cx, |state, cx| state.deliver_paths(&paths, cx));
+        }
+        None => open_window(None, true, paths, cx),
+    }
+}
+
+fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx: &mut App) {
     WindowRegistry::install(cx);
     // The letter is allocated before the window exists, because the title carries it. Nothing can
     // register in between — `open_window` builds the `AppState`, which is what registers.
@@ -7304,6 +7562,9 @@ fn open_window(project: Option<ProjectId>, adopt: bool, cx: &mut App) {
             let view = cx.new(|cx| {
                 let mut state = AppState::for_project(project, label, window, cx);
                 state.adopt_on_list = adopt;
+                if !paths.is_empty() {
+                    state.deliver_paths(&paths, cx);
+                }
                 state
             });
             cx.new(|cx| gpui_component::Root::new(view, window, cx).bg(crate::theme::app_bg()))
@@ -7335,6 +7596,36 @@ pub fn focus_window(id: WindowId, cx: &mut App) {
 pub fn window_closed(id: WindowId, cx: &mut App) {
     if cx.has_global::<WindowRegistry>() {
         cx.global_mut::<WindowRegistry>().unregister(id);
+    }
+    OpenWindows::unregister(id, cx);
+}
+
+/// Which window a delivered path can reach, by id.
+///
+/// [`WindowRegistry`] draws the picker and never needs a live handle back into a window's own
+/// state; `deliver_paths_to_a_window` does, so it keeps this small map beside it instead of
+/// growing the registry a concern it otherwise has no use for.
+#[derive(Default)]
+struct OpenWindows(HashMap<WindowId, WeakEntity<AppState>>);
+
+impl Global for OpenWindows {}
+
+impl OpenWindows {
+    fn register(id: WindowId, view: WeakEntity<AppState>, cx: &mut App) {
+        if !cx.has_global::<Self>() {
+            cx.set_global(Self::default());
+        }
+        cx.global_mut::<Self>().0.insert(id, view);
+    }
+
+    fn unregister(id: WindowId, cx: &mut App) {
+        if cx.has_global::<Self>() {
+            cx.global_mut::<Self>().0.remove(&id);
+        }
+    }
+
+    fn get(cx: &App, id: WindowId) -> Option<Entity<AppState>> {
+        cx.try_global::<Self>()?.0.get(&id)?.upgrade()
     }
 }
 

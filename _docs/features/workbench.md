@@ -474,6 +474,20 @@ untouched.
 The path stays as it is. Documentation and Integrations are drawn and disabled. Save writes the
 name and colour through `UpdateProject`.
 
+**A folder dropped on the editor centre or a file tab opens at once, as a temporary project.** The
+host mints an ordinary record with a `temporary` flag, never writes it to the catalogue, and keeps
+it only in memory — gone at the next launch. It is named after its folder, and it wears the
+theme's grey tint in every place a project's colour shows rather than a swatch, because it is not
+in the catalogue and should not look like it is. Every file, git, work and pane operation works
+against it exactly as it would any other project. Its titlebar button is a `+` rather than the
+3-dot, and opens the same project-settings dialog. **Naming it there is what keeps it**: Save on a
+temporary project sends `UpdateProject`, and the host's answer clears the flag and writes the
+record down — there is deliberately no separate "promote" message, so the button reads "Keep this
+project" rather than "Project settings" and the dialog's own button reads "Create" rather than "Save
+changes". Adding the same folder again through the picker's chooser promotes it the same way.
+Closing a temporary project sends `ForgetProject`, but only once no other window still holds it —
+the project message is a broadcast, so a second window's picker can still be pointed at it.
+
 **Each group's rows carry the actions that group needs.** In this window: click to point the window
 at it, `Close` to close it, `ExternalLink` to send it to a window of its own. In another window:
 click to bring that window to the front — which is how the user moves between windows — or
@@ -629,6 +643,22 @@ fills when the bytes arrive — so a click has an effect, a second click cannot 
 twice, and a read that fails has somewhere to say so. Bytes that arrive for a project the window has
 since switched away from are still put in their tab; bytes for a tab that has been closed are
 dropped.
+
+**A file dropped from outside every open project opens as a read-only guest tab.** The interface
+reads the bytes itself with `std::fs` — no host, no bus — and builds the same `FileContents` value a
+host read would produce, except with no `FileVersion`, since there is no project record to keep one
+consistent against. It is hosted by the currently active project so it has somewhere to live among
+the panels, drawn in a muted colour rather than the repository's, and its tab key is the file's
+absolute path rather than a project-relative one. It goes through the same arrival path as any other
+file from there, so images, markdown and the text editor all work unchanged. It cannot be saved: a
+file is savable only with an untruncated body **and** a version, and a guest file has no version to
+name. A file dropped that is inside an open project opens normally through the host instead, with
+its git badge and a real save. A folder dropped anywhere else becomes a temporary project instead of
+a guest tab, above.
+
+**The drop target is the editor centre and the file tabs, and nothing else yet.** The explorer and
+the chat panel deliberately do nothing with an external drop; the terminal pane keeps its existing
+behaviour of quoting the path into the pseudo-terminal.
 
 **Each open file owns its buffer.** Switching tabs and switching projects both leave a buffer exactly
 as it was, with its undo history, its selection and its scroll — nothing is copied in or out. The
@@ -928,8 +958,13 @@ of it: `ListProjects`, `AddProject`, `ForgetProject`, `UpdateProject`, `LocatePr
 `ProjectForgotten` and `ProjectError` coming back, `GetPreferences`/`SetPreferences` behind
 everything the window remembers, and `GetSettings`/`SetSettings` behind how it behaves. A chosen folder reaches the host as a path in `AddProject` or
 `LocateProject`; Add also carries the name and colour from project settings. The choosing itself is
-the platform's, and crosses nothing. The full family is
+the platform's, and crosses nothing. A folder dropped on the window sets `AddProject.temporary`, and
+project settings reads that flag off the project it is editing to choose its own button's label,
+`Create` for a temporary project's first real save or `Save changes` otherwise. The full family is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
+
+**A guest tab never touches the bus.** It is read with `std::fs` and never resolves through
+`ProjectTree`, `ReadProjectFile` or a project id at all — see *Behaviour* above and `D54`.
 
 **Files cross the bus too.** The explorer and the editor are projections of the host's answers, not
 state of their own: `ProjectTree`, `ReadProjectFile` and `WriteProjectFile` going out, and

@@ -20,6 +20,11 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // A pane runs in a project's folder, so with none open there is nothing a new one could be
     // started in and the action is not offered.
     let has_project = app.project(cx).is_some();
+    // A temporary project (dropped in from outside the catalogue) offers "keep" rather than
+    // settings — there is nothing to rename or recolour yet, only a decision to make it real.
+    let temporary = app
+        .project_snapshot(cx)
+        .is_some_and(|snapshot| snapshot.record.temporary);
 
     div()
         .h(px(theme::TITLEBAR_HEIGHT))
@@ -36,15 +41,20 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .children(project_menu::window_badge(app, cx))
         .child(project_menu::render(app, window, cx))
         .when(has_project, |this| {
+            let (icon, label) = if temporary {
+                (IconName::Plus, "Keep this project")
+            } else {
+                (IconName::EllipsisVertical, "Project settings")
+            };
             this.child(
                 icon_button(
                     "project-settings",
-                    IconName::EllipsisVertical,
+                    icon,
                     app.workbench.project_settings.is_some(),
                     cx.listener(|this, _, _, cx| this.open_edit_project(cx)),
                 )
                 .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new("Project settings").build(window, cx)
+                    gpui_component::tooltip::Tooltip::new(label).build(window, cx)
                 }),
             )
         })

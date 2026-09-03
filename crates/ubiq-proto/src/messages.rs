@@ -160,22 +160,32 @@ pub enum Message {
     /// Every project in the catalogue, probed. Answered with [`Message::ProjectList`].
     ListProjects,
     /// Take a folder into the catalogue. A path that does not exist is refused; no folder is ever
-    /// created. A folder already in the catalogue resolves to the project that is there.
+    /// created. A folder already in the catalogue resolves to the project that is there. A
+    /// temporary folder is never written to the catalogue and is forgotten once it closes.
     AddProject {
         path: String,
         name: Option<String>,
         colour: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        custom_colour: Option<u32>,
+        #[serde(default)]
+        temporary: bool,
     },
     /// Drop the record and the project's own directory in Ubiq's config. Nothing inside the
     /// project's folder is touched — which is why the word in the interface is "Forget".
     ForgetProject {
         project_id: ProjectId,
     },
-    /// Rename or recolour. Display only: it touches no filesystem and cannot fail.
+    /// Rename or recolour. Display only: it touches no filesystem and cannot fail. The two colour
+    /// fields travel together: `custom_colour` is applied only when `colour` is `Some`, and a
+    /// `None` `custom_colour` alongside a `Some` `colour` clears the custom colour back to the
+    /// swatch. A name-only update (`colour: None`) leaves both untouched.
     UpdateProject {
         project_id: ProjectId,
         name: Option<String>,
         colour: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        custom_colour: Option<u32>,
     },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].

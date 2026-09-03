@@ -15,7 +15,7 @@ use gpui::{
     AnyElement, Context, Image, ImageFormat, ImageSource, IntoElement, ParentElement, Rgba,
     SharedString, Styled, div, img, px,
 };
-use gpui_component::highlighter::Language;
+use gpui_component::highlighter::{Language, LanguageConfig, LanguageRegistry};
 
 use crate::app::AppState;
 use crate::state::{FileBody, FileLanguage, OpenFile, SaveState};
@@ -26,6 +26,41 @@ use crate::ui::kit::mono;
 /// light theme, the white for a dark one. They are Ubiq's only assets, baked in wherever drawn.
 const LOGO_WHITE: &[u8] = include_bytes!("../../../../assets/logo-white.png");
 const LOGO_BLUE: &[u8] = include_bytes!("../../../../assets/logo-blue.png");
+
+/// The highlight queries gpui-component's own `swift` and `csharp` languages ship without: the
+/// grammar crates bundle one, gpui-component just never wired it in, so its two built-in entries
+/// parse the file and highlight none of it. Vendored verbatim (MIT, same as the grammar crates
+/// already pulled in) from `tree-sitter-swift` and `tree-sitter-c-sharp`'s own `queries/highlights.scm`.
+const SWIFT_HIGHLIGHTS: &str = include_str!("languages/swift/highlights.scm");
+const CSHARP_HIGHLIGHTS: &str = include_str!("languages/csharp/highlights.scm");
+
+/// Replace gpui-component's query-less `swift` and `csharp` languages with ones that actually
+/// highlight. Idempotent, so called once at startup, before any file can ask for either language.
+pub fn register_extra_languages() {
+    let registry = LanguageRegistry::singleton();
+    registry.register(
+        "swift",
+        &LanguageConfig::new(
+            "swift",
+            tree_sitter::Language::new(tree_sitter_swift::LANGUAGE),
+            Vec::new(),
+            SWIFT_HIGHLIGHTS,
+            "",
+            "",
+        ),
+    );
+    registry.register(
+        "csharp",
+        &LanguageConfig::new(
+            "csharp",
+            tree_sitter::Language::new(tree_sitter_c_sharp::LANGUAGE),
+            Vec::new(),
+            CSHARP_HIGHLIGHTS,
+            "",
+            "",
+        ),
+    );
+}
 
 /// The highlighter's language for one of ours. This is the only place the two enums meet.
 pub fn highlighter_language(language: FileLanguage) -> Language {
@@ -60,6 +95,8 @@ pub fn highlighter_language(language: FileLanguage) -> Language {
 /// whether it is on its way to disk, whether that failed, and whether it holds an unsaved edit.
 pub fn dirty_colour(file: &OpenFile) -> Rgba {
     match (&file.save, &file.body) {
+        // A guest tab never saves, so nothing it shows here is a save state to report.
+        _ if file.guest => theme::text_faint(),
         (SaveState::Failed(_), _) => theme::danger(),
         (SaveState::Saving(_), _) => theme::info(),
         (_, FileBody::Failed(_)) => theme::danger(),
@@ -71,6 +108,11 @@ pub fn dirty_colour(file: &OpenFile) -> Rgba {
 
 /// The colour a file tab's title takes from the repository, the same mapping the explorer uses.
 pub fn git_colour(file: &OpenFile, explorer: &crate::state::ExplorerState) -> Rgba {
+    // A guest tab's path is absolute and outside the explorer's project, so a lookup is a
+    // guaranteed miss anyway; asked directly, it stays quiet instead of drawing "untracked".
+    if file.guest {
+        return theme::text_faint();
+    }
     crate::ui::explorer::git_colour(explorer.git_status(&file.path))
 }
 
