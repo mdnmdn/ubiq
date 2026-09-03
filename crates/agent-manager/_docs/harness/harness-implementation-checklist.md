@@ -245,9 +245,10 @@ no-op here — a fidelity gap, not a user mistake").
       right template based on the wire shape:
   - One-shot NDJSON, prompt delivered via argv, no stdin interaction needed
     (opencode, Copilot) → mirror `src/io/opencode.rs`: reader thread drains
-    stdout, `send()`'s `Prompt`/`ApproveTool` are no-ops (already delivered
-    at launch / auto-approved via a headless flag), `Interrupt` is a
-    best-effort kill.
+    stdout, `send()`'s `Prompt`/`AnswerPermission` are no-ops (already
+    delivered at launch / auto-approved via a headless flag), `Cancel` is a
+    best-effort kill, and `input()` stays at the trait default (`None`) —
+    there is no second turn to hand a caller a sink for.
   - Bidirectional NDJSON with an approval handshake over stdin (Claude Code)
     → mirror `src/io/jsonl.rs`.
   - JSON-RPC (Codex's `app-server`) → mirror `src/io/codex.rs`.

@@ -21,11 +21,13 @@
 //! - `pty`: pseudo-terminal streams, the one place a descriptor or a process is held
 //! - `shells`: which shells this machine has, and how one is started
 //! - `agent`: agent-type definitions and the registry over them
+//! - `conversation`: one live agent, its pump thread, and the one mapping onto the bus
 //! - `mcp_server`: the MCP surface Ubiq exposes to the agents it hosts
 
 pub mod agent;
 pub mod atomic;
 pub mod config;
+pub mod conversation;
 pub mod coordinator;
 pub mod files;
 pub mod gc;

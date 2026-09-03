@@ -9,6 +9,7 @@
 pub mod agents;
 pub mod board;
 pub mod chat;
+pub mod conversation;
 pub mod dock;
 pub mod editor;
 pub mod empty;

@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use crate::state::agents::{AgentsView, COLUMNS_MAX};
 use crate::state::board::{BoardState, Field};
+use crate::state::conversation::Conversation;
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
 use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
@@ -180,6 +181,10 @@ pub struct OpenProject {
     /// The agents screen's view of that work: which agents are in which column, and what is typed
     /// at each. Per project, for the reason the graph's view is.
     pub agents: AgentsView,
+    /// The live agents running in this project, by the id every conversation message carries. The
+    /// transcript outlives the harness, so an entry stays after its agent has ended and goes only
+    /// with the project.
+    pub conversations: HashMap<AgentId, Conversation>,
     /// The graph's view of that work: what is selected in it, which states it is showing, and where
     /// its cards sit. Per project, because a selection and an arrangement are about one project's
     /// agents and switching away must not lose either.
@@ -220,6 +225,7 @@ impl OpenProject {
             editor: EditorPaneState::empty(),
             work: WorkProjection::empty(),
             agents: AgentsView::default(),
+            conversations: HashMap::new(),
             graph: GraphView::default(),
             board: BoardState::default(),
             prefs,
@@ -230,6 +236,35 @@ impl OpenProject {
             git_entries: Vec::new(),
             git_view: GitView::new(sample::git_refs(), sample::git_history()),
         }
+    }
+}
+
+/// Write what a conversation derives onto the agent record the rest of the window reads.
+///
+/// The badge, the ring and the token count are readings of the stream the window already holds, so
+/// they are folded onto the record rather than asked for: the sidebar, the graph and the column
+/// header keep their one source, and a token costs no round trip.
+fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
+    let Some(conversation) = open.conversations.get(&id) else {
+        return;
+    };
+    let activity = conversation.activity();
+    let context_pct = conversation.context_pct();
+    let tokens = conversation.tokens() as f32;
+    let model = conversation.model.clone();
+
+    let Some(record) = open.work.agent_mut(id) else {
+        return;
+    };
+    record.activity = activity;
+    record.tokens = tokens;
+    // A window nobody reported leaves the ring as it was rather than reading zero, which would
+    // draw a full context as an empty one.
+    if let Some(pct) = context_pct {
+        record.context_pct = pct;
+    }
+    if let Some(model) = model {
+        record.model = model;
     }
 }
 
@@ -1264,6 +1299,12 @@ impl AppState {
         self.open_project(cx).map(|open| &open.agents)
     }
 
+    /// One live agent's conversation, if the project on screen is running it.
+    pub fn conversation(&self, id: AgentId, cx: &App) -> Option<&Conversation> {
+        self.open_project(cx)
+            .and_then(|open| open.conversations.get(&id))
+    }
+
     /// The graph's view of that work.
     pub fn graph(&self, cx: &App) -> Option<&GraphView> {
         self.open_project(cx).map(|open| &open.graph)
@@ -1995,6 +2036,102 @@ impl AppState {
                 if open.agents.prune(&open.work) {
                     self.refill_columns = true;
                 }
+                cx.notify();
+            }
+
+            // ── the conversation family ─────────────────────────────
+            //
+            // A live agent joins the work as any other agent does, so the sidebar and the graph
+            // find it with no change of their own. What is different is that its record is then
+            // kept current from the stream rather than from a reply: what the transcript already
+            // says is what the badge, the ring and the token count are read off, because a round
+            // trip per token would be a round trip per token.
+            Message::ConversationStarted {
+                project_id,
+                agent,
+                accepts_input,
+            } => {
+                self.workbench.work_error = None;
+                let Some(open) = self.projects.get_mut(&project_id) else {
+                    return;
+                };
+                let id = agent.id;
+                let harness = agent.harness.clone();
+                open.work.apply_agent(*agent);
+                open.graph
+                    .layout
+                    .place_new(&open.work.agents, &open.work.tasks);
+                let conversation = open
+                    .conversations
+                    .entry(id)
+                    .or_insert_with(|| Conversation::new(id, harness));
+                conversation.accepts_input = accepts_input;
+                if open.agents.prune(&open.work) {
+                    self.refill_columns = true;
+                }
+                cx.notify();
+            }
+
+            Message::ConversationUpdate {
+                agent_id,
+                seq,
+                update,
+            } => {
+                let Some(open) = self
+                    .projects
+                    .values_mut()
+                    .find(|open| open.conversations.contains_key(&agent_id))
+                else {
+                    return;
+                };
+                let Some(conversation) = open.conversations.get_mut(&agent_id) else {
+                    return;
+                };
+                if !conversation.is_next(seq) {
+                    tracing::warn!(
+                        "conversation {agent_id}: update {seq} does not follow the last one \
+                         applied, so something was lost between them; applying it anyway"
+                    );
+                }
+                conversation.apply(seq, *update);
+                refresh_agent_record(open, agent_id);
+                cx.notify();
+            }
+
+            // The harness has gone; the transcript has not. The record stops moving, and the
+            // conversation is kept so what was said is still readable.
+            Message::ConversationEnded {
+                agent_id,
+                stop_reason,
+            } => {
+                let Some(open) = self
+                    .projects
+                    .values_mut()
+                    .find(|open| open.conversations.contains_key(&agent_id))
+                else {
+                    return;
+                };
+                let Some(conversation) = open.conversations.get_mut(&agent_id) else {
+                    return;
+                };
+                conversation.ended(stop_reason);
+                refresh_agent_record(open, agent_id);
+                cx.notify();
+            }
+
+            // A start that failed before a conversation existed still has to say so, which is why
+            // the sentence goes to the workbench as well as onto the transcript: the screen the
+            // user is looking at is the agents screen either way.
+            Message::ConversationError { agent_id, error } => {
+                tracing::error!("conversation {agent_id}: {error}");
+                if let Some(conversation) = self
+                    .projects
+                    .values_mut()
+                    .find_map(|open| open.conversations.get_mut(&agent_id))
+                {
+                    conversation.error = Some(error.clone());
+                }
+                self.workbench.work_error = Some(error);
                 cx.notify();
             }
 
@@ -5170,6 +5307,12 @@ impl AppState {
         let Some(agent_id) = column.active_agent() else {
             return;
         };
+        // A column showing a live agent prompts it; one showing a mock keeps the path it had.
+        // Both are on screen at once, and the difference is whether a conversation exists.
+        if self.conversation(agent_id, cx).is_some() {
+            self.prompt_agent(agent_id, slot, window, cx);
+            return;
+        }
         let text = agents.draft(slot).trim().to_string();
         if text.is_empty() {
             return;
@@ -5179,14 +5322,145 @@ impl AppState {
             agent_id,
             text,
         });
+        self.clear_composer(slot, window, cx);
+        cx.notify();
+    }
+
+    /// Take a turn to a live agent from one of the window's pooled composers.
+    ///
+    /// Nothing is appended: the line is drawn when the harness echoes it back as a `UserChunk`,
+    /// which is what it actually received.
+    pub fn prompt_agent(
+        &mut self,
+        agent_id: AgentId,
+        slot: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(input) = self.column_inputs.get(slot) else {
+            return;
+        };
+        let text = input.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        if !self
+            .conversation(agent_id, cx)
+            .is_some_and(|conversation| conversation.accepts_input)
+        {
+            return;
+        }
+        self.bus.send(Message::PromptAgent { agent_id, text });
+        self.clear_composer(slot, window, cx);
+        cx.notify();
+    }
+
+    /// Interrupt the turn in flight.
+    pub fn cancel_turn(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        self.bus.send(Message::CancelTurn { agent_id });
+        cx.notify();
+    }
+
+    /// Answer a permission the agent is waiting on, naming one of the options it offered.
+    pub fn answer_permission(
+        &mut self,
+        agent_id: AgentId,
+        request_id: String,
+        option_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::AnswerPermission {
+            agent_id,
+            request_id,
+            option_id,
+        });
+        // The dialog goes as the answer does: leaving it up would offer a second answer to a
+        // question already settled.
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.pending = None;
+        }
+        cx.notify();
+    }
+
+    /// Open or shut one tool block's detail.
+    pub fn toggle_conversation_tool(
+        &mut self,
+        agent_id: AgentId,
+        call_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.toggle_tool(&call_id);
+            cx.notify();
+        }
+    }
+
+    /// Empty one composer and put the keyboard back in it.
+    fn clear_composer(&mut self, slot: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(agents) = self.agents_mut(cx) {
             agents.clear_draft(slot);
         }
-        let input = self.column_inputs[slot].clone();
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return;
+        };
         input.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.focus(window, cx);
         });
+    }
+
+    // ── starting a live agent ───────────────────────────────────────
+
+    /// Open the agents screen's "New agent" menu, anchored where it was clicked.
+    ///
+    /// The list is asked for again here for the reason [`Self::open_new_pane_menu`] asks: a
+    /// harness installed since the window opened is offered without a restart.
+    pub fn open_new_agent_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::NewAgent);
+        self.workbench.new_agent_menu = Some(at);
+        self.bus.send(Message::ListAgentTypes);
+        cx.notify();
+    }
+
+    /// Start a conversation on the harness at that row of the menu.
+    ///
+    /// A harness the host could not find is drawn disabled and takes no click, so picking it does
+    /// nothing rather than asking for a start that would fail.
+    pub fn pick_new_agent_menu(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.new_agent_menu = None;
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(agent) = self.workbench.agent_types.get(index) else {
+            return;
+        };
+        if !agent.available {
+            return;
+        }
+        self.bus.send(Message::StartConversation {
+            project_id,
+            session_id: self.session,
+            rel_path: None,
+            agent_type: agent.id.clone(),
+        });
+        cx.notify();
+    }
+
+    pub fn dismiss_new_agent_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.new_agent_menu = None;
         cx.notify();
     }
 

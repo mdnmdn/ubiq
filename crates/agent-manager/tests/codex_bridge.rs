@@ -8,17 +8,22 @@
 //! Exercises the full round trip: the JSON-RPC handshake
 //! (`initialize` → `initialized` → `thread/start`), a `send(Prompt)`
 //! (`turn/start`), and draining `next_event()` to confirm (a) a
-//! `SessionStarted` carrying the fake `thread.id`, (b) an `AssistantText`
-//! from the v2 `item/completed` notification, (c) a terminal
-//! `Result{success:true}` from `turn/completed`, and (d) that the whole
-//! thing TERMINATES — the fake script exits right after emitting those
-//! notifications, closing the pipe, which must close the event channel
-//! rather than hang `next_event`.
+//! `SessionStarted` carrying the fake `thread.id`, (b) an
+//! `AgentMessageChunk` from the v2 `item/completed` notification, (c) a
+//! terminal `TurnEnded{stop_reason: EndTurn}` from `turn/completed`, and (d)
+//! that the whole thing TERMINATES — the fake script exits right after
+//! emitting those notifications, closing the pipe, which must close the
+//! event channel rather than hang `next_event`.
+//!
+//! The fake script's `turn/completed` also carries a `usage` block
+//! (`input_tokens`/`output_tokens`, no context window) — per the mapping
+//! rule "no window, no `UsageUpdate`", the drained events must NOT contain
+//! one.
 
 use std::path::PathBuf;
 
 use agent_manager::harness::Launch;
-use agent_manager::io::{AgentEvent, AgentInput, CodexBridge, IoBridge, spawn_piped};
+use agent_manager::io::{AgentEvent, AgentInput, CodexBridge, IoBridge, StopReason, spawn_piped};
 
 /// Absolute path to the fake app-server script next to this test file.
 fn fake_appserver_path() -> PathBuf {
@@ -42,9 +47,7 @@ fn codex_bridge_round_trips_events_and_terminates() {
     let mut bridge = CodexBridge::new(child, &cwd).expect("handshake + build bridge");
 
     bridge
-        .send(AgentInput::Prompt {
-            text: "say hi".to_string(),
-        })
+        .send(AgentInput::prompt("say hi"))
         .expect("send prompt (turn/start)");
 
     // Drain every event; the fake script exits right after emitting the
@@ -62,7 +65,10 @@ fn codex_bridge_round_trips_events_and_terminates() {
         events.iter().any(|e| matches!(
             e,
             AgentEvent::SessionStarted {
-                session_id: Some(id)
+                session_id: Some(id),
+                model: None,
+                mode: None,
+                ..
             } if id == "t-1"
         )),
         "expected a SessionStarted event with the fake thread id, got: {events:?}"
@@ -70,24 +76,26 @@ fn codex_bridge_round_trips_events_and_terminates() {
     assert!(
         events.iter().any(|e| matches!(
             e,
-            AgentEvent::AssistantText { text } if text == "hello from fake codex"
+            AgentEvent::AgentMessageChunk { content, .. }
+                if content.as_text() == Some("hello from fake codex")
         )),
-        "expected an AssistantText event, got: {events:?}"
-    );
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::Result { success: true, .. })),
-        "expected a terminal Result{{success:true}} event, got: {events:?}"
+        "expected an AgentMessageChunk event, got: {events:?}"
     );
     assert!(
         events.iter().any(|e| matches!(
             e,
-            AgentEvent::Usage {
-                input_tokens: Some(3),
-                output_tokens: Some(4),
+            AgentEvent::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                error: None,
             }
         )),
-        "expected a Usage event from turn/completed, got: {events:?}"
+        "expected a terminal TurnEnded{{EndTurn}} event, got: {events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::UsageUpdate { .. })),
+        "the fake script's usage block carries no context window, so no \
+         UsageUpdate should be emitted, got: {events:?}"
     );
 }

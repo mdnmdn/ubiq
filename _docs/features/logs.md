@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-03
+verified: 2026-09-03
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/main.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -57,6 +57,21 @@ harness library are collected down to debug and everything else only when it com
 `ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,gpui_terminal=debug,warn`.
 The same filter feeds a writer on standard error, so a run from a terminal reports without the
 console being open. [`../tech/operations.md`](../tech/operations.md) owns the commands that set it.
+
+**The Harness subsystem is the structured bridges reporting.** A harness driven as a conversation
+speaks JSON on a pipe, and `crates/agent-manager/src/io/` is where that is read: every frame it
+decodes into an event is a `debug` record naming the event, and every raw frame, in both
+directions, is a `trace` record naming the direction and the line. The events are what a transcript
+that draws nothing is diagnosed from; the raw frames are what a mapping that drops something is.
+The host's own side of the same conversation logs under Coordinator, because that is where
+`crates/ubiq-host/src/conversation.rs` lives.
+
+**Raw frames are asked for by name.** A prompt and the contents of every file a harness reads travel
+in them, so the default filter's `agent_manager=debug` collects the decoded events and leaves the
+frames out; `RUST_LOG=agent_manager::io=trace` is what turns them on for a run that needs them. The
+reason is not the one that keeps terminal bytes out below — it is that a diagnostic ring is a poor
+place to keep the user's own code, and a reader who wants it there should have said so. No control
+in the console asks for it, which is a row in [`../backlog.md`](../backlog.md).
 
 **Terminal bytes are never logged.** A harness drives a screen at full refresh; putting that stream
 in a diagnostic ring would cost more than the harness it is diagnosing and would leak what the agent
@@ -148,8 +163,10 @@ panel, like every other panel's. `pick_log_subsystem()`, `pick_log_level()`, `to
 and `clear_logs()` are the rest.
 
 The events themselves are spread across the subsystems that own them: a window opening, a workspace
-started or failed, a pane closed and its harness killed, a pseudo-terminal opened at a size, a
-pane's stream ending, a pane exiting, and a message that arrived at the half that may only send it.
+started or failed, a conversation started, updated, failed or stopped, a pane closed and its harness
+killed, a pseudo-terminal opened at a size, a pane's stream ending, a pane exiting, and a message
+that arrived at the half that may only send it. The harness library's own are all under
+`crates/agent-manager/src/io/`, one per bridge.
 
 `crates/ubiq-proto/tests/log_sink.rs` drives the sink the way a subsystem does — real `tracing`
 events, read back through `snapshot()` — and covers the classification, the two filters composing,
@@ -182,5 +199,5 @@ console draws them with. No window is needed for either.
 - Open the console from the keyboard, and from a click on an error the status bar reports.
 - Copy a row, or the visible selection, to the clipboard.
 - Write the ring to a file on request, for a bug report that outlives the process.
-- Give the harness library its own events, so the Harness subsystem has something to show.
+- Reach the raw harness frames from the console, rather than only from `RUST_LOG`.
 - Carry the coordinator's records over the transport once it is its own process.

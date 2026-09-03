@@ -11,8 +11,8 @@
 //! expecting a response from us) at any time, interleaved.
 //!
 //! This is **core** (always compiled, no feature gate): only `std::process`,
-//! `std::sync`, `std::thread`, `std::collections::HashMap`, and `serde_json`
-//! are used, matching [`super::jsonl`]'s discipline.
+//! `std::sync`, `std::thread`, `std::collections::HashMap`, `serde_json` and
+//! `tracing` are used, matching [`super::jsonl`]'s discipline.
 //!
 //! ## Design
 //!
@@ -23,11 +23,15 @@
 //! draining stdout so a write on [`CodexBridge::send`] (or a blocking
 //! request during the handshake) never stalls behind a full pipe buffer.
 //!
-//! stdin is shared as `Arc<Mutex<Option<ChildStdin>>>` (same shape as
-//! [`super::jsonl::JsonlBridge`]) because three things write to it: the
-//! handshake requests in [`CodexBridge::new`], [`CodexBridge::send`]'s
-//! `turn/start`, and the reader thread's auto-accept responses to
-//! server→client approval requests.
+//! stdin, the pending-request map and the request-id counter are each shared
+//! (`Arc<Mutex<..>>` / `Arc<AtomicI64>`) because *four* things write to or
+//! allocate from them: the handshake requests in [`CodexBridge::new`],
+//! [`CodexBridge::send`]'s `turn/start`, the reader thread's auto-accept
+//! responses to server→client approval requests, and any [`CodexInputSink`]
+//! handed out through [`IoBridge::input`]. `thread_id` is shared the same way
+//! via `Arc<OnceLock<String>>`: it is written exactly once, at the end of the
+//! handshake, and every later reader (including a sink on another thread)
+//! only ever observes it fully formed or not yet set.
 //!
 //! ### Request/response correlation
 //!
@@ -56,18 +60,28 @@
 //! 3. [`Drop`] closes stdin, bounds-waits for the child to exit, then kills
 //!    it and joins the reader thread — mirroring
 //!    [`super::jsonl::JsonlBridge`]'s teardown.
+//!
+//! ## Logging
+//!
+//! Every raw line, in either direction, is a `trace!`; every mapped event is
+//! a `debug!`. Raw frames carry prompts and file contents, which is why they
+//! sit a level below everything else: an embedder's default filter collects
+//! `debug` and leaves them out until someone asks for them by name.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{AgentEvent, AgentInput, IoBridge};
+use super::{
+    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionKind, PermissionOption,
+    StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation, ToolStatus,
+};
 
 /// How long a blocking request (`initialize`, `thread/start`, `turn/start`'s
 /// ack) waits for its matching response before giving up. Bounds every
@@ -82,8 +96,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Pending outbound requests awaiting a response, keyed by the `id` we sent.
-/// Shared between the bridge (registers before writing) and the reader
-/// thread (delivers + removes on a matching response line).
+/// Shared between the bridge (registers before writing), the reader thread
+/// (delivers + removes on a matching response line), and any
+/// [`CodexInputSink`].
 type PendingMap = Arc<Mutex<HashMap<i64, mpsc::Sender<Value>>>>;
 
 /// A live bridge to a `codex app-server --listen stdio://` process speaking
@@ -94,10 +109,27 @@ pub struct CodexBridge {
     events: mpsc::Receiver<AgentEvent>,
     reader: Option<std::thread::JoinHandle<()>>,
     pending: PendingMap,
-    next_id: AtomicI64,
+    next_id: Arc<AtomicI64>,
     /// The `thread.id` captured from `thread/start`'s response, echoed into
-    /// every subsequent `turn/start`.
-    thread_id: String,
+    /// every subsequent `turn/start`. Set exactly once, at the end of the
+    /// handshake.
+    thread_id: Arc<OnceLock<String>>,
+}
+
+/// The detached input side of a [`CodexBridge`], for a caller pumping events
+/// on one thread and prompting from another. See [`AgentInputSink`].
+pub struct CodexInputSink {
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    pending: PendingMap,
+    next_id: Arc<AtomicI64>,
+    thread_id: Arc<OnceLock<String>>,
+}
+
+impl AgentInputSink for CodexInputSink {
+    fn send(&self, input: AgentInput) -> crate::Result<()> {
+        let thread_id = self.thread_id.get().cloned().unwrap_or_default();
+        write_input(&self.stdin, &self.pending, &self.next_id, &thread_id, input)
+    }
 }
 
 impl CodexBridge {
@@ -144,8 +176,8 @@ impl CodexBridge {
             events: rx,
             reader: Some(reader),
             pending,
-            next_id: AtomicI64::new(1),
-            thread_id: String::new(),
+            next_id: Arc::new(AtomicI64::new(1)),
+            thread_id: Arc::new(OnceLock::new()),
         };
 
         bridge.handshake(cwd, &tx)?;
@@ -177,126 +209,46 @@ impl CodexBridge {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("thread/start response missing thread.id"))?
             .to_string();
-        self.thread_id = thread_id.clone();
+        // Set once, here; every later reader (`send`, a `CodexInputSink`)
+        // only ever sees it fully formed.
+        let _ = self.thread_id.set(thread_id.clone());
 
+        // `thread/start`'s response documents only `thread.id`
+        // (`_docs/harness/codex.md` §"Output stream protocol") — Codex never
+        // reports back the model, mode, or tool/agent list it's running
+        // with, so the rest of the event is empty rather than guessed.
+        let ev = AgentEvent::SessionStarted {
+            session_id: Some(thread_id),
+            model: None,
+            mode: None,
+            tools: Vec::new(),
+            agents: Vec::new(),
+        };
+        tracing::debug!(event = ?ev, "codex event");
         // Best-effort: if nobody's listening yet (shouldn't happen — `rx` is
         // held by the not-yet-returned bridge), just drop the event.
-        let _ = tx.send(AgentEvent::SessionStarted {
-            session_id: Some(thread_id),
-        });
+        let _ = tx.send(ev);
 
         Ok(())
     }
 
-    /// Allocate the next outbound request id.
-    fn next_id(&self) -> i64 {
-        self.next_id.fetch_add(1, Ordering::SeqCst)
-    }
-
     /// Send a JSON-RPC *request* (`method` + `params`, with a fresh `id`)
     /// and block (with [`REQUEST_TIMEOUT`]) for its matching response.
-    ///
-    /// Registers the id in [`Self::pending`] before writing the line, so the
-    /// reader thread can never observe (and drop) the response before this
-    /// call is ready for it. Returns the response's `result` field (or an
-    /// error if the response carried a JSON-RPC `error`, or if the wait
-    /// timed out / the channel disconnected).
     fn request(&self, method: &str, params: Value) -> crate::Result<Value> {
-        let id = self.next_id();
-        let (tx, rx) = mpsc::channel();
-        {
-            let mut pending = self
-                .pending
-                .lock()
-                .map_err(|_| anyhow::anyhow!("codex bridge pending-map lock poisoned"))?;
-            pending.insert(id, tx);
-        }
-
-        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        if let Err(err) = write_line(&self.stdin, &line) {
-            if let Ok(mut pending) = self.pending.lock() {
-                pending.remove(&id);
-            }
-            return Err(err);
-        }
-
-        match rx.recv_timeout(REQUEST_TIMEOUT) {
-            Ok(response) => {
-                if let Some(error) = response.get("error") {
-                    anyhow::bail!("codex app-server returned an error for `{method}`: {error}");
-                }
-                Ok(response.get("result").cloned().unwrap_or(Value::Null))
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let Ok(mut pending) = self.pending.lock() {
-                    pending.remove(&id);
-                }
-                anyhow::bail!(
-                    "timed out after {:?} waiting for a response to `{method}`",
-                    REQUEST_TIMEOUT
-                )
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                anyhow::bail!(
-                    "codex app-server's stdout closed while waiting for a response to `{method}`"
-                )
-            }
-        }
+        rpc_request(&self.stdin, &self.pending, &self.next_id, method, params)
     }
 
     /// Send a JSON-RPC *notification* (`method` + `params`, no `id`) —
     /// fire-and-forget, no response expected.
     fn notify(&self, method: &str, params: Value) -> crate::Result<()> {
-        let line = json!({"jsonrpc": "2.0", "method": method, "params": params});
-        write_line(&self.stdin, &line)
+        rpc_notify(&self.stdin, method, params)
     }
 }
 
 impl IoBridge for CodexBridge {
     fn send(&mut self, input: AgentInput) -> crate::Result<()> {
-        match input {
-            AgentInput::Prompt { text } => {
-                // Block only on `turn/start`'s ack (which carries `turn.id`),
-                // NOT on turn completion — that arrives later as
-                // `turn/completed` / `thread/status/changed` notifications,
-                // read back via `next_event`.
-                self.request(
-                    "turn/start",
-                    json!({
-                        "threadId": self.thread_id,
-                        "input": [{"type": "text", "text": text}],
-                    }),
-                )?;
-                Ok(())
-            }
-            AgentInput::ApproveTool { .. } => {
-                // A documented no-op: every server→client approval request
-                // (`item/commandExecution/requestApproval`,
-                // `item/fileChange/requestApproval`,
-                // `item/permissions/requestApproval`,
-                // `mcpServer/elicitation/request`) is already auto-accepted
-                // by the reader thread the moment it's scanned off stdout
-                // (see `read_loop` / `approval_response`), matching
-                // `_docs/harness/codex.md` §"Tool approval in headless
-                // mode". `am` doesn't track pending approval ids to answer
-                // out-of-band, so a caller-issued `ApproveTool` has nothing
-                // left to do.
-                Ok(())
-            }
-            AgentInput::Interrupt => {
-                // Best-effort, matching `_docs/harness/codex.md`
-                // §"Process lifecycle": "close stdin to signal the
-                // app-server to stop". Codex's JSON-RPC surface has no
-                // documented `turn/cancel`-style request, so closing stdin
-                // (same mechanism [`Drop`] uses) is the only signal we send;
-                // the reader thread keeps draining stdout until the process
-                // actually exits.
-                if let Ok(mut guard) = self.stdin.lock() {
-                    *guard = None;
-                }
-                Ok(())
-            }
-        }
+        let thread_id = self.thread_id.get().cloned().unwrap_or_default();
+        write_input(&self.stdin, &self.pending, &self.next_id, &thread_id, input)
     }
 
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>> {
@@ -306,6 +258,15 @@ impl IoBridge for CodexBridge {
             // disconnect/lock failure it treated the same way).
             Err(mpsc::RecvError) => Ok(None),
         }
+    }
+
+    fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
+        Some(Arc::new(CodexInputSink {
+            stdin: Arc::clone(&self.stdin),
+            pending: Arc::clone(&self.pending),
+            next_id: Arc::clone(&self.next_id),
+            thread_id: Arc::clone(&self.thread_id),
+        }))
     }
 }
 
@@ -350,13 +311,144 @@ impl Drop for CodexBridge {
     }
 }
 
+/// Send a JSON-RPC *request* and block (with [`REQUEST_TIMEOUT`]) for its
+/// matching response. Free function so [`CodexBridge::request`] and (via
+/// [`write_input`]) a detached [`CodexInputSink`] share one implementation.
+///
+/// Registers the id in `pending` before writing the line, so the reader
+/// thread can never observe (and drop) the response before this call is
+/// ready for it. Returns the response's `result` field (or an error if the
+/// response carried a JSON-RPC `error`, or if the wait timed out / the
+/// channel disconnected).
+fn rpc_request(
+    stdin: &Arc<Mutex<Option<ChildStdin>>>,
+    pending: &PendingMap,
+    next_id: &AtomicI64,
+    method: &str,
+    params: Value,
+) -> crate::Result<Value> {
+    let id = next_id.fetch_add(1, Ordering::SeqCst);
+    let (tx, rx) = mpsc::channel();
+    {
+        let mut pending = pending
+            .lock()
+            .map_err(|_| anyhow::anyhow!("codex bridge pending-map lock poisoned"))?;
+        pending.insert(id, tx);
+    }
+
+    let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+    if let Err(err) = write_line(stdin, &line) {
+        if let Ok(mut pending) = pending.lock() {
+            pending.remove(&id);
+        }
+        return Err(err);
+    }
+
+    match rx.recv_timeout(REQUEST_TIMEOUT) {
+        Ok(response) => {
+            if let Some(error) = response.get("error") {
+                anyhow::bail!("codex app-server returned an error for `{method}`: {error}");
+            }
+            Ok(response.get("result").cloned().unwrap_or(Value::Null))
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            if let Ok(mut pending) = pending.lock() {
+                pending.remove(&id);
+            }
+            anyhow::bail!(
+                "timed out after {:?} waiting for a response to `{method}`",
+                REQUEST_TIMEOUT
+            )
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            anyhow::bail!(
+                "codex app-server's stdout closed while waiting for a response to `{method}`"
+            )
+        }
+    }
+}
+
+/// Send a JSON-RPC *notification* — fire-and-forget, no response expected.
+/// Free function for the same reason as [`rpc_request`].
+fn rpc_notify(
+    stdin: &Arc<Mutex<Option<ChildStdin>>>,
+    method: &str,
+    params: Value,
+) -> crate::Result<()> {
+    let line = json!({"jsonrpc": "2.0", "method": method, "params": params});
+    write_line(stdin, &line)
+}
+
+/// Turn one [`AgentInput`] into the JSON-RPC call(s) it implies, and send
+/// them.
+///
+/// Shared by [`CodexBridge::send`] and [`CodexInputSink`] so the two cannot
+/// drift apart — a prompt sent from a pump thread has to reach the child in
+/// exactly the same shape as one sent from the owner's.
+fn write_input(
+    stdin: &Arc<Mutex<Option<ChildStdin>>>,
+    pending: &PendingMap,
+    next_id: &AtomicI64,
+    thread_id: &str,
+    input: AgentInput,
+) -> crate::Result<()> {
+    match input {
+        AgentInput::Prompt { .. } => {
+            // Block only on `turn/start`'s ack (which carries `turn.id`),
+            // NOT on turn completion — that arrives later as
+            // `turn/completed` / `thread/status/changed` notifications,
+            // read back via `next_event`.
+            let text = input.prompt_text().unwrap_or_default();
+            rpc_request(
+                stdin,
+                pending,
+                next_id,
+                "turn/start",
+                json!({
+                    "threadId": thread_id,
+                    "input": [{"type": "text", "text": text}],
+                }),
+            )?;
+            Ok(())
+        }
+        AgentInput::AnswerPermission { .. } => {
+            // A documented no-op: every server→client approval request
+            // (`item/commandExecution/requestApproval`,
+            // `item/fileChange/requestApproval`,
+            // `item/permissions/requestApproval`,
+            // `mcpServer/elicitation/request`) is already auto-accepted by
+            // the reader thread the moment it's scanned off stdout (see
+            // `read_loop` / `approval_response`), matching
+            // `_docs/harness/codex.md` §"Tool approval in headless mode".
+            // `am` doesn't track pending approval ids to answer out-of-band,
+            // so a caller-issued `AnswerPermission` has nothing left to do.
+            Ok(())
+        }
+        AgentInput::Cancel => {
+            // Best-effort, matching `_docs/harness/codex.md`
+            // §"Process lifecycle": "close stdin to signal the app-server
+            // to stop". Codex's JSON-RPC surface has no documented
+            // `turn/cancel`-style request, so closing stdin (same mechanism
+            // [`Drop`] uses) is the only signal we send; the reader thread
+            // keeps draining stdout until the process actually exits.
+            if let Ok(mut guard) = stdin.lock() {
+                *guard = None;
+            }
+            Ok(())
+        }
+        AgentInput::SetConfigOption { config_id, .. } => Err(anyhow::anyhow!(
+            "codex's app-server bridge cannot change '{config_id}' mid-session"
+        )),
+    }
+}
+
 /// The reader thread body: scan `stdout` line-by-line (newline-delimited
 /// JSON-RPC), and route each parsed line by shape:
 /// - a **response** to one of our requests (`id` + (`result` or `error`),
-///   no `method`) → deliver to the waiting [`CodexBridge::request`] via
+///   no `method`) → deliver to the waiting [`rpc_request`] call via
 ///   `pending`;
 /// - a **server→client request** (`id` **and** `method`) → auto-accept: emit
-///   an (optional) [`AgentEvent::ApprovalRequest`] for visibility, then
+///   an (optional) [`AgentEvent::PermissionRequest`] for visibility, then
 ///   write a matching JSON-RPC response with the *same* `id` back on `stdin`;
 /// - a **notification** (`method`, no `id`) → [`map_notification`] to zero
 ///   or more [`AgentEvent`]s.
@@ -376,6 +468,7 @@ fn read_loop(
         if line.is_empty() {
             continue;
         }
+        tracing::trace!(direction = "in", frame = %line, "codex jsonrpc");
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             // Not a recognized JSON line — ignore rather than error.
             continue;
@@ -405,6 +498,7 @@ fn read_loop(
             // expects a response.
             (Some(id_val), Some(method_name)) => {
                 for ev in approval_event(method_name, &value) {
+                    tracing::debug!(event = ?ev, "codex event");
                     if tx.send(ev).is_err() {
                         return;
                     }
@@ -418,6 +512,7 @@ fn read_loop(
             // A notification: method, no id.
             (None, Some(_)) => {
                 for ev in map_notification(&value) {
+                    tracing::debug!(event = ?ev, "codex event");
                     if tx.send(ev).is_err() {
                         return;
                     }
@@ -443,7 +538,52 @@ fn is_approval_method(method: &str) -> bool {
     )
 }
 
-/// Build the (optional, for-visibility) [`AgentEvent::ApprovalRequest`] for
+/// What kind of tool an approval method is asking about — `Execute` for a
+/// command, `Edit` for a file change, `Other` for the two kinds
+/// (`permissions`, `elicitation`) that aren't tied to one tool call.
+fn approval_kind(method: &str) -> ToolKind {
+    match method {
+        "item/commandExecution/requestApproval" | "execCommandApproval" => ToolKind::Execute,
+        "item/fileChange/requestApproval" | "applyPatchApproval" => ToolKind::Edit,
+        _ => ToolKind::Other,
+    }
+}
+
+/// A human label for an approval method, since `_docs/harness/codex.md`
+/// §"Tool approval in headless mode" pins down the response shape per method
+/// but not a request param shape a title could be built from.
+fn approval_title(method: &str) -> &'static str {
+    match method {
+        "item/commandExecution/requestApproval" | "execCommandApproval" => "Run a command",
+        "item/fileChange/requestApproval" | "applyPatchApproval" => "Apply a file change",
+        "item/permissions/requestApproval" => "Grant permissions",
+        "mcpServer/elicitation/request" => "MCP elicitation",
+        _ => "Approval request",
+    }
+}
+
+/// The two options every Codex approval offers. `am` never actually routes
+/// an [`AgentInput::AnswerPermission`] back into one of these — the reader
+/// thread has already auto-accepted the request (see [`approval_response`])
+/// by the time a caller could answer — so these exist for a consumer to draw
+/// the dialog it briefly had a say in, not because a decision made here
+/// changes anything.
+fn approval_options() -> Vec<PermissionOption> {
+    vec![
+        PermissionOption {
+            option_id: "accept".to_string(),
+            name: "Allow".to_string(),
+            kind: PermissionKind::AllowOnce,
+        },
+        PermissionOption {
+            option_id: "decline".to_string(),
+            name: "Deny".to_string(),
+            kind: PermissionKind::RejectOnce,
+        },
+    ]
+}
+
+/// Build the (optional, for-visibility) [`AgentEvent::PermissionRequest`] for
 /// a server→client approval request, before it's auto-accepted.
 fn approval_event(method: &str, value: &Value) -> Vec<AgentEvent> {
     if !is_approval_method(method) {
@@ -456,10 +596,21 @@ fn approval_event(method: &str, value: &Value) -> Vec<AgentEvent> {
             other => other.to_string(),
         })
         .unwrap_or_default();
-    vec![AgentEvent::ApprovalRequest {
-        request_id,
-        tool_name: method.to_string(),
-        input: value.get("params").cloned().unwrap_or(Value::Null),
+
+    vec![AgentEvent::PermissionRequest {
+        request_id: request_id.clone(),
+        tool_call: ToolCallUpdate {
+            id: request_id,
+            title: Some(approval_title(method).to_string()),
+            kind: Some(approval_kind(method)),
+            status: Some(ToolStatus::Pending),
+            // The request's own param shape isn't pinned down beyond "what
+            // it's approving", so the raw params are kept here for a
+            // consumer that wants to dig further rather than guessed at.
+            raw_output: value.get("params").cloned(),
+            ..ToolCallUpdate::default()
+        },
+        options: approval_options(),
     }]
 }
 
@@ -522,6 +673,92 @@ pub(crate) fn map_notification(value: &Value) -> Vec<AgentEvent> {
     }
 }
 
+/// Codex's own item-type/verb vocabulary (`exec_command` in the legacy
+/// dialect, `commandExecution` in v2, `fileChange` in v2) onto the ten kinds
+/// a consumer draws. Unmapped values fall back to [`ToolKind::Other`] rather
+/// than a guess.
+fn tool_kind(verb: &str) -> ToolKind {
+    match verb {
+        "exec_command" | "commandExecution" => ToolKind::Execute,
+        "fileChange" => ToolKind::Edit,
+        _ => ToolKind::Other,
+    }
+}
+
+/// A human-readable target for a tool call's title: the command line, if
+/// `input` is one — Codex sends it as either a bare string or an argv array.
+/// `None` for anything else (a `fileChange`'s `changes`, whose shape isn't
+/// documented) rather than a guessed field name.
+fn command_target(input: &Value) -> Option<String> {
+    match input {
+        Value::String(s) => Some(s.clone()),
+        Value::Array(items) => {
+            let parts: Vec<&str> = items.iter().filter_map(Value::as_str).collect();
+            (!parts.is_empty()).then(|| parts.join(" "))
+        }
+        _ => None,
+    }
+}
+
+/// A tool call starting, in the shape a transcript draws: a verb and,
+/// where `input` is a command, the command line itself.
+fn command_tool_call(id: Option<&str>, verb: &str, input: Option<&Value>) -> ToolCall {
+    let target = input.and_then(command_target);
+    let title = match &target {
+        Some(target) => format!("{verb} {target}"),
+        None => verb.to_string(),
+    };
+
+    let mut call = ToolCall::new(id.unwrap_or(verb), title);
+    call.kind = tool_kind(verb);
+    call.status = ToolStatus::InProgress;
+    call.raw_input = input.cloned();
+    call
+}
+
+/// Best-effort file locations out of a `fileChange` item's `changes` field.
+/// `_docs/harness/codex.md` documents the field's existence, not its shape,
+/// so this only claims a location where a `path` string is actually present
+/// — either on `changes` itself or on each entry of it, if it's an array —
+/// and yields nothing rather than guessing at other shapes.
+fn locations_from_changes(changes: Option<&Value>) -> Vec<ToolLocation> {
+    let Some(changes) = changes else {
+        return Vec::new();
+    };
+    let entries: Vec<&Value> = match changes {
+        Value::Array(items) => items.iter().collect(),
+        Value::Object(_) => vec![changes],
+        _ => Vec::new(),
+    };
+    entries
+        .into_iter()
+        .filter_map(|entry| entry.get("path").and_then(Value::as_str))
+        .map(|path| ToolLocation {
+            path: path.to_string(),
+            line: None,
+        })
+        .collect()
+}
+
+/// A tool call finishing. Codex's `exec_command_end` / `item/completed`
+/// items carry no documented success/failure field (unlike Claude Code's
+/// `is_error`), so a result is always `Completed` here — a real failure
+/// signal, if Codex ever documents one, belongs in this one place.
+fn tool_result_update(id: &str, output: Option<&Value>) -> ToolCallUpdate {
+    let content = output.and_then(Value::as_str).map(|text| {
+        vec![ToolContent::Content {
+            content: Content::text(text),
+        }]
+    });
+    ToolCallUpdate {
+        id: id.to_string(),
+        status: Some(ToolStatus::Completed),
+        content,
+        raw_output: output.cloned(),
+        ..ToolCallUpdate::default()
+    }
+}
+
 /// Map a legacy `codex/event` notification's `params.msg` per the "Legacy"
 /// column of codex.md's canonical category mapping table.
 fn map_legacy_event(params: &Value) -> Vec<AgentEvent> {
@@ -538,38 +775,47 @@ fn map_legacy_event(params: &Value) -> Vec<AgentEvent> {
                 .get("message")
                 .and_then(Value::as_str)
                 .or_else(|| msg.get("text").and_then(Value::as_str))
-                .unwrap_or_default()
-                .to_string();
-            vec![AgentEvent::AssistantText { text }]
+                .unwrap_or_default();
+            // The legacy dialect carries no message id to group chunks by.
+            vec![AgentEvent::AgentMessageChunk {
+                content: Content::text(text),
+                message_id: None,
+            }]
         }
-        "exec_command_begin" => vec![AgentEvent::ToolCall {
-            id: msg
+        "exec_command_begin" => {
+            let id = msg.get("call_id").and_then(Value::as_str);
+            vec![AgentEvent::ToolCall {
+                call: command_tool_call(id, "exec_command", msg.get("command")),
+            }]
+        }
+        "exec_command_end" => {
+            let id = msg
                 .get("call_id")
                 .and_then(Value::as_str)
-                .map(str::to_string),
-            name: "exec_command".to_string(),
-            input: msg.get("command").cloned().unwrap_or(Value::Null),
+                .unwrap_or_default();
+            let output = msg.get("output").or_else(|| msg.get("stdout"));
+            vec![AgentEvent::ToolCallUpdate {
+                update: tool_result_update(id, output),
+            }]
+        }
+        // Optional per the task spec; carries no session id (or model, mode,
+        // tools, agents) at the legacy layer.
+        "task_started" => vec![AgentEvent::SessionStarted {
+            session_id: None,
+            model: None,
+            mode: None,
+            tools: Vec::new(),
+            agents: Vec::new(),
         }],
-        "exec_command_end" => vec![AgentEvent::ToolResult {
-            id: msg
-                .get("call_id")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            content: msg
-                .get("output")
-                .cloned()
-                .or_else(|| msg.get("stdout").cloned())
-                .unwrap_or(Value::Null),
-        }],
-        // Optional per the task spec; carries no session id at the legacy
-        // layer, so `session_id` is `None`.
-        "task_started" => vec![AgentEvent::SessionStarted { session_id: None }],
-        "task_complete" => vec![AgentEvent::Result {
-            success: true,
+        "task_complete" => vec![AgentEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
             error: None,
         }],
-        "turn_aborted" => vec![AgentEvent::Result {
-            success: false,
+        // Distinct from a generic failure: the vocabulary has a dedicated
+        // `Cancelled` stop reason and "aborted" is exactly that, not the
+        // run breaking.
+        "turn_aborted" => vec![AgentEvent::TurnEnded {
+            stop_reason: StopReason::Cancelled,
             error: msg
                 .get("reason")
                 .and_then(Value::as_str)
@@ -589,31 +835,29 @@ fn map_item(params: &Value, started: bool) -> Vec<AgentEvent> {
         .get("itemType")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let id = item.get("id").and_then(Value::as_str).map(str::to_string);
+    let id = item.get("id").and_then(Value::as_str);
 
     match (item_type, started) {
         ("commandExecution", true) => vec![AgentEvent::ToolCall {
-            id,
-            name: "commandExecution".to_string(),
-            input: item.get("command").cloned().unwrap_or(Value::Null),
+            call: command_tool_call(id, "commandExecution", item.get("command")),
         }],
-        ("commandExecution", false) => vec![AgentEvent::ToolResult {
-            id,
-            content: item
-                .get("output")
-                .cloned()
-                .or_else(|| item.get("result").cloned())
-                .unwrap_or(Value::Null),
-        }],
-        ("fileChange", true) => vec![AgentEvent::ToolCall {
-            id,
-            name: "fileChange".to_string(),
-            input: item.get("changes").cloned().unwrap_or(Value::Null),
-        }],
-        ("fileChange", false) => vec![AgentEvent::ToolResult {
-            id,
-            content: item.get("result").cloned().unwrap_or(Value::Null),
-        }],
+        ("commandExecution", false) => {
+            let output = item.get("output").or_else(|| item.get("result"));
+            vec![AgentEvent::ToolCallUpdate {
+                update: tool_result_update(id.unwrap_or_default(), output),
+            }]
+        }
+        ("fileChange", true) => {
+            let mut call = command_tool_call(id, "fileChange", item.get("changes"));
+            call.locations = locations_from_changes(item.get("changes"));
+            vec![AgentEvent::ToolCall { call }]
+        }
+        ("fileChange", false) => {
+            let output = item.get("result");
+            vec![AgentEvent::ToolCallUpdate {
+                update: tool_result_update(id.unwrap_or_default(), output),
+            }]
+        }
         // Per codex.md's mapping table, only the *completed* agentMessage
         // maps to assistant text; there's no meaningful "started" event for
         // it (falls through to the wildcard below).
@@ -622,49 +866,29 @@ fn map_item(params: &Value, started: bool) -> Vec<AgentEvent> {
                 .get("text")
                 .and_then(Value::as_str)
                 .or_else(|| item.get("content").and_then(Value::as_str))
-                .unwrap_or_default()
-                .to_string();
-            vec![AgentEvent::AssistantText { text }]
+                .unwrap_or_default();
+            vec![AgentEvent::AgentMessageChunk {
+                content: Content::text(text),
+                message_id: id.map(str::to_string),
+            }]
         }
         _ => Vec::new(),
     }
 }
 
-/// Map a v2 `turn/completed` notification: a terminal
-/// `AgentEvent::Result{success:true}`, plus an [`AgentEvent::Usage`] if
-/// token counts are present under any of `turn.usage` / `usage` /
-/// `token_usage` / `tokens` (per codex.md's "Token usage" note).
-fn map_turn_completed(params: &Value) -> Vec<AgentEvent> {
-    let mut events = vec![AgentEvent::Result {
-        success: true,
+/// Map a v2 `turn/completed` notification to the turn's end.
+///
+/// Codex reports token counts here (under `turn.usage` / `usage` /
+/// `token_usage` / `tokens`) but never a context window size
+/// (`_docs/harness/codex.md` has no `contextWindow`-shaped field anywhere in
+/// the headless surface), so there is no denominator for a
+/// [`AgentEvent::UsageUpdate`] ring — and a ratio with an invented one is
+/// worse than no ratio. The counts are dropped rather than reported half.
+fn map_turn_completed(_params: &Value) -> Vec<AgentEvent> {
+    vec![AgentEvent::TurnEnded {
+        stop_reason: StopReason::EndTurn,
         error: None,
-    }];
-
-    let usage = params
-        .get("turn")
-        .and_then(|t| t.get("usage"))
-        .or_else(|| params.get("usage"))
-        .or_else(|| params.get("token_usage"))
-        .or_else(|| params.get("tokens"));
-
-    if let Some(usage) = usage {
-        let input_tokens = usage
-            .get("input_tokens")
-            .and_then(Value::as_u64)
-            .or_else(|| usage.get("input").and_then(Value::as_u64));
-        let output_tokens = usage
-            .get("output_tokens")
-            .and_then(Value::as_u64)
-            .or_else(|| usage.get("output").and_then(Value::as_u64));
-        if input_tokens.is_some() || output_tokens.is_some() {
-            events.push(AgentEvent::Usage {
-                input_tokens,
-                output_tokens,
-            });
-        }
-    }
-
-    events
+    }]
 }
 
 /// Map a v2 `thread/status/changed` notification: `status.type == "idle"`
@@ -677,8 +901,8 @@ fn map_thread_status_changed(params: &Value) -> Vec<AgentEvent> {
         .and_then(Value::as_str)
         == Some("idle");
     if is_idle {
-        vec![AgentEvent::Result {
-            success: true,
+        vec![AgentEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
             error: None,
         }]
     } else {
@@ -702,21 +926,22 @@ fn map_error(params: &Value) -> Vec<AgentEvent> {
         .and_then(Value::as_str)
         .or_else(|| params.get("error").and_then(Value::as_str))
         .map(str::to_string);
-    vec![AgentEvent::Result {
-        success: false,
+    vec![AgentEvent::TurnEnded {
+        stop_reason: StopReason::Failed,
         error,
     }]
 }
 
 /// Serialize `value` as one newline-delimited JSON-RPC line and write it to
 /// the shared stdin, under the shared lock. A `None` stdin (closed, e.g.
-/// after [`AgentInput::Interrupt`] or during [`Drop`]) is a silent no-op
+/// after [`AgentInput::Cancel`] or during [`Drop`]) is a silent no-op
 /// rather than an error — the process is already being told to stop.
 fn write_line(stdin: &Arc<Mutex<Option<ChildStdin>>>, value: &Value) -> crate::Result<()> {
     let mut guard = stdin
         .lock()
         .map_err(|_| anyhow::anyhow!("codex bridge stdin lock poisoned"))?;
     if let Some(stdin) = guard.as_mut() {
+        tracing::trace!(direction = "out", frame = %value, "codex jsonrpc");
         writeln!(stdin, "{value}")?;
         stdin.flush()?;
     }
@@ -727,18 +952,20 @@ fn write_line(stdin: &Arc<Mutex<Option<ChildStdin>>>, value: &Value) -> crate::R
 mod tests {
     use super::*;
 
+    fn map(json: &str) -> Vec<AgentEvent> {
+        let value: Value = serde_json::from_str(json).unwrap();
+        map_notification(&value)
+    }
+
     #[test]
     fn map_notification_legacy_agent_message_is_assistant_text() {
-        let v: Value = serde_json::from_str(
-            r#"{"jsonrpc":"2.0","method":"codex/event",
-                "params":{"msg":{"type":"agent_message","message":"hi from legacy"}}}"#,
-        )
-        .unwrap();
-        let events = map_notification(&v);
+        let events = map(r#"{"jsonrpc":"2.0","method":"codex/event",
+                "params":{"msg":{"type":"agent_message","message":"hi from legacy"}}}"#);
         assert_eq!(
             events,
-            vec![AgentEvent::AssistantText {
-                text: "hi from legacy".to_string()
+            vec![AgentEvent::AgentMessageChunk {
+                content: Content::text("hi from legacy"),
+                message_id: None,
             }]
         );
     }
@@ -750,27 +977,34 @@ mod tests {
                 "params":{"msg":{"type":"exec_command_begin","call_id":"c1","command":["ls"]}}}"#,
         )
         .unwrap();
-        assert_eq!(
-            map_notification(&begin),
-            vec![AgentEvent::ToolCall {
-                id: Some("c1".to_string()),
-                name: "exec_command".to_string(),
-                input: json!(["ls"]),
-            }]
-        );
+        let events = map_notification(&begin);
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call, got {events:?}");
+        };
+        assert_eq!(call.id, "c1");
+        assert_eq!(call.title, "exec_command ls");
+        assert_eq!(call.kind, ToolKind::Execute);
+        assert_eq!(call.status, ToolStatus::InProgress);
+        assert_eq!(call.raw_input, Some(json!(["ls"])));
 
         let end: Value = serde_json::from_str(
             r#"{"jsonrpc":"2.0","method":"codex/event",
                 "params":{"msg":{"type":"exec_command_end","call_id":"c1","output":"ok"}}}"#,
         )
         .unwrap();
+        let events = map_notification(&end);
+        let AgentEvent::ToolCallUpdate { update } = &events[0] else {
+            panic!("expected an update, got {events:?}");
+        };
+        assert_eq!(update.id, "c1");
+        assert_eq!(update.status, Some(ToolStatus::Completed));
         assert_eq!(
-            map_notification(&end),
-            vec![AgentEvent::ToolResult {
-                id: Some("c1".to_string()),
-                content: json!("ok"),
-            }]
+            update.content,
+            Some(vec![ToolContent::Content {
+                content: Content::text("ok"),
+            }])
         );
+        assert_eq!(update.raw_output, Some(json!("ok")));
     }
 
     #[test]
@@ -781,9 +1015,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_notification(&complete),
-            vec![AgentEvent::Result {
-                success: true,
-                error: None
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                error: None,
             }]
         );
 
@@ -794,8 +1028,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_notification(&aborted),
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Cancelled,
                 error: Some("cancelled".to_string()),
             }]
         );
@@ -810,8 +1044,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_notification(&v),
-            vec![AgentEvent::AssistantText {
-                text: "hi from v2".to_string()
+            vec![AgentEvent::AgentMessageChunk {
+                content: Content::text("hi from v2"),
+                message_id: Some("i1".to_string()),
             }]
         );
     }
@@ -823,31 +1058,64 @@ mod tests {
                 "params":{"item":{"id":"c1","itemType":"commandExecution","command":"ls"}}}"#,
         )
         .unwrap();
-        assert_eq!(
-            map_notification(&started),
-            vec![AgentEvent::ToolCall {
-                id: Some("c1".to_string()),
-                name: "commandExecution".to_string(),
-                input: json!("ls"),
-            }]
-        );
+        let events = map_notification(&started);
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call, got {events:?}");
+        };
+        assert_eq!(call.id, "c1");
+        assert_eq!(call.title, "commandExecution ls");
+        assert_eq!(call.kind, ToolKind::Execute);
+        assert_eq!(call.status, ToolStatus::InProgress);
 
         let completed: Value = serde_json::from_str(
             r#"{"jsonrpc":"2.0","method":"item/completed",
                 "params":{"item":{"id":"c1","itemType":"commandExecution","output":"ok"}}}"#,
         )
         .unwrap();
+        let events = map_notification(&completed);
+        let AgentEvent::ToolCallUpdate { update } = &events[0] else {
+            panic!("expected an update, got {events:?}");
+        };
+        assert_eq!(update.id, "c1");
+        assert_eq!(update.status, Some(ToolStatus::Completed));
         assert_eq!(
-            map_notification(&completed),
-            vec![AgentEvent::ToolResult {
-                id: Some("c1".to_string()),
-                content: json!("ok"),
+            update.content,
+            Some(vec![ToolContent::Content {
+                content: Content::text("ok"),
+            }])
+        );
+    }
+
+    /// `changes` isn't documented beyond its existence, so a `path` on each
+    /// entry is picked up when present and nothing is invented when it
+    /// isn't.
+    #[test]
+    fn map_notification_v2_item_started_file_change_locations_when_a_path_is_known() {
+        let v: Value = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","method":"item/started",
+                "params":{"item":{"id":"f1","itemType":"fileChange",
+                  "changes":[{"path":"/tmp/a.rs"}]}}}"#,
+        )
+        .unwrap();
+        let events = map_notification(&v);
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call, got {events:?}");
+        };
+        assert_eq!(call.kind, ToolKind::Edit);
+        assert_eq!(
+            call.locations,
+            vec![ToolLocation {
+                path: "/tmp/a.rs".to_string(),
+                line: None,
             }]
         );
     }
 
+    /// Codex reports token counts on `turn/completed` but never a context
+    /// window, so the notification still ends the turn — it just never
+    /// produces a usage ratio with an invented denominator.
     #[test]
-    fn map_notification_v2_turn_completed_with_usage() {
+    fn map_notification_v2_turn_completed_drops_usage_without_a_window() {
         let v: Value = serde_json::from_str(
             r#"{"jsonrpc":"2.0","method":"turn/completed",
                 "params":{"turn":{"usage":{"input_tokens":11,"output_tokens":22}}}}"#,
@@ -855,16 +1123,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_notification(&v),
-            vec![
-                AgentEvent::Result {
-                    success: true,
-                    error: None
-                },
-                AgentEvent::Usage {
-                    input_tokens: Some(11),
-                    output_tokens: Some(22),
-                },
-            ]
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                error: None,
+            }]
         );
     }
 
@@ -877,9 +1139,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_notification(&v),
-            vec![AgentEvent::Result {
-                success: true,
-                error: None
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                error: None,
             }]
         );
 
@@ -900,8 +1162,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_notification(&terminal),
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: Some("boom".to_string()),
             }]
         );
@@ -920,6 +1182,35 @@ mod tests {
             serde_json::from_str(r#"{"jsonrpc":"2.0","method":"something/new","params":{}}"#)
                 .unwrap();
         assert_eq!(map_notification(&v), Vec::new());
+    }
+
+    #[test]
+    fn approval_event_surfaces_as_a_permission_request() {
+        let v: Value = serde_json::from_str(
+            r#"{"id":"r1","method":"item/commandExecution/requestApproval",
+                "params":{"command":"rm -rf /tmp/x"}}"#,
+        )
+        .unwrap();
+        let events = approval_event("item/commandExecution/requestApproval", &v);
+        let AgentEvent::PermissionRequest {
+            request_id,
+            tool_call,
+            options,
+        } = &events[0]
+        else {
+            panic!("expected a permission request, got {events:?}");
+        };
+        assert_eq!(request_id, "r1");
+        assert_eq!(tool_call.kind, Some(ToolKind::Execute));
+        assert_eq!(tool_call.status, Some(ToolStatus::Pending));
+        assert_eq!(options[0].kind, PermissionKind::AllowOnce);
+        assert_eq!(options[1].kind, PermissionKind::RejectOnce);
+    }
+
+    #[test]
+    fn approval_event_ignores_non_approval_methods() {
+        let v: Value = serde_json::from_str(r#"{"id":1,"method":"thread/start"}"#).unwrap();
+        assert!(approval_event("thread/start", &v).is_empty());
     }
 
     #[test]

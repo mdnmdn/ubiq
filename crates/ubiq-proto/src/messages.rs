@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::conversation::{ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion};
 use crate::git::{self, GitEntry, GitRollup, RepoOverview};
 use crate::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
@@ -454,6 +455,88 @@ pub enum Message {
     WorkError {
         project_id: ProjectId,
         task_id: Option<TaskId>,
+        error: String,
+    },
+
+    // ── Conversation family: UI → host ──────────────────────────────
+    /// Start a live agent: compose the harness, drive it over structured I/O, and stream what it
+    /// says back as [`Message::ConversationUpdate`].
+    ///
+    /// The sibling of [`Message::SpawnWorkspace`], and the other face of the same thing — a
+    /// workspace is either a terminal or a conversation, never both, because a child's stdout is
+    /// either a tty or a pipe. This one answers with an agent rather than a pane, which is why the
+    /// two are separate messages rather than a flag: nothing about a conversation has a size.
+    StartConversation {
+        project_id: ProjectId,
+        session_id: SessionId,
+        /// Where in the project it runs, absent for its root.
+        rel_path: Option<String>,
+        /// The library's harness id, from [`AgentTypeInfo`].
+        agent_type: String,
+    },
+    /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
+    /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
+    PromptAgent {
+        agent_id: AgentId,
+        text: String,
+    },
+    /// Interrupt the turn in flight. Every permission request still waiting is answered as
+    /// cancelled.
+    CancelTurn {
+        agent_id: AgentId,
+    },
+    /// Answer a [`ConvUpdate::PermissionRequest`], naming one of the options it carried.
+    AnswerPermission {
+        agent_id: AgentId,
+        request_id: String,
+        option_id: String,
+    },
+    /// Change a model, a mode, a thinking level — whatever the harness advertised under that id in
+    /// a [`ConvUpdate::ConfigOptions`]. One message for all of them, because upstream has one
+    /// mechanism for all of them.
+    SetAgentConfig {
+        agent_id: AgentId,
+        config_id: String,
+        value: String,
+    },
+    /// Stop the agent and clean up after it.
+    EndConversation {
+        agent_id: AgentId,
+    },
+
+    // ── Conversation family: host → UI ──────────────────────────────
+    /// The agent exists. Its record joins the project's work, so the sidebar and the graph find it
+    /// exactly as they find any other.
+    ConversationStarted {
+        project_id: ProjectId,
+        agent: Box<WorkAgent>,
+        /// Whether this harness takes anything after its first turn. A one-shot harness answers
+        /// `false`, and a composer that offered to send into it would be offering nothing — so
+        /// the capability travels with the agent rather than being discovered by a refusal.
+        accepts_input: bool,
+    },
+    /// One thing the agent said.
+    ///
+    /// A delta, not a record: a token stream cannot re-send a whole conversation, and `seq` is
+    /// what an interface checks to know it has missed nothing. Boxed for the reason
+    /// [`Message::AgentChanged`] is — an enum is as wide as its widest variant, and the terminal
+    /// chunks on the hot path share it.
+    ConversationUpdate {
+        agent_id: AgentId,
+        /// Per agent, monotonic, starting at one. Order is promised per agent and not across
+        /// them, on the same terms as a pane's output.
+        seq: u64,
+        update: Box<ConvUpdate>,
+    },
+    /// The harness is gone. The transcript stays; the agent stops accepting turns.
+    ConversationEnded {
+        agent_id: AgentId,
+        stop_reason: StopReason,
+    },
+    /// The conversation could not be started, or its stream failed. A sentence, for the reason
+    /// [`Message::WorkError`] carries one.
+    ConversationError {
+        agent_id: AgentId,
         error: String,
     },
 }

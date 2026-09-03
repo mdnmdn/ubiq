@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git and work families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work and conversation families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-02
-verified: 2026-09-02
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs]
+updated: 2026-09-03
+verified: 2026-09-03
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -393,9 +393,88 @@ variant — so an unboxed one makes every message on the bus that wide, includin
 on the hot path. `Message` is 192 bytes with the box and 288 without it. The wire form is the same
 either way, because a `Box` serialises as what is inside it.
 
+## The conversation family
+
+The seventh family, and the only one whose vocabulary was borrowed rather than invented. **Every
+variant names an agent**, because an agent is what a conversation belongs to and because that name
+is what multiplexes several of them down one channel.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `StartConversation` | UI → host | `project_id`, `session_id`, `rel_path?`, `agent_type` | `ConversationStarted` or `ConversationError` |
+| `PromptAgent` | UI → host | `agent_id`, `text` | — |
+| `CancelTurn` | UI → host | `agent_id` | — |
+| `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
+| `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
+| `EndConversation` | UI → host | `agent_id` | `ConversationEnded` |
+| `ConversationStarted` | host → UI | `project_id`, `agent`, `accepts_input` | — |
+| `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
+| `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
+| `ConversationError` | host → UI | `agent_id`, `error` | — |
+
+**The vocabulary is the Agent Client Protocol's; the transport is the bus.** `D53` states why, and
+[`../../refs/acp-protocol.md`](../../refs/acp-protocol.md) is the wire reference every name here
+comes from. What that buys is that the library's own event model, this family and the mapper between
+them are one vocabulary rather than three, and that a harness which speaks ACP natively is read
+rather than translated.
+
+**A conversation is a workspace's other face.** `SpawnWorkspace` makes a terminal one and
+`StartConversation` makes a conversation one; a harness cannot be both at once, because a child's
+standard output is either a pseudo-terminal or a pipe. They are two messages rather than one with a
+flag because they answer with different things: a pane has a size and a conversation does not, and a
+`WorkspaceInfo` full of geometry nobody set would be a record that lies.
+
+**`agent_id` is the multiplexing key**, and it is the same role a `sessionId` plays in ACP — where
+one connection hosts many sessions and every session-scoped message names its own. Here one bus
+hosts many conversations and every variant names its own. Two agents streaming at once need no
+second channel, no fan-out and no per-agent subscription.
+
+**`seq` is per agent, monotonic, and starts at one.** Order is promised per agent and not across
+them, on exactly the terms the pane family already sets for terminal output. A window that receives
+a `seq` which does not follow the last one has lost a message; it says so and applies the update
+anyway, because half a transcript is worth more than none.
+
+**Deltas, not records.** `AgentChanged` re-sends a whole `WorkAgent` and that is right for a record
+that changes rarely; a token stream cannot. So an update carries one thing — a chunk of prose, a
+tool call, a patch to one already announced — and the window folds it in. **An absent field in a
+patch means unchanged**, and `content` and `locations` replace rather than append; a window that
+applies them the other way silently loses half of an edit.
+
+**The host is the only writer.** The composer appends nothing when it sends: the user's own line
+appears when the harness echoes it back as a `ConvUpdate::UserChunk`, which is what the harness
+actually received rather than what was typed at it. That is the same rule
+[`../features/workbench.md`](../features/workbench.md) states, applied to a conversation that now
+has something behind it.
+
+**Coalescing is the window's.** The host forwards what the harness said, on an unbounded mailbox, so
+a window that cannot draw two hundred chunks a second is a window that has fallen behind rather than
+a harness that has stopped.
+
+**What a window derives rather than asks for.** A conversation's activity badge, its run pill and
+its context ring are read off the stream it already holds. Those are renderings of a delta, not
+content, and asking the host for them would be a round trip per token.
+
+**`ConversationUpdate` boxes its payload**, and is the second variant in the set to do so, for
+`AgentChanged`'s reason: an enum is as wide as its widest variant, and the terminal chunks on the hot
+path share it.
+
+**`accepts_input` travels with the agent rather than being discovered.** Two of the four bridges are
+one-shot: their prompt goes in through the launch and they take nothing after it. A composer that
+learned that from a refused turn would have offered the user something that was never there, so the
+capability is on the message that says the agent exists.
+
+**A conversation outlives its harness.** `ConversationEnded` says the process is gone; the transcript
+stays on screen, and the agent stops accepting turns. Only closing it discards what was said.
+
+**`AnswerPermission` and `SetAgentConfig` are on the wire and answered with a refusal.** Nothing
+emits a permission request or a config option yet — the bridges auto-approve, and no harness
+advertises its models this way. They are named here because the family was designed whole rather
+than grown one variant at a time, and because a client that sends one deserves an error rather than
+silence.
+
 ## The payload records
 
-Eighteen records travel inside payloads.
+Twenty-seven records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -417,6 +496,16 @@ Eighteen records travel inside payloads.
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
 | `Turn` | `from`, `text` |
+
+| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `PermissionRequest`, `TurnEnded` |
+| `ToolCallRecord` | `id`, `title`, `kind`, `status`, `content[]`, `locations[]` |
+| `ToolCallPatch` | `id`, and `title?`, `kind?`, `status?`, `content?`, `locations?` — absent is unchanged |
+| `ToolLocation` | `path`, `line?` |
+| `UsageRecord` | `used`, `size`, `cost_usd?`, `model?` |
+| `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
+| `ConfigChoice` | `value`, `name`, `description?`, `group?` |
+| `PermissionOption` | `option_id`, `name`, `kind` |
+| `PlanEntry` | `content`, `priority`, `status` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
 what stops a stale health flag or a pane count from being written down and believed at the next
@@ -450,6 +539,18 @@ host parses; a schema this build does not understand is `SettingsError`, not a d
 the one setting the host acts on rather than stores, read again at every spawn. A record written by
 an older build still parses, because every field added since carries a default; only a newer schema
 is refused.
+
+The conversation family's own enums are the Agent Client Protocol's and are named after it rather
+than after anything here, so a reader can check them against
+[`../../refs/acp-protocol.md`](../../refs/acp-protocol.md) directly. `ToolKind` is ACP's ten —
+`Read`, `Edit`, `Delete`, `Move`, `Search`, `Execute`, `Think`, `Fetch`, `SwitchMode`, `Other` —
+and carries the verb its block's header leads with. `ToolStatus` is `Pending`, `InProgress`,
+`Completed` or `Failed`. `PermissionKind` is `AllowOnce`, `AllowAlways`, `RejectOnce` or
+`RejectAlways`; nothing remembers an "always" yet, and where it should be remembered is an open
+question in [`../backlog.md`](../backlog.md). `StopReason` is ACP's five plus `Failed`, which is
+ours and means the run broke rather than the model declining. `ConfigCategory` — `Mode`, `Model`,
+`ModelConfig`, `ThoughtLevel`, or an `Other` carrying whatever a harness invented — is a hint about
+which picker draws an option and must never change what an id means.
 
 `DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
 textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.
@@ -492,6 +593,7 @@ mechanical form of the rule that the UI never assumes the pseudo-terminal is loc
    it**, the file family. If it names a project **and a piece of work inside it** — a task, a step or
    an agent — the work family. If it names a project alone, the project family. Otherwise the
    session family.
+   If it names an **agent** and carries something that agent said, the conversation family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

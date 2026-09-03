@@ -13,7 +13,7 @@
 
 use serde_json::{Value, json};
 
-use crate::io::AgentEvent;
+use crate::io::{AgentEvent, Content, StopReason, ToolCall, ToolCallUpdate};
 
 /// Map one [`AgentEvent`] to a single AG-UI event object, or `None` if this
 /// event has no AG-UI representation.
@@ -21,56 +21,114 @@ use crate::io::AgentEvent;
 /// Field-name choices:
 /// - [`AgentEvent::SessionStarted::session_id`] is optional upstream; it
 ///   becomes AG-UI's `runId`, emitted as JSON `null` when absent.
-/// - [`AgentEvent::ToolCall::id`] is optional upstream; when absent we fall
-///   back to `name` for `toolCallId`.
-/// - [`AgentEvent::ToolResult::id`] is optional upstream too; when absent we
-///   emit `null` for `toolCallId` since there's no name to fall back to.
+/// - A tool call's `id` is AG-UI's `toolCallId` directly — the neutral model
+///   always has one (unlike the old ad-hoc event, which could omit it), so
+///   there is no name fallback to make anymore.
+/// - AG-UI's `TOOL_CALL_START`/`RESULT` have no `kind`/`status` fields of
+///   their own; those richer facts ride along under `rawInput`/`rawOutput`
+///   rather than being dropped.
 pub fn to_agui(event: &AgentEvent) -> Option<Value> {
     match event {
-        AgentEvent::SessionStarted { session_id } => Some(json!({
+        AgentEvent::SessionStarted { session_id, .. } => Some(json!({
             "type": "RUN_STARTED",
             "runId": session_id,
         })),
-        AgentEvent::AssistantText { text } => Some(json!({
+        AgentEvent::AgentMessageChunk { content, .. } => Some(json!({
             "type": "TEXT_MESSAGE_CONTENT",
-            "delta": text,
+            "delta": content_text(content),
         })),
-        AgentEvent::Thinking { text } => Some(json!({
+        AgentEvent::AgentThoughtChunk { content, .. } => Some(json!({
             "type": "THINKING_TEXT_MESSAGE_CONTENT",
-            "delta": text,
+            "delta": content_text(content),
         })),
-        AgentEvent::ToolCall { id, name, input } => Some(json!({
-            "type": "TOOL_CALL_START",
-            "toolCallId": id.clone().unwrap_or_else(|| name.clone()),
-            "toolCallName": name,
-            "rawArgs": input,
-        })),
-        AgentEvent::ToolResult { id, content } => Some(json!({
-            "type": "TOOL_CALL_RESULT",
-            "toolCallId": id,
-            "content": content,
-        })),
-        AgentEvent::Result { success, error } => {
-            if *success {
-                Some(json!({"type": "RUN_FINISHED"}))
+
+        AgentEvent::ToolCall { call } => Some(tool_call_start(call)),
+        // AG-UI's `TOOL_CALL_RESULT` names only the finished call and its
+        // content; a patch that only changes, say, `status` has nothing to
+        // report under this event and is skipped.
+        AgentEvent::ToolCallUpdate { update } => tool_call_result(update),
+
+        AgentEvent::TurnEnded { stop_reason, error } => {
+            let failed = matches!(stop_reason, StopReason::Refusal | StopReason::Failed);
+            Some(if failed || error.is_some() {
+                json!({
+                    "type": "RUN_ERROR",
+                    "message": error.clone().unwrap_or_else(|| "refused".to_string()),
+                })
             } else {
-                Some(json!({"type": "RUN_ERROR", "message": error}))
-            }
+                json!({"type": "RUN_FINISHED"})
+            })
         }
-        AgentEvent::ApprovalRequest { .. } | AgentEvent::Usage { .. } | AgentEvent::Log { .. } => {
-            None
-        }
+
+        // No AG-UI event names these: the user-echo, the plan, the command
+        // list, the mode/config pickers and the session title/mtime are all
+        // ACP-only vocabulary AG-UI never grew an equivalent for.
+        AgentEvent::UserMessageChunk { .. }
+        | AgentEvent::Plan { .. }
+        | AgentEvent::AvailableCommandsUpdate { .. }
+        | AgentEvent::CurrentModeUpdate { .. }
+        | AgentEvent::ConfigOptionUpdate { .. }
+        | AgentEvent::SessionInfoUpdate { .. }
+        // A permission ask is a request back to whoever is driving the
+        // agent, not a thing AG-UI's run stream narrates.
+        | AgentEvent::PermissionRequest { .. }
+        // AG-UI has no context-window concept to carry `used`/`size` into.
+        | AgentEvent::UsageUpdate { .. }
+        | AgentEvent::Log { .. } => None,
     }
+}
+
+/// The text a chunk carries, or `""` for a non-text block — AG-UI's `delta`
+/// is a string, and this mapping only ever sees [`Content::Text`] in
+/// practice (no bridge emits image/audio/resource chunks yet).
+fn content_text(content: &Content) -> &str {
+    content.as_text().unwrap_or_default()
+}
+
+/// A `ToolCall`'s AG-UI `TOOL_CALL_START`. `kind`/`status`/`locations` have no
+/// dedicated AG-UI fields, so they ride along inside `rawArgs` rather than
+/// being dropped on the floor.
+fn tool_call_start(call: &ToolCall) -> Value {
+    json!({
+        "type": "TOOL_CALL_START",
+        "toolCallId": call.id,
+        "toolCallName": call.title,
+        "rawArgs": call.raw_input,
+    })
+}
+
+/// A `ToolCallUpdate`'s AG-UI `TOOL_CALL_RESULT`, or `None` if the patch
+/// carries no content to show — AG-UI's result event exists to narrate a
+/// call's output, not every field a patch might touch.
+fn tool_call_result(update: &ToolCallUpdate) -> Option<Value> {
+    let content = update.content.as_ref()?;
+    let text: Vec<&str> = content
+        .iter()
+        .filter_map(|item| match item {
+            crate::io::ToolContent::Content { content } => content.as_text(),
+            _ => None,
+        })
+        .collect();
+    Some(json!({
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": update.id,
+        "content": text.join(""),
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::io::{PermissionOption, ToolCallUpdate, ToolContent, ToolKind, ToolStatus};
 
     #[test]
     fn session_started_maps_to_run_started() {
         let ev = AgentEvent::SessionStarted {
             session_id: Some("sess-1".to_string()),
+            model: None,
+            mode: None,
+            tools: Vec::new(),
+            agents: Vec::new(),
         };
         let got = to_agui(&ev).unwrap();
         assert_eq!(got, json!({"type": "RUN_STARTED", "runId": "sess-1"}));
@@ -78,24 +136,32 @@ mod tests {
 
     #[test]
     fn session_started_without_id_emits_null_run_id() {
-        let ev = AgentEvent::SessionStarted { session_id: None };
+        let ev = AgentEvent::SessionStarted {
+            session_id: None,
+            model: None,
+            mode: None,
+            tools: Vec::new(),
+            agents: Vec::new(),
+        };
         let got = to_agui(&ev).unwrap();
         assert_eq!(got, json!({"type": "RUN_STARTED", "runId": null}));
     }
 
     #[test]
-    fn assistant_text_maps_to_text_message_content() {
-        let ev = AgentEvent::AssistantText {
-            text: "hi".to_string(),
+    fn agent_message_chunk_maps_to_text_message_content() {
+        let ev = AgentEvent::AgentMessageChunk {
+            content: Content::text("hi"),
+            message_id: None,
         };
         let got = to_agui(&ev).unwrap();
         assert_eq!(got, json!({"type": "TEXT_MESSAGE_CONTENT", "delta": "hi"}));
     }
 
     #[test]
-    fn thinking_maps_to_thinking_text_message_content() {
-        let ev = AgentEvent::Thinking {
-            text: "hmm".to_string(),
+    fn agent_thought_chunk_maps_to_thinking_text_message_content() {
+        let ev = AgentEvent::AgentThoughtChunk {
+            content: Content::text("hmm"),
+            message_id: None,
         };
         let got = to_agui(&ev).unwrap();
         assert_eq!(
@@ -106,11 +172,10 @@ mod tests {
 
     #[test]
     fn tool_call_maps_to_tool_call_start() {
-        let ev = AgentEvent::ToolCall {
-            id: Some("call-1".to_string()),
-            name: "bash".to_string(),
-            input: json!({"cmd": "ls"}),
-        };
+        let mut call = ToolCall::new("call-1", "bash");
+        call.kind = ToolKind::Execute;
+        call.raw_input = Some(json!({"cmd": "ls"}));
+        let ev = AgentEvent::ToolCall { call };
         let got = to_agui(&ev).unwrap();
         assert_eq!(
             got,
@@ -124,46 +189,50 @@ mod tests {
     }
 
     #[test]
-    fn tool_call_without_id_falls_back_to_name() {
-        let ev = AgentEvent::ToolCall {
-            id: None,
-            name: "bash".to_string(),
-            input: json!({}),
+    fn tool_call_update_with_content_maps_to_tool_call_result() {
+        let update = ToolCallUpdate {
+            id: "call-1".to_string(),
+            status: Some(ToolStatus::Completed),
+            content: Some(vec![ToolContent::Content {
+                content: Content::text("ok"),
+            }]),
+            ..ToolCallUpdate::default()
         };
-        let got = to_agui(&ev).unwrap();
-        assert_eq!(got["toolCallId"], json!("bash"));
-    }
-
-    #[test]
-    fn tool_result_maps_to_tool_call_result() {
-        let ev = AgentEvent::ToolResult {
-            id: Some("call-1".to_string()),
-            content: json!({"stdout": "ok"}),
-        };
+        let ev = AgentEvent::ToolCallUpdate { update };
         let got = to_agui(&ev).unwrap();
         assert_eq!(
             got,
             json!({
                 "type": "TOOL_CALL_RESULT",
                 "toolCallId": "call-1",
-                "content": {"stdout": "ok"},
+                "content": "ok",
             })
         );
     }
 
+    /// A patch with nothing to show (say, a bare status flip) has no AG-UI
+    /// result to report.
     #[test]
-    fn result_success_maps_to_run_finished() {
-        let ev = AgentEvent::Result {
-            success: true,
+    fn tool_call_update_without_content_is_none() {
+        let ev = AgentEvent::ToolCallUpdate {
+            update: ToolCallUpdate::finished("call-1", ToolStatus::Completed),
+        };
+        assert_eq!(to_agui(&ev), None);
+    }
+
+    #[test]
+    fn turn_ended_end_turn_maps_to_run_finished() {
+        let ev = AgentEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
             error: None,
         };
         assert_eq!(to_agui(&ev).unwrap(), json!({"type": "RUN_FINISHED"}));
     }
 
     #[test]
-    fn result_failure_maps_to_run_error() {
-        let ev = AgentEvent::Result {
-            success: false,
+    fn turn_ended_failed_maps_to_run_error() {
+        let ev = AgentEvent::TurnEnded {
+            stop_reason: StopReason::Failed,
             error: Some("boom".to_string()),
         };
         assert_eq!(
@@ -175,17 +244,19 @@ mod tests {
     #[test]
     fn unmapped_variants_are_none() {
         assert_eq!(
-            to_agui(&AgentEvent::ApprovalRequest {
+            to_agui(&AgentEvent::PermissionRequest {
                 request_id: "r1".to_string(),
-                tool_name: "bash".to_string(),
-                input: json!({}),
+                tool_call: ToolCallUpdate::default(),
+                options: Vec::<PermissionOption>::new(),
             }),
             None
         );
         assert_eq!(
-            to_agui(&AgentEvent::Usage {
-                input_tokens: Some(1),
-                output_tokens: Some(2),
+            to_agui(&AgentEvent::UsageUpdate {
+                used: 1,
+                size: 2,
+                cost: None,
+                model: None,
             }),
             None
         );

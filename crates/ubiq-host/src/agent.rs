@@ -15,12 +15,14 @@
 use std::path::{Path, PathBuf};
 
 use agent_manager::harness::{self, Launch};
+use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
 use agent_manager::provision;
-use agent_manager::spec::{ConfigStrategy, Isolation, RunSpec};
+use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, RunSpec};
 use anyhow::{Context, Result, anyhow};
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::AgentTypeInfo;
+use ubiq_proto::work::AgentId;
 
 /// The agent types this machine can run, and the composer behind them.
 ///
@@ -50,6 +52,9 @@ pub struct Composed {
     /// The configuration directory this run was provisioned into, which the
     /// pane owns and [`Agents::retire`] removes.
     pub dir: PathBuf,
+    /// What the library provisioned, kept because a structured bridge is
+    /// built from it rather than from the launch alone.
+    provisioned: provision::Provisioned,
 }
 
 impl Composed {
@@ -139,13 +144,65 @@ impl Agents {
         cwd: &Path,
         args: Vec<String>,
     ) -> Result<Composed> {
+        self.compose_run(
+            &pane.to_string(),
+            agent_type,
+            cwd,
+            args,
+            IoModes::Passthrough,
+        )
+    }
+
+    /// Compose a run for `agent` and drive it over structured I/O, answering
+    /// the bridge its events come out of.
+    ///
+    /// The conversation face of the same thing [`compose`](Self::compose)
+    /// builds. Two differences, both forced rather than chosen:
+    ///
+    /// - The run is **never confined**, whatever the setting says. A bridge
+    ///   spawns its own child with pipes on its descriptors, and the sandbox
+    ///   needs those descriptors to hand it a policy; the library refuses the
+    ///   combination outright, and producing it quietly here would be worse.
+    /// - The id is the agent's rather than a pane's, because a conversation
+    ///   has no pane. It is the day `WorkspaceId` and `PaneId` come apart.
+    pub fn converse(
+        &self,
+        agent: AgentId,
+        agent_type: &str,
+        cwd: &Path,
+    ) -> Result<(Composed, Box<dyn IoBridge>)> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        let composed = self.compose_run(
+            &agent.to_string(),
+            agent_type,
+            cwd,
+            Vec::new(),
+            IoModes::Structured,
+        )?;
+        let bridge = harness
+            .structured_bridge(&composed.provisioned, cwd)
+            .with_context(|| format!("starting a {agent_type} conversation"))?;
+        Ok((composed, bridge))
+    }
+
+    fn compose_run(
+        &self,
+        key: &str,
+        agent_type: &str,
+        cwd: &Path,
+        args: Vec<String>,
+        io: IoModes,
+    ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
 
+        let structured = io == IoModes::Structured;
         let mut spec = RunSpec::new(harness.id(), cwd.to_path_buf());
-        spec.config = ConfigStrategy::Fixed(self.run_dir(pane));
+        spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
         spec.passthrough_args = args;
-        if self.isolate {
+        spec.io = io;
+        if self.isolate && !structured {
             spec.isolation = Isolation::Sandboxed(String::new());
         }
 
@@ -162,9 +219,10 @@ impl Agents {
         .with_context(|| format!("resolving the policy for a {agent_type} run"))?;
 
         Ok(Composed {
-            launch: provisioned.launch,
+            launch: provisioned.launch.clone(),
             confined,
-            dir: provisioned.dir,
+            dir: provisioned.dir.clone(),
+            provisioned,
         })
     }
 
@@ -193,7 +251,23 @@ impl Agents {
 
     /// Where a pane's run is provisioned. One directory per pane, named by it.
     fn run_dir(&self, pane: PaneId) -> PathBuf {
-        self.root.join("runs").join(pane.to_string())
+        self.run_dir_for(&pane.to_string())
+    }
+
+    /// Where an agent's conversation is provisioned.
+    pub fn agent_dir(&self, agent: AgentId) -> PathBuf {
+        self.run_dir_for(&agent.to_string())
+    }
+
+    /// Remove what an agent's conversation left behind.
+    pub fn retire_agent(&self, agent: AgentId) {
+        let _ = std::fs::remove_dir_all(self.agent_dir(agent));
+    }
+
+    /// One directory per run, named by whatever owns it — a pane or an agent.
+    /// Both ids are ULIDs, so neither can be mistaken for the other's.
+    fn run_dir_for(&self, key: &str) -> PathBuf {
+        self.root.join("runs").join(key)
     }
 }
 

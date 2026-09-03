@@ -280,9 +280,7 @@ fn run_structured(
     let mut bridge = harness.structured_bridge(provisioned, cwd)?;
 
     if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-        bridge.send(crate::io::AgentInput::Prompt {
-            text: prompt.clone(),
-        })?;
+        bridge.send(crate::io::AgentInput::prompt(prompt.clone()))?;
     }
 
     while let Some(ev) = bridge.next_event()? {

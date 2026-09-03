@@ -30,15 +30,16 @@ pub mod column;
 pub mod sidebar;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::theme;
 use crate::ui::empty;
-use crate::ui::kit::mono;
+use crate::ui::kit::{self, ghost_button, mono};
+use crate::ui::{handler, indexed};
 
 /// What a dragged tab carries. The agent alone: which column it came from is a question the view
 /// can already answer, and the drop cares only about where it landed.
@@ -129,7 +130,66 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .text_size(px(11.5)),
         )
+        .child(new_agent(app, cx))
         .into_any_element()
+}
+
+/// **New agent**: which harness to start a live conversation on, here, in this project.
+///
+/// The list is the host's own — the same [`AgentTypeInfo`] the new-pane menu offers, asked for
+/// once and read by both — and a harness the host could not find on disk is listed and disabled,
+/// exactly as it is there. What a pick starts is a conversation rather than a pane: the two are
+/// the same question asked of different halves of a workspace, and a conversation has no size.
+///
+/// [`AgentTypeInfo`]: ubiq_proto::messages::AgentTypeInfo
+fn new_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+
+    let mut control = div().flex().flex_none().items_center().child(ghost_button(
+        "agents-new",
+        Some(IconName::Plus),
+        "New agent",
+        cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+            let at = event.position();
+            this.open_new_agent_menu((at.x.into(), at.y.into()), cx);
+        }),
+    ));
+
+    if app.workbench.new_agent_menu.is_some() {
+        let items: Vec<kit::ContextItem> = app
+            .workbench
+            .agent_types
+            .iter()
+            .map(|agent| {
+                let item = kit::ContextItem::new(SharedString::from(agent.label.clone()));
+                if agent.available {
+                    item
+                } else {
+                    item.disabled()
+                }
+            })
+            .collect();
+        // Nothing found on this machine is said in the menu rather than by a control that opens
+        // on emptiness.
+        let items = if items.is_empty() {
+            vec![kit::ContextItem::new("No harness found here").disabled()]
+        } else {
+            items
+        };
+        let at = app.workbench.new_agent_menu.unwrap_or_default();
+
+        control = control.child(kit::context_menu(
+            "agents-new-menu",
+            point(px(at.0), px(at.1)),
+            items,
+            indexed(&view, |this, index, _, cx| {
+                this.pick_new_agent_menu(index, cx);
+            }),
+            handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
+        ));
+    }
+
+    control.into_any_element()
 }
 
 /// The row of columns, and the strip past the last one that a dragged tab is split off into.

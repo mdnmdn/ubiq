@@ -4,10 +4,10 @@ title: The agent-manager boundary
 kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
-read_when: you are about to write code that launches a harness, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-02
-verified: 2026-09-02
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/isolate.rs]
+read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
+updated: 2026-09-03
+verified: 2026-09-03
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -36,7 +36,8 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | What a run is composed of — skills, MCPs, account, instructions, hooks | the library |
 | Which accounts exist and how credentials are referenced | the library |
 | Session history and resume, as the *harness* understands it | the library |
-| How a harness's I/O is bridged into structured events | the library |
+| How a harness's I/O is bridged into structured events, and what those events are called | the library |
+| The one translation from those events onto the bus | Ubiq |
 | What a policy grants, and how the operating system enforces it | the library |
 | Whether an agent is confined at all, and where its run directory lives | Ubiq |
 | That a harness runs under a pseudo-terminal in a pane | Ubiq |
@@ -62,13 +63,38 @@ harness's own binary is on this machine. A spawn naming one of those ids compose
 `RunSpec` with the harness, the project's folder and the policy setting — provisions it, and answers
 with what to exec. A spawn naming anything else is a program name, which is what a shell is.
 
-Two things in that file are Ubiq's rather than the library's, and both concern ownership rather than
-configuration. **A run's configuration directory belongs to the pane**: it is `ConfigStrategy::Fixed`
-under Ubiq's own config root, named by the pane id, deleted when the pane closes, and swept at
-startup for whatever a killed process left. And **an agent is confined unless the host settings say
-otherwise** — the policy grants the project's folder and that directory, with an ephemeral `$HOME`.
-Which harnesses opt out, and under which policy, stays the library's: it has the layered shape for
-that already, and a second one here would be two places to look. See `D52`.
+**A workspace has two faces, and `agent.rs` composes both.** `Agents::compose` is the terminal one:
+`IoModes::Passthrough`, and a launch to exec under a pseudo-terminal. `Agents::converse` is the
+other: `IoModes::Structured`, and a `structured_bridge` over the harness's own JSON instead of a
+launch, because a conversation's harness writes frames on a pipe rather than drawing a screen. What
+differs between them beyond the mode is the run directory's name and the isolation, both below.
+
+**The bridge is owned by a pump thread, and `crates/ubiq-host/src/conversation.rs` is that thread.**
+`IoBridge::next_event` blocks and both its methods take `&mut self`, so whoever reads a bridge
+cannot also be handed a prompt; the reader owns it and a turn reaches the harness through the
+detached `AgentInputSink` the bridge hands out. A harness that answers `None` there takes no second
+turn, which is the honest signal rather than a guess, and `Conversation::accepts_input` is how the
+interface asks. Events reach the window on the same unbounded mailbox a pseudo-terminal's reader
+uses, so a window behind on drawing never stalls the harness.
+
+**One file knows both vocabularies.** `map_event()` in the same module is the only place that names
+`agent_manager::io::AgentEvent` and `ubiq_proto::conversation::ConvUpdate` together. Both are the
+Agent Client Protocol's `session/update` vocabulary — `D53` — so the translation is a rename, and
+confining it to the host is what keeps the interface free of any dependency on this library. A
+second mapping anywhere else is the boundary being crossed.
+
+Three things in these files are Ubiq's rather than the library's, and all three concern ownership
+rather than configuration. **A run's configuration directory belongs to whatever owns the run**: it
+is `ConfigStrategy::Fixed` under Ubiq's own config root, named by the pane id or by the agent id —
+both ULIDs, so neither can be read as the other's — deleted when that pane closes or that
+conversation is retired, and swept at startup for whatever a killed process left. **An agent in a
+pane is confined unless the host settings say otherwise** — the policy grants the project's folder
+and that directory, with an ephemeral `$HOME`. Which harnesses opt out, and under which policy,
+stays the library's: it has the layered shape for that, and a second one here would be two places to
+look. See `D52`. And **a conversation is confined by nothing**, whatever the setting says, because a
+bridge owns its child's descriptors and a sandbox needs them; every bridge answers each tool
+approval itself for the same reason. That is `G92` in [`../backlog.md`](../backlog.md), deliberate
+for the first end-to-end slice.
 
 Confining a run in a terminal Ubiq owns is macOS-only. isol8 spawns with inherited stdio and keeps
 its child handle private, so no host can hand it a pseudo-terminal; `isolate::confined_launch`

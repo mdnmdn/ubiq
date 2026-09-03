@@ -23,7 +23,7 @@ default = ["frontend"]
 # spec/resolve/registry/harness/provision modules.
 frontend = ["cli", "tui"]
 # The clap CLI plus the runtime that launches a harness through a PTY.
-cli = ["dep:clap", "dep:tracing", "dep:tracing-subscriber", "pty", "keyring-store"]
+cli = ["dep:clap", "dep:tracing-subscriber", "pty", "keyring-store"]
 tui = ["dep:ratatui", "dep:crossterm"]
 # The passthrough runner: spawn the real harness in a PTY, forward the tty,
 # resize on SIGWINCH, and propagate its exit code. Pulled in by `cli`; kept
@@ -75,8 +75,11 @@ toml = "1"
 directories = "5"
 walkdir = "2"
 
-# Logging (optional — used by the binary entry point)
-tracing = { version = "0.1", optional = true }
+# Logging. Core, not optional: the I/O bridges trace every harness frame and
+# every event they map it to, and an embedder collecting `tracing` gets that
+# for free. `tracing` with no subscriber compiles to a handful of atomic
+# loads, so a `--no-default-features` build pays nothing for it.
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 # In-process MCP loopback HTTP server (optional — `inproc-mcp` feature).

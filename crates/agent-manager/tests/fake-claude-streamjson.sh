@@ -16,7 +16,8 @@
 #      blocks forever on the second `read` and the test hangs.
 #   5. Emit a `user` event with a `tool_result` content block.
 #   6. Emit a terminal `result` event (`is_error:false`) with a
-#      `modelUsage` map, then exit.
+#      `modelUsage` map (camelCase field names, as Claude actually reports
+#      them — see `_docs/harness/claude-code.md`), then exit.
 
 IFS= read -r _prompt_line
 
@@ -29,6 +30,6 @@ echo '{"type":"control_request","request_id":"req-1","request":{"type":"tool_use
 IFS= read -r _control_response_line
 
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":[{"type":"text","text":"hi"}]}]}}'
-echo '{"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"fake-model":{"input_tokens":5,"output_tokens":7}}}'
+echo '{"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"fake-model":{"inputTokens":5,"outputTokens":7,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"contextWindow":200000}}}'
 
 exit 0

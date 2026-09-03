@@ -7,7 +7,7 @@
 //! exists.
 //!
 //! This is **core** (always compiled, no feature gate): only `std::process`,
-//! `std::sync`, `std::thread`, and `serde_json` are used, matching
+//! `std::sync`, `std::thread`, `serde_json` and `tracing` are used, matching
 //! [`super::structured`]'s "no pty, no clap" discipline so a lib-mode
 //! embedder can use it without the `pty`/`cli` features.
 //!
@@ -19,13 +19,30 @@
 //! [`AgentEvent`]s onto an `mpsc` channel. stdin is dropped immediately since
 //! opencode is one-shot and accepts no further input (the prompt is part of
 //! the argv). On stdout EOF, the reader thread emits a terminal
-//! `AgentEvent::Result` (if not already sent by an explicit `error` event)
+//! `AgentEvent::TurnEnded` (if not already sent by an explicit `error` event)
 //! and closes the channel.
 //!
 //! The same reader-thread architecture as [`super::jsonl`] prevents blocking
 //! on writes, even though opencode takes no stdin input: the child might
 //! buffer output, and keeping the reader draining stdout prevents that from
 //! stalling the process (a full pipe blocks the producer).
+//!
+//! ## What opencode never reports
+//!
+//! `step_start` carries only a session id — no model, mode, tool list or
+//! subagent list, so [`AgentEvent::SessionStarted`] leaves those `None`/empty.
+//! `step_finish.part.tokens` gives per-turn input/output counts but no
+//! context window, and a ratio with an invented denominator is worse than no
+//! ratio — so this bridge never emits [`AgentEvent::UsageUpdate`] at all.
+//! There is also no on-stream approval handshake (opencode runs headless with
+//! `--dangerously-skip-permissions`), so [`AgentEvent::PermissionRequest`]
+//! never appears either.
+//!
+//! ## Logging
+//!
+//! Every raw line is a `trace!`; every mapped event is a `debug!`. Raw frames
+//! carry prompts and file contents, which is why they sit a level below
+//! everything else.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdout};
@@ -34,7 +51,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::{AgentEvent, AgentInput, IoBridge};
+use super::{
+    AgentEvent, AgentInput, Content, IoBridge, StopReason, ToolCall, ToolCallUpdate, ToolContent,
+    ToolKind, ToolLocation, ToolStatus,
+};
 
 /// How long [`Drop`] waits for the child to exit after the reader thread
 /// finishes draining stdout before killing it. Mirrors
@@ -47,11 +67,11 @@ pub struct OpencodeBridge {
     child: Child,
     events: mpsc::Receiver<AgentEvent>,
     reader: Option<std::thread::JoinHandle<()>>,
-    /// Track whether a terminal `Result` event has been emitted via the
-    /// stream (an explicit error) so we don't double-emit at EOF.
-    /// Shared with the reader thread via Arc<Mutex<bool>>.
+    /// Whether a terminal `TurnEnded` has already been emitted via the stream
+    /// (an explicit error), so EOF doesn't send a second one.
+    /// Shared with the reader thread via `Arc<Mutex<bool>>`.
     #[allow(dead_code)]
-    result_sent: Arc<Mutex<bool>>,
+    turn_ended: Arc<Mutex<bool>>,
 }
 
 impl OpencodeBridge {
@@ -71,16 +91,16 @@ impl OpencodeBridge {
         let _ = child.stdin.take();
 
         let (tx, rx) = mpsc::channel();
-        let result_sent = Arc::new(Mutex::new(false));
-        let result_sent_clone = Arc::clone(&result_sent);
+        let turn_ended = Arc::new(Mutex::new(false));
+        let turn_ended_clone = Arc::clone(&turn_ended);
 
-        let reader = std::thread::spawn(move || read_loop(stdout, tx, result_sent_clone));
+        let reader = std::thread::spawn(move || read_loop(stdout, tx, turn_ended_clone));
 
         Ok(Self {
             child,
             events: rx,
             reader: Some(reader),
-            result_sent,
+            turn_ended,
         })
     }
 }
@@ -93,17 +113,21 @@ impl IoBridge for OpencodeBridge {
                 // launch. Sending a prompt on the bridge is a no-op.
                 Ok(())
             }
-            AgentInput::ApproveTool { .. } => {
+            AgentInput::AnswerPermission { .. } => {
                 // opencode runs headless with `--dangerously-skip-permissions`,
-                // so every tool runs automatically without an approval handshake.
-                // Approval inputs are a no-op.
+                // so no `PermissionRequest` is ever emitted for this to
+                // answer. A no-op rather than an error: there is nothing
+                // wrong with the caller's intent, just nothing waiting.
                 Ok(())
             }
-            AgentInput::Interrupt => {
-                // Best-effort signal: kill the process group so the run stops.
+            AgentInput::Cancel => {
+                // Best-effort signal: kill the process so the run stops.
                 let _ = self.child.kill();
                 Ok(())
             }
+            AgentInput::SetConfigOption { config_id, .. } => Err(anyhow::anyhow!(
+                "opencode's one-shot bridge cannot change '{config_id}' mid-session"
+            )),
         }
     }
 
@@ -114,6 +138,9 @@ impl IoBridge for OpencodeBridge {
             Err(mpsc::RecvError) => Ok(None),
         }
     }
+
+    // `input()` keeps the default `None`: opencode takes no input after
+    // launch (the prompt is argv-only), so there is no sink to hand a caller.
 }
 
 impl Drop for OpencodeBridge {
@@ -149,9 +176,9 @@ impl Drop for OpencodeBridge {
 
 /// The reader thread body: scan stdout line-by-line (NDJSON), map each line
 /// to zero-or-more [`AgentEvent`]s and push them onto `tx`. On stream end,
-/// emit a terminal `AgentEvent::Result` if one hasn't been sent already
+/// emit a terminal [`AgentEvent::TurnEnded`] if one hasn't been sent already
 /// (no explicit error), then drop `tx` (closing the channel).
-fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc<Mutex<bool>>) {
+fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, turn_ended: Arc<Mutex<bool>>) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -159,18 +186,18 @@ fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc
         if line.is_empty() {
             continue;
         }
+        tracing::trace!(direction = "in", frame = %line, "opencode ndjson");
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             // Not a recognized JSON line — ignore.
             continue;
         };
 
         for ev in map_event(&value) {
-            // Track if this is a terminal Result event (from an explicit error
-            // in the stream, not EOF).
-            if matches!(ev, AgentEvent::Result { .. })
-                && let Ok(mut sent) = result_sent.lock()
+            tracing::debug!(event = ?ev, "opencode event");
+            if matches!(ev, AgentEvent::TurnEnded { .. })
+                && let Ok(mut ended) = turn_ended.lock()
             {
-                *sent = true;
+                *ended = true;
             }
             if tx.send(ev).is_err() {
                 // No one is listening anymore.
@@ -179,15 +206,17 @@ fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, result_sent: Arc
         }
     }
 
-    // EOF: emit a success Result if not already sent.
-    if let Ok(mut sent) = result_sent.lock()
-        && !*sent
+    // EOF: emit a successful turn end if the stream didn't already end one.
+    if let Ok(mut ended) = turn_ended.lock()
+        && !*ended
     {
-        let _ = tx.send(AgentEvent::Result {
-            success: true,
+        let ev = AgentEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
             error: None,
-        });
-        *sent = true;
+        };
+        tracing::debug!(event = ?ev, "opencode event");
+        let _ = tx.send(ev);
+        *ended = true;
     }
 }
 
@@ -203,6 +232,11 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                     .get("sessionID")
                     .and_then(Value::as_str)
                     .map(str::to_string),
+                // opencode's step_start carries only the session id.
+                model: None,
+                mode: None,
+                tools: Vec::new(),
+                agents: Vec::new(),
             }]
         }
         Some("text") => {
@@ -211,75 +245,21 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(|p| p.get("text"))
                 .and_then(Value::as_str)
             {
-                vec![AgentEvent::AssistantText {
-                    text: text.to_string(),
+                vec![AgentEvent::AgentMessageChunk {
+                    content: Content::text(text),
+                    // opencode doesn't tag a part with a message id.
+                    message_id: None,
                 }]
             } else {
                 Vec::new()
             }
         }
-        Some("tool_use") => {
-            let part = match value.get("part") {
-                Some(p) => p,
-                None => return Vec::new(),
-            };
-
-            let tool_name = part
-                .get("tool")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let call_id = part
-                .get("callID")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-
-            let state = match part.get("state") {
-                Some(s) => s,
-                None => return Vec::new(),
-            };
-
-            let input = state.get("input").cloned().unwrap_or(Value::Null);
-            let status = state.get("status").and_then(Value::as_str).unwrap_or("");
-            let output = state.get("output").cloned().unwrap_or(Value::Null);
-
-            // Emit ToolCall with input.
-            let mut events = vec![AgentEvent::ToolCall {
-                id: call_id.clone(),
-                name: tool_name,
-                input,
-            }];
-
-            // If status is "complete", also emit ToolResult with output.
-            if status == "complete" {
-                events.push(AgentEvent::ToolResult {
-                    id: call_id,
-                    content: output,
-                });
-            }
-
-            events
-        }
+        Some("tool_use") => map_tool_use(value),
         Some("step_finish") => {
-            if let Some(tokens) = value
-                .get("part")
-                .and_then(|p| p.get("tokens"))
-                .and_then(Value::as_object)
-            {
-                let input_tokens = tokens.get("input").and_then(Value::as_u64);
-                let output_tokens = tokens.get("output").and_then(Value::as_u64);
-
-                if input_tokens.is_some() || output_tokens.is_some() {
-                    vec![AgentEvent::Usage {
-                        input_tokens,
-                        output_tokens,
-                    }]
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            }
+            // `part.tokens` gives per-turn input/output counts, but never a
+            // context window — and a ratio with an invented denominator is
+            // worse than no ratio, so no `UsageUpdate` is emitted here.
+            Vec::new()
         }
         Some("error") => {
             let message = value
@@ -291,12 +271,100 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .map(str::to_string)
                 .unwrap_or_else(|| "unknown error".to_string());
 
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: Some(message),
             }]
         }
-        _ => Vec::new(),
+        other => {
+            tracing::trace!(kind = ?other, "opencode event ignored");
+            Vec::new()
+        }
+    }
+}
+
+/// A `tool_use` part: opencode carries the call's input and (once finished)
+/// its output in the same `state` object, so one line can yield both a
+/// [`AgentEvent::ToolCall`] and its [`AgentEvent::ToolCallUpdate`].
+fn map_tool_use(value: &Value) -> Vec<AgentEvent> {
+    let Some(part) = value.get("part") else {
+        return Vec::new();
+    };
+    let tool_name = part.get("tool").and_then(Value::as_str).unwrap_or("tool");
+    let call_id = part.get("callID").and_then(Value::as_str);
+
+    let Some(state) = part.get("state") else {
+        return Vec::new();
+    };
+    let input = state.get("input").cloned().unwrap_or(Value::Null);
+    let status = state.get("status").and_then(Value::as_str).unwrap_or("");
+
+    let call = build_tool_call(tool_name, call_id, &input);
+    let id = call.id.clone();
+    let mut events = vec![AgentEvent::ToolCall { call }];
+
+    if status == "complete" {
+        let output = state.get("output").cloned().unwrap_or(Value::Null);
+        events.push(AgentEvent::ToolCallUpdate {
+            update: ToolCallUpdate {
+                content: output.as_str().map(|text| {
+                    vec![ToolContent::Content {
+                        content: Content::text(text),
+                    }]
+                }),
+                raw_output: Some(output),
+                ..ToolCallUpdate::finished(id, ToolStatus::Completed)
+            },
+        });
+    }
+
+    events
+}
+
+/// A `tool_use` part's call, before it has finished. Field names
+/// (`filePath`/`path`/`command`/`pattern`/`url`) are the ones opencode's
+/// built-in tools are documented to use; a custom or MCP tool with a
+/// different input shape still gets a call, just without a target in the
+/// title or a location.
+fn build_tool_call(name: &str, call_id: Option<&str>, input: &Value) -> ToolCall {
+    let string = |key: &str| input.get(key).and_then(Value::as_str);
+    let path = string("filePath").or_else(|| string("path"));
+    let target = path
+        .or_else(|| string("command"))
+        .or_else(|| string("pattern"))
+        .or_else(|| string("url"));
+
+    let title = match target {
+        Some(target) => format!("{name} {target}"),
+        None => name.to_string(),
+    };
+
+    let mut call = ToolCall::new(call_id.unwrap_or(name), title);
+    call.kind = tool_kind(name);
+    call.status = ToolStatus::InProgress;
+    call.raw_input = Some(input.clone());
+    if let Some(path) = path {
+        call.locations = vec![ToolLocation {
+            path: path.to_string(),
+            line: None,
+        }];
+    }
+    call
+}
+
+/// opencode's built-in tool names onto the ten kinds a consumer draws
+/// (`_docs/harness/opencode.md` §"Recognised permission keys"). An unknown
+/// name — a custom tool or an MCP tool — is [`ToolKind::Other`] rather than a
+/// guess.
+fn tool_kind(name: &str) -> ToolKind {
+    match name {
+        "read" | "glob" | "list" => ToolKind::Read,
+        "edit" | "write" | "apply_patch" => ToolKind::Edit,
+        "bash" => ToolKind::Execute,
+        "grep" | "websearch" => ToolKind::Search,
+        "webfetch" => ToolKind::Fetch,
+        "task" | "todowrite" | "todoread" | "question" => ToolKind::Think,
+        _ => ToolKind::Other,
     }
 }
 
@@ -312,25 +380,30 @@ mod tests {
         assert_eq!(
             events,
             vec![AgentEvent::SessionStarted {
-                session_id: Some("sess-123".to_string())
+                session_id: Some("sess-123".to_string()),
+                model: None,
+                mode: None,
+                tools: Vec::new(),
+                agents: Vec::new(),
             }]
         );
     }
 
     #[test]
-    fn map_event_text_is_assistant_text() {
+    fn map_event_text_is_agent_message_chunk() {
         let v = json!({"type":"text","part":{"text":"hello world"}});
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::AssistantText {
-                text: "hello world".to_string()
+            vec![AgentEvent::AgentMessageChunk {
+                content: Content::text("hello world"),
+                message_id: None,
             }]
         );
     }
 
     #[test]
-    fn map_event_tool_use_complete_emits_call_and_result() {
+    fn map_event_tool_use_complete_emits_call_and_update() {
         let v = json!({
             "type":"tool_use",
             "part":{
@@ -345,20 +418,24 @@ mod tests {
         });
         let events = map_event(&v);
         assert_eq!(events.len(), 2);
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call, got {:?}", events[0]);
+        };
+        assert_eq!(call.id, "call-1");
+        assert_eq!(call.title, "bash ls");
+        assert_eq!(call.kind, ToolKind::Execute);
+        assert_eq!(call.status, ToolStatus::InProgress);
+
+        let AgentEvent::ToolCallUpdate { update } = &events[1] else {
+            panic!("expected an update, got {:?}", events[1]);
+        };
+        assert_eq!(update.id, "call-1");
+        assert_eq!(update.status, Some(ToolStatus::Completed));
         assert_eq!(
-            events[0],
-            AgentEvent::ToolCall {
-                id: Some("call-1".to_string()),
-                name: "bash".to_string(),
-                input: json!({"command":"ls"}),
-            }
-        );
-        assert_eq!(
-            events[1],
-            AgentEvent::ToolResult {
-                id: Some("call-1".to_string()),
-                content: json!("file1.txt\nfile2.txt"),
-            }
+            update.content,
+            Some(vec![ToolContent::Content {
+                content: Content::text("file1.txt\nfile2.txt"),
+            }])
         );
     }
 
@@ -378,18 +455,46 @@ mod tests {
         });
         let events = map_event(&v);
         assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0],
-            AgentEvent::ToolCall {
-                id: Some("call-1".to_string()),
-                name: "bash".to_string(),
-                input: json!({"command":"sleep 10"}),
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call, got {:?}", events[0]);
+        };
+        assert_eq!(call.id, "call-1");
+        assert_eq!(call.status, ToolStatus::InProgress);
+    }
+
+    /// A file-touching tool carries a location, so a consumer can follow
+    /// along without parsing `raw_input` itself.
+    #[test]
+    fn map_event_tool_use_edit_carries_a_location() {
+        let v = json!({
+            "type":"tool_use",
+            "part":{
+                "tool":"edit",
+                "callID":"call-2",
+                "state":{
+                    "status":"pending",
+                    "input":{"filePath":"/tmp/a.rs"}
+                }
             }
+        });
+        let events = map_event(&v);
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Edit);
+        assert_eq!(
+            call.locations,
+            vec![ToolLocation {
+                path: "/tmp/a.rs".to_string(),
+                line: None,
+            }]
         );
     }
 
+    /// `step_finish` carries tokens but never a context window, so no ratio
+    /// can be reported — the honest thing is no event at all.
     #[test]
-    fn map_event_step_finish_emits_usage() {
+    fn map_event_step_finish_emits_nothing() {
         let v = json!({
             "type":"step_finish",
             "part":{
@@ -400,18 +505,11 @@ mod tests {
                 }
             }
         });
-        let events = map_event(&v);
-        assert_eq!(
-            events,
-            vec![AgentEvent::Usage {
-                input_tokens: Some(150),
-                output_tokens: Some(200),
-            }]
-        );
+        assert_eq!(map_event(&v), Vec::new());
     }
 
     #[test]
-    fn map_event_error_is_result_failure() {
+    fn map_event_error_ends_the_turn_as_failed() {
         let v = json!({
             "type":"error",
             "error":{
@@ -422,8 +520,8 @@ mod tests {
         let events = map_event(&v);
         assert_eq!(
             events,
-            vec![AgentEvent::Result {
-                success: false,
+            vec![AgentEvent::TurnEnded {
+                stop_reason: StopReason::Failed,
                 error: Some("something went wrong".to_string()),
             }]
         );
