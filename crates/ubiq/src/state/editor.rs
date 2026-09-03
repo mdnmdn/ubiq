@@ -249,6 +249,9 @@ pub struct OpenFile {
     /// A temporary preview tab: not yet promoted. The first edit or an explicit open makes it
     /// permanent, and opening another temp tab closes the one before it.
     pub temporary: bool,
+    /// Whether the YAML frontmatter disclosure is open. Per-tab UI state that defaults to closed
+    /// so newly opened documents start clean.
+    pub frontmatter_open: bool,
     /// Cached rather than compared every frame: a per-frame comparison is the file's length times
     /// the tabs open times the frame rate.
     dirty: bool,
@@ -286,6 +289,7 @@ impl OpenFile {
             body: FileBody::Loading,
             save: SaveState::Idle,
             temporary: false,
+            frontmatter_open: false,
             dirty: false,
             _change: None,
         }
@@ -471,6 +475,11 @@ impl OpenFile {
     /// The host refused. The buffer is untouched and the file is still dirty.
     pub fn save_failed(&mut self, reason: String) {
         self.save = SaveState::Failed(reason);
+    }
+
+    /// Toggle whether the YAML frontmatter disclosure is open.
+    pub fn toggle_frontmatter(&mut self) {
+        self.frontmatter_open = !self.frontmatter_open;
     }
 }
 

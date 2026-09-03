@@ -4560,6 +4560,21 @@ impl AppState {
         cx.notify();
     }
 
+    /// Toggle whether the YAML frontmatter disclosure is open for the given tab.
+    pub fn toggle_frontmatter(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        file.toggle_frontmatter();
+        cx.notify();
+    }
+
     /// Ask for every file a project's blob said was open, and open the folders it said were.
     ///
     /// The tree is restored a level at a time: a folder cannot be opened before its parent has
