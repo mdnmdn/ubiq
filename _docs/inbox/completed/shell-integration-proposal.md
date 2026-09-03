@@ -104,30 +104,32 @@ rather than composes. The workarea is given by the host and used by the interfac
 given by the operating system and used by the host. Neither weakens the rule, because in both cases
 the half that resolves the path is the half that owns the filesystem.
 
-### Why not a direct read — settled, 2026-09-03
+### Why not a direct read — settled 2026-09-03, reversed 2026-09-03
 
 The other reading of "open a dropped file directly, no host involved" is that the interface reads the
-bytes itself with `std::fs` and puts them in an editor. **That is decided against: a dropped file
-opens through the host as a loose project (§4.3), and there is one editor.** What it would have cost
-is recorded here so the decision does not have to be re-argued.
+bytes itself with `std::fs` and puts them in an editor. **That was decided against, and the decision
+is reversed: a file dropped outside every open project is read directly, as a read-only guest tab
+(`D54`).** The cost recorded below is real, and cannot reach a guest tab: it carries no `FileVersion`
+at all, and `OpenFile::savable()` refuses a save without one, so it is a viewer rather than a second
+editor.
 
 `ProjectFileContents` is not a byte array. It carries a `FileVersion`, and a save that does not name
 the version it read is refused — the single mechanism that stops a save landing on a change an agent
 made in a pane one second earlier. It carries `is_binary`, and `truncated`, which has no version *by
 construction*, so the editor cannot offer a save that would destroy the tail. A `FileError`
 distinguishes `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict` and `Failed`, each a different
-thing to do. A UI-side read reimplements all of it, or — far more likely — reimplements none of it
-and quietly ships an editor whose save can eat an agent's work.
+thing to do. A UI-side read that fed a *savable* editor would reimplement all of it, or — far more
+likely — reimplement none of it and quietly ship an editor whose save can eat an agent's work; a
+read-only guest tab has no save to protect and so needs none of it.
 
-It also forks the editor. `OpenFile` is keyed by `tab_key(rel_path, subject)`
-(`crates/ubiq/src/state/editor.rs`), every viewer resolves through it, saving goes through
-`WriteProjectFile`, the git tint comes from the project's working-tree map, and the tab lives in a
-`PanelKind::File`. A second kind of open file means a second shape in all of it — and it points the
-wrong way: the host is designed to be elsewhere, and an interface that reads local files has decided
-it is not.
+It also risked forking the editor, which the reversal answers rather than accepts: a savable second
+kind of open file would need a second shape wherever `OpenFile` is resolved, saved or tinted. A guest
+tab needs none, having no save path — the same `OpenFile`, `tab_key` and `PanelKind::File`
+(`crates/ubiq/src/state/editor.rs`), with one `guest: bool` field.
 
 **What was actually wanted — a file opened without ceremony, with no project created, no catalogue
-row and no explorer — costs none of that**, and §4 is how.
+row and no explorer — costs none of that.** §4 keeps the host round trip first proposed here; the
+guest tab that shipped is [`../features/workbench.md`](../features/workbench.md)'s to describe.
 
 ## 4. Gesture A — a dropped file opens as a tab
 
@@ -356,13 +358,13 @@ internal explorer copy, cut, paste, duplicate, rename and delete.
 **P4 — the polish P1 skipped.** Reveal-and-select on an external open, progress for a long import,
 *Keep both* naming, and whichever of §12 came back the other way.
 
-## 12. What this asks to be decided — row (a) settled, the rest still asking
+## 12. What this asks to be decided — rows (a) and (c) settled and reversed, the rest still asking
 
 | | Question | Recommendation |
 |---|---|---|
-| a | Does a dropped file outside every project open through the host as a loose project, or does the interface read it directly? | **Settled 2026-09-03 — the loose project.** One editor, one save path, the version rule kept. §3 records what the direct read would have cost. |
+| a | Does a dropped file outside every project open through the host as a loose project, or does the interface read it directly? | **Settled 2026-09-03, reversed 2026-09-03 — the interface reads it directly, as a read-only guest tab.** `OpenFile::savable()` now also requires a version, so a guest tab (built with `version: None`) cannot reach a save — the failure the loose-project answer was chosen to avoid. `D54`. |
 | b | Does a loose tab survive a restart? | **No.** It is not in the catalogue and nothing about it is worth persisting; reopening is one gesture. |
-| c | Does a folder drop open project settings, or create the project silently? | **Settings**, prefilled — identical to Add, and the name and colour are the user's. |
+| c | Does a folder drop open project settings, or create the project silently? | **Settled 2026-09-03, reversed 2026-09-03 — it opens immediately as a temporary project.** The host mints the record with a `temporary` flag and never writes it to the catalogue; naming it in project settings, opened from the titlebar's `+`, is what keeps it. `D54`. |
 | d | Copy or move, when dragging from outside? | **Copy**, with `⌘` to move. Within the project, **move**, with `⌥` to copy. |
 | e | Does *Delete* trash or unlink? | **Trash**, and `Refused` where there is no trash. |
 | f | Is a macOS package a project or a document? | **A document** — a loose tab on its folder. Reversible if it proves annoying. |

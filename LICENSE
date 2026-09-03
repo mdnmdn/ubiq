@@ -1,8 +1,10 @@
 # License
 
 All source code in this repository is licensed under the Sustainable Use
-License below, except for third-party components incorporated into the
-software, which retain the licenses provided by their respective owners.
+License below, with two exceptions: `crates/agent-manager/`, which is a
+standalone library licensed under the MIT License in
+`crates/agent-manager/LICENSE`; and third-party components incorporated into
+the software, which retain the licenses provided by their respective owners.
 
 ## Sustainable Use License
 

@@ -22,6 +22,8 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         name: name.to_string(),
         path: path.to_string(),
         colour: 0,
+        custom_colour: None,
+        temporary: false,
         created_at: Utc.with_ymd_and_hms(2026, 8, 14, 9, 12, 44).unwrap(),
         last_opened_at: None,
     }

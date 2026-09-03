@@ -32,9 +32,9 @@ pub mod skin;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    IntoElement, ParentElement as _, Pixels, Render, Rgba, SharedString, WeakEntity, Window, div,
-    px,
+    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, ExternalPaths, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, ParentElement as _, Pixels, Render, Rgba,
+    SharedString, Styled, WeakEntity, Window, div, px,
 };
 use gpui_component::dock::{
     BasePanel, BasePanelView, DockArea, DockLayout, DockPlacement, InsertTarget, PaneRef, Panel,
@@ -479,9 +479,28 @@ fn body(
         PanelKind::Search => search::render(app, window, cx),
         PanelKind::Explorer => explorer::render(app, window, cx),
         PanelKind::Chat => chat::render(app, window, cx).into_any_element(),
-        PanelKind::Centre => centre(app, window, cx),
-        PanelKind::File(key) => editor::render_file(app, key, cx),
+        PanelKind::Centre => drop_target(centre(app, window, cx), cx),
+        PanelKind::File(key) => drop_target(editor::render_file(app, key, cx), cx),
     }
+}
+
+/// Catch a file or folder dropped from outside the app onto the centre panel or a file tab.
+///
+/// Only these two: the explorer, the chat and the terminal are sibling panels with their own drop
+/// behaviour (move/copy, an attachment), and wrapping them here too would make both gestures
+/// half-happen underneath whichever one the drop actually lands on.
+fn drop_target(body: AnyElement, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .on_drop::<ExternalPaths>(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
+            this.deliver_paths(paths.paths(), cx);
+            cx.stop_propagation();
+        }))
+        .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(theme::accent_soft()))
+        .child(body)
+        .into_any_element()
 }
 
 /// The centre region's one panel. Which screen it is is the rail's answer, which is what the rail

@@ -114,6 +114,11 @@ change what Ubiq does (here), or where a document lives (there)?
 | G89 | mouse scrolling direction in terminal should follow the os (for macos is inverted) |
 | G90 | double click on the folder in the explorer opens an empy editor, it should be ignored |
 | G91 | the markdown preview does not scroll anymore |
+| G102 | `argv` is ignored and `on_open_urls`/`on_reopen` are not installed, so `ubiq .`, `open -a Ubiq <path>` and a drop on the dock icon onto a running window do nothing — `Info.plist` declares the document types that earn those events, and nothing in `crates/ubiq-app` answers them | [`_tools/Info.plist`](../_tools/Info.plist), [`tech/architecture.md`](./tech/architecture.md) |
+| G103 | The clipboard is write-only and text-only in `crates/ubiq`: no `read_from_clipboard` and no `ClipboardEntry::ExternalPaths` in either direction | [`inbox/shell-integration-proposal.md`](./inbox/shell-integration-proposal.md) |
+| G104 | The explorer cannot drag a file out to the operating system, though `external_drag_payload` and `FileDragPaths` are available at the pinned gpui revision | [`inbox/shell-integration-proposal.md`](./inbox/shell-integration-proposal.md) |
+| G105 | An external drop onto the explorer does nothing — no import, no move, no copy — because the file family has no message to create, move or copy a path yet (`G70`) | [`features/workbench.md`](./features/workbench.md), [`inbox/shell-integration-proposal.md`](./inbox/shell-integration-proposal.md) |
+| G106 | An external drop onto the chat panel does nothing; there is no attachment gesture for a dropped file to become | [`features/chat.md`](./features/chat.md) |
 
 
 

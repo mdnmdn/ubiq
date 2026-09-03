@@ -232,7 +232,11 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         return div().into_any_element();
     };
     let entry: ProjectSnapshot = entry.clone();
-    let colour = theme::project_colour(entry.record.colour);
+    let colour = theme::project_tint(
+        entry.record.temporary,
+        entry.record.colour,
+        entry.record.custom_colour,
+    );
     let is_current = group == Group::Here && app.project(cx) == Some(project);
 
     // One row at a time expands into a Forget confirmation, and it takes the row's place while

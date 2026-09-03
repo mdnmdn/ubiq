@@ -109,7 +109,10 @@ pub struct BorderColors {
 /// dot in the picker, the fill behind its name, the mark, and the window's left edge.
 #[derive(Clone, Copy, Debug)]
 pub struct ProjectColors {
-    pub swatches: [Rgba; 6],
+    pub swatches: [Rgba; 16],
+    /// The tint a temporary project takes instead of a swatch. Grey rather than a hue, because a
+    /// folder that is not in the catalogue should not look like one that is.
+    pub temporary: Rgba,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -325,13 +328,44 @@ pub fn project_colour_count() -> usize {
     Theme::current().palette.project.swatches.len()
 }
 
-/// Whether a project's swatch is dark enough that a white mark reads on it.
+/// The tint a temporary project is drawn in — one grey, not a swatch.
+pub fn project_temporary() -> Rgba {
+    Theme::current().palette.project.temporary
+}
+
+/// The tint a project is identified by, whichever kind it is.
 ///
-/// The mark is Ubiq's own logo drawn on the swatch; a dark swatch takes the white file and a light
-/// one the blue, so the decision is made where the swatches live rather than by the rail.
-pub fn project_mark_dark(index: usize) -> bool {
-    relative_luminance(Theme::current().palette.project.swatches[index % project_colour_count()])
-        < 0.5
+/// One function so the grey is decided in one place: a temporary project ignores its stored colour
+/// index, which the host never let it choose in the first place. `custom`, when set, wins over the
+/// swatch — it is what a colour picked outside the swatch grid resolves to everywhere a project's
+/// tint is drawn.
+pub fn project_tint(temporary: bool, colour: usize, custom: Option<u32>) -> Rgba {
+    if temporary {
+        project_temporary()
+    } else if let Some(rgb) = custom {
+        rgba_of(rgb)
+    } else {
+        project_colour(colour)
+    }
+}
+
+/// Unpack a colour picked outside the swatches, packed as `0x00RRGGBB`.
+pub fn rgba_of(rgb: u32) -> Rgba {
+    Rgba {
+        r: ((rgb >> 16) & 0xff) as f32 / 255.0,
+        g: ((rgb >> 8) & 0xff) as f32 / 255.0,
+        b: (rgb & 0xff) as f32 / 255.0,
+        a: 1.0,
+    }
+}
+
+/// Whether a tint is dark enough that a white mark reads on it.
+///
+/// The mark is Ubiq's own logo drawn on the tint; a dark one takes the white file and a light one
+/// the blue. It takes the resolved colour rather than a swatch index so the same answer covers a
+/// temporary project's grey and the border a window with no project falls back to.
+pub fn mark_dark(colour: Rgba) -> bool {
+    relative_luminance(colour) < 0.5
 }
 
 /// WCAG relative luminance for a colour, so a swatch can say whether it is light or dark.
@@ -395,7 +429,20 @@ pub fn dark() -> Theme {
                     rgba_hex(0xe0a94a),
                     rgba_hex(0xe06c8a),
                     rgba_hex(0x6fbf5b),
+                    // The ten added later, appended rather than interleaved — `colour` is a stored
+                    // index, so reordering the first six would recolour every existing project.
+                    rgba_hex(0xe0555a), // red
+                    rgba_hex(0xe08245), // orange
+                    rgba_hex(0x7fbf3f), // lime
+                    rgba_hex(0x2fb0c7), // cyan
+                    rgba_hex(0x6c78e0), // indigo
+                    rgba_hex(0xd94ad4), // magenta
+                    rgba_hex(0xb07a52), // brown
+                    rgba_hex(0x8a94a8), // slate
+                    rgba_hex(0xaaa347), // olive
+                    rgba_hex(0xe0496e), // rose
                 ],
+                temporary: rgba_hex(0x6e7681),
             },
             terminal: TerminalColors {
                 selection: rgba_hex(0x1c2a44),
@@ -452,7 +499,20 @@ pub fn light() -> Theme {
                     rgba_hex(0xc4881f),
                     rgba_hex(0xc44f6d),
                     rgba_hex(0x4e9b3c),
+                    // Same ten, deeper and more saturated to match this palette's relationship to
+                    // the dark one above.
+                    rgba_hex(0xc23438), // red
+                    rgba_hex(0xc4671f), // orange
+                    rgba_hex(0x679c2b), // lime
+                    rgba_hex(0x1e8ca0), // cyan
+                    rgba_hex(0x4a54c4), // indigo
+                    rgba_hex(0xb82eb2), // magenta
+                    rgba_hex(0x8f5c38), // brown
+                    rgba_hex(0x687487), // slate
+                    rgba_hex(0x8a8329), // olive
+                    rgba_hex(0xc22e4f), // rose
                 ],
+                temporary: rgba_hex(0x8b929c),
             },
             terminal: TerminalColors {
                 selection: rgba_hex(0xd4e4ff),

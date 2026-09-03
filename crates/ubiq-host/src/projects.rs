@@ -143,12 +143,19 @@ impl Projects {
 
     /// Write a record down, and say so only the first time durability is lost.
     fn keep(&mut self, record: ProjectRecord) -> Option<Reply> {
+        let temporary = record.temporary;
         match self.records.iter_mut().find(|r| r.id == record.id) {
             Some(existing) => *existing = record.clone(),
             None => {
                 self.records.push(record.clone());
                 self.records.sort_by_key(|r| r.id);
             }
+        }
+        // A temporary project lives in `records` and nowhere else: every file, git and work job
+        // resolves through `record()`, which is memory, so skipping the write costs it nothing
+        // and is the whole of its impermanence.
+        if temporary {
+            return None;
         }
         match self.catalogue.upsert(&record) {
             Ok(()) => None,
@@ -178,7 +185,14 @@ impl Projects {
     /// Adding is not creating: a path that is not there is refused rather than made. A folder
     /// already in the catalogue resolves to the project that is there, so the picker points at it
     /// and no duplicate appears.
-    pub fn add(&mut self, path: &str, name: Option<String>, colour: Option<usize>) -> Vec<Reply> {
+    pub fn add(
+        &mut self,
+        path: &str,
+        name: Option<String>,
+        colour: Option<usize>,
+        custom_colour: Option<u32>,
+        temporary: bool,
+    ) -> Vec<Reply> {
         let canonical = match std::fs::canonicalize(path) {
             Ok(canonical) => canonical,
             Err(error) => {
@@ -198,6 +212,14 @@ impl Projects {
 
         let as_text = canonical.to_string_lossy().into_owned();
         if let Some(existing) = self.records.iter().find(|r| r.path == as_text) {
+            // Without this, a folder dropped and then also added through the picker looks
+            // persisted to the caller while still carrying the flag, and would be silently
+            // forgotten when closed. Anything else about the existing record — dropped onto
+            // twice, or added for real twice — is answered exactly as before.
+            if existing.temporary && !temporary {
+                let id = existing.id;
+                return self.promote(id, name, colour, custom_colour);
+            }
             // The path is a uniqueness key, not an identity: this is the project that is there.
             return vec![Reply::Asker(ubiq_proto::messages::Message::ProjectAdded {
                 project: self.snapshot(existing),
@@ -206,9 +228,17 @@ impl Projects {
 
         let record = ProjectRecord {
             id: ProjectId::generate(),
-            name: name.unwrap_or_else(|| leaf(&canonical)),
+            // A dropped folder is named by its folder and coloured gray by the interface, so an
+            // incoming name or colour is ignored.
+            name: if temporary {
+                leaf(&canonical)
+            } else {
+                name.unwrap_or_else(|| leaf(&canonical))
+            },
             path: as_text,
-            colour: colour.unwrap_or(0),
+            colour: if temporary { 0 } else { colour.unwrap_or(0) },
+            custom_colour: if temporary { None } else { custom_colour },
+            temporary,
             created_at: Utc::now(),
             last_opened_at: None,
         };
@@ -216,6 +246,38 @@ impl Projects {
         let snapshot = self.snapshot(&record);
         let mut replies = vec![Reply::Everyone(
             ubiq_proto::messages::Message::ProjectAdded { project: snapshot },
+        )];
+        replies.extend(self.keep(record));
+        replies
+    }
+
+    /// Turn a temporary project into a durable one: the single path that clears the flag.
+    ///
+    /// Naming a temporary project in the settings dialog is what keeps it, and both the settings
+    /// path (`update`) and re-adding a dropped folder through the picker (`add`) end up here.
+    fn promote(
+        &mut self,
+        id: ProjectId,
+        name: Option<String>,
+        colour: Option<usize>,
+        custom_colour: Option<u32>,
+    ) -> Vec<Reply> {
+        let Some(record) = self.find(id) else {
+            return vec![Reply::Asker(message_error(Some(id), "no such project"))];
+        };
+        let mut record = record.clone();
+        record.temporary = false;
+        if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
+            record.name = name.trim().to_string();
+        }
+        if let Some(colour) = colour {
+            record.colour = colour;
+            record.custom_colour = custom_colour;
+        }
+
+        let snapshot = self.snapshot(&record);
+        let mut replies = vec![Reply::Everyone(
+            ubiq_proto::messages::Message::ProjectChanged { project: snapshot },
         )];
         replies.extend(self.keep(record));
         replies
@@ -259,16 +321,23 @@ impl Projects {
         id: ProjectId,
         name: Option<String>,
         colour: Option<usize>,
+        custom_colour: Option<u32>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
         };
+        // Naming a temporary project in the settings dialog is what keeps it, and this is where
+        // that happens — there is deliberately no separate promote message.
+        if record.temporary {
+            return self.promote(id, name, colour, custom_colour);
+        }
         let mut record = record.clone();
         if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
             record.name = name.trim().to_string();
         }
         if let Some(colour) = colour {
             record.colour = colour;
+            record.custom_colour = custom_colour;
         }
 
         let snapshot = self.snapshot(&record);

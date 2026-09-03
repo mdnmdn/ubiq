@@ -288,6 +288,10 @@ pub struct OpenFile {
     /// A temporary preview tab: not yet promoted. The first edit or an explicit open makes it
     /// permanent, and opening another temp tab closes the one before it.
     pub temporary: bool,
+    /// A file dropped in from outside every open project: read-only, hosted by the active project
+    /// rather than its own. Exists so the tab can be drawn differently; `savable` — not this — is
+    /// what actually refuses the write.
+    pub guest: bool,
     /// Whether the YAML frontmatter disclosure is open. Per-tab UI state that defaults to closed
     /// so newly opened documents start clean.
     pub frontmatter_open: bool,
@@ -328,6 +332,7 @@ impl OpenFile {
             body: FileBody::Loading,
             save: SaveState::Idle,
             temporary: false,
+            guest: false,
             frontmatter_open: false,
             dirty: false,
             _change: None,
@@ -424,12 +429,15 @@ impl OpenFile {
     }
 
     /// Whether a save would be honest. A truncated read is a prefix, and writing a prefix back
-    /// would shorten the file.
+    /// would shorten the file. A buffer with no version has nothing to hand back either, and a
+    /// write naming no version is refused anyway — under a real host reply the two conditions
+    /// coincide, but a guest file is the first case that is un-truncated and version-less both.
     pub fn savable(&self) -> bool {
         matches!(
             self.body,
             FileBody::Text {
                 truncated: false,
+                version: Some(_),
                 ..
             }
         )

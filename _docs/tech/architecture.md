@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-03
+verified: 2026-09-03
 code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs]
 review_cycle: quarterly
 ---
@@ -78,7 +78,11 @@ invisible; the rule is what keeps the split real.
 **2. The UI never assumes the pseudo-terminal is local.** No path, no process handle, no file
 descriptor crosses into UI code. A pane is an ID plus a byte stream, and where the other end of that
 stream lives is not the UI's business. The workarea in rule 6 is the one path the interface is
-given, and it is given rather than composed for exactly this reason.
+given, and it is given rather than composed for exactly this reason. A file dropped from outside
+every open project is the second exception: the operating system hands the interface an absolute
+path with no host round trip available, and it is given rather than composed there too — the
+interface reads it with `std::fs` to build a read-only guest tab, and never resolves, writes to, or
+sends that path anywhere. `D54` records the decision and its cost.
 
 **3. The coordinator renders nothing.** It has no opinion about layout, colour, or what the bytes it
 forwards mean. Terminal *emulation* — parsing those bytes into a screen — belongs to the UI's

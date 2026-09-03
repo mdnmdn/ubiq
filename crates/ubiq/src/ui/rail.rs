@@ -37,11 +37,15 @@ pub fn mode_icon(mode: RailMode) -> IconName {
 /// swatch, so it stays legible on whatever the project is tinted.
 pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let (tint, white) = match app.project_snapshot(cx) {
-        Some(project) => (
-            theme::project_colour(project.record.colour),
-            theme::project_mark_dark(project.record.colour),
-        ),
-        None => (theme::border(), true),
+        Some(project) => {
+            let tint = theme::project_tint(
+                project.record.temporary,
+                project.record.colour,
+                project.record.custom_colour,
+            );
+            (tint, theme::mark_dark(tint))
+        }
+        None => (theme::border(), theme::mark_dark(theme::border())),
     };
     let logo = Arc::new(Image::from_bytes(
         ImageFormat::Png,

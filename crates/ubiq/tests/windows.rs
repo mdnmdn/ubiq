@@ -39,6 +39,8 @@ fn snapshot(id: ProjectId, name: &str, path: &str, opened: Option<u32>) -> Proje
             name: name.to_string(),
             path: path.to_string(),
             colour: 0,
+            custom_colour: None,
+            temporary: false,
             created_at: at(1),
             last_opened_at: opened.map(at),
         },

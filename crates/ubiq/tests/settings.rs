@@ -144,6 +144,8 @@ fn a_project() -> ProjectSnapshot {
             name: "ubiq".to_string(),
             path: "/tmp/ubiq".to_string(),
             colour: 0,
+            custom_colour: None,
+            temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
         },

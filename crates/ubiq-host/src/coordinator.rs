@@ -466,8 +466,16 @@ impl Coordinator {
                 let reply = self.projects.list_projects();
                 self.answer(client, vec![reply]);
             }
-            Message::AddProject { path, name, colour } => {
-                let replies = self.projects.add(&path, name, colour);
+            Message::AddProject {
+                path,
+                name,
+                colour,
+                custom_colour,
+                temporary,
+            } => {
+                let replies = self
+                    .projects
+                    .add(&path, name, colour, custom_colour, temporary);
                 self.answer(client, replies);
             }
             Message::ForgetProject { project_id } => {
@@ -483,8 +491,11 @@ impl Coordinator {
                 project_id,
                 name,
                 colour,
+                custom_colour,
             } => {
-                let replies = self.projects.update(project_id, name, colour);
+                let replies = self
+                    .projects
+                    .update(project_id, name, colour, custom_colour);
                 self.answer(client, replies);
             }
             Message::LocateProject { project_id, path } => {

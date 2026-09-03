@@ -90,6 +90,7 @@ fn tokens() -> AnyElement {
         ("selection_background", theme::selection_background()),
         ("link_underline", theme::link_underline()),
         ("link_underline_hover", theme::link_underline_hover()),
+        ("project_temporary", theme::project_temporary()),
     ];
 
     // The project group's members carry no role, so they are numbered rather than named.

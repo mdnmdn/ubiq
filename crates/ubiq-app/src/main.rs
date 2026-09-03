@@ -68,40 +68,113 @@ fn main() {
     let (hub, host) = bus::hub();
     coordinator::start(host, root, projects, work, settings, pending);
 
-    application()
-        .with_assets(gpui_component_assets::Assets)
-        .run(|cx: &mut App| {
-            gpui_component::init(cx);
-            // Sets both palettes at once: Ubiq's tokens and the component library's theme.
-            theme_boot(cx);
-            // Before any window: `open_project_window` takes the window's connection from here.
-            app::BusHub::install(hub, cx);
+    // The three ways a path reaches Ubiq from outside its own window — `ubiq <path>` on the
+    // command line, a Finder or dock-icon open, a drop on the app icon while it is running — all
+    // funnel through here, so whichever window answers sees exactly the same thing.
+    let (path_tx, path_rx) = flume::unbounded::<PathBuf>();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    for path in argv_paths(std::env::args().skip(1), &cwd) {
+        path_tx.send(path).ok();
+    }
 
-            cx.on_action(|_: &Quit, cx| cx.quit());
-            cx.bind_keys([
-                KeyBinding::new("cmd-q", Quit, None),
-                KeyBinding::new("ctrl-q", Quit, None),
-            ]);
-            // Quit is the application's; everything else a window answers to belongs to the
-            // interface, which binds it beside the action it dispatches.
-            app::install_key_bindings(cx);
+    // `on_open_urls` and `on_reopen` are `Application`'s, not `App`'s, so they have to go on
+    // before `run` — and both take `&self`, so this cannot be one chain with `run`, which takes
+    // `self`.
+    let app = application().with_assets(gpui_component_assets::Assets);
 
-            // Nothing is open yet: the window asks the host what exists and points itself at the
-            // most recently opened, or at nothing when the catalogue is empty.
+    app.on_open_urls(move |urls| {
+        for url in &urls {
+            if let Some(path) = path_from_file_url(url) {
+                path_tx.send(path).ok();
+            }
+        }
+    });
+
+    // The dock icon, clicked with no window open: the same door a cold launch walks through.
+    app.on_reopen(|cx| {
+        if cx.windows().is_empty() {
             app::open_first_window(cx);
+        }
+    });
 
-            // A closed window leaves the registry, and the application ends with its last one —
-            // not with any particular one.
-            cx.on_window_closed(|cx, window_id| {
-                app::window_closed(window_id, cx);
-                if cx.windows().is_empty() {
-                    cx.quit();
+    app.run(|cx: &mut App| {
+        gpui_component::init(cx);
+        // Fills the highlight-query gap gpui-component leaves for Swift and C#.
+        ubiq::ui::editor::register_extra_languages();
+        // Sets both palettes at once: Ubiq's tokens and the component library's theme.
+        theme_boot(cx);
+        // Before any window: `open_project_window` takes the window's connection from here.
+        app::BusHub::install(hub, cx);
+
+        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.bind_keys([
+            KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("ctrl-q", Quit, None),
+        ]);
+        // Quit is the application's; everything else a window answers to belongs to the
+        // interface, which binds it beside the action it dispatches.
+        app::install_key_bindings(cx);
+
+        // Nothing is open yet: the window asks the host what exists and points itself at the
+        // most recently opened, or at nothing when the catalogue is empty.
+        app::open_first_window(cx);
+
+        // Whatever is already queued — argv paths from this launch, or a Finder open that beat
+        // the window to existing — is drained here, and every later arrival takes the same path.
+        // `deliver_paths_to_a_window` owns what happens to them; this just says when.
+        cx.spawn(async move |cx| {
+            while let Ok(first) = path_rx.recv_async().await {
+                let mut batch = vec![first];
+                while let Ok(next) = path_rx.try_recv() {
+                    batch.push(next);
                 }
-            })
-            .detach();
+                cx.update(|cx| app::deliver_paths_to_a_window(batch, cx));
+            }
+        })
+        .detach();
 
-            cx.activate(true);
-        });
+        // A closed window leaves the registry, and the application ends with its last one —
+        // not with any particular one.
+        cx.on_window_closed(|cx, window_id| {
+            app::window_closed(window_id, cx);
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+
+        cx.activate(true);
+    });
+}
+
+/// Positional arguments as paths — `ubiq .`, `ubiq some/file` — reaching the same place a Finder
+/// open would. `--config-root` and its value are the only two tokens spoken for; anything else
+/// that looks like a flag is left alone, on the same trust the platform's own arguments get.
+///
+/// Relative paths are made absolute against `cwd`: the interface hands them straight to
+/// `deliver_paths`, which never sees the launch directory to resolve them against itself.
+fn argv_paths(mut args: impl Iterator<Item = String>, cwd: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    while let Some(arg) = args.next() {
+        if arg == "--config-root" {
+            args.next(); // the flag's value, not ours
+            continue;
+        }
+        if arg.starts_with("--config-root=") || arg.starts_with('-') {
+            continue;
+        }
+        paths.push(cwd.join(arg));
+    }
+    paths
+}
+
+/// A `file://` URL as Finder or a dock-icon drop hands it over, decoded back to a path. macOS
+/// marks a folder with a trailing slash; the path itself never wants one. Anything not `file://`
+/// is not ours — Ubiq registers no URL scheme of its own.
+fn path_from_file_url(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let decoded = percent_encoding::percent_decode_str(rest).decode_utf8_lossy();
+    Some(PathBuf::from(decoded.strip_suffix('/').unwrap_or(&decoded)))
 }
 
 fn theme_boot(cx: &mut App) {
@@ -133,4 +206,41 @@ fn config_root_flag(args: impl Iterator<Item = String>) -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn positional_arguments_become_paths_and_config_root_is_skipped() {
+        let cwd = Path::new("/work");
+        let args = [
+            "--config-root",
+            "/elsewhere",
+            "relative/dir",
+            "--config-root=/also/elsewhere",
+            "/already/absolute",
+            "-x",
+        ]
+        .into_iter()
+        .map(String::from);
+
+        assert_eq!(
+            argv_paths(args, cwd),
+            vec![
+                PathBuf::from("/work/relative/dir"),
+                PathBuf::from("/already/absolute"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_url_decodes_and_loses_its_trailing_slash() {
+        assert_eq!(
+            path_from_file_url("file:///Users/me/My%20Project/"),
+            Some(PathBuf::from("/Users/me/My Project"))
+        );
+        assert_eq!(path_from_file_url("https://example.com"), None);
+    }
 }
