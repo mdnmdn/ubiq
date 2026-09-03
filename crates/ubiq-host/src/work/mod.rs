@@ -38,6 +38,10 @@ pub struct Work {
     /// invented and not written down: a live agent exists for as long as its
     /// harness does, and a restart starts none of them.
     live: HashMap<ProjectId, Vec<WorkAgent>>,
+    /// The sessions those agents belong to. A window's own session is not one
+    /// of the invented ones, and an agent whose session nothing lists is an
+    /// agent the sidebar cannot draw — so the session travels with it.
+    live_sessions: HashMap<ProjectId, Vec<WorkSession>>,
     /// Which projects have already been told their tasks are not durable, so the user hears it
     /// once per project rather than on every edit.
     warned: HashSet<ProjectId>,
@@ -61,6 +65,7 @@ impl Work {
             loaded: HashMap::new(),
             mocks: HashMap::new(),
             live: HashMap::new(),
+            live_sessions: HashMap::new(),
             warned: HashSet::new(),
             sealed: HashSet::new(),
         }
@@ -310,9 +315,15 @@ impl Work {
         // long as both are in the list.
         let mut agents = self.live.get(&project).cloned().unwrap_or_default();
         agents.extend(mock.agents.iter().cloned());
+        let mut sessions = self
+            .live_sessions
+            .get(&project)
+            .cloned()
+            .unwrap_or_default();
+        sessions.extend(mock.sessions.iter().cloned());
         replies.push(Reply::Asker(Message::WorkList {
             project_id: project,
-            sessions: mock.sessions.clone(),
+            sessions,
             agents,
             tasks: self.loaded.get(&project).cloned().unwrap_or_default(),
         }));
@@ -323,7 +334,11 @@ impl Work {
     ///
     /// It joins the same list the sidebar and the graph already read, so
     /// nothing downstream has to learn that some agents are real.
-    pub fn add_live_agent(&mut self, project: ProjectId, agent: WorkAgent) {
+    pub fn add_live_agent(&mut self, project: ProjectId, agent: WorkAgent, session: WorkSession) {
+        let sessions = self.live_sessions.entry(project).or_default();
+        if !sessions.iter().any(|held| held.id == session.id) {
+            sessions.push(session);
+        }
         let agents = self.live.entry(project).or_default();
         match agents.iter_mut().find(|held| held.id == agent.id) {
             Some(held) => *held = agent,
@@ -334,8 +349,13 @@ impl Work {
     /// Take a running agent out of the project's list, once its harness has
     /// gone and its transcript is all that is left.
     pub fn remove_live_agent(&mut self, project: ProjectId, agent: AgentId) {
-        if let Some(agents) = self.live.get_mut(&project) {
-            agents.retain(|held| held.id != agent);
+        let Some(agents) = self.live.get_mut(&project) else {
+            return;
+        };
+        agents.retain(|held| held.id != agent);
+        // A session with nothing left in it is a heading over an empty list.
+        if let Some(sessions) = self.live_sessions.get_mut(&project) {
+            sessions.retain(|session| agents.iter().any(|held| held.session == session.id));
         }
     }
 

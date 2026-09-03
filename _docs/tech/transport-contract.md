@@ -407,7 +407,7 @@ is what multiplexes several of them down one channel.
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
 | `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
 | `EndConversation` | UI → host | `agent_id` | `ConversationEnded` |
-| `ConversationStarted` | host → UI | `project_id`, `agent`, `accepts_input` | — |
+| `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
 | `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
 | `ConversationError` | host → UI | `agent_id`, `error` | — |
@@ -457,6 +457,11 @@ content, and asking the host for them would be a round trip per token.
 **`ConversationUpdate` boxes its payload**, and is the second variant in the set to do so, for
 `AgentChanged`'s reason: an enum is as wide as its widest variant, and the terminal chunks on the hot
 path share it.
+
+**The session travels with the agent.** The sidebar lists agents *under* a session, and a window's
+own session is not one of the work's, so an agent whose session nothing names is an agent nothing
+draws. The host holds the sessions its live agents belong to beside the agents themselves, and a
+`WorkList` carries both.
 
 **`accepts_input` travels with the agent rather than being discovered.** Two of the four bridges are
 one-shot: their prompt goes in through the launch and they take nothing after it. A composer that

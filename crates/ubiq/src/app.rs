@@ -2049,6 +2049,7 @@ impl AppState {
             Message::ConversationStarted {
                 project_id,
                 agent,
+                session,
                 accepts_input,
             } => {
                 self.workbench.work_error = None;
@@ -2057,6 +2058,9 @@ impl AppState {
                 };
                 let id = agent.id;
                 let harness = agent.harness.clone();
+                // The session first: the sidebar lists agents under one, so an agent applied
+                // before its heading exists is an agent drawn nowhere.
+                open.work.apply_session(session);
                 open.work.apply_agent(*agent);
                 open.graph
                     .layout
@@ -2066,9 +2070,11 @@ impl AppState {
                     .entry(id)
                     .or_insert_with(|| Conversation::new(id, harness));
                 conversation.accepts_input = accepts_input;
-                if open.agents.prune(&open.work) {
-                    self.refill_columns = true;
-                }
+                open.agents.prune(&open.work);
+                // Unlike an agent that merely changed, this one was asked for: the user pressed
+                // New agent a moment ago, so it comes on the field rather than onto the bench.
+                open.agents.reveal(id);
+                self.refill_columns = true;
                 cx.notify();
             }
 

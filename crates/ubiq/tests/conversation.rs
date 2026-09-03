@@ -25,7 +25,7 @@ use ubiq_proto::conversation::{ConvContent, ConvUpdate, StopReason, UsageRecord}
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
-use ubiq_proto::work::{Activity, AgentId, WorkAgent};
+use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 /// Long enough for a message to cross a channel in the same process.
 const PATIENCE: Duration = Duration::from_millis(500);
@@ -79,11 +79,18 @@ impl Fixture {
 
     /// The same, saying whether the harness takes a second turn.
     fn started_with_input(&self, agent: WorkAgent, accepts_input: bool, cx: &mut TestAppContext) {
+        let session = WorkSession {
+            id: agent.session,
+            name: "the project".to_string(),
+            branch: String::new(),
+            worktree: false,
+        };
         self.host.send(
             To::Everyone,
             Message::ConversationStarted {
                 project_id: self.project,
                 agent: Box::new(agent),
+                session,
                 accepts_input,
             },
         );
@@ -426,5 +433,36 @@ fn a_one_shot_harness_is_known_before_a_turn_is_typed(cx: &mut TestAppContext) {
             .iter()
             .any(|message| matches!(message, Message::PromptAgent { .. })),
         "a turn was sent to a harness that cannot take one"
+    );
+}
+
+/// The failure this guards against looked like nothing happening at all: the host started the
+/// harness, the agent reached the projection, and the screen stayed empty — because the sidebar
+/// lists agents *under* a session and the window's own session is not one the work invented.
+#[gpui::test]
+fn a_started_agent_is_listed_under_its_session_and_put_on_the_field(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    let agent = an_agent(id);
+    let session = agent.session;
+    fixture.started(agent, cx);
+
+    let (listed, on_the_field) = fixture.state.read_with(cx, |state, cx| {
+        (
+            state
+                .work(cx)
+                .is_some_and(|work| work.sessions.iter().any(|s| s.id == session)),
+            state
+                .agents(cx)
+                .is_some_and(|agents| agents.columns.iter().any(|c| c.tabs.contains(&id))),
+        )
+    });
+    assert!(
+        listed,
+        "the agent's session is not in the list that draws it"
+    );
+    assert!(
+        on_the_field,
+        "an agent the user asked for was left on the bench"
     );
 }
