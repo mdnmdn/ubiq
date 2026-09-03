@@ -1120,8 +1120,12 @@ inside it goes with it.
 
 `crates/ubiq/src/ui/shell.rs` assembles the frame and nothing more: the mark and the titlebar in one
 row, then the rail beside `AppState::dock()`, then the status bar, and — when one is up — the
-project-settings overlay, the application-settings overlay, or the file-tab context menu over all
-of it. The mark is drawn by `rail::mark`
+project-settings overlay, the application-settings overlay, the login modal, or one of the window's
+own menus over all of it: the file-tab menu, the new-pane menu and the new-agent menu. Those last
+three are painted here rather than by the surface that opened them, because more than one surface
+opens them and what there is to offer is the window's answer, not a page's — the new-agent menu is
+`ui::agents::new_agent_menu`, and the agents screen's `New agent` control and the chat panel's
+`+ New chat` both raise that one. The mark is drawn by `rail::mark`
 in that first row so it sits in the corner above the rail rather than inside it. It fixes no
 arrangement — everything between the chrome is the dock's.
 

@@ -99,4 +99,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             (app.workbench.open_menu == Some(crate::state::MenuId::NewPane))
                 .then(|| crate::ui::new_pane_menu::overlay(app, window, cx)),
         )
+        // The new-agent menu, named a point by whichever surface asked for a conversation — the
+        // agents screen's control or the IDE chat panel's. It is painted here rather than from
+        // either, so both get it: the state it reads is the window's.
+        .children(
+            app.workbench
+                .new_agent_menu
+                .is_some()
+                .then(|| crate::ui::agents::new_agent_menu(app, cx)),
+        )
 }

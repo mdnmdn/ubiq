@@ -219,6 +219,22 @@ impl Agents {
             .collect()
     }
 
+    /// Rewrite `launch`'s program to an absolute path, when `shells::locate` can find it.
+    ///
+    /// A harness's own `Launch` names its program bare (`"claude"`), because
+    /// `crates/agent-manager` reads no process environment — `isolate.rs` says so of itself.
+    /// Ubiq is the embedder that may, so it is done here, once, before a bare name reaches
+    /// either a pty spawn or isol8's `confine_executable`: both resolve a bare name against
+    /// only the thin `PATH` a desktop launch inherits, which is exactly the gap `locate`
+    /// closes by also asking the login shell. Left bare when `locate` finds nothing, so a
+    /// genuinely missing binary still fails with the library's own "not found" error rather
+    /// than a swallowed one here.
+    fn resolve_program(launch: &mut Launch) {
+        if let Some(path) = crate::shells::locate(&launch.program) {
+            launch.program = path.to_string_lossy().into_owned();
+        }
+    }
+
     /// Whether `home` holds what makes `harness` logged in. A harness that names no login
     /// files cannot be answered this way, so it does not count as captured.
     fn has_capture(harness: &dyn harness::Harness, home: &Path) -> bool {
@@ -241,9 +257,10 @@ impl Agents {
             .account_store()
             .login_home(account)
             .with_context(|| format!("preparing a home for account '{account}'"))?;
-        let plan = harness
+        let mut plan = harness
             .login(&home)
             .with_context(|| format!("asking {agent_type} how it logs in"))?;
+        Self::resolve_program(&mut plan.launch);
 
         // The credential's timestamp before the login runs. A harness that exits cleanly
         // without refreshing its credential has not logged anyone in, and this is the only
@@ -444,8 +461,9 @@ impl Agents {
         };
 
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
-        let provisioned = provision::provision(harness.as_ref(), &spec, &templates)
+        let mut provisioned = provision::provision(harness.as_ref(), &spec, &templates)
             .with_context(|| format!("composing a {agent_type} run"))?;
+        Self::resolve_program(&mut provisioned.launch);
 
         let confined = isolate::plan(
             &provisioned.launch,

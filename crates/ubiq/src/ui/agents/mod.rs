@@ -131,87 +131,97 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .text_size(px(11.5)),
         )
-        .child(new_agent(app, cx))
+        .child(new_agent(cx))
         .into_any_element()
 }
 
-/// **New agent**: which harness — and which identity — to start a live conversation on, here, in
-/// this project.
+/// **New agent**: the control that asks which harness — and which identity — to start a live
+/// conversation on, here, in this project. It opens [`new_agent_menu`], which the shell paints.
+fn new_agent(cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .child(ghost_button(
+            "agents-new",
+            Some(IconName::Plus),
+            "New agent",
+            cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                let at = event.position();
+                this.open_new_agent_menu((at.x.into(), at.y.into()), cx);
+            }),
+        ))
+        .into_any_element()
+}
+
+/// The menu that control opens: one row per harness *and identity*, at the point that was clicked.
 ///
 /// Both lists are the host's own: the same [`AgentTypeInfo`] the new-pane menu offers, and the
 /// accounts the settings page manages. A harness the host could not find on disk is listed and
 /// disabled, exactly as it is there.
 ///
 /// **This is the only place the identity can be chosen.** A conversation runs as somebody for its
-/// whole life — a turn already taken was taken as somebody — so the choice is made before the
-/// first turn and read-only after, where the column's footer reports it.
+/// whole life — a turn already taken was taken as somebody — so the choice is made before the first
+/// turn and read-only after, where the column's footer reports it.
 ///
 /// What a pick starts is a conversation rather than a pane: the two are the same question asked of
 /// different halves of a workspace, and a conversation has no size.
 ///
+/// Painted by [`crate::ui::shell`] rather than from here, because more than one surface opens it —
+/// this screen's control and the IDE chat panel's — and the state it reads is the window's, not
+/// either page's.
+///
+/// **The rows and the pick are one list.** Both go through
+/// [`crate::state::Workbench::harness_choices`], and a pick is the row's position in it: the kit has
+/// no submenu, so harness-and-identity depth is faked by flattening, and the index is the only thing
+/// that carries which row was chosen.
+///
 /// [`AgentTypeInfo`]: ubiq_proto::messages::AgentTypeInfo
-fn new_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
-
-    let mut control = div().flex().flex_none().items_center().child(ghost_button(
-        "agents-new",
-        Some(IconName::Plus),
-        "New agent",
-        cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
-            let at = event.position();
-            this.open_new_agent_menu((at.x.into(), at.y.into()), cx);
-        }),
-    ));
-
-    if app.workbench.new_agent_menu.is_some() {
-        // One row per harness *and identity*, from the same list the pick reads back — the
-        // kit has no submenu and a pick is an index, so depth is faked by flattening.
-        let items: Vec<kit::ContextItem> = app
-            .workbench
-            .harness_choices(&app.workbench.settings.accounts)
-            .iter()
-            .filter_map(|row| {
-                let (harness, account) = match row {
-                    HarnessChoice::Harness(harness) => (*harness, None),
-                    HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
-                };
-                let agent = app.workbench.agent_types.get(harness)?;
-                // "Claude Code — syn2". Composed into one line because a menu row has no
-                // second line to put it on, which is the same thing the shell rows do with
-                // "(default)".
-                let label = match account {
-                    Some(account) => format!("{} \u{2014} {account}", agent.label),
-                    None => agent.label.clone(),
-                };
-                let item = kit::ContextItem::new(SharedString::from(label));
-                Some(if agent.available {
-                    item
-                } else {
-                    item.disabled()
-                })
+    let items: Vec<kit::ContextItem> = app
+        .workbench
+        .harness_choices(&app.workbench.settings.accounts)
+        .iter()
+        .filter_map(|row| {
+            let (harness, account) = match row {
+                HarnessChoice::Harness(harness) => (*harness, None),
+                HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
+            };
+            let agent = app.workbench.agent_types.get(harness)?;
+            // "Claude Code — syn2". Composed into one line because a menu row has no second line
+            // to put it on, which is the same thing the shell rows do with "(default)".
+            let label = match account {
+                Some(account) => format!("{} \u{2014} {account}", agent.label),
+                None => agent.label.clone(),
+            };
+            let item = kit::ContextItem::new(SharedString::from(label));
+            Some(if agent.available {
+                item
+            } else {
+                item.disabled()
             })
-            .collect();
-        // Nothing found on this machine is said in the menu rather than by a control that opens
-        // on emptiness.
-        let items = if items.is_empty() {
-            vec![kit::ContextItem::new("No harness found here").disabled()]
-        } else {
-            items
-        };
-        let at = app.workbench.new_agent_menu.unwrap_or_default();
+        })
+        .collect();
+    // Nothing found on this machine is said in the menu rather than by a control that opens on
+    // emptiness.
+    let items = if items.is_empty() {
+        vec![kit::ContextItem::new("No harness found here").disabled()]
+    } else {
+        items
+    };
+    let at = app.workbench.new_agent_menu.unwrap_or_default();
 
-        control = control.child(kit::context_menu(
-            "agents-new-menu",
-            point(px(at.0), px(at.1)),
-            items,
-            indexed(&view, |this, index, _, cx| {
-                this.pick_new_agent_menu(index, cx);
-            }),
-            handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
-        ));
-    }
-
-    control.into_any_element()
+    kit::context_menu(
+        "agents-new-menu",
+        point(px(at.0), px(at.1)),
+        items,
+        indexed(&view, |this, index, _, cx| {
+            this.pick_new_agent_menu(index, cx);
+        }),
+        handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
+    )
+    .into_any_element()
 }
 
 /// The row of columns, and the strip past the last one that a dragged tab is split off into.

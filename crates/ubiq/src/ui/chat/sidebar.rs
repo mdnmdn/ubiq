@@ -1,4 +1,8 @@
 //! The chat panel's head: the control that starts a conversation, and the list of them.
+//!
+//! "New chat" only opens the menu; the menu itself is painted by [`crate::ui::shell`], which is
+//! what lets this panel and the agents screen share one — see
+//! [`crate::ui::agents::new_agent_menu`].
 
 use gpui::{
     AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,
