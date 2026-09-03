@@ -31,6 +31,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
+        // The window's letter sits before the picker rather than inside it: one says which
+        // window, the other which project.
+        .children(project_menu::window_badge(app, cx))
         .child(project_menu::render(app, window, cx))
         .when(has_project, |this| {
             this.child(

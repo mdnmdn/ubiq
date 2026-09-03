@@ -112,6 +112,50 @@ pub enum Message {
         agent_types: Vec<AgentTypeInfo>,
     },
 
+    // ── Account family: the identities a harness runs as ─────────────
+    /// Which accounts exist, and which harnesses each can actually log in. Answered with
+    /// [`Message::Accounts`].
+    ListAccounts,
+    /// The accounts the host holds. References only — an id and which harnesses it covers.
+    /// No credential, no path, and nothing that could be pasted into a terminal.
+    Accounts {
+        accounts: Vec<AccountInfo>,
+    },
+    /// Start an interactive login for `account` into `agent_type`, in a pane of its own.
+    ///
+    /// A login is the harness's own flow, unmodified — Ubiq spawns what the library says to
+    /// spawn and watches for the credential it says will appear. Answered with
+    /// [`Message::HarnessLoginStarted`], or [`Message::HarnessLoginFailed`] when there was
+    /// nothing to start. An account id that names no account yet is created by logging in,
+    /// which is the only way an account comes into being.
+    BeginHarnessLogin {
+        agent_type: String,
+        account: String,
+    },
+    /// The login is running in this pane. The pane carries bytes and takes keystrokes like
+    /// any other, and it belongs to no project — closing it abandons the login.
+    HarnessLoginStarted {
+        pane_id: PaneId,
+        agent_type: String,
+        account: String,
+        cols: u16,
+        rows: u16,
+    },
+    /// The login pane has ended and its credential was captured. The account now exists and
+    /// a run can name it; [`Message::Accounts`] follows with the new list.
+    HarnessLoginCaptured {
+        agent_type: String,
+        account: String,
+    },
+    /// The login captured nothing, and why: it was abandoned, the harness exited without
+    /// writing a credential, or it could not be started at all. Not an error in Ubiq — the
+    /// ordinary outcome of a flow the user closed.
+    HarnessLoginFailed {
+        agent_type: String,
+        account: String,
+        error: String,
+    },
+
     // ── Project family: UI → host ───────────────────────────────────
     /// Every project in the catalogue, probed. Answered with [`Message::ProjectList`].
     ListProjects,
@@ -474,6 +518,13 @@ pub enum Message {
         rel_path: Option<String>,
         /// The library's harness id, from [`AgentTypeInfo`].
         agent_type: String,
+        /// Which identity to run as, from [`AccountInfo`]. Absent falls back to whatever the
+        /// library resolves — the profile named `default`, or the user's own home.
+        ///
+        /// Chosen once, at the start, and never after: a turn already taken was taken as
+        /// somebody, and a conversation that changed identity halfway would be two
+        /// conversations wearing one transcript.
+        account: Option<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -622,6 +673,24 @@ pub struct AgentTypeInfo {
     /// Whether the harness's own binary was found, so a row that cannot start says so before it is
     /// picked rather than failing as a spawn the user has to interpret.
     pub available: bool,
+}
+
+/// One account, as the UI is told about it.
+///
+/// An account is an identity a harness runs as, and what crosses the bus is only ever a
+/// *reference* to one: its id, and which harnesses it can log in. The credential itself
+/// never appears here, and neither does the path it lives at — the domain rule is that
+/// accounts carry credential references, never credential material, and this type is where
+/// that rule is enforced or lost.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountInfo {
+    /// What the user named this identity, e.g. `work`.
+    pub id: String,
+    /// The harness ids this account has a captured login for. Derived rather than recorded:
+    /// an account is a home, and a harness is logged in there when the files it names are
+    /// present — so one account can serve several harnesses, and an empty list means the
+    /// account is a reference to an environment variable rather than a captured session.
+    pub logged_in: Vec<String>,
 }
 
 /// One running workspace, as the UI is told about it. It carries no process, no writer and no

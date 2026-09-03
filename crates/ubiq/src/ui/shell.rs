@@ -75,6 +75,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .open
                 .then(|| settings::overlay(app, window, cx)),
         )
+        // The login modal, over the settings page that raised it — painted after it so it is on
+        // top, and painted here rather than from that page because a login outlives it: closing
+        // settings mid-flow must not take the harness's own sign-in with it.
+        .children(
+            app.workbench
+                .settings
+                .login
+                .as_ref()
+                .map(|_| settings::login(app, window, cx)),
+        )
         // The file-tab context menu, named a file and a point by a right-click in the dock. It
         // lives at the window root rather than in a panel, so it stays on screen whether a file
         // closes or a panel moves.

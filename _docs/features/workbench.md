@@ -360,10 +360,18 @@ on a light swatch, chosen by the swatch's luminance — so the logo reads on wha
 tinted.
 
 **Every window is named by a letter.** Each takes the lowest letter no live window is using — `A`,
-`B`, `C`… — printed in the picker's trigger beside the project name, and beside every open project
-in the list. A closed window gives its letter back, so the names stay as short as the set of
+`B`, `C`… — printed in its own box at the head of the titlebar, in the project's tint, and beside
+every open project in the picker's list. The box sits *before* the picker rather than inside it:
+one says which window, the other which project, and a letter inside the chip reads as part of the
+project's name. A closed window gives its letter back, so the names stay as short as the set of
 windows. The letter is in the operating system's window title too, which is what the window
 switcher shows.
+
+**A letter is drawn only where there is a second window to tell it from.** With one window open the
+titlebar has no letter box, the picker's first heading is just "This window", and its rows carry no
+mark; a second window brings all three back. The letter's whole job is to distinguish, and there is
+nothing to distinguish in a single-window session — `AppState::several_windows()` is the one
+question the chrome asks, and the operating system's window title keeps the letter either way.
 
 **A project is open in exactly one window.** Openness is not a flag on the project — it is which
 window holds it. Opening a project somewhere therefore takes it from wherever it was, and that is
@@ -400,8 +408,11 @@ the letter of the window holding each, and **history** — everything open nowhe
 it was. A group with no rows is not drawn. A project's row moves between the groups as the project
 moves between windows, in every window's picker at once.
 
-**Every row is one line.** The name takes the space it can; the path, when it has a parent, is the
-last component with a leading `.../`. Hovering the path shows the full path as a tooltip. A row
+**Every row is one line, and the name has the right of way.** The name takes the space it can; the
+path, when it has a parent, is the last component with a leading `.../`, and it is printed **only
+when what is left over holds it** — a folder is the answer to "which of these two is it", which is
+worth nothing once the name it is meant to distinguish has been truncated to fit it. Hovering the
+name shows the full path as a tooltip whether or not the row had room to print it. A row
 whose folder is missing, is not a directory, or cannot be read prints that path in the warning
 colour with a mark beside it, and offers **Locate** — which re-points the record through the system
 folder chooser and keeps the id, the colour and the history. A record is never removed because its
@@ -488,9 +499,30 @@ are interface-wide, so the overlay opens with no project.
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
 it dismisses project settings, and the reverse. Three sections ship: **File explorer** (whether a
 single click opens a preview tab), **Editor** (whether a new markdown file opens in preview or
-source), and **Harnesses** (whether an agent is confined to its project, over an Add button and an
-empty list — definitions belong to the harness library). The kitchen sink still draws the larger
+source), and **Harnesses** (whether an agent is confined to its project, over the accounts
+registered here and an Add button that signs a new one in). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
+
+**An account row is a name and the harnesses it can start.** That is the whole of what the
+interface knows about an identity: no credential and no path reaches it, because neither crosses
+the bus. A row with nothing beside it says "not signed in" rather than nothing at all — an account
+can reference an environment variable instead of a captured session, and the two are different
+answers. The list is asked for on every open, so an account signed in from elsewhere appears
+without a restart.
+
+**Signing in is a modal with a real terminal in it, because the harness runs its own login.** Add
+harness asks two things — which harness, and what to call the identity — and then the harness's own
+flow runs in a pane inside the modal, browser round-trip included. A modal rather than a tab on
+purpose: an OAuth flow wants the whole of the user's attention for the half-minute it takes, and a
+login that scrolled away behind a pane is a login nobody finishes. Abort is always available and
+always safe — a flow that wrote no credential captured nothing, and the host says so rather than
+recording a half-made account, so starting again is free.
+
+The login modal is painted from the window root rather than from the settings page that raised it,
+for the reason every overlay there is: a login outlives the page. Closing settings mid-flow must
+not take the harness's sign-in with it. Its pane belongs to no project and gets no dock panel — the
+modal is the only thing that draws it, which is also what keeps one emulator from being rendered in
+two places at once.
 
 **The isolation toggle is the one setting the host acts on**, so it is the only row that writes the
 Host layer rather than the interface's own — an agent runs under a policy, and the half that spawns
@@ -1067,7 +1099,8 @@ global. It holds the projection — `replace_all` for a `ProjectList`, `apply` f
 open in it, and which of them it is pointed at. `register`, `open_in`, `activate` and `close` are the
 four mutations. None of them closes anything: `open_in` answers whether the project existed to be
 opened, and the others answer nothing, because a window emptied of projects is a window on the empty
-state. `groups` computes the picker's three lists for one window. Every `AppState` subscribes with `observe_global`, so a move in one window
+state. `groups` computes the picker's three lists for one window, and `window_count` is what
+`AppState::several_windows()` asks before drawing a letter anywhere. Every `AppState` subscribes with `observe_global`, so a move in one window
 redraws the picker in all of them, and reads go through `WindowRegistry::read` rather than
 `default_global`, which would notify the observers on a plain read and spin the frame. The registry
 is pure logic and is tested without a frame in `crates/ubiq/tests/windows.rs`, which seeds it the

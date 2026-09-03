@@ -36,6 +36,7 @@ use gpui::{
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
+use crate::state::HarnessChoice;
 use crate::theme;
 use crate::ui::empty;
 use crate::ui::kit::{self, ghost_button, mono};
@@ -134,12 +135,19 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-/// **New agent**: which harness to start a live conversation on, here, in this project.
+/// **New agent**: which harness — and which identity — to start a live conversation on, here, in
+/// this project.
 ///
-/// The list is the host's own — the same [`AgentTypeInfo`] the new-pane menu offers, asked for
-/// once and read by both — and a harness the host could not find on disk is listed and disabled,
-/// exactly as it is there. What a pick starts is a conversation rather than a pane: the two are
-/// the same question asked of different halves of a workspace, and a conversation has no size.
+/// Both lists are the host's own: the same [`AgentTypeInfo`] the new-pane menu offers, and the
+/// accounts the settings page manages. A harness the host could not find on disk is listed and
+/// disabled, exactly as it is there.
+///
+/// **This is the only place the identity can be chosen.** A conversation runs as somebody for its
+/// whole life — a turn already taken was taken as somebody — so the choice is made before the
+/// first turn and read-only after, where the column's footer reports it.
+///
+/// What a pick starts is a conversation rather than a pane: the two are the same question asked of
+/// different halves of a workspace, and a conversation has no size.
 ///
 /// [`AgentTypeInfo`]: ubiq_proto::messages::AgentTypeInfo
 fn new_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
@@ -156,17 +164,31 @@ fn new_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     ));
 
     if app.workbench.new_agent_menu.is_some() {
+        // One row per harness *and identity*, from the same list the pick reads back — the
+        // kit has no submenu and a pick is an index, so depth is faked by flattening.
         let items: Vec<kit::ContextItem> = app
             .workbench
-            .agent_types
+            .harness_choices(&app.workbench.settings.accounts)
             .iter()
-            .map(|agent| {
-                let item = kit::ContextItem::new(SharedString::from(agent.label.clone()));
-                if agent.available {
+            .filter_map(|row| {
+                let (harness, account) = match row {
+                    HarnessChoice::Harness(harness) => (*harness, None),
+                    HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
+                };
+                let agent = app.workbench.agent_types.get(harness)?;
+                // "Claude Code — syn2". Composed into one line because a menu row has no
+                // second line to put it on, which is the same thing the shell rows do with
+                // "(default)".
+                let label = match account {
+                    Some(account) => format!("{} \u{2014} {account}", agent.label),
+                    None => agent.label.clone(),
+                };
+                let item = kit::ContextItem::new(SharedString::from(label));
+                Some(if agent.available {
                     item
                 } else {
                     item.disabled()
-                }
+                })
             })
             .collect();
         // Nothing found on this machine is said in the menu rather than by a control that opens

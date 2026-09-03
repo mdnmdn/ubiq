@@ -371,6 +371,13 @@ pub struct WorkAgent {
     pub branch: String,
     pub tokens: f32,
     pub harness: String,
+    /// The identity this agent runs as, empty when it resolved none and fell back to the
+    /// user's own home. An account id — never a credential, per the account family's rule.
+    ///
+    /// Reported rather than requested: it is what the run actually resolved to, so a
+    /// conversation cannot claim an account it is not using. Fixed for the agent's life,
+    /// because a turn already taken was taken as somebody.
+    pub account: String,
     pub model: String,
     pub context_pct: u8,
     /// What has been said to and by this agent. Nothing answers it, which is what the thread says

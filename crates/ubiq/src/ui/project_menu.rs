@@ -11,7 +11,7 @@
 
 use chrono::Utc;
 use gpui::{
-    AnyElement, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, App, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, WindowId, anchored, deferred, div, px,
 };
 use gpui_component::input::Input;
@@ -35,10 +35,35 @@ enum Group {
     History,
 }
 
+/// How wide the panel is. Project folders are named by people who do not know they will be read
+/// in a menu, so the picker is wide enough for a name and its folder on one line.
+const PANEL_WIDTH: f32 = 420.0;
+
+/// What a row spends on everything that is not its name or its path: the dot, the gaps, the window
+/// mark or the age, and the two or three actions at the end.
+const ROW_FURNITURE: f32 = 170.0;
+
+/// Roughly how wide one character is at the size each of the two texts draws at — the name
+/// proportional at 12.5, the path monospaced at 10.5. An estimate on purpose: the row has to
+/// decide whether the path fits while it is being built, and nothing is measured until it is
+/// painted. It is used for one yes-or-no answer, never to size anything.
+const NAME_ADVANCE: f32 = 6.9;
+const PATH_ADVANCE: f32 = 6.3;
+
+/// Whether a row has room for its path beside its name.
+///
+/// **The name wins.** A path is the answer to "which of these two is it", which only matters while
+/// both are readable; a truncated name answers nothing. So a path that would eat into the name is
+/// left out of the row and stays available as the name's tooltip.
+fn path_fits(name: &str, tail: &str) -> bool {
+    let name_width = name.chars().count() as f32 * NAME_ADVANCE;
+    let path_width = tail.chars().count() as f32 * PATH_ADVANCE;
+    name_width + path_width <= PANEL_WIDTH - ROW_FURNITURE
+}
+
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let colour = app.project_tint(cx);
     let open = app.workbench.open_menu == Some(MenuId::Project);
-    let label = app.window_label(cx);
     let name = app.project_name(cx);
 
     let mut trigger = div()
@@ -54,8 +79,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .bg(colour)
         .text_color(theme::on_accent())
         .text_size(px(13.))
-        // The window's letter, so the user knows which window they are typing into.
-        .child(window_mark(label, theme::on_accent(), true))
         .child(name)
         .child(
             Icon::new(IconName::ChevronDown)
@@ -71,6 +94,28 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     trigger
 }
 
+/// The window's letter, in a box of its own beside the picker.
+///
+/// **Beside rather than inside.** The picker's chip answers "which project", and a letter inside it
+/// reads as part of that answer; the letter is about the window. Its own box, in the project's
+/// tint, so the two still read as one piece of chrome. Absent while the session has one window,
+/// which has nothing to be told apart from.
+pub fn window_badge(app: &AppState, cx: &App) -> Option<impl IntoElement> {
+    app.several_windows(cx).then(|| {
+        div()
+            .size(px(26.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .bg(app.project_tint(cx))
+            .text_color(theme::on_accent())
+            .text_size(px(12.))
+            .font_weight(gpui::FontWeight::SEMIBOLD)
+            .child(app.window_label(cx).to_string())
+    })
+}
+
 fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let groups = app.project_groups(cx);
     let empty = crate::state::WindowRegistry::read(cx).is_empty();
@@ -81,7 +126,7 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
         .is_focused(window);
 
     let mut body = div()
-        .w(px(340.))
+        .w(px(PANEL_WIDTH))
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
@@ -124,10 +169,13 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
                 .child("No projects yet."),
         );
     } else {
-        let here_label = app.window_label(cx);
+        let heading = match app.several_windows(cx) {
+            true => format!("This window \u{b7} {}", app.window_label(cx)),
+            false => "This window".to_string(),
+        };
         body = group(
             body,
-            &format!("This window \u{b7} {here_label}"),
+            &heading,
             groups
                 .here
                 .iter()
@@ -207,6 +255,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         theme::warning()
     };
 
+    let tail = path_tail(&full_path);
+    let with_path = path_fits(&entry.record.name, &tail);
+    let tooltip = full_path.clone();
+
     let mut line = div()
         .id(ElementId::Name(format!("project-{project}").into()))
         .h(px(30.))
@@ -218,8 +270,11 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
         .child(div().size(px(8.)).flex_none().rounded_full().bg(colour))
+        // The name takes the room the row has, and carries the whole path as its tooltip whether
+        // or not the row was wide enough to print the folder beside it.
         .child(
             div()
+                .id(ElementId::Name(format!("project-name-{project}").into()))
                 .flex_1()
                 .min_w(px(0.))
                 .text_size(px(12.5))
@@ -229,17 +284,20 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
                     theme::text_muted()
                 })
                 .truncate()
-                .child(entry.record.name.clone()),
+                .child(entry.record.name.clone())
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+                }),
         )
-        .child(
+        .children(with_path.then(|| {
             div()
                 .id(ElementId::Name(format!("project-path-{project}").into()))
                 .flex_none()
-                .child(mono(path_tail(&full_path), path_colour).text_size(px(10.5)))
+                .child(mono(tail.clone(), path_colour).text_size(px(10.5)))
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(full_path.clone()).build(window, cx)
-                }),
-        );
+                })
+        }));
 
     // A folder that is not there is marked, never quietly repaired and never removed.
     if !healthy {
@@ -252,8 +310,11 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
 
     // Every open project prints the window holding it; a remembered one prints how long ago.
     line = match group {
-        Group::Here => line.child(window_mark(app.window_label(cx), colour, false)),
-        Group::Elsewhere(label, _) => line.child(window_mark(label, theme::text_muted(), false)),
+        Group::Here => line.children(
+            app.several_windows(cx)
+                .then(|| window_mark(app.window_label(cx), colour)),
+        ),
+        Group::Elsewhere(label, _) => line.child(window_mark(label, theme::text_muted())),
         Group::History => line.child(
             // Rendered now rather than stored: how long ago something was is a fact about the
             // moment it is drawn.
@@ -437,9 +498,11 @@ fn banner(error: String, cx: &mut Context<AppState>) -> impl IntoElement {
         ))
 }
 
-/// A window's letter, in the small square the picker prints beside every open project.
-fn window_mark(label: char, colour: gpui::Rgba, filled: bool) -> impl IntoElement {
-    let mut mark = div()
+/// A window's letter, in the small outlined square the picker prints beside every open project.
+/// The titlebar's own is [`window_badge`], which is filled and is about this window rather than
+/// about a row.
+fn window_mark(label: char, colour: gpui::Rgba) -> impl IntoElement {
+    div()
         .size(px(16.))
         .flex()
         .flex_none()
@@ -448,13 +511,9 @@ fn window_mark(label: char, colour: gpui::Rgba, filled: bool) -> impl IntoElemen
         .text_size(px(10.))
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .text_color(colour)
-        .child(label.to_string());
-
-    if !filled {
-        mark = mark.border_1().border_color(colour);
-    }
-
-    mark
+        .border_1()
+        .border_color(colour)
+        .child(label.to_string())
 }
 
 /// Closing a project with terminals running is a question, not a click.
@@ -543,7 +602,7 @@ fn small_button(
 
 #[cfg(test)]
 mod tests {
-    use super::path_tail;
+    use super::{path_fits, path_tail};
 
     #[test]
     fn a_nested_path_shows_the_leaf_with_a_leading_ellipsis() {
@@ -558,5 +617,19 @@ mod tests {
     #[test]
     fn a_trailing_separator_does_not_invent_an_empty_leaf() {
         assert_eq!(path_tail("/Users/mdn/works/ubiq/"), ".../ubiq");
+    }
+
+    #[test]
+    fn a_short_name_keeps_its_folder_beside_it() {
+        assert!(path_fits("ubiq", &path_tail("/Users/mdn/works/ubiq")));
+    }
+
+    #[test]
+    fn a_folder_that_would_eat_into_the_name_is_left_out() {
+        let path = "/Users/mdn/works/communication-platform-backend";
+        assert!(!path_fits(
+            "communication-platform-backend",
+            &path_tail(path)
+        ));
     }
 }

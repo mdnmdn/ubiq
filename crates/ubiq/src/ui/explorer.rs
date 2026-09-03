@@ -322,8 +322,6 @@ fn line(
         font_size,
     ));
 
-    line = line.child(div().flex_1().min_w(px(0.)));
-
     if let Some(status) = row.git {
         line = line.child(badge(status.badge(), git_colour(row.git)));
     }

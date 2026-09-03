@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::state::agents::{AgentsView, COLUMNS_MAX};
+use crate::state::agents::{AgentsView, COMPOSER_SLOTS};
 use crate::state::board::{BoardState, Field};
 use crate::state::conversation::Conversation;
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
@@ -28,7 +28,9 @@ use crate::state::file_picker::{
 };
 use crate::state::git::{GitView, RefSection, Side as GitSide};
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
-use crate::state::settings::{self as ui_settings, MarkdownOpen, SettingsSection};
+use crate::state::settings::{
+    self as ui_settings, LoginState, LoginStep, MarkdownOpen, SettingsSection,
+};
 use crate::state::sink::{
     ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
 };
@@ -36,9 +38,9 @@ use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
-    ExplorerView, FileBody, FileLanguage, LogState, MenuId, NewPaneRow, OpenFile, PanelKind,
-    ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry,
-    WorkbenchState, prefs, sample,
+    ExplorerView, FileBody, FileLanguage, HarnessChoice, LogState, MenuId, NewPaneRow, OpenFile,
+    PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState, Toggle,
+    WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -374,7 +376,8 @@ pub struct AppState {
     /// The inspector's composer on the orchestration screen. A field of its own rather than the
     /// chat's, because the two are two conversations and a shared draft would leak between them.
     pub agent_input: Entity<TextareaState>,
-    /// One composer per column slot on the agents screen, [`COLUMNS_MAX`] of them.
+    /// One composer per slot that hosts a conversation — every column on the agents screen,
+    /// plus the chat panel's — [`COMPOSER_SLOTS`] of them.
     ///
     /// A fixed pool rather than one entity per live column: an entity is created with a `Window`
     /// and columns open from handlers that have one, but the *subscription* that mirrors what is
@@ -422,6 +425,10 @@ pub struct AppState {
     pub sink_input: Entity<InputState>,
     pub sink_textarea: Entity<TextareaState>,
     pub sink_modal_input: Entity<InputState>,
+    /// What the login modal names the identity it is about to capture. Its own field
+    /// rather than a shared one, for the reason every other pair here is split: two
+    /// states drawn at once would be one field in two places.
+    pub login_account_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -499,7 +506,7 @@ impl AppState {
         // The whole pool, before the first frame. Each one's placeholder names the agent its
         // column is showing and is set when the column opens or changes tab; until then it says
         // what the field is for.
-        let column_inputs: Vec<Entity<TextareaState>> = (0..COLUMNS_MAX)
+        let column_inputs: Vec<Entity<TextareaState>> = (0..COMPOSER_SLOTS)
             .map(|_| {
                 cx.new(|cx| {
                     TextareaState::new(window, cx)
@@ -598,6 +605,9 @@ impl AppState {
         });
 
         let sink_modal_input = cx.new(|cx| InputState::new(window, cx).placeholder("Session name"));
+
+        let login_account_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
 
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
@@ -971,6 +981,7 @@ impl AppState {
             sink_input.read(cx).focus_handle(cx),
             sink_textarea.read(cx).focus_handle(cx),
             sink_modal_input.read(cx).focus_handle(cx),
+            login_account_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -1094,6 +1105,7 @@ impl AppState {
             sink_input,
             sink_textarea,
             sink_modal_input,
+            login_account_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,
@@ -1686,6 +1698,14 @@ impl AppState {
                         .then_some(*id)
                 });
                 tracing::info!("pane {pane_id} exited with {code}");
+                // A login pane belongs to no project, so `close_pane` would return early and
+                // the host would never be told the pane is over — and being told is what makes
+                // it look for the credential. Ending it here is the whole of the successful
+                // path: a harness that finishes its own sign-in exits by itself.
+                if self.login_pane() == Some(pane_id) {
+                    self.bus.send(Message::CloseWorkspace { pane_id });
+                    return;
+                }
                 if let Some(project_id) = project {
                     self.bus.send(Message::RefreshProjectGit {
                         project_id,
@@ -2067,6 +2087,7 @@ impl AppState {
                 };
                 let id = agent.id;
                 let harness = agent.harness.clone();
+                let account = agent.account.clone();
                 // The session first: the sidebar lists agents under one, so an agent applied
                 // before its heading exists is an agent drawn nowhere.
                 open.work.apply_session(session);
@@ -2077,12 +2098,15 @@ impl AppState {
                 let conversation = open
                     .conversations
                     .entry(id)
-                    .or_insert_with(|| Conversation::new(id, harness));
+                    .or_insert_with(|| Conversation::new(id, harness, account));
                 conversation.accepts_input = accepts_input;
                 open.agents.prune(&open.work);
                 // Unlike an agent that merely changed, this one was asked for: the user pressed
                 // New agent a moment ago, so it comes on the field rather than onto the bench.
                 open.agents.reveal(id);
+                // And the chat panel shows it, for the same reason: whichever surface asked, what
+                // was asked for is the conversation the user now wants to be looking at.
+                self.chat.selected = Some(id);
                 self.refill_columns = true;
                 cx.notify();
             }
@@ -2181,6 +2205,10 @@ impl AppState {
                 // open — see `open_new_pane_menu`.
                 self.bus.send(Message::ListShells);
                 self.bus.send(Message::ListAgentTypes);
+                // The identities half of the same question: the New agent menu offers a harness
+                // per account, so an empty account list would offer the harness alone and start
+                // it as nobody in particular.
+                self.bus.send(Message::ListAccounts);
                 cx.notify();
             }
 
@@ -2196,6 +2224,37 @@ impl AppState {
             Message::AgentTypes { agent_types } => {
                 self.workbench.agent_types = agent_types;
                 cx.notify();
+            }
+
+            // ── the account family ───────────────────────────────────
+            // Replaced whole for the same reason as the two lists above: the host's answer is
+            // the set of identities, and one deleted elsewhere has to leave the screen.
+            Message::Accounts { accounts } => {
+                self.workbench.settings.accounts = accounts;
+                cx.notify();
+            }
+            Message::HarnessLoginStarted {
+                pane_id,
+                agent_type,
+                account,
+                cols,
+                rows,
+            } => {
+                self.login_started(pane_id, agent_type, account, cols, rows, cx);
+            }
+            Message::HarnessLoginCaptured {
+                agent_type,
+                account,
+            } => {
+                self.login_ended(true, format!("{account} is signed in to {agent_type}."), cx);
+            }
+            Message::HarnessLoginFailed {
+                agent_type,
+                account,
+                error,
+            } => {
+                tracing::info!("login for {account} on {agent_type} captured nothing: {error}");
+                self.login_ended(false, error, cx);
             }
 
             // ── the search family ────────────────────────────────────
@@ -2348,33 +2407,24 @@ impl AppState {
     ///
     /// The workspace names its project, which is what makes an answer that arrives after the user
     /// has switched projects land in the right place rather than on screen.
-    fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
-        let pane_id = workspace.id;
-        let project = workspace.project_id;
-        let taken: Vec<String> = self
-            .projects
-            .get(&project)
-            .map(|open| open.panes.iter().map(|pane| pane.title.clone()).collect())
-            .unwrap_or_default();
-        let title = pane_title(&workspace.agent_type, &taken);
-
-        // A pane for a project this window no longer holds has nowhere to be drawn, and a harness
-        // nobody can see is a leak: it is closed rather than kept.
-        if !self.projects.contains_key(&project) {
-            tracing::info!("pane {pane_id} arrived for a project this window no longer holds");
-            self.bus.send(Message::CloseWorkspace { pane_id });
-            return;
-        }
-        let showing = self.project(cx) == Some(project);
-
+    /// Build the emulator for `pane_id` and register it, without deciding where it is drawn.
+    ///
+    /// This is everything a pane *is* on the interface's side: a byte stream in, a byte
+    /// stream out, and a geometry callback that tells the host what the emulator measured.
+    /// Where it appears is a separate question, which is why this is separate from
+    /// [`open_pane`](Self::open_pane) — a login runs in a pane that belongs to no project and
+    /// is drawn in a modal rather than the dock, and it needs all of this and none of that.
+    fn open_terminal(
+        &mut self,
+        pane_id: PaneId,
+        cols: u16,
+        rows: u16,
+        font_size: f32,
+        cx: &mut Context<Self>,
+    ) {
         let (output, reader) = bus::pane_output();
         let writer = self.bus.input(pane_id);
-        let term_font = self
-            .projects
-            .get(&project)
-            .and_then(|open| open.prefs.ui_font_size)
-            .unwrap_or(theme::TERMINAL_FONT_SIZE);
-        let config = ui::terminal::config(workspace.cols, workspace.rows, term_font);
+        let config = ui::terminal::config(cols, rows, font_size);
 
         let to_host = self.bus.sender();
         let geometry = self.geometry.clone();
@@ -2400,6 +2450,41 @@ impl AppState {
                 })
         });
 
+        self.terminals.insert(
+            pane_id,
+            PaneTerminal {
+                view,
+                output: Some(output),
+            },
+        );
+    }
+
+    fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
+        let pane_id = workspace.id;
+        let project = workspace.project_id;
+        let taken: Vec<String> = self
+            .projects
+            .get(&project)
+            .map(|open| open.panes.iter().map(|pane| pane.title.clone()).collect())
+            .unwrap_or_default();
+        let title = pane_title(&workspace.agent_type, &taken);
+
+        // A pane for a project this window no longer holds has nowhere to be drawn, and a harness
+        // nobody can see is a leak: it is closed rather than kept.
+        if !self.projects.contains_key(&project) {
+            tracing::info!("pane {pane_id} arrived for a project this window no longer holds");
+            self.bus.send(Message::CloseWorkspace { pane_id });
+            return;
+        }
+        let showing = self.project(cx) == Some(project);
+
+        let term_font = self
+            .projects
+            .get(&project)
+            .and_then(|open| open.prefs.ui_font_size)
+            .unwrap_or(theme::TERMINAL_FONT_SIZE);
+        self.open_terminal(pane_id, workspace.cols, workspace.rows, term_font, cx);
+
         if let Some(open) = self.projects.get_mut(&project) {
             open.panes.push(PaneState {
                 id: pane_id,
@@ -2415,14 +2500,6 @@ impl AppState {
                 open.focused_pane = Some(pane_id);
             }
         }
-        self.terminals.insert(
-            pane_id,
-            PaneTerminal {
-                view,
-                output: Some(output),
-            },
-        );
-
         // The pane's panel joins the region terminals live in. It is queued rather than added
         // here: a panel reaches the dock through a `Window`, and a message does not come with one.
         self.pending_panels
@@ -3138,6 +3215,12 @@ impl AppState {
             .slot(self.window_id)
             .map(|slot| slot.label)
             .unwrap_or('?')
+    }
+
+    /// Whether a window's letter is worth printing: a letter tells one window from another, so a
+    /// lone window's is noise. The chrome asks this rather than counting windows itself.
+    pub fn several_windows(&self, cx: &App) -> bool {
+        WindowRegistry::read(cx).window_count() > 1
     }
 
     /// The project this window is pointed at, if it has one. A window holds nothing only while the
@@ -4061,6 +4144,11 @@ impl AppState {
         if open {
             self.workbench.project_settings = None;
             self.workbench.open_menu = None;
+            // Asked on every open rather than once at startup, for the same reason the
+            // harness list is: an account logged in from elsewhere should appear without a
+            // restart, and the answer is cheap.
+            self.bus.send(Message::ListAccounts);
+            self.bus.send(Message::ListAgentTypes);
         }
         cx.notify();
     }
@@ -4092,6 +4180,146 @@ impl AppState {
     pub fn toggle_isolate_agents(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.host.isolate_agents = !self.workbench.settings.host.isolate_agents;
         self.remember_host_settings();
+        cx.notify();
+    }
+
+    // ── Harness logins ──────────────────────────────────────────────
+
+    /// Raise the login modal, on the step where nothing has happened yet.
+    ///
+    /// The name field is emptied here rather than left holding the last identity typed: two
+    /// logins in a row are two different accounts far more often than they are the same one,
+    /// and a prefilled name is how the second one silently overwrites the first.
+    pub fn open_harness_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.login_account_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.workbench.settings.login = Some(LoginState {
+            account: String::new(),
+            step: LoginStep::Choosing { agent_type: None },
+        });
+        cx.notify();
+    }
+
+    /// Pick which harness the login is for. Re-picking before it starts is free.
+    pub fn pick_login_harness(&mut self, agent_type: String, cx: &mut Context<Self>) {
+        if let Some(login) = &mut self.workbench.settings.login
+            && let LoginStep::Choosing { agent_type: chosen } = &mut login.step
+        {
+            *chosen = Some(agent_type);
+            cx.notify();
+        }
+    }
+
+    /// Start the harness's own login flow. The host answers with the pane it runs in.
+    ///
+    /// The account name is read here rather than tracked per keystroke: it is only needed at
+    /// the moment the flow starts, and a field the interface mirrors into its own state is a
+    /// second copy that can disagree with the one on screen.
+    pub fn start_harness_login(&mut self, cx: &mut Context<Self>) {
+        let account = self.login_account_input.read(cx).value().trim().to_string();
+        let Some(login) = &mut self.workbench.settings.login else {
+            return;
+        };
+        let LoginStep::Choosing {
+            agent_type: Some(agent_type),
+        } = &login.step
+        else {
+            return;
+        };
+        // Both are required and the button is disabled without them, so this is the
+        // belt-and-braces case rather than a path the user can reach.
+        if account.is_empty() {
+            return;
+        }
+
+        let agent_type = agent_type.clone();
+        login.account = account.clone();
+        self.bus.send(Message::BeginHarnessLogin {
+            agent_type,
+            account,
+        });
+        cx.notify();
+    }
+
+    /// Abandon a running login, or dismiss a finished one.
+    ///
+    /// Closing the pane is what abandons it, and that is safe by construction: a login that
+    /// did not write a credential captured nothing, and the host says so rather than
+    /// recording a half-made account.
+    pub fn close_harness_login(&mut self, cx: &mut Context<Self>) {
+        if let Some(login) = self.workbench.settings.login.take()
+            && let LoginStep::Running { pane } = login.step
+        {
+            self.close_login_pane(pane, cx);
+        }
+        cx.notify();
+    }
+
+    /// The login is running: adopt its pane so the modal can draw it.
+    ///
+    /// A login pane belongs to no project, so it joins no project's pane list and gets no
+    /// dock panel — the modal is the only thing that renders it, which is also what keeps
+    /// one emulator from being drawn in two places.
+    fn login_started(
+        &mut self,
+        pane_id: PaneId,
+        agent_type: String,
+        account: String,
+        cols: u16,
+        rows: u16,
+        cx: &mut Context<Self>,
+    ) {
+        // A login whose modal has already gone has nobody to draw it, and a harness nobody
+        // can see is a leak — the same rule `open_pane` applies to an orphaned pane.
+        if self.workbench.settings.login.is_none() {
+            tracing::info!("login pane {pane_id} arrived with no modal to draw it");
+            self.bus.send(Message::CloseWorkspace { pane_id });
+            return;
+        }
+
+        self.open_terminal(pane_id, cols, rows, theme::TERMINAL_FONT_SIZE, cx);
+        self.workbench.settings.login = Some(LoginState {
+            account,
+            step: LoginStep::Running { pane: pane_id },
+        });
+        self.pending_focus = Some(pane_id);
+        self.bus.send(Message::Focus { pane_id });
+        tracing::info!("login for {agent_type} running in pane {pane_id}");
+        cx.notify();
+    }
+
+    /// The login ended. Show what came of it, and stop drawing its pane.
+    fn login_ended(&mut self, captured: bool, message: String, cx: &mut Context<Self>) {
+        // The outcome arrives whether or not the modal is still up — a login the user walked
+        // away from still finished — so a captured account is recorded either way and only
+        // the display is conditional.
+        if let Some(pane) = self.login_pane() {
+            self.close_login_pane(pane, cx);
+        }
+        if let Some(login) = &mut self.workbench.settings.login {
+            login.step = LoginStep::Done { captured, message };
+        }
+        cx.notify();
+    }
+
+    /// The pane a login is running in, when one is.
+    pub fn login_pane(&self) -> Option<PaneId> {
+        match &self.workbench.settings.login {
+            Some(login) => match login.step {
+                LoginStep::Running { pane } => Some(pane),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
+    /// Stop drawing a login's pane and tell the host to end it.
+    fn close_login_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        self.terminals.remove(&pane);
+        if self.pending_focus == Some(pane) {
+            self.pending_focus = None;
+        }
+        self.bus.send(Message::CloseWorkspace { pane_id: pane });
         cx.notify();
     }
 
@@ -5580,10 +5808,14 @@ impl AppState {
         self.workbench.open_menu = Some(MenuId::NewAgent);
         self.workbench.new_agent_menu = Some(at);
         self.bus.send(Message::ListAgentTypes);
+        // Both halves of what the menu offers are asked for on every open, so a harness
+        // installed or an account signed in since the window opened is offered without a
+        // restart. The harness list already worked this way.
+        self.bus.send(Message::ListAccounts);
         cx.notify();
     }
 
-    /// Start a conversation on the harness at that row of the menu.
+    /// Start a conversation on the harness — and the identity — at that row of the menu.
     ///
     /// A harness the host could not find is drawn disabled and takes no click, so picking it does
     /// nothing rather than asking for a start that would fail.
@@ -5593,7 +5825,17 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        let Some(agent) = self.workbench.agent_types.get(index) else {
+        // The same list the menu drew, so an index cannot mean one row on screen and another
+        // here — the rule every position-matched menu in the window follows.
+        let rows = self
+            .workbench
+            .harness_choices(&self.workbench.settings.accounts);
+        let (harness, account) = match rows.get(index) {
+            Some(HarnessChoice::Harness(harness)) => (*harness, None),
+            Some(HarnessChoice::Pair { harness, account }) => (*harness, Some(account.clone())),
+            None => return,
+        };
+        let Some(agent) = self.workbench.agent_types.get(harness) else {
             return;
         };
         if !agent.available {
@@ -5604,6 +5846,7 @@ impl AppState {
             session_id: self.session,
             rel_path: None,
             agent_type: agent.id.clone(),
+            account,
         });
         cx.notify();
     }
@@ -6390,17 +6633,22 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn select_chat(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index < self.chat.chats.len() {
-            self.chat.active = index;
-            self.chat_scroll.scroll_to_bottom();
-            cx.notify();
-        }
+    /// Show one of the project's conversations in the chat panel.
+    ///
+    /// Selecting is a change of view and nothing else: the one leaving the panel keeps running,
+    /// because the conversation is the host's and the panel is a perspective on it.
+    pub fn select_chat(&mut self, id: AgentId, cx: &mut Context<Self>) {
+        self.chat.selected = Some(id);
+        self.chat_scroll.scroll_to_bottom();
+        cx.notify();
     }
 
-    pub fn new_chat(&mut self, cx: &mut Context<Self>) {
-        self.chat.new_chat();
-        cx.notify();
+    /// Start a conversation from the chat panel, through the same menu the agents screen uses.
+    ///
+    /// One menu for one question. What the panel adds is that the conversation it starts becomes
+    /// the one it is showing — which the agents screen does too, by revealing a column for it.
+    pub fn new_chat(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        self.open_new_agent_menu(at, cx);
     }
 
     pub fn toggle_tool(&mut self, message: usize, block: usize, cx: &mut Context<Self>) {

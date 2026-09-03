@@ -13,7 +13,7 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::messages::{AgentTypeInfo, ShellInfo};
+use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ShellInfo};
 
 use crate::state::settings::SettingsState;
 use crate::theme::ThemeId;
@@ -151,8 +151,9 @@ pub enum MenuId {
     /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
     /// opened is `WorkbenchState::new_pane_menu`.
     NewPane,
-    /// The agents screen's "New agent": which harness a conversation is started on. Where it
-    /// opened is `WorkbenchState::new_agent_menu`.
+    /// The agents screen's "New agent": which harness — and which identity — a conversation is
+    /// started on. Its rows are [`HarnessChoice`], and where it opened is
+    /// `WorkbenchState::new_agent_menu`.
     NewAgent,
 }
 
@@ -171,6 +172,32 @@ pub enum NewPaneRow {
     Separator,
     /// The console, which is revealed rather than started.
     Console,
+}
+
+/// One row of the harness menu, in the order it is drawn.
+///
+/// Offered by every surface that can start a conversation — the agents screen's New agent and
+/// the chat panel's New chat — because they start the same thing and a second list would be a
+/// second answer to one question.
+///
+/// Here rather than in the module that paints it for the same reason [`NewPaneRow`] is: the
+/// pick is matched by position, so the menu and the action behind it must read one list.
+///
+/// A flat list rather than a submenu, because the kit has no submenu and the pick is an index —
+/// the same reason `NewPaneRow` flattens shells and harnesses into one sequence.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum HarnessChoice {
+    /// A harness with no identity to choose from, by its index in
+    /// [`WorkbenchState::agent_types`]. What it runs as is then the library's answer — a
+    /// profile, or the user's own home.
+    Harness(usize),
+    /// A harness and the identity to run it as: the pair the interface calls a harness.
+    Pair {
+        /// Index into [`WorkbenchState::agent_types`].
+        harness: usize,
+        /// The account id, which is what crosses the wire.
+        account: String,
+    },
 }
 
 pub struct WorkbenchState {
@@ -279,10 +306,156 @@ impl WorkbenchState {
         rows
     }
 
+    /// What a harness menu offers: every harness installed here, once per identity that can start
+    /// it. One list, read by every surface that starts a conversation and by the pick behind it.
+    ///
+    /// **A harness with accounts is only offered with one.** Which identity a conversation runs
+    /// as is fixed the moment it starts and cannot be changed after, so it is a choice worth
+    /// making explicitly — and a bare row beside three named ones would be the one whose
+    /// identity nobody could name. A harness with no captured login keeps its bare row, because
+    /// that is the only way to start it and the library still has an answer for what it runs as.
+    ///
+    /// Unavailable harnesses keep their row, disabled, so the menu says a tool is missing rather
+    /// than silently omitting it — the same rule the flat list followed before identities.
+    pub fn harness_choices(&self, accounts: &[AccountInfo]) -> Vec<HarnessChoice> {
+        let mut rows = Vec::new();
+        for (index, harness) in self.agent_types.iter().enumerate() {
+            let mut named = accounts
+                .iter()
+                .filter(|account| account.logged_in.contains(&harness.id))
+                .peekable();
+            if named.peek().is_none() {
+                rows.push(HarnessChoice::Harness(index));
+                continue;
+            }
+            rows.extend(named.map(|account| HarnessChoice::Pair {
+                harness: index,
+                account: account.id.clone(),
+            }));
+        }
+        rows
+    }
+
     /// Whether the explorer and the chat are on screen at all. They are IDE furniture and leave
     /// together — every other panel outlives a rail-mode switch, and the centre panel is what the
     /// mode actually selects between.
     pub fn is_ide(&self) -> bool {
         self.rail_mode.is_ide()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn harness(id: &str, available: bool) -> AgentTypeInfo {
+        AgentTypeInfo {
+            id: id.to_string(),
+            label: id.to_string(),
+            available,
+        }
+    }
+
+    fn account(id: &str, logged_in: &[&str]) -> AccountInfo {
+        AccountInfo {
+            id: id.to_string(),
+            logged_in: logged_in.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn with(agent_types: Vec<AgentTypeInfo>) -> WorkbenchState {
+        WorkbenchState {
+            agent_types,
+            ..Default::default()
+        }
+    }
+
+    /// With no accounts at all the menu is exactly the flat harness list it was before
+    /// identities existed — which is what keeps a machine that has signed nothing in working.
+    #[test]
+    fn no_accounts_offers_the_bare_harnesses() {
+        let state = with(vec![harness("claude-code", true), harness("codex", true)]);
+
+        assert_eq!(
+            state.harness_choices(&[]),
+            vec![HarnessChoice::Harness(0), HarnessChoice::Harness(1)]
+        );
+    }
+
+    /// A harness with identities is offered once per identity and never bare: which account a
+    /// conversation runs as cannot be changed after it starts, so it is not a choice to leave
+    /// implicit.
+    #[test]
+    fn a_harness_with_accounts_is_offered_once_per_account() {
+        let state = with(vec![harness("claude-code", true)]);
+        let accounts = [
+            account("mdn", &["claude-code"]),
+            account("syn", &["claude-code"]),
+        ];
+
+        assert_eq!(
+            state.harness_choices(&accounts),
+            vec![
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "syn".to_string()
+                },
+            ]
+        );
+    }
+
+    /// An account is only offered for the harnesses it actually has a login for. One account
+    /// serving two harnesses is normal, and an account that serves neither offers nothing.
+    #[test]
+    fn an_account_is_only_offered_where_it_is_signed_in() {
+        let state = with(vec![
+            harness("claude-code", true),
+            harness("codex", true),
+            harness("copilot", true),
+        ]);
+        let accounts = [
+            account("both", &["claude-code", "codex"]),
+            account("byenv", &[]),
+        ];
+
+        assert_eq!(
+            state.harness_choices(&accounts),
+            vec![
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "both".to_string()
+                },
+                HarnessChoice::Pair {
+                    harness: 1,
+                    account: "both".to_string()
+                },
+                // No login anywhere, so it keeps the bare row that is the only way to start it.
+                HarnessChoice::Harness(2),
+            ]
+        );
+    }
+
+    /// A harness whose binary is missing keeps its row so the menu can say so, disabled. It
+    /// must not be omitted — a tool that vanished should read as unavailable, not as absent —
+    /// and the row must still be at the position the pick will look for.
+    #[test]
+    fn an_unavailable_harness_keeps_its_row() {
+        let state = with(vec![harness("claude-code", false), harness("codex", true)]);
+        let accounts = [account("mdn", &["claude-code"])];
+
+        assert_eq!(
+            state.harness_choices(&accounts),
+            vec![
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+                HarnessChoice::Harness(1),
+            ]
+        );
     }
 }

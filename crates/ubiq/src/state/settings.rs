@@ -5,6 +5,8 @@
 //! not know, is discarded and the window opens on defaults.
 
 use serde::{Deserialize, Serialize};
+use ubiq_proto::ids::PaneId;
+use ubiq_proto::messages::AccountInfo;
 use ubiq_proto::settings::HostSettings;
 
 use crate::state::editor::ViewLayout;
@@ -94,6 +96,33 @@ impl Default for UiSettings {
     }
 }
 
+/// Where a login has got to. A modal shows exactly one of these at a time, and the user can
+/// leave any of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoginStep {
+    /// Pick a harness and name the identity. Nothing has been started, so leaving costs
+    /// nothing.
+    Choosing {
+        /// The harness id picked, or none while the user has not chosen.
+        agent_type: Option<String>,
+    },
+    /// The harness's own login is running in this pane. Leaving abandons it, which is what
+    /// the abort button does and is always safe — an unfinished login writes no credential.
+    Running { pane: PaneId },
+    /// It ended. `captured` is whether an account came of it; `message` says which harness,
+    /// or why not.
+    Done { captured: bool, message: String },
+}
+
+/// The login modal: which account is being logged in, and how far it has got.
+#[derive(Clone, Debug)]
+pub struct LoginState {
+    /// The identity being logged in. Typed by the user before the flow starts, and kept
+    /// afterwards so the outcome can name it.
+    pub account: String,
+    pub step: LoginStep,
+}
+
 /// The settings overlay, and the values it is showing.
 #[derive(Clone, Debug)]
 pub struct SettingsState {
@@ -103,6 +132,22 @@ pub struct SettingsState {
     /// The Host layer's own record. Owned and parsed by the host — this is only ever what the
     /// host last said it held, or the default while nothing has answered yet.
     pub host: HostSettings,
+    /// The accounts the host holds. References only — an id and the harnesses it covers — and
+    /// only ever what the host last said, like `host` above.
+    pub accounts: Vec<AccountInfo>,
+    /// The login modal, while one is up.
+    pub login: Option<LoginState>,
+}
+
+impl SettingsState {
+    /// The accounts that can run `agent_type`, for a picker that must not offer an identity
+    /// which would start the harness logged out.
+    pub fn accounts_for(&self, agent_type: &str) -> Vec<&AccountInfo> {
+        self.accounts
+            .iter()
+            .filter(|account| account.logged_in.iter().any(|id| id == agent_type))
+            .collect()
+    }
 }
 
 impl Default for SettingsState {
@@ -112,6 +157,8 @@ impl Default for SettingsState {
             nav: SettingsSection::FileExplorer,
             ui: UiSettings::default(),
             host: HostSettings::default(),
+            accounts: Vec::new(),
+            login: None,
         }
     }
 }

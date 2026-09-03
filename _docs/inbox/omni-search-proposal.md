@@ -5,7 +5,7 @@ kind: proposal
 status: proposal
 summary: Content search across a whole project — a shared query with its four options, a second host worker that walks the tree through the project's own ignore rules, a streamed and cancellable answer carrying the first search id on the wire, and a dock tab that draws the hits as places to go.
 read_when: you are deciding how Ubiq searches the contents of a project, where that work runs, or how a long streamed answer is correlated and cancelled
-updated: 2026-09-01
+updated: 2026-09-03
 depends_on: [tech-architecture, tech-transport, feat-workbench, inbox-find, inbox-routing]
 ---
 
@@ -24,6 +24,37 @@ already in the interface and crosses no bus; this one is a filesystem the interf
 The second mode the title implies — searching tasks, chats and the knowledge base beside the files —
 is designed here and built later. §4 is why the shape is settled now even though only files answer
 in v1: a source added afterwards must not change a message, a record or a row.
+
+## 0. Where the build has got to — 2026-09-03
+
+**Phases 1 and 2 have landed, phase 3 draws and receives, and no interface gesture starts a
+search.** Everything below is the design; this is the gap between it and the tree, so a later
+session does not re-derive it. §1 is the state before any of this landed, kept for its reasoning
+rather than as a report.
+
+In the tree: the contract (`crates/ubiq-proto/src/search.rs`, the six message variants); the worker
+(`crates/ubiq-host/src/search/`, answered in `coordinator.rs`); the panel (`PanelKind::Search`, with
+a home region, an availability rule and a saved key, drawn by `crates/ubiq/src/ui/search.rs` as a
+query field, grouped results and a counts line); every reply variant handled on `SearchState`,
+discarding any naming a search the window is not holding; and `⌘⇧F`, which reveals the panel.
+
+Missing, and this is the whole of why nothing happens:
+
+- **Nothing sends `SearchProject`** — the variant appears only in the host. No mutator mints a
+  `SearchId`, resets the state, sets `SearchState::active` or puts the message on the bus.
+- **The query field has no submit** — nothing subscribes, the panel declares no Enter action, so it
+  takes text and no one reads it. §1's command field again.
+- **The options are state without controls** — `case_sensitive`, `whole_word` and `regex` sit on
+  `SearchState` with no toggle to set them.
+- **A result row is not a destination** — rows are text; §9's *go to this file at this line* is absent.
+- **Nothing cancels** — `CancelSearch` is answered and never sent, so §5's supersession is exercised
+  from neither end, and the panel-settling pass that opens the panel for an active search is a dead
+  branch until the trigger exists.
+- **The worker has no tests** — no file beside the other host tests, no test module of its own, so
+  §8's ceilings and §5's interrupt are unverified.
+
+What is left is the trigger and what hangs off it: the mutator, the field's Enter, the option
+toggles, the row click, cancel-on-supersede, and the worker's fixture tests.
 
 ## 1. Where it stands
 
@@ -333,16 +364,18 @@ different promises, and neither may be changed to match the other by accident.
 
 ## 12. Phases
 
-1. **The query and the contract.** The `search` module in `crates/ubiq-proto/src/` — `Query`,
-   `Scope`, `Source`, `Batch`, `FileHit`, `LineHit`, `SearchError` — the six message variants, the
-   `SearchId`, and the
+1. **The query and the contract** — *done.* The `search` module in `crates/ubiq-proto/src/` —
+   `Query`, `Scope`, `Source`, `Batch`, `FileHit`, `LineHit`, `SearchError` — the six message
+   variants, the `SearchId`, and the
    contract document's fifth family. Nothing runs; find-in-file can already use `Query`.
-2. **The worker.** `crates/ubiq-host/src/search/`, the three dependencies, the parallel walk, the
-   matcher, the batching, the ceilings, the interrupt flag and supersession. Testable without a
-   frame, against a fixture tree.
-3. **The dock tab.** `DockTab::Search`, the query bar and its four toggles, the grouped results, the
+2. **The worker** — *done, untested.* `crates/ubiq-host/src/search/`, the three dependencies, the
+   parallel walk, the matcher, the batching, the ceilings, the interrupt flag and supersession.
+   Testable without a frame, against a fixture tree, and not yet tested that way.
+3. **The dock tab** — *half: it draws and it receives, and nothing starts it.* `DockTab::Search`,
+   the query bar and its four toggles, the grouped results, the
    progress and truncation readouts, `⌘⇧F` and the titlebar icon. This is the phase that retires
-   half of `G16`.
+   half of `G16`. What is left of it is §0's second list: the trigger, the toggles, the row as a
+   destination, and cancel.
 4. **The two-way handoff.** *Search in project* on the find bar and *find in this file* on a group.
    Waits on the find bar's own phase 1.
 5. **The other sources.** `Batch::Tasks` over the work records, on the coordinator's thread, and the
@@ -350,7 +383,8 @@ different promises, and neither may be changed to match the other by accident.
    interface changes by one arm.
 
 Phases 1–3 are the feature. Phase 5 is why the shape in §4 exists, and it can wait indefinitely
-without leaving anything half-built.
+without leaving anything half-built. Phase 3 is where the tree stands, and §0 says what of it is
+missing.
 
 ## 13. What this asks to be decided
 

@@ -40,6 +40,7 @@ fn agent(id: AgentId, session: SessionId, name: &str, activity: Activity) -> Wor
         branch: "main".to_string(),
         tokens: 10_000.0,
         harness: "Claude Code".to_string(),
+        account: "work".to_string(),
         model: "Opus 4.6".to_string(),
         context_pct: 5,
         thread: Vec::new(),

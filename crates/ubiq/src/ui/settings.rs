@@ -4,17 +4,22 @@
 //! follows the project-settings overlay: scrim, coloured left edge, left nav, scrolling body.
 //! The size is fixed — switching sections must not resize the panel.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
+    AnyElement, Context, ElementId, Focusable, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred,
+    div, point, px,
 };
 use gpui_component::IconName;
+use gpui_component::input::Input;
+use ubiq_proto::ids::PaneId;
 
 use crate::app::AppState;
-use crate::state::settings::{MarkdownOpen, SettingsSection};
+use crate::state::settings::{LoginStep, MarkdownOpen, SettingsSection};
 use crate::theme;
 use crate::ui::kit::{
-    check_box, choice_pill, column, heading, icon_button, nav_item, primary_button, setting_row,
+    check_box, choice_pill, column, field, ghost_button, heading, icon_button, label_block, modal,
+    modal_note, nav_item, primary_button, setting_row,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -238,10 +243,22 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "app-settings-add-harness",
                 Some(IconName::Plus),
                 "Add harness",
-                |_, _, _| {},
+                cx.listener(|this, _, window, cx| this.open_harness_login(window, cx)),
             ))
             .into_any_element(),
-        div()
+        accounts(app),
+    ])
+}
+
+/// The identities registered here, each with the harnesses it can actually start.
+///
+/// What a row shows is a *reference*: a name, and which harnesses have a captured login
+/// under it. No credential and no path — neither ever crosses the bus, so neither is here to
+/// draw.
+fn accounts(app: &AppState) -> AnyElement {
+    let accounts = &app.workbench.settings.accounts;
+    if accounts.is_empty() {
+        return div()
             .px_3()
             .py_8()
             .flex()
@@ -259,9 +276,248 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .text_size(px(11.))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(
-                        "Definitions live with the harness library, not in this file.",
+                        "Add one to sign in — the harness runs its own login.",
                     )),
             )
-            .into_any_element(),
-    ])
+            .into_any_element();
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_px()
+        .children(accounts.iter().map(|account| {
+            // An account with no captured login is a reference to an environment variable
+            // rather than a session, and saying so is the difference between "nothing here"
+            // and "nothing to seed a run with".
+            let signed_in = if account.logged_in.is_empty() {
+                "not signed in".to_string()
+            } else {
+                account.logged_in.join(", ")
+            };
+            div()
+                .px_3()
+                .py_2()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .border_b_1()
+                .border_color(theme::border())
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::text())
+                        .child(SharedString::from(account.id.clone())),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(if account.logged_in.is_empty() {
+                            theme::text_faint()
+                        } else {
+                            theme::text_muted()
+                        })
+                        .child(SharedString::from(signed_in)),
+                )
+        }))
+        .into_any_element()
+}
+
+/// The login modal: pick a harness, name the identity, watch the harness do its own login.
+///
+/// Three steps, one at a time, and the user can leave at any of them. Leaving a running
+/// login abandons it, which is safe by construction — a flow that wrote no credential
+/// captured nothing, and the host says so rather than recording a half-made account.
+///
+/// This is a modal rather than a tab on purpose: an OAuth flow wants the whole of the user's
+/// attention for the half-minute it takes, and a login that scrolled away behind a pane is a
+/// login nobody finishes.
+pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(login) = &app.workbench.settings.login else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+
+    let (title, body, footer) = match &login.step {
+        LoginStep::Choosing { agent_type } => (
+            "Add harness",
+            choosing(app, agent_type.as_deref(), window, cx),
+            choosing_footer(agent_type.is_some(), app, cx),
+        ),
+        LoginStep::Running { pane } => (
+            "Signing in",
+            running(app, *pane, cx),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-settings-login-abort",
+                    None,
+                    "Abort",
+                    cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
+                ))
+                .into_any_element(),
+        ),
+        LoginStep::Done { captured, message } => (
+            if *captured {
+                "Signed in"
+            } else {
+                "Not signed in"
+            },
+            div().pt_3().child(modal_note(message)).into_any_element(),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(primary_button(
+                    "app-settings-login-done",
+                    None,
+                    "Close",
+                    cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
+                ))
+                .into_any_element(),
+        ),
+    };
+
+    modal(
+        "app-settings-login",
+        theme::accent(),
+        title,
+        body,
+        footer,
+        crate::ui::handler(&view, |this, _, cx| this.close_harness_login(cx)),
+        window,
+    )
+}
+
+/// Step one: which harness, and what to call the identity.
+fn choosing(
+    app: &AppState,
+    chosen: Option<&str>,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let focused = app
+        .login_account_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "The harness runs its own sign-in. Ubiq opens it here and keeps the credential \
+             under this name.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Harness",
+                    "Which tool this identity signs in to.",
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
+                        // Only harnesses whose binary is actually here: a sign-in for a tool
+                        // that is not installed cannot start, and offering it would fail as a
+                        // spawn the user has to interpret.
+                        .children(
+                            app.workbench
+                                .agent_types
+                                .iter()
+                                .filter(|t| t.available)
+                                .map(|agent_type| {
+                                    let id = agent_type.id.clone();
+                                    choice_pill(
+                                        ElementId::Name(
+                                            format!("app-settings-login-harness-{}", agent_type.id)
+                                                .into(),
+                                        ),
+                                        &agent_type.label,
+                                        chosen == Some(agent_type.id.as_str()),
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.pick_login_harness(id.clone(), cx)
+                                        }),
+                                    )
+                                }),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Name",
+                    "What to call this identity. One name can sign in to several harnesses.",
+                ))
+                .child(
+                    field(theme::border(), focused)
+                        .h(px(30.))
+                        .px_2()
+                        .child(Input::new(&app.login_account_input).appearance(false)),
+                ),
+        )
+        .into_any_element()
+}
+
+/// Step one's footer. Confirm is dead until a harness is picked, because the other half of
+/// what it needs — the name — is in a field this function cannot read without a window.
+fn choosing_footer(picked: bool, _app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-login-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
+        ))
+        .child(
+            primary_button(
+                "app-settings-login-start",
+                None,
+                "Sign in",
+                cx.listener(|this, _, _, cx| this.start_harness_login(cx)),
+            )
+            .when(!picked, |button| button.opacity(0.5)),
+        )
+        .into_any_element()
+}
+
+/// Step two: the harness's own login, in a real terminal.
+///
+/// The height is explicit because the modal body is a scrolling column, and the emulator
+/// measures its own bounds to decide the geometry it reports to the harness — a box that
+/// measured to nothing would tell the harness it had no screen.
+fn running(app: &AppState, pane: PaneId, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "Finish the sign-in below. It may open a browser; come back here when it is done.",
+        ))
+        .child(
+            div()
+                .h(px(260.))
+                .border_1()
+                .border_color(theme::border())
+                .child(crate::ui::terminal::pane(app, pane, cx)),
+        )
+        .into_any_element()
 }

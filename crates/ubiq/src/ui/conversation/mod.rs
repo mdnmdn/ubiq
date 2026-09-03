@@ -434,6 +434,17 @@ fn footer(conversation: &Conversation) -> AnyElement {
                 .child(mono(conversation.harness.clone(), theme::text()).text_size(px(11.))),
         );
 
+    // Which identity answered. Read-only by design: it is chosen once, in the New agent menu,
+    // because a turn already taken was taken as somebody. Drawn only when the run resolved one
+    // — an empty pill beside the harness would claim an identity that does not exist.
+    if !conversation.account.is_empty() {
+        row = row.child(
+            pill(theme::border())
+                .h(px(22.))
+                .px_2()
+                .child(mono(conversation.account.clone(), theme::text_muted()).text_size(px(11.))),
+        );
+    }
     if let Some(model) = &conversation.model {
         row = row.child(
             pill(theme::border())
