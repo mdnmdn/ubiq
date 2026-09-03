@@ -108,4 +108,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .is_some()
                 .then(|| crate::ui::agents::new_agent_menu(app, cx)),
         )
+        // The new-agent naming prompt, raised once a harness and identity are picked and before
+        // the conversation actually starts. Painted here for the same reason the menu above is:
+        // more than one surface can open it.
+        .children(
+            app.workbench
+                .naming_agent
+                .is_some()
+                .then(|| crate::ui::agents::new_agent_naming(app, window, cx)),
+        )
 }

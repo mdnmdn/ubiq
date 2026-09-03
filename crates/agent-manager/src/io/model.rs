@@ -503,6 +503,16 @@ pub struct Cost {
     pub currency: String,
 }
 
+/// One rate-limit window: how full it is, and when it resets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RateLimitWindow {
+    /// The window's utilization, rounded from a 0.0-1.0 fraction to 0-100 — the same rounding
+    /// convention as `UsageRecord::context_pct`.
+    pub utilization_pct: u8,
+    /// When this window resets, unix seconds.
+    pub resets_at: i64,
+}
+
 /// Why a turn stopped.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -648,6 +658,21 @@ pub enum AgentEvent {
         /// Which model these numbers are for, where the harness says.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+    },
+
+    /// How much of the user's rate-limit window is spent, and when it resets. Claude Code's own
+    /// gauge, carried through rather than reimplemented — see `_docs/harness/claude-code.md`
+    /// §"Output stream protocol".
+    RateLimitUpdate {
+        /// The rolling five-hour window, where the harness reports one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        five_hour: Option<RateLimitWindow>,
+        /// The rolling seven-day window, where the harness reports one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seven_day: Option<RateLimitWindow>,
+        /// `"allowed"` when the account can still send; anything else means the user is currently
+        /// blocked.
+        status: String,
     },
 
     /// The agent is asking a human. Answered with
@@ -863,6 +888,28 @@ mod tests {
         let json = serde_json::to_string(&ev).unwrap();
         assert!(
             json.contains("\"type\":\"usage_update\""),
+            "json was: {json}"
+        );
+        let back: AgentEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ev);
+    }
+
+    #[test]
+    fn rate_limit_update_round_trips() {
+        let ev = AgentEvent::RateLimitUpdate {
+            five_hour: Some(RateLimitWindow {
+                utilization_pct: 7,
+                resets_at: 1_788_474_600,
+            }),
+            seven_day: Some(RateLimitWindow {
+                utilization_pct: 21,
+                resets_at: 1_788_796_800,
+            }),
+            status: "allowed".to_string(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(
+            json.contains("\"type\":\"rate_limit_update\""),
             "json was: {json}"
         );
         let back: AgentEvent = serde_json::from_str(&json).unwrap();

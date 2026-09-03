@@ -12,7 +12,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::theme;
-use crate::ui::kit::{ghost_button, mono, section_label};
+use crate::ui::kit::{HARNESS_GLYPH, ghost_button, mono, section_label};
 
 pub fn header(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -101,9 +101,9 @@ pub fn chat_list(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement
             .child(
                 mono(
                     if agent.account.is_empty() {
-                        agent.harness.clone()
+                        HARNESS_GLYPH.to_string()
                     } else {
-                        format!("{} · {}", agent.harness, agent.account)
+                        format!("{HARNESS_GLYPH} · {}", agent.account)
                     },
                     theme::text_faint(),
                 )

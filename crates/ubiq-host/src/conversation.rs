@@ -36,8 +36,9 @@ use agent_manager::io::{
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate,
-    PermissionKind, PermissionOption, PlanEntry, PlanPriority, PlanStatus, StopReason,
-    ToolCallPatch, ToolCallRecord, ToolContent, ToolKind, ToolLocation, ToolStatus, UsageRecord,
+    PermissionKind, PermissionOption, PlanEntry, PlanPriority, PlanStatus, RateLimitRecord,
+    StopReason, ToolCallPatch, ToolCallRecord, ToolContent, ToolKind, ToolLocation, ToolStatus,
+    UsageRecord,
 };
 use ubiq_proto::messages::Message;
 use ubiq_proto::work::AgentId;
@@ -55,11 +56,15 @@ pub struct Conversation {
 
 impl Conversation {
     /// Start pumping `bridge` onto `out`, stamping every message with `id`.
-    pub fn start(id: AgentId, bridge: Box<dyn IoBridge>, out: Mailbox) -> Self {
+    ///
+    /// `start_seq` is where the sequence counter picks up rather than always zero, so a
+    /// conversation that said something before this harness existed — P3's pending picker, over
+    /// `ConversationUpdate` — and the harness's own first frame are one unbroken sequence.
+    pub fn start(id: AgentId, bridge: Box<dyn IoBridge>, out: Mailbox, start_seq: u64) -> Self {
         let input = bridge.input();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
-            .spawn(move || pump(id, bridge, out))
+            .spawn(move || pump(id, bridge, out, start_seq))
             .ok();
 
         Self { id, input, pump }
@@ -126,8 +131,8 @@ impl Conversation {
 
 /// The pump thread: read the bridge until it ends, and put everything it says
 /// on the bus.
-fn pump(id: AgentId, mut bridge: Box<dyn IoBridge>, out: Mailbox) {
-    let mut seq = 0u64;
+fn pump(id: AgentId, mut bridge: Box<dyn IoBridge>, out: Mailbox, start_seq: u64) {
+    let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
 
     loop {
@@ -262,6 +267,18 @@ fn map_event(event: AgentEvent) -> Option<ConvUpdate> {
             size,
             cost_usd: cost.map(|cost| cost.amount),
             model,
+        }),
+
+        AgentEvent::RateLimitUpdate {
+            five_hour,
+            seven_day,
+            status,
+        } => ConvUpdate::RateLimit(RateLimitRecord {
+            five_hour_pct: five_hour.as_ref().map(|w| w.utilization_pct),
+            five_hour_resets_at: five_hour.as_ref().map(|w| w.resets_at),
+            seven_day_pct: seven_day.as_ref().map(|w| w.utilization_pct),
+            seven_day_resets_at: seven_day.as_ref().map(|w| w.resets_at),
+            status,
         }),
 
         AgentEvent::PermissionRequest {
@@ -527,6 +544,30 @@ mod tests {
         assert_eq!(usage.size, 200_000);
         assert_eq!(usage.cost_usd, Some(0.5));
         assert_eq!(usage.context_pct(), Some(0));
+    }
+
+    #[test]
+    fn rate_limit_maps_both_windows_and_the_status() {
+        let update = map_event(AgentEvent::RateLimitUpdate {
+            five_hour: Some(agent_manager::io::RateLimitWindow {
+                utilization_pct: 7,
+                resets_at: 1_788_474_600,
+            }),
+            seven_day: Some(agent_manager::io::RateLimitWindow {
+                utilization_pct: 21,
+                resets_at: 1_788_796_800,
+            }),
+            status: "allowed".to_string(),
+        })
+        .unwrap();
+        let ConvUpdate::RateLimit(record) = update else {
+            panic!("expected a rate limit record");
+        };
+        assert_eq!(record.five_hour_pct, Some(7));
+        assert_eq!(record.five_hour_resets_at, Some(1_788_474_600));
+        assert_eq!(record.seven_day_pct, Some(21));
+        assert_eq!(record.seven_day_resets_at, Some(1_788_796_800));
+        assert_eq!(record.status, "allowed");
     }
 
     /// A harness log line is already in the diagnostics ring; putting it in a

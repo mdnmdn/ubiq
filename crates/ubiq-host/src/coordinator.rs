@@ -12,7 +12,9 @@ use std::thread;
 use std::time::Instant;
 
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
-use ubiq_proto::conversation::StopReason;
+use ubiq_proto::conversation::{
+    ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
+};
 use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
@@ -101,10 +103,108 @@ struct Coordinator {
     /// have, for the same two reasons: a reply goes to the window that asked, and a project's
     /// count changes when one ends.
     conversation_owners: HashMap<AgentId, (ClientId, ProjectId)>,
+    /// A conversation the window asked for whose harness has not launched yet — P3's ordering:
+    /// the model is a launch flag, so it is chosen while a loader shows, and moves into
+    /// [`Self::conversations`] only on the first [`Message::PromptAgent`].
+    pending_conversations: HashMap<AgentId, PendingConversation>,
     /// The logins running in a pane, keyed by it. Whether a login captured anything is only
     /// answerable once its process has exited, so what the answer needs is parked here until
     /// then — the same shape `active_searches` uses, and forgotten the same way.
     logins: HashMap<PaneId, PendingLogin>,
+}
+
+/// A conversation the window asked for and the harness has not yet answered — registered so the
+/// UI can draw it with a loader while its harness's models are discovered, instead of starting it.
+/// [`Coordinator::conversations`] is where an agent moves once the harness actually exists.
+struct PendingConversation {
+    project_id: ProjectId,
+    agent_type: String,
+    account: Option<String>,
+    cwd: PathBuf,
+    /// Set by a `SetAgentConfig{config_id: "model", ..}` before launch. `None`, or an empty
+    /// string, both mean "whatever this harness defaults to" — no `--model` flag at all.
+    chosen_model: Option<String>,
+    /// Where the real pump's own sequence counter picks up, so a message sent before launch (the
+    /// model-discovery thread's `ConfigOptions`, always seq 1) and the harness's first frame after
+    /// it are one unbroken sequence.
+    next_seq: u64,
+}
+
+/// Whether `agent_type` takes anything after its first turn — the inventory table in
+/// `_docs/wip/agent-setup.md` names Claude and Codex as the only two; opencode, Copilot and Grok
+/// bridges are one-shot. Known before a bridge exists because it is a fact of the harness, not of
+/// the running process — [`Conversation::accepts_input`] reports the identical thing once a bridge
+/// is there to ask.
+fn accepts_second_turn(agent_type: &str) -> bool {
+    matches!(agent_type, "claude-code" | "codex")
+}
+
+/// The models `agent_type` will answer for, resolved directly against the library rather than
+/// through [`crate::agent::Agents::discover_models`] — this runs on a one-off thread with no
+/// borrow of `self`, and `Agents` cannot be shared there while `Message::SetSettings` still needs
+/// `&mut` access to it for `set_isolate`.
+fn probe_models(agent_type: &str) -> anyhow::Result<Vec<agent_manager::harness::ModelInfo>> {
+    agent_manager::harness::resolve(agent_type)
+        .ok_or_else(|| anyhow::anyhow!("unknown agent type '{agent_type}'"))?
+        .discover_models()
+}
+
+/// The one `model` [`ConfigOption`] a pending agent's picker gets: a select filled from what the
+/// harness discovered, or — when it could not answer — a single "Default" choice. Per
+/// `_docs/wip/agent-setup.md`'s P3: "one that cannot answer must offer 'whatever it defaults to'
+/// rather than an empty picker." An empty `current`/`value` is what tells `launch_pending` to pass
+/// no `--model` flag at all.
+fn model_config_option(
+    discovered: anyhow::Result<Vec<agent_manager::harness::ModelInfo>>,
+) -> ConfigOption {
+    let models = match discovered {
+        Ok(models) if !models.is_empty() => models,
+        _ => {
+            return ConfigOption {
+                id: "model".to_string(),
+                name: "Model".to_string(),
+                description: Some(
+                    "This harness's model list could not be read; it will use its own default."
+                        .to_string(),
+                ),
+                category: Some(ConfigCategory::Model),
+                value: ConfigValue::Select {
+                    current: String::new(),
+                    choices: vec![ConfigChoice {
+                        value: String::new(),
+                        name: "Default".to_string(),
+                        description: None,
+                        group: None,
+                    }],
+                },
+            };
+        }
+    };
+
+    let current = models
+        .iter()
+        .find(|model| model.default)
+        .or(models.first())
+        .map(|model| model.id.clone())
+        .unwrap_or_default();
+    ConfigOption {
+        id: "model".to_string(),
+        name: "Model".to_string(),
+        description: None,
+        category: Some(ConfigCategory::Model),
+        value: ConfigValue::Select {
+            current,
+            choices: models
+                .into_iter()
+                .map(|model| ConfigChoice {
+                    value: model.id.clone(),
+                    name: model.id,
+                    description: model.description,
+                    group: None,
+                })
+                .collect(),
+        },
+    }
 }
 
 impl Coordinator {
@@ -139,6 +239,7 @@ impl Coordinator {
             focused: HashMap::new(),
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
+            pending_conversations: HashMap::new(),
             logins: HashMap::new(),
         }
     }
@@ -619,18 +720,24 @@ impl Coordinator {
             }
 
             Message::StartConversation {
+                agent_id,
                 project_id,
                 session_id,
                 rel_path,
                 agent_type,
                 account,
+                name,
             } => {
                 self.start_conversation(
-                    client, project_id, session_id, rel_path, agent_type, account,
+                    client, agent_id, project_id, session_id, rel_path, agent_type, account, name,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
-                self.drive(client, agent_id, |conversation| conversation.prompt(text));
+                if self.pending_conversations.contains_key(&agent_id) {
+                    self.launch_pending(client, agent_id, text);
+                } else {
+                    self.drive(client, agent_id, |conversation| conversation.prompt(text));
+                }
             }
             Message::CancelTurn { agent_id } => {
                 self.drive(client, agent_id, |conversation| conversation.cancel());
@@ -649,9 +756,32 @@ impl Coordinator {
                 config_id,
                 value,
             } => {
-                self.drive(client, agent_id, |conversation| {
-                    conversation.set_config(config_id, value)
-                });
+                // Nothing is running yet: the pick is only remembered, for `launch_pending` to
+                // pass as `RunFlags.model` — a model cannot change after launch (see
+                // `_docs/wip/agent-setup.md`'s Traps), so a live conversation still goes through
+                // `drive`/`Conversation::set_config` exactly as before.
+                if self.pending_conversations.contains_key(&agent_id) {
+                    if !self.drives(client, agent_id) {
+                        return;
+                    }
+                    let pending = self
+                        .pending_conversations
+                        .get_mut(&agent_id)
+                        .expect("just checked above");
+                    if config_id == "model" {
+                        pending.chosen_model = Some(value);
+                    } else {
+                        tracing::debug!(
+                            agent = %agent_id,
+                            config_id,
+                            "no such config on an agent that has not launched yet"
+                        );
+                    }
+                } else {
+                    self.drive(client, agent_id, |conversation| {
+                        conversation.set_config(config_id, value)
+                    });
+                }
             }
             Message::EndConversation { agent_id } => {
                 self.end_conversation(agent_id, StopReason::Cancelled);
@@ -687,24 +817,27 @@ impl Coordinator {
         }
     }
 
-    /// Start a live agent: compose the harness, drive it over structured I/O, and pump what it
-    /// says onto the bus.
+    /// Register a conversation the window asked for, without starting its harness.
     ///
-    /// The conversation sibling of [`Self::spawn_workspace`], and the shape is deliberately the
-    /// same — settle the folder, mint the id, compose, then wire the reader — because the two are
-    /// one workspace wearing different faces. What differs is that this one has no pseudo-terminal
-    /// and so no geometry, and that its id is an agent's.
+    /// P3's ordering: a model reaches a harness only as a launch flag (see
+    /// `_docs/wip/agent-setup.md`), so it must be chosen before the harness exists. What used to
+    /// be one eager step is now two — this settles the folder, mints the `WorkAgent` and answers
+    /// `ConversationStarted` at once, so the window can draw a loader; [`Self::launch_pending`]
+    /// is what actually spawns the harness, on the first prompt.
+    // One argument per field of `Message::StartConversation` plus `client`: the mirror is the
+    // point, and the same shape the rest of this file uses for every family's request.
+    #[allow(clippy::too_many_arguments)]
     fn start_conversation(
         &mut self,
         client: ClientId,
+        agent_id: AgentId,
         project_id: ProjectId,
         session_id: SessionId,
         rel_path: Option<String>,
         agent_type: String,
         account: Option<String>,
+        name: Option<String>,
     ) {
-        let agent_id = AgentId::generate();
-
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
         };
@@ -720,26 +853,6 @@ impl Coordinator {
             return;
         }
 
-        let (composed, bridge) =
-            match self
-                .agents
-                .converse(agent_id, &agent_type, &cwd, account.clone())
-            {
-                Ok(started) => started,
-                Err(error) => {
-                    tracing::error!("agent {agent_id}: starting {agent_type} failed: {error:#}");
-                    self.agents.retire_agent(agent_id);
-                    self.refuse_conversation(client, agent_id, format!("{error:#}"));
-                    return;
-                }
-            };
-        tracing::info!(
-            agent = %agent_id,
-            harness = %agent_type,
-            dir = %composed.dir.display(),
-            "conversation started"
-        );
-
         let label = self
             .agents
             .types()
@@ -753,17 +866,17 @@ impl Coordinator {
             session: session_id,
             task: None,
             parent: None,
-            name: label.clone(),
+            name: name.unwrap_or(label.clone()),
             role: "agent".to_string(),
             activity: Activity::Thinking,
             note: String::new(),
             branch: String::new(),
             tokens: 0.0,
             harness: label,
-            // Which identity answered, as the column reports it. Taken from what the run
-            // actually resolved rather than from what was asked for, so a conversation that
-            // fell back to the ambient home does not claim an account it is not using.
-            account: composed.account().unwrap_or_default().to_string(),
+            // No run has happened yet to say which identity actually answered, so this reports
+            // what was *asked* for rather than what compose_run resolves — a known, accepted gap
+            // while there is no profile UI to make the two differ; see the doc's Traps.
+            account: account.clone().unwrap_or_default(),
             // Empty until the harness says which model answered — it is the only thing that
             // knows, and guessing would put a wrong name under a real conversation.
             model: String::new(),
@@ -787,17 +900,111 @@ impl Coordinator {
         self.conversation_owners
             .insert(agent_id, (client, project_id));
 
-        // The pump starts before the window is told, so the capability the window needs — whether
-        // this harness takes a second turn — is known by the time the message carrying it goes.
+        // Whether this harness takes a second turn is a fact of the harness, not of a running
+        // process, so it is known without a bridge — the same answer `Conversation::accepts_input`
+        // would give once one exists.
+        let accepts_input = accepts_second_turn(&agent_type);
+        self.pending_conversations.insert(
+            agent_id,
+            PendingConversation {
+                project_id,
+                agent_type: agent_type.clone(),
+                account,
+                cwd,
+                chosen_model: None,
+                // The discovery thread below always sends the first message this agent_id will
+                // ever see, and always as seq 1 — nothing else can race ahead of it.
+                next_seq: 1,
+            },
+        );
+
         let mailbox = self.host.mailbox(To::Client(client));
-        let conversation = Conversation::start(agent_id, bridge, mailbox.clone());
         mailbox.send(Message::ConversationStarted {
             project_id,
             agent: Box::new(agent),
             session,
-            accepts_input: conversation.accepts_input(),
+            accepts_input,
         });
+
+        // Discover this harness's models instead of starting it — a one-off thread because
+        // `discover_models` blocks (it shells out), and the coordinator must keep answering every
+        // other window while it runs.
+        let discovery_mailbox = mailbox;
+        thread::Builder::new()
+            .name(format!("discover-models-{agent_id}"))
+            .spawn(move || {
+                let discovered = probe_models(&agent_type);
+                if let Err(error) = &discovered {
+                    tracing::warn!(
+                        agent = %agent_id,
+                        harness = %agent_type,
+                        "model discovery failed: {error:#}"
+                    );
+                }
+                discovery_mailbox.send(Message::ConversationUpdate {
+                    agent_id,
+                    seq: 1,
+                    update: Box::new(ConvUpdate::ConfigOptions(vec![model_config_option(
+                        discovered,
+                    )])),
+                });
+            })
+            .ok();
+    }
+
+    /// Launch the harness a pending agent is still waiting on, now that its first prompt has
+    /// arrived — the moment P3 draws the line between "asked for" and "running".
+    ///
+    /// Everything here is what old, eager `start_conversation` used to do at the end of one call:
+    /// compose, wire the pump, then forward the prompt. What is new is that a failure here has to
+    /// retract what `start_conversation` already made visible — the `WorkAgent` and its owner —
+    /// because unlike the old code, `ConversationStarted` has already gone out by this point.
+    fn launch_pending(&mut self, client: ClientId, agent_id: AgentId, text: String) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let Some(pending) = self.pending_conversations.remove(&agent_id) else {
+            return;
+        };
+
+        let model = pending.chosen_model.filter(|model| !model.is_empty());
+        let (composed, bridge) = match self.agents.converse(
+            agent_id,
+            &pending.agent_type,
+            &pending.cwd,
+            pending.account.clone(),
+            model,
+        ) {
+            Ok(started) => started,
+            Err(error) => {
+                tracing::error!(
+                    agent = %agent_id,
+                    harness = %pending.agent_type,
+                    "starting failed: {error:#}"
+                );
+                self.agents.retire_agent(agent_id);
+                self.work.remove_live_agent(pending.project_id, agent_id);
+                self.conversation_owners.remove(&agent_id);
+                self.refuse_conversation(client, agent_id, format!("{error:#}"));
+                return;
+            }
+        };
+        tracing::info!(
+            agent = %agent_id,
+            harness = %pending.agent_type,
+            dir = %composed.dir.display(),
+            "conversation started"
+        );
+
+        let mailbox = self.host.mailbox(To::Client(client));
+        let conversation = Conversation::start(agent_id, bridge, mailbox, pending.next_seq);
         self.conversations.insert(agent_id, conversation);
+
+        // `ConversationStarted` already went out when this agent was registered as pending, and
+        // `accepts_input` cannot have changed since — it is the harness's own fact, not the
+        // process's. So this is only the forwarded prompt, exactly what `drive` sends for a live
+        // conversation.
+        self.drive(client, agent_id, |conversation| conversation.prompt(text));
     }
 
     /// Hand one conversation-family message to the agent it names.
@@ -853,6 +1060,9 @@ impl Coordinator {
             tracing::info!("agent {agent_id} ending: {reason:?}");
             conversation.stop();
         }
+        // A pending agent has no `Conversation` and no run directory yet — closed here, this
+        // already covers "closed before it ever launched" without a second path.
+        self.pending_conversations.remove(&agent_id);
         if let Some((_, project_id)) = self.conversation_owners.remove(&agent_id) {
             self.work.remove_live_agent(project_id, agent_id);
         }

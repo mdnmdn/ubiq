@@ -171,9 +171,11 @@ impl WorkbenchPanel {
                     Some(true) => theme::success(),
                     _ => theme::text_faint(),
                 };
+                let (label, tooltip) = truncate_tab_title(&title);
                 TabInfo {
-                    label: SharedString::from(title),
+                    label,
                     dot_colour: Some(dot),
+                    tooltip,
                     ..TabInfo::default()
                 }
             }
@@ -220,6 +222,7 @@ impl WorkbenchPanel {
                             .unwrap_or_else(theme::text_muted),
                         dot_colour: did_save_or_dirty(file).then(|| editor::dirty_colour(file)),
                         temporary: file.temporary,
+                        tooltip: None,
                     }
                 }
                 // The tab of a file this window no longer holds. It is hidden rather than drawn,
@@ -231,6 +234,36 @@ impl WorkbenchPanel {
             },
         }
     }
+}
+
+/// A pane's title, shortened for the tab. Past fifteen characters it is cut down to fifteen and
+/// marked with a hyphen — the first fifteen for a plain title, the *last* fifteen when there is an
+/// `@`, because that is the half a `user@host` or a prompt's path keeps its meaning in. The full
+/// title comes back as the tooltip so nothing is actually lost, only hidden until hovered.
+const TAB_TITLE_KEEP: usize = 15;
+
+fn truncate_tab_title(title: &str) -> (SharedString, Option<SharedString>) {
+    if title.chars().count() <= TAB_TITLE_KEEP {
+        return (SharedString::from(title.to_string()), None);
+    }
+    let label = if title.contains('@') {
+        let tail: String = title
+            .chars()
+            .rev()
+            .take(TAB_TITLE_KEEP)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!("-{tail}")
+    } else {
+        let head: String = title.chars().take(TAB_TITLE_KEEP).collect();
+        format!("{head}-")
+    };
+    (
+        SharedString::from(label),
+        Some(SharedString::from(title.to_string())),
+    )
 }
 
 /// The dirty/save indicator appears only while the file has something to say — a dot on a
@@ -267,6 +300,8 @@ pub struct TabInfo {
     pub title_colour: Rgba,
     pub dot_colour: Option<Rgba>,
     pub temporary: bool,
+    /// The untruncated title, shown on hover when [`Self::label`] is a trimmed version of it.
+    pub tooltip: Option<SharedString>,
 }
 
 impl Default for TabInfo {
@@ -276,6 +311,7 @@ impl Default for TabInfo {
             title_colour: theme::text(),
             dot_colour: None,
             temporary: false,
+            tooltip: None,
         }
     }
 }

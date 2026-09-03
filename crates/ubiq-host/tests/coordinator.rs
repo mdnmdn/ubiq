@@ -12,10 +12,12 @@ use ubiq_host::store::memory::{
 };
 use ubiq_host::work::Work;
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
+use ubiq_proto::conversation::ConvUpdate;
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
+use ubiq_proto::work::AgentId;
 
 /// Long enough for a process to start and say something on a loaded machine.
 const PATIENCE: Duration = Duration::from_secs(10);
@@ -1166,4 +1168,169 @@ fn the_shell_list_offers_what_is_installed_with_the_default_marked() {
             shell.program
         );
     }
+}
+
+// ── the conversation family: P3's pending stage ─────────────────────
+//
+// `"opencode"` is a real harness id — `is_agent_type` resolves it by name alone, so a pending
+// agent registers for it whether or not the `opencode` binary is actually on this machine — but
+// nothing here ever spawns it, so the tests hold regardless of what is installed.
+
+fn start_conversation(
+    ui: &Client,
+    project_id: ProjectId,
+    agent_type: &str,
+    account: Option<&str>,
+) -> AgentId {
+    let agent_id = AgentId::generate();
+    ui.send(Message::StartConversation {
+        agent_id,
+        project_id,
+        session_id: SessionId::generate(),
+        rel_path: None,
+        agent_type: agent_type.to_string(),
+        account: account.map(str::to_string),
+        name: None,
+    });
+    agent_id
+}
+
+/// The immediate answer to `StartConversation`: registered, with a loader, before any harness
+/// exists. Answers whether this harness takes a second turn.
+fn expect_conversation_started(ui: &Client, agent_id: AgentId) -> bool {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ConversationStarted {
+                agent,
+                accepts_input,
+                ..
+            }) if agent.id == agent_id => return accepts_input,
+            Ok(Message::ConversationError {
+                agent_id: id,
+                error,
+            }) if id == agent_id => {
+                panic!("the conversation was refused: {error}")
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("ConversationStarted never arrived"),
+        }
+    }
+}
+
+/// The model-discovery thread's own message — always the first thing a pending agent says,
+/// always seq 1, since nothing else can address a brand-new `agent_id` before the window has even
+/// heard of it. Asserts only the shape the doc promises regardless of what discovery found: one
+/// `model` option, never zero.
+fn expect_model_config_options(ui: &Client, agent_id: AgentId) {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ConversationUpdate {
+                agent_id: id,
+                seq,
+                update,
+            }) if id == agent_id => {
+                assert_eq!(seq, 1, "the discovery thread's message is always the first");
+                let ConvUpdate::ConfigOptions(options) = *update else {
+                    panic!("expected ConfigOptions, got {update:?}");
+                };
+                assert_eq!(
+                    options.len(),
+                    1,
+                    "one option even when a harness's list could not be read"
+                );
+                assert_eq!(options[0].id, "model");
+                return;
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the model picker never arrived"),
+        }
+    }
+}
+
+fn expect_conversation_error(ui: &Client, agent_id: AgentId) -> String {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ConversationError {
+                agent_id: id,
+                error,
+            }) if id == agent_id => {
+                return error;
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the launch failure was never reported"),
+        }
+    }
+}
+
+#[test]
+fn a_conversation_is_registered_and_its_models_discovered_before_any_harness_launches() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "opencode", None);
+    let accepts_input = expect_conversation_started(&ui, agent_id);
+    assert!(!accepts_input, "opencode takes no second turn");
+    expect_model_config_options(&ui, agent_id);
+
+    // Registered at once: the project's own listing already carries it, with nothing spawned to
+    // produce this — proof enough over the bus that registration did not wait on a process.
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    assert!(
+        agents.iter().any(|a| a.id == agent_id),
+        "the pending agent is not in the project's list"
+    );
+}
+
+#[test]
+fn set_agent_config_on_a_pending_agent_is_accepted_silently() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "opencode", None);
+    expect_conversation_started(&ui, agent_id);
+    expect_model_config_options(&ui, agent_id);
+
+    ui.send(Message::SetAgentConfig {
+        agent_id,
+        config_id: "model".to_string(),
+        value: "some-model".to_string(),
+    });
+
+    // A pick on a pending agent is only remembered for the eventual launch — no conversation
+    // exists yet to answer through, and nothing here says otherwise.
+    assert!(
+        ui.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "a config pick on a pending agent must not answer anything"
+    );
+}
+
+#[test]
+fn a_launch_that_fails_retracts_the_agent_it_registered() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    // An account nothing in this fresh root knows about — resolution refuses the run before any
+    // process is spawned, which is true whatever harnesses this machine happens to have.
+    let agent_id = start_conversation(&ui, project_id, "opencode", Some("no-such-account"));
+    expect_conversation_started(&ui, agent_id);
+    expect_model_config_options(&ui, agent_id);
+
+    ui.send(Message::PromptAgent {
+        agent_id,
+        text: "hello".to_string(),
+    });
+    let error = expect_conversation_error(&ui, agent_id);
+    assert!(error.contains("no-such-account"), "said {error:?}");
+
+    // The failure retracts what registration made visible, on the same terms a live agent's own
+    // end does.
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    assert!(
+        !agents.iter().any(|a| a.id == agent_id),
+        "a failed launch must not leave a dead agent in the list"
+    );
 }

@@ -61,18 +61,28 @@ drop would group into lights up, and the strip at the end of the row lights only
 would do something: a target that promises a change it will not make is worse than one that stays
 dark. The strip over the columns counts them — how many there are, how many agents they hold and how
 many of them are grouped — and names both gestures, because neither leaves a mark on the interface
-to be discovered from. Its one control is `New agent`: the harness library's agent types, the same
-`ListAgentTypes` answer the new-pane menu reads so the two lists cannot disagree, and a pick starts a
-live conversation here, in this project. A type whose binary is not on this machine is listed and
-refuses the click rather than being started into a failure. What a pick makes is a conversation
-rather than a pane — the same question asked of the other face of a workspace, and a conversation
-has no size.
+to be discovered from. Its controls are `Close all` and `New agent`. `Close all` benches every agent
+on screen — `bench_agent` for every tab in every column, the same thing a tab's own close already
+does, not `EndConversation` — and is shown only when there is something on screen to bench; a row
+with no columns gets no button rather than one that would silently do nothing. `New
+agent` reads the harness library's agent types, the same `ListAgentTypes` answer the new-pane menu
+reads so the two lists cannot disagree. A pick does not start anything by itself — it raises a
+naming prompt (`ui::agents::new_agent_naming`, over `WorkbenchState::naming_agent`), the window
+between choosing a harness and identity and typing what to call the conversation, where leaving
+costs nothing because no harness exists yet. Confirming sends `StartConversation` with that name,
+or `None` if the field was left empty, which the host reads as "use the harness's own label" —
+the way every conversation's name worked before this prompt existed. A type whose binary is not on
+this machine is listed and refuses the click rather than being started into a failure. What a pick
+eventually makes is a conversation rather than a pane — the same question asked of the other face
+of a workspace, and a conversation has no size.
 
 **Closing a tab benches the agent; it does not end it.** This is the one place the screen
 deliberately reads differently from a terminal pane, whose close kills the harness behind it —
 [`panes-and-terminals.md`](./panes-and-terminals.md). A tab is a view onto a conversation, so taking
 it off screen leaves the agent running: the sidebar still lists it, marked `bench`, and one click
-brings it back. Nothing on this screen kills an agent.
+brings it back. Nothing on this screen kills an agent — `Close all` benches the whole row the same
+way a single close does. `AppState::end_conversation` and `Message::EndConversation` still exist for
+a future explicit "end this agent for good" action, but nothing drawn today calls it.
 
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
 so an agent the host stops reporting stops being listed with nothing to clean up.
@@ -86,12 +96,29 @@ host has forgotten, and the columns that empties, and does nothing else — an a
 changed is not something an arriving record may undo. An arriving agent is listed on the bench rather
 than put in a column.
 
-**A column owns a composer for its life.** The window holds a fixed pool of `COLUMNS_MAX` text areas,
-because one is built before the first frame and its subscription is held for the window's life. A
-column is given a **slot** when it opens and keeps it, so what was typed at one agent never moves
-into a field addressed at another, and a freed slot's draft is cleared because the slot is handed to
-the next column that opens. The placeholder names the agent the column is showing. Enter sends,
-Shift-Enter inserts a newline.
+**A column owns a composer for its life.** The window holds a fixed pool of `COMPOSER_SLOTS` text
+areas — one per column plus `CHAT_SLOT`, the chat panel's own slot past the last column's — because
+one is built before the first frame and its subscription is held for the window's life. A column is
+given a **slot** when it opens and keeps it, so what was typed at one agent never moves into a field
+addressed at another, and a freed slot's draft is cleared because the slot is handed to the next
+column that opens. The placeholder names the agent the column is showing. Enter sends, Shift-Enter
+inserts a newline, and cmd/ctrl+Enter sends too — the same `secondary-enter` binding a multi-line
+`submit_on_enter` field already answers the same way as a bare Enter, so there is nothing extra to
+wire, only a hint to show for it. `AppState::agent_for_slot` is what "sends" resolves the agent
+through on every surface — the chat panel's own selection for `CHAT_SLOT`, a column's active tab
+otherwise — so the Enter key and the composer's own button never disagree about who a slot is
+addressed at.
+
+**One control does Send, Stop or Enqueue, depending on the turn.** Idle sends, exactly as
+`prompt_agent` always has. A turn already running with the draft empty offers Stop, which cancels
+it. A turn already running with something typed offers Enqueue instead of writing into a harness
+mid-turn: the draft is held on the conversation's own `queued` list and the composer clears, the
+same way a send clears it. `AppState::send_or_enqueue` is the one function behind all three — the
+button's click and the Enter key both call it — and it is what a queued row's turn ending drains:
+`Message::ConversationUpdate`'s handler pops the front of the queue and sends it as a plain
+`PromptAgent` the instant `apply` leaves the conversation `Idle`. A queued prompt is drawn as its own
+small row above the field, oldest first, each with an edit (loads it back into the composer) and a
+delete (drops it); the block draws nothing when the queue is empty.
 
 **The ceiling is on columns, not on tabs.** Eight columns fit the row. Grouping into a column that
 is open always works, however many tabs it holds; a split that would need a ninth is refused and
@@ -118,10 +145,19 @@ drew its own half of a conversation would be inventing the other half too.
 rather than asked for, because asking would be a round trip per token.
 
 **A column's footer reports the harness, and a ring only where there is one.** The harness, the
-model, what the turn has cost, and the context used out of the size the harness reported. **No ring
+model, what the turn has cost, the context used out of the size the harness reported, and — where
+Claude Code's `rate_limit_event` has arrived — how full the rolling five-hour window is. **No ring
 is drawn when no context window was reported** — a ratio over an invented denominator reads as a fact
-and is not one, and `G96` names who reports none. A mock's footer draws no mode chip, because
-`WorkAgent` carries none — `G80`.
+and is not one, and `G96` names who reports none; the rate-limit pill is guarded the same way. A
+mock's footer draws no mode chip, because `WorkAgent` carries none — `G80`.
+
+**Wherever a harness is named in passing, it is one glyph, not its label.** `kit::HARNESS_GLYPH` —
+a single placeholder standing in for every harness alike, since none has a real icon yet — replaces
+the harness text in the column footer's pill, the sidebar's secondary line and the chat panel's row.
+Only the *choosing* surfaces still spell the label out in full: the new-agent menu's rows and the
+settings page's harness list, where the full name is what a reader needs to make the pick. The
+conversation's own name — what item above's naming prompt sets — is unaffected either way; the
+glyph only ever stands in for the harness identifier next to it.
 
 **The sidebar lists everything the host reports, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
@@ -1282,28 +1318,47 @@ nothing in it names a colour, and it is tested without a frame in `crates/ubiq/t
 `state/conversation.rs` is one live agent's transcript as the window holds it. `Conversation::apply`
 folds a delta in — a chunk extends the block its message id names, a change of id starts a new one, a
 patch reaches its call through an index rather than a scan — and `activity()`, `context_pct()`,
-`tokens()` and `cost_usd()` are what the badge, the ring and the pill are drawn from; `is_next()` is
-the gap check. `AppState` holds them per project as `conversations`, kept after the harness ends, and
+`tokens()`, `cost_usd()` and `rate_limit_five_hour_pct()` are what the badge, the ring and the
+footer's pills are drawn from; `is_next()` is the gap check. `AppState` holds them per project as `conversations`, kept after the harness ends, and
 `refresh_agent_record()` writes the badge, the ring, the token count and the model onto the
 `WorkAgent` record, so the sidebar, the graph and a column's header keep one source.
 `ui/conversation/mod.rs` draws one — `render()` over a `ConversationView`, then `tool_block()`,
-`diff()`, `permission()`, `footer()` and `composer()` — `prompt_agent()` sends and appends nothing,
-`steer_column()` chooses between it and the mock's path, and `pick_new_agent_menu()` starts a
+`diff()`, `permission()`, `footer()`, `composer()` and `queue_list()` — `prompt_agent()` sends and
+appends nothing, `send_or_enqueue()` is what the composer's one button and the Enter key both call
+(send when idle, queue on `Conversation` when a turn is already running and the draft is not empty,
+nothing when it is), `steer_column()` resolves the slot's agent through `AppState::agent_for_slot`
+and chooses between `send_or_enqueue()` and the mock's path, and `pick_new_agent_menu()` starts a
 conversation on the harness at that row. `crates/ubiq/tests/conversation.rs` covers both.
 
-`AppState` carries it as `agents`, the composers as `column_inputs` — a fixed pool of `COLUMNS_MAX`
-`TextareaState` entities built in the constructor, each with a subscription that mirrors what is
-typed onto that slot's draft and steers the column on a bare Enter — and the sidebar's scroll as
-`agents_scroll`, its own rather than the explorer's. `reveal_agent()`, `group_agent_into()`,
-`bench_agent()`, `select_column_tab()` and `focus_agent_column()` are the clicks;
-`start_tab_drag()`, `drop_tab_on()`, `drop_tab_at_end()` and `settle_tab_drag()` are the drag, the
-last putting down a tab whose drag ended where no drop handler sees it. `steer_column()` is the one
-thing this screen sends, and appends nothing itself. `fill_columns()` gives each composer its
-placeholder and its draft, drained in `render` for the reason `fill_task_form()` is:
-`set_placeholder` and `set_value` both need a window, and an arriving message, a project switch and a
-jump from another screen have none. `MenuId::AgentBench` carries the column its `+` was clicked in,
-because a row of columns has one each and only one menu may be open. `open_task_chat()` reveals an
-agent and switches to Agents mode; `show_task_in_graph()` switches to Orchestration.
+**A conversation is drawn before its harness exists.** `pick_new_agent_menu()` mints the `AgentId`
+itself — the `SessionId` precedent — and the host adopts it, so `ConversationStarted` and the
+`Conversation` it creates arrive with no process behind them yet; `Conversation.launched` stays
+`false` until the harness's own `Started` update sets it. While it is false, `composer()` reads
+`conversation.config` for a `model`-category `ConfigOption` and draws a `Picker` dropdown above the
+field instead of the footer's read-only pill (a "Discovering models…" note when the list has not
+arrived), its own open/shut state on `Conversation.model_menu_open` rather than the window's single
+`open_menu` — several pending conversations can each have one open at once — and a pick sends
+`AppState::pick_agent_model()` — which also records the pick on `Conversation.chosen_model`, since
+the host does not echo a `SetAgentConfig` sent before launch, so the picker has nowhere else to read
+its own highlight from, and closes the dropdown. `activity()` reads that pending,
+never-run state (`Run::Idle` with no `stop_reason` yet) as `Activity::Thinking` rather than
+`Activity::Ended`, matching what the host already reports at registration.
+
+`AppState` carries it as `agents`, the composers as `column_inputs` — a fixed pool of
+`COMPOSER_SLOTS` `TextareaState` entities built in the constructor (one per column, plus
+`CHAT_SLOT`), each with a subscription that mirrors what is typed onto that slot's draft and steers
+the column on a bare Enter — and the sidebar's scroll as `agents_scroll`, its own rather than the
+explorer's. `reveal_agent()`, `group_agent_into()`, `bench_agent()`, `select_column_tab()` and
+`focus_agent_column()` are the clicks; `start_tab_drag()`, `drop_tab_on()`, `drop_tab_at_end()` and
+`settle_tab_drag()` are the drag, the last putting down a tab whose drag ended where no drop handler
+sees it. `steer_column()` is the one thing this screen sends through the Enter key, and appends
+nothing itself; `close_all_conversations()` is `bench_agent()` for every tab in every column, not
+`end_conversation()`. `fill_columns()` gives each composer its placeholder and its draft, drained in
+`render` for the reason `fill_task_form()` is: `set_placeholder` and `set_value` both need a window,
+and an arriving message, a project switch and a jump from another screen have none. `MenuId::AgentBench`
+carries the column its `+` was clicked in, because a row of columns has one each and only one menu
+may be open. `open_task_chat()` reveals an agent and switches to Agents mode; `show_task_in_graph()`
+switches to Orchestration.
 `ui/agents/mod.rs` is the frame — the sidebar, the header strip, the row of columns and the drop
 strip at the end — `sidebar.rs` is the list, and `column.rs` is one column, from its tab strip to its
 composer.
@@ -1539,6 +1594,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A conversation's update does not follow the last one | The window reports the gap and applies the update anyway, because half a transcript is worth more than none |
 | A harness reports no context window | No ring is drawn, and the footer reports the harness and the model without one |
 | A conversation's harness exits | The transcript stays and the agent takes no further turn. Closing the tab is what takes it off screen |
+| The composer is used while a turn is already running | An empty draft offers Stop; a non-empty one is held on `Conversation.queued` instead of being written into the harness mid-turn, and sent automatically the moment the turn ends |
 | A screen over the work is opened with no project | The centre draws nothing. All three are views of one project's work and there is none; the rail, titlebar and status bar stay |
 | A move is never answered | The card stays in the column it came from, drawn muted and saying it is waiting. Nothing times it out, and the mark comes off on the next answer naming that task |
 | An edit is never answered | The field closes and the panel goes on reporting the task the host last confirmed, so the change reads as not having happened. What was typed stays in the form until the selection changes or the project is entered again |

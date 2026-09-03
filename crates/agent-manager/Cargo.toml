@@ -3,7 +3,7 @@ name = "agent-manager"
 version = "0.1.0"
 edition = "2024"
 description = "Unified configuration manager for AI agent harnesses (Claude Code, Codex, GitHub Copilot, opencode, ...)"
-license-file = "../../LICENSE"
+license = "MIT"
 repository = "https://github.com/mdnmdn/agent-manager"
 
 [lib]

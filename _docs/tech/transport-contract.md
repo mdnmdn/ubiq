@@ -401,7 +401,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `project_id`, `session_id`, `rel_path?`, `agent_type` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `name?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -428,6 +428,23 @@ flag because they answer with different things: a pane has a size and a conversa
 one connection hosts many sessions and every session-scoped message names its own. Here one bus
 hosts many conversations and every variant names its own. Two agents streaming at once need no
 second channel, no fan-out and no per-agent subscription.
+
+**`agent_id` is minted by the window, not the host** — the same precedent `SessionId` already sets
+— because a conversation starts *pending*: `ConversationStarted` answers at once, before any
+harness exists, so the window can draw the record and a loader while the host discovers that
+harness's models in the background and reports them as a single `ConvUpdate::ConfigOptions`
+addressed to that `agent_id` (always the first update it receives, at `seq: 1`, whether or not
+discovery actually found anything). Only the window's first `PromptAgent` launches the harness,
+carrying whatever `SetAgentConfig` last chose on `RunFlags.model` — a model reaches a harness only
+as a launch flag, so changing the pick before that first prompt costs nothing. See
+`_docs/wip/agent-setup.md`'s P3.
+
+**`name` is what the user typed, not what the harness is called.** It sets `WorkAgent.name` —
+the sidebar row, the column header, the chat panel row all draw that field, never `harness`
+directly — and an absent `name` falls back host-side to the harness's own label, the way every
+conversation's name worked before this field existed. Chosen once, at the naming prompt between
+picking a harness and the first turn, and never after: renaming mid-conversation is not this
+field's job.
 
 **`seq` is per agent, monotonic, and starts at one.** Order is promised per agent and not across
 them, on exactly the terms the pane family already sets for terminal output. A window that receives
@@ -471,15 +488,20 @@ capability is on the message that says the agent exists.
 **A conversation outlives its harness.** `ConversationEnded` says the process is gone; the transcript
 stays on screen, and the agent stops accepting turns. Only closing it discards what was said.
 
-**`AnswerPermission` and `SetAgentConfig` are on the wire and answered with a refusal.** Nothing
-emits a permission request or a config option yet — the bridges auto-approve, and no harness
-advertises its models this way. They are named here because the family was designed whole rather
-than grown one variant at a time, and because a client that sends one deserves an error rather than
-silence.
+**`AnswerPermission` is on the wire and answered with a refusal.** Nothing emits a permission
+request yet — every bridge auto-approves, and P7 is what changes that. It is named here because the
+family was designed whole rather than grown one variant at a time, and because a client that sends
+one deserves an error rather than silence.
+
+**`SetAgentConfig` is real before a harness exists, and refused after.** While a conversation is
+still pending (above), `SetAgentConfig{config_id: "model", ..}` is what records the model its first
+prompt will launch with — the only config option a pending agent offers. Once a bridge is running,
+the same message is refused: every bridge rejects `SetConfigOption`, because a model, once chosen,
+cannot change mid-conversation.
 
 ## The payload records
 
-Twenty-seven records travel inside payloads.
+Twenty-eight records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -502,11 +524,12 @@ Twenty-seven records travel inside payloads.
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
 | `Turn` | `from`, `text` |
 
-| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `PermissionRequest`, `TurnEnded` |
+| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded` |
 | `ToolCallRecord` | `id`, `title`, `kind`, `status`, `content[]`, `locations[]` |
 | `ToolCallPatch` | `id`, and `title?`, `kind?`, `status?`, `content?`, `locations?` — absent is unchanged |
 | `ToolLocation` | `path`, `line?` |
 | `UsageRecord` | `used`, `size`, `cost_usd?`, `model?` |
+| `RateLimitRecord` | `five_hour_pct?`, `five_hour_resets_at?`, `seven_day_pct?`, `seven_day_resets_at?`, `status` |
 | `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
 | `ConfigChoice` | `value`, `name`, `description?`, `group?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |

@@ -388,6 +388,12 @@ impl TabGroupRenderer for Skin {
                     tab = tab.bg(theme::app_bg());
                 }
 
+                if let Some(tooltip) = info.tooltip.clone() {
+                    tab = tab.tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+                    });
+                }
+
                 tab = tab.child(info.label.clone());
 
                 if let Some(colour) = info.dot_colour {

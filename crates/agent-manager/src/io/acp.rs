@@ -132,7 +132,10 @@ pub fn to_acp(event: &AgentEvent) -> Option<Value> {
         AgentEvent::SessionStarted { .. }
         | AgentEvent::PermissionRequest { .. }
         | AgentEvent::TurnEnded { .. }
-        | AgentEvent::Log { .. } => return None,
+        | AgentEvent::Log { .. }
+        // Not part of ACP's `session/update` vocabulary at all — Claude Code's own gauge, with
+        // no upstream equivalent to project onto.
+        | AgentEvent::RateLimitUpdate { .. } => return None,
     };
     Some(value)
 }

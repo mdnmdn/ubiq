@@ -14,8 +14,8 @@
 use std::collections::HashMap;
 
 use ubiq_proto::conversation::{
-    ConfigOption, ConvContent, ConvUpdate, PermissionOption, PlanEntry, StopReason, ToolCallPatch,
-    ToolCallRecord, UsageRecord,
+    ConfigOption, ConvContent, ConvUpdate, PermissionOption, PlanEntry, RateLimitRecord,
+    StopReason, ToolCallPatch, ToolCallRecord, UsageRecord,
 };
 use ubiq_proto::work::{Activity, AgentId};
 
@@ -38,6 +38,13 @@ pub struct Pending {
     pub request_id: String,
     pub tool_call: ToolCallPatch,
     pub options: Vec<PermissionOption>,
+}
+
+/// A prompt typed while a turn was already running, held until it ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QueuedMessage {
+    pub id: u64,
+    pub text: String,
 }
 
 /// Whether the agent is working or waiting for a turn.
@@ -71,8 +78,14 @@ pub struct Conversation {
     /// What the harness says it is answering with. Empty until it says.
     pub model: Option<String>,
     pub mode: Option<String>,
+    /// The title the harness has given this conversation, where it names one. `None` until it
+    /// does — `refresh_agent_record` in `app.rs` is what turns this into the name a reader
+    /// actually sees (the sidebar row, the column header, the chat panel row).
+    pub title: Option<String>,
     /// Context and cost, as of the last thing the harness reported.
     pub usage: Option<UsageRecord>,
+    /// How full the user's rate-limit windows are, as of the last thing the harness reported.
+    pub rate_limit: Option<RateLimitRecord>,
     pub run: Run,
     pub stop_reason: Option<StopReason>,
     /// What the harness advertised: the model, the mode, the thinking level.
@@ -86,6 +99,24 @@ pub struct Conversation {
     pub accepts_input: bool,
     /// What the composer holds, unsent.
     pub draft: String,
+    /// Whether the harness behind this conversation has actually launched. `false` from
+    /// registration until its own `Started` event arrives — the window between them is P3's
+    /// pending stage, where the composer offers a model picker instead of a running conversation.
+    pub launched: bool,
+    /// The model picked before launch, optimistically — the host does not echo a `SetAgentConfig`
+    /// sent while a conversation is still pending, so this is what the picker highlights until
+    /// `launched` flips [`Self::launched`] true. `None` means "the harness's own default", which is
+    /// also `ConfigOption`'s own `current` field until the user picks something else.
+    pub chosen_model: Option<String>,
+    /// Whether the pre-launch model dropdown is open. Kept on the conversation rather than in the
+    /// window's single `open_menu` — several conversations can be on screen pending at once, each
+    /// with its own picker, unlike the window's one-at-a-time menus.
+    pub model_menu_open: bool,
+    /// Prompts typed while a turn was already running, held until it ends. A stable
+    /// per-conversation id per entry, so an edit or a delete names the right one even if others
+    /// are added or removed around it.
+    pub queued: Vec<QueuedMessage>,
+    next_queued_id: u64,
 
     /// The highest sequence number applied. An update that does not follow it
     /// is a gap, and a gap is worth saying rather than silently drawing.
@@ -107,7 +138,9 @@ impl Conversation {
             blocks: Vec::new(),
             model: None,
             mode: None,
+            title: None,
             usage: None,
+            rate_limit: None,
             run: Run::Idle,
             stop_reason: None,
             config: Vec::new(),
@@ -116,6 +149,11 @@ impl Conversation {
             error: None,
             accepts_input: true,
             draft: String::new(),
+            launched: false,
+            chosen_model: None,
+            model_menu_open: false,
+            queued: Vec::new(),
+            next_queued_id: 0,
             seq: 0,
             tools: HashMap::new(),
             open: None,
@@ -133,7 +171,12 @@ impl Conversation {
         match (self.run, self.stop_reason) {
             (Run::Ended, Some(StopReason::Failed)) => Activity::Failed,
             (Run::Ended, _) => Activity::Ended,
-            (Run::Idle, _) => Activity::Ended,
+            // Never run a turn: either a pending conversation whose harness has not launched yet,
+            // or one that just has — read as still getting itself going, matching the
+            // `Activity::Thinking` the host reports at registration, rather than as ended before
+            // it began.
+            (Run::Idle, None) => Activity::Thinking,
+            (Run::Idle, Some(_)) => Activity::Ended,
             (Run::Working, _) => match self.blocks.last() {
                 Some(ConvBlock::Thought(_)) => Activity::Thinking,
                 Some(ConvBlock::Tool { .. }) => Activity::Tools,
@@ -157,6 +200,11 @@ impl Conversation {
         self.usage.as_ref().and_then(|usage| usage.cost_usd)
     }
 
+    /// How full the rolling five-hour rate-limit window is, where the harness reports one.
+    pub fn rate_limit_five_hour_pct(&self) -> Option<u8> {
+        self.rate_limit.as_ref().and_then(|r| r.five_hour_pct)
+    }
+
     /// Whether a `seq` follows the last one applied.
     ///
     /// The bus promises order per agent, so a gap means a message was lost
@@ -175,6 +223,7 @@ impl Conversation {
             ConvUpdate::Started { model, mode, .. } => {
                 self.model = model;
                 self.mode = mode;
+                self.launched = true;
             }
 
             ConvUpdate::UserChunk { content, .. } => {
@@ -212,10 +261,9 @@ impl Conversation {
             ConvUpdate::Plan(entries) => self.plan = entries,
             ConvUpdate::ConfigOptions(options) => self.config = options,
             ConvUpdate::ModeChanged { mode_id } => self.mode = Some(mode_id),
-            // The title is the conversation's, and the column takes its name
-            // from the agent record instead — so there is nowhere to put it
-            // that a reader would look. Held rather than drawn.
-            ConvUpdate::Title(_) => {}
+            // Held here; `refresh_agent_record` (`app.rs`) is what copies it onto the
+            // `WorkAgent` the sidebar, the column header and the chat panel actually read.
+            ConvUpdate::Title(title) => self.title = Some(title),
 
             ConvUpdate::Usage(usage) => {
                 // A model is only named where the harness named it: a usage
@@ -225,6 +273,8 @@ impl Conversation {
                 }
                 self.usage = Some(usage);
             }
+
+            ConvUpdate::RateLimit(record) => self.rate_limit = Some(record),
 
             ConvUpdate::PermissionRequest {
                 request_id,
@@ -253,6 +303,27 @@ impl Conversation {
         self.pending = None;
         self.run = Run::Ended;
         self.stop_reason = Some(stop_reason);
+    }
+
+    /// Hold a prompt for later, typed while a turn was already running. Returns the id it was
+    /// given, so a caller can find this entry again to edit or delete it.
+    pub fn enqueue(&mut self, text: String) -> u64 {
+        let id = self.next_queued_id;
+        self.next_queued_id += 1;
+        self.queued.push(QueuedMessage { id, text });
+        id
+    }
+
+    /// Pop the oldest queued prompt — what a turn ending sends automatically.
+    pub fn dequeue_front(&mut self) -> Option<QueuedMessage> {
+        (!self.queued.is_empty()).then(|| self.queued.remove(0))
+    }
+
+    /// Take a queued prompt's text back out, by id. A plain delete, or the first half of an edit
+    /// — the caller loads what comes back into the live composer.
+    pub fn remove_queued(&mut self, id: u64) -> Option<String> {
+        let ix = self.queued.iter().position(|m| m.id == id)?;
+        Some(self.queued.remove(ix).text)
     }
 
     /// Toggle a tool block's detail.
@@ -471,6 +542,25 @@ mod tests {
     }
 
     #[test]
+    fn a_rate_limit_update_is_held_and_read_back() {
+        let mut c = conversation();
+        assert_eq!(c.rate_limit_five_hour_pct(), None, "nothing reported yet");
+
+        c.apply(
+            1,
+            ConvUpdate::RateLimit(RateLimitRecord {
+                five_hour_pct: Some(7),
+                five_hour_resets_at: Some(1_788_474_600),
+                seven_day_pct: Some(21),
+                seven_day_resets_at: Some(1_788_796_800),
+                status: "allowed".to_string(),
+            }),
+        );
+
+        assert_eq!(c.rate_limit_five_hour_pct(), Some(7));
+    }
+
+    #[test]
     fn a_waiting_permission_outranks_whatever_it_was_doing() {
         let mut c = conversation();
         c.apply(1, chunk("working", Some("m1")));
@@ -503,5 +593,81 @@ mod tests {
         c.apply(1, chunk("a", Some("m1")));
         assert!(c.is_next(2));
         assert!(!c.is_next(4));
+    }
+
+    /// Ids are stable and increase, so an edit or a delete elsewhere in the queue never renames
+    /// what a caller already holds a reference to.
+    #[test]
+    fn enqueue_hands_out_stable_increasing_ids() {
+        let mut c = conversation();
+        let first = c.enqueue("one".to_string());
+        let second = c.enqueue("two".to_string());
+        assert_ne!(first, second);
+        assert_eq!(
+            c.queued,
+            vec![
+                QueuedMessage {
+                    id: first,
+                    text: "one".to_string()
+                },
+                QueuedMessage {
+                    id: second,
+                    text: "two".to_string()
+                },
+            ]
+        );
+    }
+
+    /// What a turn ending sends automatically: the oldest one, first in first out.
+    #[test]
+    fn dequeue_front_pops_the_oldest() {
+        let mut c = conversation();
+        c.enqueue("first".to_string());
+        c.enqueue("second".to_string());
+
+        let popped = c.dequeue_front().expect("a queued message");
+        assert_eq!(popped.text, "first");
+        assert_eq!(c.queued.len(), 1);
+        assert_eq!(c.dequeue_front().unwrap().text, "second");
+        assert_eq!(c.dequeue_front(), None, "nothing left to pop");
+    }
+
+    /// Delete, and the other half of an edit: the caller re-populates the composer with what
+    /// comes back.
+    #[test]
+    fn remove_queued_takes_the_named_entry_back_out() {
+        let mut c = conversation();
+        let keep = c.enqueue("keep".to_string());
+        let drop = c.enqueue("drop this".to_string());
+
+        let text = c.remove_queued(drop).expect("the entry existed");
+        assert_eq!(text, "drop this");
+        assert_eq!(
+            c.queued,
+            vec![QueuedMessage {
+                id: keep,
+                text: "keep".to_string()
+            }]
+        );
+        assert_eq!(c.remove_queued(drop), None, "already removed");
+    }
+
+    /// The mechanics `app.rs`'s auto-send glue relies on: a turn ending flips `run` to `Idle`,
+    /// and the front of the queue is then a plain pop away — the state layer's half of "send the
+    /// next queued prompt when a turn ends", which is as far as this layer's own test can reach.
+    #[test]
+    fn a_turn_ending_leaves_the_queue_ready_to_drain() {
+        let mut c = conversation();
+        c.enqueue("next up".to_string());
+        c.apply(
+            1,
+            ConvUpdate::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                error: None,
+            },
+        );
+
+        assert_eq!(c.run, Run::Idle);
+        assert_eq!(c.dequeue_front().unwrap().text, "next up");
     }
 }

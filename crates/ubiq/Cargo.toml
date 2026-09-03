@@ -2,7 +2,7 @@
 name = "ubiq"
 version = "0.1.0"
 edition = "2024"
-license = "Apache-2.0"
+license-file = "../../LICENSE"
 description = "Ubiq: GPUI-based agent harness multiplexer"
 publish = false
 
@@ -28,6 +28,16 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", feature
     "tree-sitter-tsx",
     "tree-sitter-typescript",
     "tree-sitter-yaml",
+    "tree-sitter-go",
+    "tree-sitter-csharp",
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-swift",
+    "tree-sitter-css",
+    "tree-sitter-html",
+    "tree-sitter-sql",
+    "tree-sitter-kotlin",
+    "tree-sitter-diff",
 ] }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 

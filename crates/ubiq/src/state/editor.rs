@@ -19,11 +19,24 @@ use ubiq_proto::files::{DiffBase, FileDiff, FileVersion};
 pub enum FileLanguage {
     Tsx,
     TypeScript,
+    JavaScript,
     Json,
     Rust,
     Markdown,
     Yaml,
     Java,
+    Python,
+    Go,
+    CSharp,
+    Bash,
+    C,
+    Swift,
+    Css,
+    Html,
+    Sql,
+    Toml,
+    Kotlin,
+    Diff,
     Plain,
 }
 
@@ -32,11 +45,24 @@ impl FileLanguage {
     pub fn label(self) -> &'static str {
         match self {
             FileLanguage::Tsx | FileLanguage::TypeScript => "TypeScript",
+            FileLanguage::JavaScript => "JavaScript",
             FileLanguage::Json => "JSON",
             FileLanguage::Rust => "Rust",
             FileLanguage::Markdown => "Markdown",
             FileLanguage::Yaml => "YAML",
             FileLanguage::Java => "Java",
+            FileLanguage::Python => "Python",
+            FileLanguage::Go => "Go",
+            FileLanguage::CSharp => "C#",
+            FileLanguage::Bash => "Shell",
+            FileLanguage::C => "C",
+            FileLanguage::Swift => "Swift",
+            FileLanguage::Css => "CSS",
+            FileLanguage::Html => "HTML",
+            FileLanguage::Sql => "SQL",
+            FileLanguage::Toml => "TOML",
+            FileLanguage::Kotlin => "Kotlin",
+            FileLanguage::Diff => "Diff",
             FileLanguage::Plain => "Plain Text",
         }
     }
@@ -47,13 +73,26 @@ impl FileLanguage {
     /// plain text rather than highlighted as something it is not.
     pub fn of(path: &str) -> Self {
         match extension(path).as_str() {
-            "tsx" | "jsx" => FileLanguage::Tsx,
+            "tsx" => FileLanguage::Tsx,
             "ts" | "mts" | "cts" => FileLanguage::TypeScript,
+            "js" | "mjs" | "cjs" | "jsx" => FileLanguage::JavaScript,
             "json" | "jsonc" => FileLanguage::Json,
             "rs" => FileLanguage::Rust,
             "md" | "markdown" => FileLanguage::Markdown,
             "yaml" | "yml" => FileLanguage::Yaml,
             "java" => FileLanguage::Java,
+            "py" | "pyw" | "pyi" => FileLanguage::Python,
+            "go" => FileLanguage::Go,
+            "cs" | "csx" => FileLanguage::CSharp,
+            "sh" | "bash" | "zsh" | "ksh" => FileLanguage::Bash,
+            "c" | "h" => FileLanguage::C,
+            "swift" => FileLanguage::Swift,
+            "css" => FileLanguage::Css,
+            "html" | "htm" => FileLanguage::Html,
+            "sql" => FileLanguage::Sql,
+            "toml" => FileLanguage::Toml,
+            "kt" | "kts" => FileLanguage::Kotlin,
+            "diff" | "patch" => FileLanguage::Diff,
             _ => FileLanguage::Plain,
         }
     }

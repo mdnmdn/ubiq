@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use agent_manager::account::{AccountStore, FsAccountStore};
-use agent_manager::harness::{self, Launch};
+use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
 use agent_manager::profile::FsProfileStore;
@@ -176,6 +176,21 @@ impl Agents {
     /// see rather than failing as a process that would not start.
     pub fn is_agent_type(&self, id: &str) -> bool {
         harness::resolve(id).is_some()
+    }
+
+    /// The models `agent_type` will answer for, before anything is spawned.
+    ///
+    /// `discover_models` takes no account and no directory: it spawns its own probe rather than
+    /// asking a running harness, which is what makes P3's ordering possible — the picker is
+    /// filled *instead of* starting the agent, not after. What the probe returns is per harness
+    /// rather than per identity for the same reason (see `_docs/wip/agent-setup.md`, open
+    /// question 6).
+    pub fn discover_models(&self, agent_type: &str) -> Result<Vec<ModelInfo>> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        harness
+            .discover_models()
+            .with_context(|| format!("discovering {agent_type}'s models"))
     }
 
     /// The account store, over Ubiq's own root.
@@ -347,6 +362,7 @@ impl Agents {
             args,
             IoModes::Passthrough,
             None,
+            None,
         )
     }
 
@@ -368,6 +384,7 @@ impl Agents {
         agent_type: &str,
         cwd: &Path,
         account: Option<String>,
+        model: Option<String>,
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -378,6 +395,7 @@ impl Agents {
             Vec::new(),
             IoModes::Structured,
             account,
+            model,
         )?;
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
@@ -409,6 +427,9 @@ impl Agents {
         Ok((composed, bridge))
     }
 
+    // As many arguments as `Message::StartConversation` has fields to route through: composing
+    // a run is naming each of them, not a sign this wants a struct nobody else would reuse.
+    #[allow(clippy::too_many_arguments)]
     fn compose_run(
         &self,
         key: &str,
@@ -417,6 +438,7 @@ impl Agents {
         args: Vec<String>,
         io: IoModes,
         account: Option<String>,
+        model: Option<String>,
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -434,8 +456,10 @@ impl Agents {
             cwd: cwd.to_path_buf(),
             passthrough_args: args,
             // Highest precedence in `resolve`, which is what "the user picked this one" has to
-            // mean: an identity chosen when the conversation started outranks the profile's.
+            // mean: an identity — or a model — chosen when the conversation started outranks
+            // the profile's.
             account,
+            model,
             ..Default::default()
         };
         let mut spec = resolve::resolve(

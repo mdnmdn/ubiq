@@ -512,6 +512,10 @@ pub enum Message {
     /// either a tty or a pipe. This one answers with an agent rather than a pane, which is why the
     /// two are separate messages rather than a flag: nothing about a conversation has a size.
     StartConversation {
+        /// Minted by the window rather than the host — the [`SessionId`] precedent — so a
+        /// conversation can be drawn, selected and given a loader before the harness that will
+        /// answer it exists. The host adopts this id rather than minting its own.
+        agent_id: AgentId,
         project_id: ProjectId,
         session_id: SessionId,
         /// Where in the project it runs, absent for its root.
@@ -525,6 +529,9 @@ pub enum Message {
         /// somebody, and a conversation that changed identity halfway would be two
         /// conversations wearing one transcript.
         account: Option<String>,
+        /// What to call this conversation, typed at creation. Absent falls back to the harness's
+        /// own label, the way it always has — a name is a convenience, not a requirement.
+        name: Option<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.

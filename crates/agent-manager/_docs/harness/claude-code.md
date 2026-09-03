@@ -585,6 +585,19 @@ otherwise silently gets nothing.** `modelUsage`'s keys are camelCase — `inputT
 `contextWindow` is the only place the model's window is stated, and it is per model: 200 000 for
 Sonnet, 1 000 000 for the extended-context variants. Verified against 2.1.259.
 
+**The prompt line above is never echoed back.** The `{"type":"user",...}` shown as stdin input at
+the top of this section does not also appear on stdout — a persistent, `--input-format stream-json`
+session only emits a `"type":"user"` line on stdout for a *tool result* (the third line in the
+event-shapes block above), never for the plain text a caller just sent. Verified live, two turns,
+against 2.1.259 (`io::jsonl::tests::live_two_turn_structured_session_when_claude_available` in
+`agent-manager`): `write_input` (`io/jsonl.rs`) now synthesizes the caller's own turn locally rather
+than mapping an echo that never comes. The same live session emitted no `thinking` content block
+(nothing in this argv skeleton requests extended thinking) and no `ai-title`/title-shaped event of
+any kind — a `{"type":"ai-title",...}` line exists in Claude Code's on-disk *interactive* session
+transcript, but headless `-p` runs write no such transcript at all, and stdout carried nothing like
+it across six turns of live checking. Treat title-on-stdout as unconfirmed, not assumed absent
+forever, if a future check finds otherwise.
+
 ### Model & reasoning at launch
 
 - Model: `--model <id>`. (Cross-reference Authentication.)
