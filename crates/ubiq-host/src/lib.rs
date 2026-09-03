@@ -37,6 +37,7 @@ pub mod mcp_server;
 pub mod projects;
 pub mod pty;
 pub mod reply;
+pub mod search;
 pub mod settings;
 pub mod shells;
 pub mod store;

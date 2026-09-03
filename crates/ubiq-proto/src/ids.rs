@@ -131,3 +131,9 @@ ulid_id! {
     /// is a uniqueness key, never the identity.
     ProjectId
 }
+
+ulid_id! {
+    /// One search across a project. Minted by the interface so that batches arriving after the user
+    /// has moved on are discarded by id, the same discipline the generation counter buys for git.
+    SearchId
+}

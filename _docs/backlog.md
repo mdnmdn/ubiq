@@ -111,7 +111,9 @@ change what Ubiq does (here), or where a document lives (there)?
 | G86 | The Git screen has no specimen on the kitchen sink and no wireframe under `design/`; it is built against `inbox/design/git-proposal.png`, which is raw material rather than a captured asset | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G87 | A shell pane's environment starts from Ubiq's own — `portable-pty` captures the process env at spawn — so a variable Ubiq was launched without reaches it only because the login shell's profile sets it. A composed agent carries the environment the library computed, and a confined one carries the whole of it; nothing computes one for a shell | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
 | G88 | A mode or a project with no saved arrangement is given that mode's regions but inherits whatever tree was on screen, rather than the default arrangement | [`features/workbench.md`](./features/workbench.md) |
-| G89 | mouse scrolling direction in terminal should follow the os (for macos is inverted)
+| G89 | mouse scrolling direction in terminal should follow the os (for macos is inverted) |
+| G90 | double click on the folder in the explorer opens an empy editor, it should be ignored |
+| G91 | the markdown preview does not scroll anymore |
 
 
 

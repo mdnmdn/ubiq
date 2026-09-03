@@ -90,7 +90,12 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         .flex_none()
                         .bg(theme::border()),
                 )
-                .child(icon_button("search", IconName::Search, false, |_, _, _| {}))
+                .child(icon_button(
+                    "search",
+                    IconName::Search,
+                    false,
+                    cx.listener(|this, _, window, cx| this.reveal_search(window, cx)),
+                ))
                 .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}))
                 .child(
                     icon_button(
