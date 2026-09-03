@@ -150,6 +150,7 @@ fn an_agent(id: AgentId) -> WorkAgent {
         branch: "main".to_string(),
         tokens: 0.0,
         harness: "Claude Code".to_string(),
+        account: "work".to_string(),
         model: String::new(),
         context_pct: 0,
         thread: Vec::new(),

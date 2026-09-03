@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-03
+verified: 2026-09-03
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -107,8 +107,9 @@ unconfined.
 The spawn path, in order: look the project's record up and probe its folder, refusing before
 anything is opened if it cannot be worked in; resolve the working directory from that record and the
 optional path below it; resolve the agent type, falling back to what the session starts by default;
-compose the run when the library knows that type, which provisions its configuration directory, and
-resolve the policy it runs under; open a pseudo-terminal pair at 80×24; build the command with its
+compose the run when the library knows that type, which resolves what it is composed of — the
+account and model a profile names included — provisions its configuration directory, and resolves
+the policy it runs under; open a pseudo-terminal pair at 80×24; build the command with its
 arguments, its working directory, the environment the composition produced, and the `TERM` and
 `COLORTERM` a harness reads before it decides what it may draw; spawn the child; take a writer and a
 reader from the master; start the reader thread and the one that waits for the child; and answer

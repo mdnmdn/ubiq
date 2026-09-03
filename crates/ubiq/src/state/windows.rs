@@ -89,6 +89,12 @@ impl WindowRegistry {
         self.projects.len()
     }
 
+    /// How many windows are live. The letters only mean anything against this: one window has
+    /// nothing to be told apart from.
+    pub fn window_count(&self) -> usize {
+        self.windows.len()
+    }
+
     /// The lowest letter no live window is using. Letters are reused once a window closes, so the
     /// set of names stays as short as the set of windows.
     pub fn next_label(&self) -> char {

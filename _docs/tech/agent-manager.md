@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-03
 verified: 2026-09-03
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -59,9 +59,31 @@ pseudo-terminal it owns.
 
 `crates/ubiq-host/src/agent.rs` is the whole of that consumption, and it is deliberately thin. The
 agent-type list is `harness::all()` projected into `AgentTypeInfo`, each row marked with whether the
-harness's own binary is on this machine. A spawn naming one of those ids composes a run — a
-`RunSpec` with the harness, the project's folder and the policy setting — provisions it, and answers
-with what to exec. A spawn naming anything else is a program name, which is what a shell is.
+harness's own binary is on this machine. A spawn naming one of those ids composes a run, provisions
+it, and answers with what to exec. A spawn naming anything else is a program name, which is what a
+shell is.
+
+**Ubiq does not build the `RunSpec` itself — `resolve` does.** `agent.rs` calls
+`agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
+overrides exactly three fields of what comes back: the configuration directory (Ubiq owns where a
+run's state lives), the I/O mode (Ubiq owns which face the workspace wears), and the isolation
+(Ubiq's own settings own the toggle, and a conversation is never confined). Everything else —
+which account, which model, which skills and MCP servers, which config overlays — is the library's
+answer, read from the profile that names them. So an account reaches a pane without `agent.rs`
+learning what an account is, and a harness that grows a new composition knob needs no change here.
+
+The stores `resolve` reads are the filesystem defaults, each rooted under Ubiq's own config root so
+a development run never touches what the `am` CLI manages: `<root>/accounts`, `<root>/profiles`,
+`<root>/catalog`. A missing directory is an empty store, not an error, so this resolves on a machine
+that has configured nothing. The library's own settings file is deliberately **not** read — Ubiq's
+settings are the settings surface, and a second file answering the same question is a second
+answer — which leaves `resolve`'s precedence as flags, then the profile.
+
+**A configured harness entry is a `Profile`.** The pair a user thinks of as "Claude Code, work
+account" is `agent_manager::profile::Profile` with its `harness` and `account` set, and the agent
+layer that comes later is the same type with `defaults.instructions` filled. Ubiq therefore writes
+no persistence and no resolution code for either, and the profile named `default` is what a run with
+no explicit selection resolves to.
 
 **A workspace has two faces, and `agent.rs` composes both.** `Agents::compose` is the terminal one:
 `IoModes::Passthrough`, and a launch to exec under a pseudo-terminal. `Agents::converse` is the
@@ -116,9 +138,11 @@ Two feature decisions follow from embedding rather than shelling out:
 
 `crates/ubiq-host/Cargo.toml` declares the dependency and `crates/ubiq/Cargo.toml` does not, which
 is where the edge belongs: the host owns configuration and processes, and the interface may not name
-either. `just host` and `just ui` are the mechanical checks that this stayed true. What a run is
-composed *of* beyond a harness and a folder — skills, MCP servers, an account, a model — needs a
-composition on the wire, and is tracked in [`../backlog.md`](../backlog.md).
+either. `just host` and `just ui` are the mechanical checks that this stayed true, and `just core`
+is the check that the host only ever reaches for the library's ungated core — `cli` and `pty` are
+absent from this build, so the CLI's own helpers are not available to it and the host builds its
+stores itself. Letting the *user* choose a composition — which account, which model — still needs a
+selection on the wire, and is tracked in [`../backlog.md`](../backlog.md).
 
 ## The rules
 

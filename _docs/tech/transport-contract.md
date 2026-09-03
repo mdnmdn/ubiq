@@ -3,7 +3,7 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work and conversation families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search and account families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-03
 verified: 2026-09-03
@@ -604,6 +604,47 @@ that bites sets the relevant `truncated` flag.
 
 **Progress.** `SearchProgress` is sent every 100 files the walker sees, so the UI can show a spinner
 that advances.
+
+## The account family
+
+The ninth family. An **account** is one authentication a harness runs as, and this family is how
+one comes into being and how the interface learns which exist.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListAccounts` | UI → host | — | `Accounts` |
+| `Accounts` | host → UI | `accounts` | — |
+| `BeginHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
+| `HarnessLoginStarted` | host → UI | `pane_id`, `agent_type`, `account`, `cols`, `rows` | — |
+| `HarnessLoginCaptured` | host → UI | `agent_type`, `account` | — |
+| `HarnessLoginFailed` | host → UI | `agent_type`, `account`, `error` | — |
+
+**References only, never material.** `AccountInfo` is an id and the harness ids it has a captured
+login for. No credential and no path cross this family — that is the domain rule about accounts
+carrying credential references, and this family is where it is kept or lost. The log sink listens
+to the same bus, so a secret here would be a secret in a log the user might paste into an issue.
+
+**Which harnesses an account covers is derived, not recorded.** An account is a home; a harness is
+logged in there when the files its own `login_seed` names are present. So `logged_in` is computed
+per request, one account can serve several harnesses without saying so anywhere, and an empty list
+means the account references an environment variable rather than a captured session.
+
+**A login runs in a pane, and that pane belongs to no project.** `HarnessLoginStarted` names a
+`PaneId` that behaves like any other — it carries `TerminalOutput`, takes `TerminalInput`, resizes
+by `TerminalResize` — but it joins no project's pane count and gets no dock panel. The window draws
+it in a modal instead. Ending it is an ordinary `CloseWorkspace`.
+
+**The outcome is decided by the credential, not the exit code.** The host records the credential's
+timestamp before the login starts, and on the pane's end there are exactly three answers: the file
+appeared and is newer, so an account exists; it is there but untouched, so the harness exited
+without logging anyone in; or it is absent, so the flow was abandoned. Only the first sends
+`HarnessLoginCaptured`, and `Accounts` follows it so no window has to ask again. This is what makes
+abandoning a login safe, and it is why an exit code alone would not do: a harness can exit cleanly
+having done nothing.
+
+**Creating an account is logging one in.** There is no `AddAccount`. `BeginHarnessLogin` with an
+unknown id creates that identity if and only if the login captures something, so a half-finished
+flow leaves nothing behind to clean up.
 
 ## Framing
 

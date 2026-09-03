@@ -34,6 +34,17 @@ use super::work::WorkProjection;
 /// other side.
 pub const COLUMNS_MAX: usize = 8;
 
+/// The composer slot the chat panel types into.
+///
+/// The panel is a surface that hosts a conversation like a column does, so it needs a field from
+/// the same pool — and it is not a column, so it cannot be allocated one by
+/// [`AgentsView::free_slot`]. It gets the slot past the last column's, permanently.
+pub const CHAT_SLOT: usize = COLUMNS_MAX;
+
+/// How many composer fields the window builds before its first frame: one per column, plus the
+/// chat panel's. Every pool indexed by a slot is this long.
+pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + 1;
+
 /// The narrowest a column is drawn. Below this a transcript is a word per line, so the row scrolls
 /// sideways rather than squeezing further.
 pub const COLUMN_MIN_WIDTH: f32 = 360.0;
@@ -82,7 +93,7 @@ pub struct AgentsView {
     /// screen was last looked at arrives expanded rather than hidden.
     pub collapsed: Vec<SessionId>,
     /// What is typed in each composer, by slot, mirroring the window's textarea so rendering never
-    /// has to read the entity. Always [`COLUMNS_MAX`] long; a slot no column holds is empty.
+    /// has to read the entity. Always [`COMPOSER_SLOTS`] long; a slot nothing holds is empty.
     pub drafts: Vec<String>,
     /// The tab the pointer is carrying. A tab dropped on another column joins it; dropped past the
     /// last column it opens one of its own.
@@ -99,7 +110,7 @@ impl Default for AgentsView {
             columns: Vec::new(),
             focus: 0,
             collapsed: Vec::new(),
-            drafts: vec![String::new(); COLUMNS_MAX],
+            drafts: vec![String::new(); COMPOSER_SLOTS],
             dragging: None,
             arranged: false,
         }

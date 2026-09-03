@@ -14,14 +14,19 @@
 
 use std::path::{Path, PathBuf};
 
+use agent_manager::account::{AccountStore, FsAccountStore};
 use agent_manager::harness::{self, Launch};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
+use agent_manager::profile::FsProfileStore;
 use agent_manager::provision;
-use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, RunSpec};
-use anyhow::{Context, Result, anyhow};
+use agent_manager::registry::FsRegistry;
+use agent_manager::resolve;
+use agent_manager::settings::Settings;
+use agent_manager::spec::{ConfigStrategy, IoModes, Isolation};
+use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::AgentTypeInfo;
+use ubiq_proto::messages::{AccountInfo, AgentTypeInfo};
 use ubiq_proto::work::AgentId;
 
 /// The agent types this machine can run, and the composer behind them.
@@ -55,6 +60,43 @@ pub struct Composed {
     /// What the library provisioned, kept because a structured bridge is
     /// built from it rather than from the launch alone.
     provisioned: provision::Provisioned,
+    /// The id of the account this run resolved to, when a profile named one.
+    spec_account: Option<String>,
+}
+
+/// A login that has been prepared and not yet finished: what to run, and what finishing it
+/// would mean.
+///
+/// Held by the coordinator against the pane it opened, because the answer to "did this log
+/// anyone in" is only available once that pane's process has exited.
+pub struct PendingLogin {
+    /// The account this login is for.
+    pub account: String,
+    /// The harness being logged in, for the message that reports the outcome.
+    pub agent_type: String,
+    /// The account's capture home: the login's `$HOME`, and where its credential lands.
+    home: PathBuf,
+    /// The credential files the harness said it would write, relative to `home`. The first
+    /// is required; the rest are metadata.
+    files: Vec<PathBuf>,
+    /// When the required credential was last written before the login ran, so a harness
+    /// that exits without refreshing it cannot pass for a success.
+    captured_before: Option<std::time::SystemTime>,
+    /// The confined launch to spawn under a pseudo-terminal.
+    launch: Launch,
+}
+
+impl PendingLogin {
+    /// What to spawn. A login is an ordinary process to Ubiq — the policy that makes it
+    /// capturable is already rendered into this launch.
+    pub fn launch(&self) -> &Launch {
+        &self.launch
+    }
+
+    /// Where the login runs, which is also the only directory it may write.
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
 }
 
 impl Composed {
@@ -74,6 +116,12 @@ impl Composed {
     /// Whether this run is confined, for the log line that says so.
     pub fn is_confined(&self) -> bool {
         self.confined.is_some()
+    }
+
+    /// The account this run resolved to, when a profile named one. An id, never a
+    /// credential — which is the whole of what Ubiq is allowed to know about it.
+    pub fn account(&self) -> Option<&str> {
+        self.spec_account.as_deref()
     }
 }
 
@@ -130,6 +178,135 @@ impl Agents {
         harness::resolve(id).is_some()
     }
 
+    /// The account store, over Ubiq's own root.
+    ///
+    /// Built per call rather than held, because it is a path wrapper and holding it would
+    /// mean a login captured by another process stayed invisible until a restart.
+    fn account_store(&self) -> FsAccountStore {
+        FsAccountStore::new(self.root.join("accounts"))
+    }
+
+    /// Every account Ubiq knows, each with the harnesses it can actually log in.
+    ///
+    /// Which harnesses an account serves is *derived*, not recorded: an account is a home,
+    /// and a harness is logged in there when the files its own `login_seed` names are
+    /// present. So one account can serve several harnesses without saying so anywhere, and
+    /// a capture that half-failed reports the harness it did not cover.
+    pub fn accounts(&self) -> Result<Vec<AccountInfo>> {
+        let store = self.account_store();
+        let harnesses = harness::all();
+
+        store
+            .accounts()
+            .context("reading the accounts Ubiq knows")?
+            .into_iter()
+            .map(|account| {
+                let logged_in = match &account.home {
+                    Some(home) => harnesses
+                        .iter()
+                        .filter(|harness| Self::has_capture(harness.as_ref(), home))
+                        .map(|harness| harness.id())
+                        .collect(),
+                    // An account that references an environment variable or a helper
+                    // instead of a captured home has no files to look for.
+                    None => Vec::new(),
+                };
+                Ok(AccountInfo {
+                    id: account.id,
+                    logged_in,
+                })
+            })
+            .collect()
+    }
+
+    /// Whether `home` holds what makes `harness` logged in. A harness that names no login
+    /// files cannot be answered this way, so it does not count as captured.
+    fn has_capture(harness: &dyn harness::Harness, home: &Path) -> bool {
+        let seed = harness.config_anchor().login_seed;
+        !seed.is_empty() && seed.iter().any(|file| home.join(&file.src).exists())
+    }
+
+    /// What an interactive login for `account` into `agent_type` has to run, and what
+    /// finishing it means.
+    ///
+    /// The launch is confined, and that is not the usual reason. A harness asked to log in
+    /// with a merely *unreachable* keychain reports an error rather than writing the
+    /// plaintext credential a capture needs, so the policy denies the keychain instead —
+    /// see [`agent_manager::isolate::login_confined`]. Ubiq names none of that: it asks the
+    /// library for the policy and spawns what comes back, exactly as it does for a pane.
+    pub fn begin_login(&self, agent_type: &str, account: &str) -> Result<PendingLogin> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        let home = self
+            .account_store()
+            .login_home(account)
+            .with_context(|| format!("preparing a home for account '{account}'"))?;
+        let plan = harness
+            .login(&home)
+            .with_context(|| format!("asking {agent_type} how it logs in"))?;
+
+        // The credential's timestamp before the login runs. A harness that exits cleanly
+        // without refreshing its credential has not logged anyone in, and this is the only
+        // thing that tells the two apart.
+        let captured_before = Self::credential_mtime(&home, &plan.credential_files);
+
+        let confined = isolate::login_confined(
+            &home,
+            &plan,
+            None,
+            &IsolateOptions::new(self.root.join("isol8")),
+        )
+        .with_context(|| format!("resolving the policy a {agent_type} login runs under"))?;
+        let launch = isolate::confined_launch(&confined)
+            .with_context(|| format!("preparing a confined {agent_type} login"))?;
+
+        Ok(PendingLogin {
+            account: account.to_string(),
+            agent_type: agent_type.to_string(),
+            home,
+            files: plan.credential_files,
+            captured_before,
+            launch,
+        })
+    }
+
+    /// Record a finished login, or say why it captured nothing.
+    ///
+    /// Three outcomes, and only the first is a login: the required credential appeared and
+    /// is newer than it was; it is there but untouched, so the harness exited without
+    /// logging anyone in; or it is absent, so the flow was abandoned. The middle case is
+    /// why the timestamp is taken before the launch — without it, a stale credential left
+    /// by an earlier attempt would read as a fresh success.
+    pub fn finish_login(&self, pending: &PendingLogin) -> Result<()> {
+        let Some(required) = pending.files.first() else {
+            bail!(
+                "{} names no credential file, so a login cannot be captured",
+                pending.agent_type
+            );
+        };
+        let path = pending.home.join(required);
+        if !path.exists() {
+            bail!("the login wrote no credential, so nothing was captured");
+        }
+        if Self::credential_mtime(&pending.home, &pending.files) <= pending.captured_before {
+            bail!("the login left its credential untouched, so nobody was logged in");
+        }
+
+        self.account_store()
+            .capture_login(&pending.account, &pending.home, &pending.files)
+            .with_context(|| format!("recording account '{}'", pending.account))
+    }
+
+    /// When the credential a login is meant to write was last written, or `None` when it is
+    /// not there at all — which is what an account being logged in for the first time looks
+    /// like.
+    fn credential_mtime(home: &Path, files: &[PathBuf]) -> Option<std::time::SystemTime> {
+        let required = files.first()?;
+        std::fs::metadata(home.join(required))
+            .and_then(|meta| meta.modified())
+            .ok()
+    }
+
     /// Compose the run for `pane`: provision the harness's configuration into a
     /// directory named by that pane, and resolve the policy it runs under.
     ///
@@ -144,12 +321,15 @@ impl Agents {
         cwd: &Path,
         args: Vec<String>,
     ) -> Result<Composed> {
+        // A pane names no identity yet: the picker that offers one is the conversation's, so a
+        // terminal harness resolves whatever the library does.
         self.compose_run(
             &pane.to_string(),
             agent_type,
             cwd,
             args,
             IoModes::Passthrough,
+            None,
         )
     }
 
@@ -170,6 +350,7 @@ impl Agents {
         agent: AgentId,
         agent_type: &str,
         cwd: &Path,
+        account: Option<String>,
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -179,18 +360,30 @@ impl Agents {
             cwd,
             Vec::new(),
             IoModes::Structured,
+            account,
         )?;
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
         // problem. Saying it here is what makes that actionable.
         if !Self::has_login(harness.as_ref(), &composed.dir) {
-            tracing::warn!(
-                harness = %agent_type,
-                "no credential reached this run: the harness composes a configuration directory of \
-                 its own and found nothing to seed it from. A login kept in the operating \
-                 system's keychain is not a file, so there is nothing to copy — `am account \
-                 login` writes one that is."
-            );
+            match composed.account() {
+                // A profile named an account and its login still did not land, so the
+                // account itself is the thing that is not logged in.
+                Some(account) => tracing::warn!(
+                    harness = %agent_type,
+                    account = %account,
+                    "no credential reached this run: the account named for this harness has no \
+                     captured login to seed from. Log it in to write one."
+                ),
+                // Nothing named an account, so the run fell back to the user's own home and
+                // found nothing there either.
+                None => tracing::warn!(
+                    harness = %agent_type,
+                    "no credential reached this run: no account was named, and the harness \
+                     found nothing to seed from in the user's own home. A login kept in the \
+                     operating system's keychain is not a file, so there is nothing to copy."
+                ),
+            }
         }
 
         let bridge = harness
@@ -206,18 +399,49 @@ impl Agents {
         cwd: &Path,
         args: Vec<String>,
         io: IoModes,
+        account: Option<String>,
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
 
+        // What a run is composed *of* — its account, its model, the profile that names
+        // them — is the library's question, and `resolve` is the one place that answers it.
+        // Ubiq builds no `RunSpec` of its own beyond the three fields below, so an account
+        // named in a profile reaches a pane without this module learning what an account is.
+        //
+        // The library's own settings file is deliberately not read: Ubiq's settings are the
+        // settings surface, and a second file answering the same question is a second
+        // answer. That leaves `resolve`'s precedence as flags, then the profile.
+        let flags = resolve::RunFlags {
+            harness: harness.id(),
+            cwd: cwd.to_path_buf(),
+            passthrough_args: args,
+            // Highest precedence in `resolve`, which is what "the user picked this one" has to
+            // mean: an identity chosen when the conversation started outranks the profile's.
+            account,
+            ..Default::default()
+        };
+        let mut spec = resolve::resolve(
+            &flags,
+            &Settings::default(),
+            &FsRegistry::new(self.root.join("catalog")),
+            &FsAccountStore::new(self.root.join("accounts")),
+            &FsProfileStore::new(self.root.join("profiles")),
+        )
+        .with_context(|| format!("composing a {agent_type} run"))?;
+
+        // The three answers that are Ubiq's rather than the library's: which directory this
+        // run's configuration lives in, which face it wears, and whether it is confined.
+        // The last one replaces whatever a profile asked for, because a conversation is
+        // never confined (see `converse`) and the toggle belongs to Ubiq's own settings.
         let structured = io == IoModes::Structured;
-        let mut spec = RunSpec::new(harness.id(), cwd.to_path_buf());
         spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
-        spec.passthrough_args = args;
         spec.io = io;
-        if self.isolate && !structured {
-            spec.isolation = Isolation::Sandboxed(String::new());
-        }
+        spec.isolation = if self.isolate && !structured {
+            Isolation::Sandboxed(String::new())
+        } else {
+            Isolation::None
+        };
 
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
         let provisioned = provision::provision(harness.as_ref(), &spec, &templates)
@@ -236,15 +460,17 @@ impl Agents {
             confined,
             dir: provisioned.dir.clone(),
             provisioned,
+            spec_account: spec.account.as_ref().map(|a| a.id.clone()),
         })
     }
 
     /// Whether anything that makes a session logged in landed in `dir`.
     ///
-    /// The library seeds a harness's own login files into the run it composes, from the user's real
-    /// home. It cannot seed what is not a file, so a login held in the operating system's keychain
-    /// leaves nothing behind and the run starts unauthenticated. A harness that declares no login
-    /// files at all is not answerable this way, so it counts as fine.
+    /// The library seeds a harness's own login files into the run it composes — from the account a
+    /// profile named, or failing that from the user's real home. It cannot seed what is not a file,
+    /// so a login held in the operating system's keychain leaves nothing behind and the run starts
+    /// unauthenticated. A harness that declares no login files at all is not answerable this way,
+    /// so it counts as fine.
     fn has_login(harness: &dyn harness::Harness, dir: &Path) -> bool {
         let seed = harness.config_anchor().login_seed;
         seed.is_empty() || seed.iter().any(|file| dir.join(&file.dst).exists())
@@ -359,6 +585,216 @@ mod tests {
 
         agents.retire(pane);
         assert!(!composed.dir.exists());
+    }
+
+    /// Write a profile naming an account, and the account's own captured-login home,
+    /// under a Ubiq config root. This is the fixture `am account login` produces.
+    fn given_an_account(root: &Path, profile: &str, account: &str) {
+        let home = root.join("accounts").join(account);
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(
+            home.join(".claude/.credentials.json"),
+            b"{\"from\":\"account\"}",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("accounts").join(format!("{account}.toml")),
+            format!("id = \"{account}\"\nhome = \"{}\"\n", home.display()),
+        )
+        .unwrap();
+
+        let dir = root.join("profiles").join(profile);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("profile.toml"),
+            format!("harness = \"claude-code\"\naccount = \"{account}\"\n"),
+        )
+        .unwrap();
+    }
+
+    /// The point of the whole package: a profile named `default` names an account, and the
+    /// account's captured credential is what the run is composed with — not whatever
+    /// happens to be in the user's own home. The byte comparison is the proof, because a
+    /// zero-config seed from `$HOME` would also leave a file at that path.
+    #[test]
+    fn a_profile_s_account_is_what_composes_the_run() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        given_an_account(root.path(), "default", "work");
+
+        let agents = Agents::new(root.path(), false);
+        let pane = PaneId::generate();
+        let composed = agents
+            .compose(pane, "claude-code", cwd.path(), Vec::new())
+            .expect("composing a claude-code run against the default profile");
+
+        assert_eq!(composed.account(), Some("work"));
+        assert_eq!(
+            std::fs::read(composed.dir.join(".credentials.json")).unwrap(),
+            b"{\"from\":\"account\"}",
+            "the account's own credential is what reached the run"
+        );
+
+        agents.retire(pane);
+    }
+
+    /// An account id nothing answers to fails the compose rather than starting a run that
+    /// would report itself logged out from inside its own transcript.
+    #[test]
+    fn an_unknown_account_refuses_the_run() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let dir = root.path().join("profiles").join("default");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("profile.toml"),
+            "harness = \"claude-code\"\naccount = \"nope\"\n",
+        )
+        .unwrap();
+
+        let agents = Agents::new(root.path(), false);
+        let Err(error) = agents.compose(PaneId::generate(), "claude-code", cwd.path(), Vec::new())
+        else {
+            panic!("an unknown account should refuse the run");
+        };
+
+        assert!(
+            format!("{error:#}").contains("nope"),
+            "the refusal names the account that is missing: {error:#}"
+        );
+    }
+
+    /// No profile at all resolves exactly as it did before this seam existed, which is what
+    /// keeps a machine that has never configured an account working.
+    #[test]
+    fn no_profile_composes_a_run_with_no_account() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let pane = PaneId::generate();
+
+        let composed = agents
+            .compose(pane, "claude-code", cwd.path(), Vec::new())
+            .expect("composing with no profiles root at all");
+
+        assert_eq!(composed.account(), None);
+        agents.retire(pane);
+    }
+
+    /// A login prepared against `account`, as `begin_login` would leave it — without needing
+    /// the harness's binary, which a test machine may not have.
+    fn a_pending_login(agents: &Agents, account: &str) -> PendingLogin {
+        let home = agents
+            .account_store()
+            .login_home(account)
+            .expect("a capture home");
+        PendingLogin {
+            account: account.to_string(),
+            agent_type: "claude-code".to_string(),
+            files: vec![PathBuf::from(".claude/.credentials.json")],
+            captured_before: Agents::credential_mtime(
+                &home,
+                &[PathBuf::from(".claude/.credentials.json")],
+            ),
+            home,
+            launch: Launch::default(),
+        }
+    }
+
+    /// Write a credential under a login's home, as the harness's own flow would.
+    fn the_login_writes_a_credential(pending: &PendingLogin) {
+        let path = pending.home.join(".claude/.credentials.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{\"token\":\"fresh\"}").unwrap();
+    }
+
+    /// The happy path: the harness wrote its credential, so the account exists and names the
+    /// home the credential is in. That reference is the whole of what is recorded — the
+    /// credential itself is never copied anywhere.
+    #[test]
+    fn a_login_that_wrote_a_credential_becomes_an_account() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let pending = a_pending_login(&agents, "work");
+
+        the_login_writes_a_credential(&pending);
+        agents
+            .finish_login(&pending)
+            .expect("the login is captured");
+
+        let accounts = agents.accounts().expect("listing accounts");
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].id, "work");
+        assert!(
+            accounts[0].logged_in.contains(&"claude-code".to_string()),
+            "the harness whose credential landed is reported logged in: {accounts:?}"
+        );
+    }
+
+    /// Abort: the pane was closed before the flow finished, so no credential exists. Not an
+    /// error in Ubiq, but emphatically not an account either — which is what makes pressing
+    /// abort and starting again safe.
+    #[test]
+    fn an_abandoned_login_captures_nothing() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let pending = a_pending_login(&agents, "work");
+
+        assert!(agents.finish_login(&pending).is_err());
+        assert!(
+            agents.accounts().expect("listing accounts").is_empty(),
+            "an abandoned login must leave no account behind"
+        );
+    }
+
+    /// The case the timestamp exists for: a credential is already there from an earlier
+    /// attempt, and the harness exits cleanly without touching it. Without the before-shot
+    /// that stale file would read as a fresh success and the account would claim a login
+    /// nobody performed.
+    #[test]
+    fn a_login_that_left_a_stale_credential_captures_nothing() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+
+        // An earlier attempt's credential, in place *before* this login is prepared.
+        let early = a_pending_login(&agents, "work");
+        the_login_writes_a_credential(&early);
+
+        let pending = a_pending_login(&agents, "work");
+        assert!(
+            pending.captured_before.is_some(),
+            "the before-shot must see the credential that is already there"
+        );
+
+        let error = agents
+            .finish_login(&pending)
+            .expect_err("an untouched credential is not a login");
+        assert!(
+            format!("{error:#}").contains("untouched"),
+            "the reason says the credential was not refreshed: {error:#}"
+        );
+    }
+
+    /// An account referencing an environment variable has no captured home, so no harness is
+    /// reported logged in — rather than every harness being claimed because a home is absent.
+    #[test]
+    fn an_account_with_no_captured_home_reports_no_logins() {
+        let root = tempfile::TempDir::new().unwrap();
+        let accounts_root = root.path().join("accounts");
+        std::fs::create_dir_all(&accounts_root).unwrap();
+        std::fs::write(
+            accounts_root.join("byenv.toml"),
+            "id = \"byenv\"\napi_key_env = \"ANTHROPIC_API_KEY\"\n",
+        )
+        .unwrap();
+
+        let accounts = Agents::new(root.path(), false)
+            .accounts()
+            .expect("listing accounts");
+
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].id, "byenv");
+        assert!(accounts[0].logged_in.is_empty());
     }
 
     /// The sweep clears what a previous process left in the runs directory, and

@@ -386,7 +386,10 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
 /// There is no mode chip. A harness's mode is not on the record, and a chip reading the chat
 /// panel's selection would be reporting a setting that has nothing to do with this agent.
 fn footer(agent: &WorkAgent) -> AnyElement {
-    div()
+    // Each pill is drawn only where the record has something to put in it. A pill is a box with
+    // a border, so an empty string still draws — a small box saying nothing, which reads as a
+    // value the interface failed to show rather than one the harness has not reported.
+    let mut row = div()
         .px_3()
         .py_1p5()
         .flex()
@@ -394,20 +397,35 @@ fn footer(agent: &WorkAgent) -> AnyElement {
         .items_center()
         .gap_1p5()
         .border_t_1()
-        .border_color(theme::border())
-        .child(
+        .border_color(theme::border());
+
+    if !agent.harness.is_empty() {
+        row = row.child(
             pill(theme::accent())
                 .h(px(22.))
                 .px_2()
                 .child(mono(agent.harness.clone(), theme::text()).text_size(px(11.))),
-        )
-        .child(
+        );
+    }
+    // Which identity it runs as, chosen when it started and not changeable after.
+    if !agent.account.is_empty() {
+        row = row.child(
+            pill(theme::border())
+                .h(px(22.))
+                .px_2()
+                .child(mono(agent.account.clone(), theme::text_muted()).text_size(px(11.))),
+        );
+    }
+    if !agent.model.is_empty() {
+        row = row.child(
             pill(theme::border())
                 .h(px(22.))
                 .px_2()
                 .child(mono(agent.model.clone(), theme::text()).text_size(px(11.))),
-        )
-        .child(div().flex_1().min_w(px(0.)))
+        );
+    }
+
+    row.child(div().flex_1().min_w(px(0.)))
         .child(progress_ring(agent.context_pct, 12.))
         .child(
             mono(

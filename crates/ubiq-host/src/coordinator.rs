@@ -19,7 +19,7 @@ use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::ProjectHealth;
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
-use crate::agent::Agents;
+use crate::agent::{Agents, PendingLogin};
 use crate::config::ConfigRoot;
 use crate::conversation::Conversation;
 use crate::files::{self, Files};
@@ -101,6 +101,10 @@ struct Coordinator {
     /// have, for the same two reasons: a reply goes to the window that asked, and a project's
     /// count changes when one ends.
     conversation_owners: HashMap<AgentId, (ClientId, ProjectId)>,
+    /// The logins running in a pane, keyed by it. Whether a login captured anything is only
+    /// answerable once its process has exited, so what the answer needs is parked here until
+    /// then — the same shape `active_searches` uses, and forgotten the same way.
+    logins: HashMap<PaneId, PendingLogin>,
 }
 
 impl Coordinator {
@@ -135,6 +139,7 @@ impl Coordinator {
             focused: HashMap::new(),
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
+            logins: HashMap::new(),
         }
     }
 
@@ -239,6 +244,10 @@ impl Coordinator {
         // — so that goes when the pane does. A harness that exited by itself reaches here too:
         // the interface closes the tab on `PaneExited`, and closing a tab is a `CloseWorkspace`.
         self.agents.retire(pane_id);
+        // A login pane owns no run directory and no project, so the retire above and the
+        // count below both find nothing — what it owns is the answer to whether it captured
+        // anything, and this is the only moment that answer exists.
+        self.login_gone(client, pane_id);
         if let Some(project_id) = self.pane_projects.remove(&pane_id) {
             let replies = self.projects.pane_closed(project_id);
             self.answer(client, replies);
@@ -401,6 +410,16 @@ impl Coordinator {
                 let agent_types = self.agents.types();
                 self.host
                     .send(To::Client(client), Message::AgentTypes { agent_types });
+            }
+
+            Message::ListAccounts => {
+                self.send_accounts(client);
+            }
+            Message::BeginHarnessLogin {
+                agent_type,
+                account,
+            } => {
+                self.begin_harness_login(client, agent_type, account);
             }
 
             Message::GetSettings { layer } => {
@@ -604,8 +623,11 @@ impl Coordinator {
                 session_id,
                 rel_path,
                 agent_type,
+                account,
             } => {
-                self.start_conversation(client, project_id, session_id, rel_path, agent_type);
+                self.start_conversation(
+                    client, project_id, session_id, rel_path, agent_type, account,
+                );
             }
             Message::PromptAgent { agent_id, text } => {
                 self.drive(client, agent_id, |conversation| conversation.prompt(text));
@@ -679,6 +701,7 @@ impl Coordinator {
         session_id: SessionId,
         rel_path: Option<String>,
         agent_type: String,
+        account: Option<String>,
     ) {
         let agent_id = AgentId::generate();
 
@@ -697,15 +720,19 @@ impl Coordinator {
             return;
         }
 
-        let (composed, bridge) = match self.agents.converse(agent_id, &agent_type, &cwd) {
-            Ok(started) => started,
-            Err(error) => {
-                tracing::error!("agent {agent_id}: starting {agent_type} failed: {error:#}");
-                self.agents.retire_agent(agent_id);
-                self.refuse_conversation(client, agent_id, format!("{error:#}"));
-                return;
-            }
-        };
+        let (composed, bridge) =
+            match self
+                .agents
+                .converse(agent_id, &agent_type, &cwd, account.clone())
+            {
+                Ok(started) => started,
+                Err(error) => {
+                    tracing::error!("agent {agent_id}: starting {agent_type} failed: {error:#}");
+                    self.agents.retire_agent(agent_id);
+                    self.refuse_conversation(client, agent_id, format!("{error:#}"));
+                    return;
+                }
+            };
         tracing::info!(
             agent = %agent_id,
             harness = %agent_type,
@@ -733,6 +760,10 @@ impl Coordinator {
             branch: String::new(),
             tokens: 0.0,
             harness: label,
+            // Which identity answered, as the column reports it. Taken from what the run
+            // actually resolved rather than from what was asked for, so a conversation that
+            // fell back to the ambient home does not claim an account it is not using.
+            account: composed.account().unwrap_or_default().to_string(),
             // Empty until the harness says which model answered — it is the only thing that
             // knows, and guessing would put a wrong name under a real conversation.
             model: String::new(),
@@ -1081,6 +1112,135 @@ impl Coordinator {
                 running: true,
             },
         });
+    }
+
+    /// Tell one window which accounts exist. References only — an id and the harnesses it
+    /// covers — because a credential has no business on the bus the log sink listens to.
+    fn send_accounts(&mut self, client: ClientId) {
+        match self.agents.accounts() {
+            Ok(accounts) => self
+                .host
+                .send(To::Client(client), Message::Accounts { accounts }),
+            Err(error) => {
+                // A store that cannot be read is a real problem, but not one a window can act
+                // on, and an empty list is what the screen would draw anyway.
+                tracing::warn!("the accounts could not be read: {error:#}");
+                self.host.send(
+                    To::Client(client),
+                    Message::Accounts {
+                        accounts: Vec::new(),
+                    },
+                );
+            }
+        }
+    }
+
+    /// Open a pane running a harness's own login flow, and remember what finishing it means.
+    ///
+    /// A login pane is a pane in every respect but one: it belongs to no project, so it
+    /// changes no project's count and closing it is not closing a workspace. What makes it a
+    /// login is the entry in `logins` — read when the pane ends, and the only thing that
+    /// turns an exited process into a captured account.
+    fn begin_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
+        let refuse = |coordinator: &mut Self, error: String| {
+            tracing::warn!(harness = %agent_type, account = %account, "login refused: {error}");
+            coordinator.host.send(
+                To::Client(client),
+                Message::HarnessLoginFailed {
+                    agent_type: agent_type.clone(),
+                    account: account.clone(),
+                    error,
+                },
+            );
+        };
+
+        let pending = match self.agents.begin_login(&agent_type, &account) {
+            Ok(pending) => pending,
+            Err(error) => return refuse(self, format!("{error:#}")),
+        };
+
+        let launch = pending.launch();
+        let program = pty::Program {
+            program: launch.program.clone(),
+            args: launch.args.clone(),
+            env: launch.env.clone(),
+            env_remove: launch.env_remove.clone(),
+            env_clear: launch.env_clear,
+        };
+        let pane_id = PaneId::generate();
+        let (pane, child) =
+            match pty::spawn(&program, Some(pending.home()), INITIAL_COLS, INITIAL_ROWS) {
+                Ok(spawned) => spawned,
+                Err(error) => return refuse(self, error.to_string()),
+            };
+
+        self.owners.insert(pane_id, client);
+        let mailbox = self.host.mailbox(To::Client(client));
+        if let Err(error) = pane.forward_output(pane_id, mailbox.clone()) {
+            self.owners.remove(&pane_id);
+            return refuse(self, error.to_string());
+        }
+        pty::reap(pane_id, child, mailbox.clone());
+        self.panes.insert(pane_id, pane);
+        self.logins.insert(pane_id, pending);
+
+        tracing::info!(
+            harness = %agent_type,
+            account = %account,
+            "login started in pane {pane_id} for {client}"
+        );
+        mailbox.send(Message::HarnessLoginStarted {
+            pane_id,
+            agent_type,
+            account,
+            cols: INITIAL_COLS,
+            rows: INITIAL_ROWS,
+        });
+    }
+
+    /// A login pane has ended: say whether it logged anybody in.
+    ///
+    /// Three outcomes and one message each, because the difference matters to the user: the
+    /// credential appeared and is fresh, so the account exists; it was left untouched, so the
+    /// harness exited without logging anyone in; or it is not there, so the flow was
+    /// abandoned — which is exactly what pressing abort does, and is not an error.
+    fn login_gone(&mut self, client: ClientId, pane_id: PaneId) {
+        let Some(pending) = self.logins.remove(&pane_id) else {
+            return;
+        };
+        let agent_type = pending.agent_type.clone();
+        let account = pending.account.clone();
+
+        match self.agents.finish_login(&pending) {
+            Ok(()) => {
+                tracing::info!(harness = %agent_type, account = %account, "login captured");
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessLoginCaptured {
+                        agent_type,
+                        account,
+                    },
+                );
+                // The list the settings screen draws has changed, and it is the same answer
+                // for every window, so nobody has to ask again.
+                self.send_accounts(client);
+            }
+            Err(error) => {
+                tracing::info!(
+                    harness = %agent_type,
+                    account = %account,
+                    "login captured nothing: {error:#}"
+                );
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessLoginFailed {
+                        agent_type,
+                        account,
+                        error: format!("{error:#}"),
+                    },
+                );
+            }
+        }
     }
 
     /// Where a pane starts, or nothing at all and the window told why.

@@ -176,6 +176,90 @@ pub fn plan(
     Ok(Some(Confined { spec, ctx }))
 }
 
+/// The policy an interactive **login capture** runs under.
+///
+/// A login is confined for the opposite reason a run is. A run is confined to keep the
+/// harness away from the machine; a login is confined to keep it away from the *operating
+/// system's keychain*, so that it writes the plaintext credential a capture can collect.
+///
+/// That indirection is not a preference. For Claude Code 2.1.218+ a relocated `$HOME` alone
+/// leaves the keychain merely *unreachable* — no `~/Library/Keychains` — which that version
+/// reports as an error rather than falling back to a file, so the capture gets nothing.
+/// Denying the keychain at the policy layer does still take the clean file-fallback path.
+///
+/// So the layer set is chosen rather than discovered: `auto_profiles` is **off**, because
+/// isol8 would otherwise match the harness's own layer on the command name and that layer
+/// requires `integrations/keychain` — the one thing this policy exists to withhold. A
+/// `layer` given by the caller joins the defaults, as it does in [`plan`].
+///
+/// `home` is the account's capture home: the login's `$HOME`, its only writable directory,
+/// and where [`crate::account::AccountStore::capture_login`] reads the result from.
+pub fn login_confined(
+    home: &Path,
+    plan: &crate::harness::LoginPlan,
+    layer: Option<&str>,
+    options: &IsolateOptions,
+) -> Result<Confined> {
+    let cmd = command_of(&plan.launch);
+    let ctx = isol8::Context {
+        real_home: isol8::home::real_home(),
+        // A login belongs to an account rather than to a project, so the automatic
+        // cwd grant is the capture home and no project folder is reachable at all.
+        cwd: home.to_path_buf(),
+        platform: isol8::Platform::current(),
+        config_dir: options.state_dir.clone(),
+        managed_root: options.state_dir.join("homes"),
+    };
+
+    let mut base = isol8::Spec::new(cmd.clone());
+    base.add_dirs_rw = vec![path_string(home)];
+    base.home = Some(path_string(home));
+    base.set_env = plan
+        .launch
+        .env
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
+    base.env_pass = vec!["TERM".to_string(), "COLORTERM".to_string()];
+
+    // A harness installed as a versioned payload execs out of its own store, which is
+    // outside the capture home and so denied by default. Guarded by its own existence, so
+    // this costs a harness that keeps no such directory nothing.
+    if let Some(base_dirs) = directories::BaseDirs::new() {
+        let versions = base_dirs.home_dir().join(".local/share/claude");
+        if versions.is_dir() {
+            base.add_dirs_ro.push(path_string(&versions));
+        }
+    }
+
+    let profiles = options.state_dir.join("profiles");
+    std::fs::create_dir_all(&profiles)
+        .with_context(|| format!("creating the isolation profile root {}", profiles.display()))?;
+
+    let mut cfg = isol8::Config::builtin_defaults();
+    // Never the harness's own layer: it pulls in the keychain this policy withholds.
+    cfg.auto_profiles = false;
+    cfg.profile_paths = vec![path_string(&profiles)];
+    match layer {
+        Some(name) if !name.is_empty() => cfg.default_profiles.push(name.to_string()),
+        _ => {
+            if isol8::Platform::current() == isol8::Platform::Macos {
+                // What the harness needs to open a browser and finish an OAuth flow, and
+                // deliberately not `integrations/keychain`.
+                cfg.default_profiles
+                    .push("integrations/launch-services".to_string());
+                cfg.default_profiles
+                    .push("integrations/browser-native-messaging".to_string());
+            }
+        }
+    }
+
+    let spec = isol8::resolve::spec_from_config(&cfg, base, cmd, &ctx)
+        .context("resolving the isolation policy for this login")?;
+
+    Ok(Confined { spec, ctx })
+}
+
 /// The effective policy for `confined`, resolved and rendered but not applied
 /// — the layer stack, the grants, the environment, the home plan and the
 /// OS-native policy text. Writes nothing and spawns nothing, so it is what
@@ -319,6 +403,57 @@ mod tests {
 
         let confined = plan(&launch, &run, cwd.path(), &options).expect("plan");
         assert!(confined.is_none());
+    }
+
+    // 1b. A login capture exists to make the harness write a plaintext credential, and it
+    // only does that when the OS keychain is *denied* rather than merely absent. So the
+    // resolved layer stack must not contain `integrations/keychain` — and the way it would
+    // sneak back in is isol8 matching the harness's own layer on the command name, since
+    // `agents/claude-code` requires it. Asserting on the resolved stack is what catches
+    // both the direct and the transitive route.
+    #[test]
+    fn a_login_policy_never_resolves_the_keychain_layer() {
+        let state = TempDir::new().expect("state dir");
+        let home = TempDir::new().expect("capture home");
+        let plan = crate::harness::LoginPlan {
+            launch: Launch {
+                // The name isol8 would match `agents/claude-code` on, which is exactly the
+                // layer that would drag the keychain in.
+                program: "claude".to_string(),
+                args: vec!["auth".to_string(), "login".to_string()],
+                env: vec![("HOME".to_string(), home.path().display().to_string())],
+                env_remove: Vec::new(),
+                env_clear: false,
+            },
+            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
+        };
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
+        let resolved = describe(&confined).expect("rendering the login policy");
+
+        let layers: Vec<&str> = resolved
+            .layer_names
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            !layers.contains(&"integrations/keychain"),
+            "a login policy must deny the keychain, got layers {layers:?}"
+        );
+        assert!(
+            !layers.contains(&"agents/claude-code"),
+            "auto-selection must be off, or the agent layer brings the keychain back: {layers:?}"
+        );
+        // The capture home is the login's own $HOME and its only writable directory.
+        assert_eq!(
+            confined.spec.home.as_deref(),
+            Some(home.path().display().to_string().as_str())
+        );
+        assert_eq!(
+            confined.spec.add_dirs_rw,
+            vec![home.path().display().to_string()]
+        );
     }
 
     // 2. A sandboxed run must grant its ephemeral config dir and its cwd

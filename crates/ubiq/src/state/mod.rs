@@ -61,5 +61,6 @@ pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    MenuId, NewPaneRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
+    HarnessChoice, MenuId, NewPaneRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction,
+    WorkbenchState,
 };

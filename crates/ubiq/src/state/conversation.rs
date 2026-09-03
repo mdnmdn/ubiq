@@ -64,6 +64,9 @@ pub struct Conversation {
     pub id: AgentId,
     /// The harness's display name, from the record the host minted.
     pub harness: String,
+    /// The identity it runs as, empty when it resolved none and fell back to the user's own
+    /// home. Fixed for the conversation's life: a turn already taken was taken as somebody.
+    pub account: String,
     pub blocks: Vec<ConvBlock>,
     /// What the harness says it is answering with. Empty until it says.
     pub model: Option<String>,
@@ -96,10 +99,11 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub fn new(id: AgentId, harness: String) -> Self {
+    pub fn new(id: AgentId, harness: String, account: String) -> Self {
         Self {
             id,
             harness,
+            account,
             blocks: Vec::new(),
             model: None,
             mode: None,
@@ -343,7 +347,11 @@ mod tests {
     use ubiq_proto::conversation::{ToolKind, ToolStatus};
 
     fn conversation() -> Conversation {
-        Conversation::new(AgentId::generate(), "Claude Code".to_string())
+        Conversation::new(
+            AgentId::generate(),
+            "Claude Code".to_string(),
+            "work".to_string(),
+        )
     }
 
     fn chunk(text: &str, id: Option<&str>) -> ConvUpdate {

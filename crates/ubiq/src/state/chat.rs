@@ -1,7 +1,12 @@
 //! The chat panel's state.
 //!
-//! The transport contract has no chat family yet, so everything here is local to the UI and seeded
-//! from `sample.rs`. When a chat message set exists, this is the projection it fills.
+//! **What the panel shows is not here.** A conversation is the host's, projected into
+//! [`super::conversation`] and drawn by the one view every surface shares, so this holds only
+//! which of them the panel has selected and the panel's own furniture. The fixtures below are the
+//! record-shaped mock the panel drew before conversations were real, kept for the surfaces that
+//! still read them.
+
+use ubiq_proto::work::AgentId;
 
 /// The harnesses the composer offers. Ubiq never hard-codes how to launch one — this is a label
 /// list for the picker, and the launch belongs to `crates/agent-manager`.
@@ -141,6 +146,12 @@ impl RunState {
 }
 
 pub struct ChatState {
+    /// Which of the project's conversations the panel is showing.
+    ///
+    /// A *view* onto a conversation the host owns, never the conversation itself: closing the
+    /// panel or selecting another leaves every one of them running. `None` means nothing is
+    /// selected yet, which is what an empty project looks like.
+    pub selected: Option<AgentId>,
     pub chats: Vec<Chat>,
     pub active: usize,
     pub run: RunState,
@@ -160,6 +171,7 @@ impl ChatState {
     pub fn new(chats: Vec<Chat>, tokens: f32) -> Self {
         let next_id = chats.iter().map(|c| c.id + 1).max().unwrap_or(1);
         Self {
+            selected: None,
             chats,
             active: 0,
             run: RunState::Idle,
