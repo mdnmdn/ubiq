@@ -510,6 +510,10 @@ pub enum Message {
     ConversationStarted {
         project_id: ProjectId,
         agent: Box<WorkAgent>,
+        /// The session the agent belongs to. It travels with the agent because a window's own
+        /// session is not one the work invented, and the sidebar lists agents *under* a session —
+        /// so an agent whose session nothing names is an agent nothing draws.
+        session: WorkSession,
         /// Whether this harness takes anything after its first turn. A one-shot harness answers
         /// `false`, and a composer that offered to send into it would be offering nothing — so
         /// the capability travels with the agent rather than being discovered by a refusal.

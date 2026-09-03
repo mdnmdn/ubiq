@@ -180,6 +180,19 @@ impl Agents {
             Vec::new(),
             IoModes::Structured,
         )?;
+        // A harness with no credential in its run directory reports itself logged out, from
+        // inside the transcript, where it reads as the agent talking rather than as a setup
+        // problem. Saying it here is what makes that actionable.
+        if !Self::has_login(harness.as_ref(), &composed.dir) {
+            tracing::warn!(
+                harness = %agent_type,
+                "no credential reached this run: the harness composes a configuration directory of \
+                 its own and found nothing to seed it from. A login kept in the operating \
+                 system's keychain is not a file, so there is nothing to copy — `am account \
+                 login` writes one that is."
+            );
+        }
+
         let bridge = harness
             .structured_bridge(&composed.provisioned, cwd)
             .with_context(|| format!("starting a {agent_type} conversation"))?;
@@ -224,6 +237,17 @@ impl Agents {
             dir: provisioned.dir.clone(),
             provisioned,
         })
+    }
+
+    /// Whether anything that makes a session logged in landed in `dir`.
+    ///
+    /// The library seeds a harness's own login files into the run it composes, from the user's real
+    /// home. It cannot seed what is not a file, so a login held in the operating system's keychain
+    /// leaves nothing behind and the run starts unauthenticated. A harness that declares no login
+    /// files at all is not answerable this way, so it counts as fine.
+    fn has_login(harness: &dyn harness::Harness, dir: &Path) -> bool {
+        let seed = harness.config_anchor().login_seed;
+        seed.is_empty() || seed.iter().any(|file| dir.join(&file.dst).exists())
     }
 
     /// Remove what a pane's run left behind. Best effort: a directory that

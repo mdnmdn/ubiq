@@ -98,6 +98,15 @@ impl WorkProjection {
         }
     }
 
+    /// The same for a session, so an agent that arrives under one nothing has
+    /// heard of is still listed rather than silently dropped between headings.
+    pub fn apply_session(&mut self, session: WorkSession) {
+        match self.sessions.iter_mut().find(|s| s.id == session.id) {
+            Some(held) => *held = session,
+            None => self.sessions.push(session),
+        }
+    }
+
     // ── what it holds ───────────────────────────────────────────────
 
     pub fn agent(&self, id: AgentId) -> Option<&WorkAgent> {

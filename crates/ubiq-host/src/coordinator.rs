@@ -15,7 +15,7 @@ use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::ProjectHealth;
-use ubiq_proto::work::{Activity, AgentId, WorkAgent};
+use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::Agents;
 use crate::config::ConfigRoot;
@@ -706,7 +706,20 @@ impl Coordinator {
             context_pct: 0,
             thread: Vec::new(),
         };
-        self.work.add_live_agent(project_id, agent.clone());
+        // The window's own session, named after the project it is open on: the work's sessions are
+        // invented and this one is not, so nothing else in the list would account for this agent.
+        let session = WorkSession {
+            id: session_id,
+            name: self
+                .projects
+                .record(project_id)
+                .map(|record| record.name.clone())
+                .unwrap_or_else(|| "session".to_string()),
+            branch: String::new(),
+            worktree: false,
+        };
+        self.work
+            .add_live_agent(project_id, agent.clone(), session.clone());
         self.conversation_owners
             .insert(agent_id, (client, project_id));
 
@@ -717,6 +730,7 @@ impl Coordinator {
         mailbox.send(Message::ConversationStarted {
             project_id,
             agent: Box::new(agent),
+            session,
             accepts_input: conversation.accepts_input(),
         });
         self.conversations.insert(agent_id, conversation);
