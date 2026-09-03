@@ -51,7 +51,7 @@ impl RailMode {
             RailMode::Ide => "IDE",
             RailMode::Git => "Git",
             RailMode::Agents => "Agents",
-            RailMode::Orchestration => "Orchestration",
+            RailMode::Orchestration => "Teams",
             RailMode::Kb => "KB",
             RailMode::Tasks => "Tasks",
             RailMode::Sink => "Sink",
