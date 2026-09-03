@@ -16,8 +16,8 @@ use gpui_component::text::{MarkdownExtensions, MarkdownNode, TextView, markdown_
 
 use crate::app::AppState;
 use crate::theme;
-use crate::ui::eid;
 use crate::ui::kit::{disclosure, mono};
+use crate::ui::{eid, eid2};
 
 /// The name the fence parser gives its nodes and the renderer answers to.
 const FENCE: &str = "ubiq-diagram-fence";
@@ -71,7 +71,11 @@ pub fn render(
     let size = font_size.unwrap_or(theme::EDITOR_FONT_SIZE);
     let (fm, body) = split_frontmatter(source);
 
-    let document = TextView::markdown(eid("md", key), body.to_string())
+    // Keyed on the settled point size as well as the file: the text view keeps the height it
+    // measured each block at and only reconsiders when its width changes, so a zoom needs a new
+    // state to reflow at all. `md_reflow` moves half a second after the last zoom, which is what
+    // keeps a held key from rebuilding the document once per point.
+    let document = TextView::markdown(eid2("md", key, app.md_reflow), body.to_string())
         .markdown_extensions(extensions().clone())
         .p_5()
         .text_size(px(size))

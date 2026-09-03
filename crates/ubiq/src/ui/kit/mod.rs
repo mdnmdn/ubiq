@@ -14,6 +14,12 @@ pub type Action = Rc<dyn Fn(&mut Window, &mut App)>;
 /// The same, for the callbacks that carry the row or tab that was clicked.
 pub type IndexedAction = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
+/// The harness's icon, until harnesses have real ones — a single placeholder standing in for all
+/// of them rather than a guess at distinct glyphs nobody has designed yet. Used wherever a
+/// harness is named as a small, secondary tag — never where a harness is being *chosen*, where
+/// the full label is what a reader needs.
+pub const HARNESS_GLYPH: &str = "*";
+
 pub mod canvas;
 pub mod controls;
 pub mod files;

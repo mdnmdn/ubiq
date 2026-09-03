@@ -300,7 +300,8 @@ fn an_error_is_surfaced_with_or_without_a_conversation(cx: &mut TestAppContext) 
     );
 }
 
-/// Picking a harness asks the host to start one here. The id is what crosses, never the label.
+/// Picking a harness raises the naming prompt, and confirming it asks the host to start one. The
+/// id is what crosses, never the label.
 #[gpui::test]
 fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
@@ -326,7 +327,15 @@ fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
 
     fixture.state.update(cx, |state, cx| {
         state.open_new_agent_menu((10.0, 20.0), cx);
-        state.pick_new_agent_menu(0, cx);
+    });
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture
+            .state
+            .update(cx, |state, cx| state.pick_new_agent_menu(0, window, cx));
+    })
+    .unwrap();
+    fixture.state.update(cx, |state, cx| {
+        state.start_named_agent(cx);
     });
     cx.run_until_parked();
 
@@ -348,8 +357,13 @@ fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
     // A harness the host could not find is drawn disabled and takes no click.
     fixture.state.update(cx, |state, cx| {
         state.open_new_agent_menu((10.0, 20.0), cx);
-        state.pick_new_agent_menu(1, cx);
     });
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture
+            .state
+            .update(cx, |state, cx| state.pick_new_agent_menu(1, window, cx));
+    })
+    .unwrap();
     cx.run_until_parked();
     assert!(
         !fixture

@@ -1066,6 +1066,9 @@ impl TerminalView {
         };
         // GPUI y is positive when scrolling down; scroll_report treats positive as up.
         let delta = -raw;
+        // macOS reports the wheel with the opposite sign of every other platform's mouse.
+        #[cfg(target_os = "macos")]
+        let delta = -delta;
         if delta == 0 {
             return;
         }

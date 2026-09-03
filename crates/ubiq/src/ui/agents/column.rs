@@ -38,8 +38,8 @@ use crate::theme;
 use crate::ui::agents::DraggedTab;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::{
-    Picker, PickerStyle, field, ghost_button, mono, pill, progress_ring, section_label, state_chip,
-    status_dot,
+    HARNESS_GLYPH, Picker, PickerStyle, field, ghost_button, mono, pill, progress_ring,
+    section_label, state_chip, status_dot,
 };
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, handler, indexed};
@@ -404,7 +404,7 @@ fn footer(agent: &WorkAgent) -> AnyElement {
             pill(theme::accent())
                 .h(px(22.))
                 .px_2()
-                .child(mono(agent.harness.clone(), theme::text()).text_size(px(11.))),
+                .child(mono(HARNESS_GLYPH, theme::text()).text_size(px(11.))),
         );
     }
     // Which identity it runs as, chosen when it started and not changeable after.

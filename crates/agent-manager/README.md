@@ -246,4 +246,5 @@ Roadmap in [`_docs/roadmap.md`](_docs/roadmap.md).
 
 ## License
 
-[Sustainable Use License](../../LICENSE) (same as the Ubiq workspace).
+[MIT](./LICENSE). The rest of the Ubiq workspace is under the
+[Sustainable Use License](../../LICENSE).

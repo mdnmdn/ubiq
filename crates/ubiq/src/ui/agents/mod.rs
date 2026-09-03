@@ -30,16 +30,17 @@ pub mod column;
 pub mod sidebar;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, point, px,
 };
+use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::HarnessChoice;
 use crate::theme;
 use crate::ui::empty;
-use crate::ui::kit::{self, ghost_button, mono};
+use crate::ui::kit::{self, field, ghost_button, label_block, modal, mono, primary_button};
 use crate::ui::{handler, indexed};
 
 /// What a dragged tab carries. The agent alone: which column it came from is a question the view
@@ -131,8 +132,33 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .text_size(px(11.5)),
         )
+        .children(close_all(app, cx))
         .child(new_agent(cx))
         .into_any_element()
+}
+
+/// **Close all**: benches every agent on screen, through
+/// [`AppState::close_all_conversations`] — the same thing a tab's own close does, for the whole
+/// row at once. Nothing is ended; see the module doc. Offered only when there is something on
+/// screen to bench — a row with no columns gets no button rather than one that would silently
+/// no-op.
+fn close_all(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let has_columns = app
+        .agents(cx)
+        .is_some_and(|agents| !agents.columns.is_empty());
+    if !has_columns {
+        return None;
+    }
+    Some(
+        ghost_button(
+            "agents-close-all",
+            Some(IconName::Close),
+            "Close all",
+            cx.listener(|this, _, _, cx| this.close_all_conversations(cx)),
+        )
+        .text_color(theme::danger())
+        .into_any_element(),
+    )
 }
 
 /// **New agent**: the control that asks which harness — and which identity — to start a live
@@ -216,12 +242,74 @@ pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement 
         "agents-new-menu",
         point(px(at.0), px(at.1)),
         items,
-        indexed(&view, |this, index, _, cx| {
-            this.pick_new_agent_menu(index, cx);
+        indexed(&view, |this, index, window, cx| {
+            this.pick_new_agent_menu(index, window, cx);
         }),
         handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
     )
     .into_any_element()
+}
+
+/// The step after [`new_agent_menu`]'s pick: name the conversation, or leave it to fall back to
+/// the harness's own label. One field, the same shape as the login modal's own "pick, then name"
+/// second half (`crate::ui::settings::choosing`) — except the harness and identity are already
+/// chosen by the time this shows, so there is no picker to draw here.
+///
+/// Only rendered while [`crate::state::WorkbenchState::naming_agent`] is `Some` — set by
+/// [`AppState::pick_new_agent_menu`], cleared by [`AppState::start_named_agent`] or
+/// [`AppState::cancel_named_agent`].
+pub fn new_agent_naming(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+    let focused = app
+        .new_agent_name_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_3()
+        .child(label_block(
+            "Name",
+            "What to call this conversation. Leave it to use the harness's own name.",
+        ))
+        .child(
+            field(theme::border(), focused)
+                .h(px(30.))
+                .px_2()
+                .child(Input::new(&app.new_agent_name_input).appearance(false)),
+        )
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "agents-naming-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, _, cx| this.cancel_named_agent(cx)),
+        ))
+        .child(primary_button(
+            "agents-naming-start",
+            None,
+            "Start",
+            cx.listener(|this, _, _, cx| this.start_named_agent(cx)),
+        ))
+        .into_any_element();
+
+    modal(
+        "agents-naming",
+        theme::accent(),
+        "Name this conversation",
+        body,
+        footer,
+        handler(&view, |this, _, cx| this.cancel_named_agent(cx)),
+        window,
+    )
 }
 
 /// The row of columns, and the strip past the last one that a dragged tab is split off into.

@@ -58,8 +58,8 @@ use serde_json::{Value, json};
 
 use super::{
     AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionKind, PermissionOption,
-    PermissionOutcome, StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation,
-    ToolStatus,
+    PermissionOutcome, RateLimitWindow, StopReason, ToolCall, ToolCallUpdate, ToolContent,
+    ToolKind, ToolLocation, ToolStatus,
 };
 
 /// How long [`Drop`] waits for the child to exit after closing stdin before
@@ -74,7 +74,16 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct JsonlBridge {
     child: Child,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
-    events: mpsc::Receiver<AgentEvent>,
+    /// `None` is the reader thread's own explicit "done" — sent once, right
+    /// before it exits, so end-of-stream does not depend on every `Sender`
+    /// clone dropping. It cannot: `write_input` and every [`JsonlInput`]
+    /// clone hold one for as long as the bridge itself lives, so a plain
+    /// `AgentEvent` channel would never see `RecvError` once the process
+    /// actually exited.
+    events: mpsc::Receiver<Option<AgentEvent>>,
+    /// A second handle onto the reader thread's channel, so [`write_input`]
+    /// can push a locally-synthesized event — see its doc comment.
+    tx: mpsc::Sender<Option<AgentEvent>>,
     reader: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -82,11 +91,12 @@ pub struct JsonlBridge {
 /// on one thread and prompting from another. See [`AgentInputSink`].
 pub struct JsonlInput {
     stdin: Arc<Mutex<Option<ChildStdin>>>,
+    tx: mpsc::Sender<Option<AgentEvent>>,
 }
 
 impl AgentInputSink for JsonlInput {
     fn send(&self, input: AgentInput) -> crate::Result<()> {
-        write_input(&self.stdin, input)
+        write_input(&self.stdin, &self.tx, input)
     }
 }
 
@@ -110,12 +120,14 @@ impl JsonlBridge {
         let (tx, rx) = mpsc::channel();
 
         let reader_stdin = Arc::clone(&stdin);
-        let reader = std::thread::spawn(move || read_loop(stdout, reader_stdin, tx));
+        let reader_tx = tx.clone();
+        let reader = std::thread::spawn(move || read_loop(stdout, reader_stdin, reader_tx));
 
         Ok(Self {
             child,
             stdin,
             events: rx,
+            tx,
             reader: Some(reader),
         })
     }
@@ -123,13 +135,17 @@ impl JsonlBridge {
 
 impl IoBridge for JsonlBridge {
     fn send(&mut self, input: AgentInput) -> crate::Result<()> {
-        write_input(&self.stdin, input)
+        write_input(&self.stdin, &self.tx, input)
     }
 
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>> {
         match self.events.recv() {
-            Ok(ev) => Ok(Some(ev)),
-            // Sender dropped == reader thread exited == stdout hit EOF.
+            Ok(Some(ev)) => Ok(Some(ev)),
+            // The reader thread's explicit "done".
+            Ok(None) => Ok(None),
+            // Every sender clone dropped without one ever sending `None` —
+            // should not happen in practice, but as honest an EOF as the
+            // explicit signal.
             Err(mpsc::RecvError) => Ok(None),
         }
     }
@@ -137,6 +153,7 @@ impl IoBridge for JsonlBridge {
     fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
         Some(Arc::new(JsonlInput {
             stdin: Arc::clone(&self.stdin),
+            tx: self.tx.clone(),
         }))
     }
 }
@@ -178,7 +195,11 @@ impl Drop for JsonlBridge {
 /// Shared by [`JsonlBridge::send`] and [`JsonlInput`] so the two cannot drift
 /// apart — a prompt sent from a pump thread has to reach the child in exactly
 /// the same shape as one sent from the owner's.
-fn write_input(stdin: &Arc<Mutex<Option<ChildStdin>>>, input: AgentInput) -> crate::Result<()> {
+fn write_input(
+    stdin: &Arc<Mutex<Option<ChildStdin>>>,
+    tx: &mpsc::Sender<Option<AgentEvent>>,
+    input: AgentInput,
+) -> crate::Result<()> {
     match input {
         AgentInput::Prompt { ref content } => {
             let blocks: Vec<Value> = content
@@ -190,7 +211,24 @@ fn write_input(stdin: &Arc<Mutex<Option<ChildStdin>>>, input: AgentInput) -> cra
                 "type": "user",
                 "message": { "role": "user", "content": blocks },
             });
-            write_line(stdin, &line)
+            write_line(stdin, &line)?;
+            // A persistent, `--input-format stream-json` session never echoes
+            // the prompt back on stdout — verified live against a real
+            // `claude` process (`tests::live_two_turn_structured_session_
+            // when_claude_available`): two turns, no `"type":"user"` line
+            // either time, only the assistant's own `"type":"assistant"`
+            // reply. (The one-shot `claude -p "prompt"` invocation is
+            // different and does echo it — this bridge never uses that
+            // form.) So the transcript's user block is synthesized here,
+            // the moment the line actually reaches stdin, rather than
+            // waiting on an echo that this mode never sends.
+            for text in content.iter().filter_map(Content::as_text) {
+                let _ = tx.send(Some(AgentEvent::UserMessageChunk {
+                    content: Content::text(text),
+                    message_id: None,
+                }));
+            }
+            Ok(())
         }
         AgentInput::AnswerPermission {
             request_id,
@@ -235,7 +273,19 @@ fn write_input(stdin: &Arc<Mutex<Option<ChildStdin>>>, input: AgentInput) -> cra
 fn read_loop(
     stdout: ChildStdout,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
-    tx: mpsc::Sender<AgentEvent>,
+    tx: mpsc::Sender<Option<AgentEvent>>,
+) {
+    read_stream(stdout, &stdin, &tx);
+    // The reader thread is about to end no matter which path above got it
+    // here — send the explicit "done" so `next_event` sees real EOF rather
+    // than blocking on a channel `write_input`'s own clone keeps open.
+    let _ = tx.send(None);
+}
+
+fn read_stream(
+    stdout: ChildStdout,
+    stdin: &Arc<Mutex<Option<ChildStdin>>>,
+    tx: &mpsc::Sender<Option<AgentEvent>>,
 ) {
     let reader = BufReader::new(stdout);
     let mut mapper = Mapper::default();
@@ -259,7 +309,7 @@ fn read_loop(
 
         for ev in mapper.map_event(&value) {
             tracing::debug!(event = ?ev, "claude event");
-            if tx.send(ev).is_err() {
+            if tx.send(Some(ev)).is_err() {
                 // No one is listening anymore.
                 return;
             }
@@ -267,7 +317,7 @@ fn read_loop(
 
         if let Some(request_id) = request_id {
             let response = control_response(&request_id, "allow", json!({}));
-            if write_line(&stdin, &response).is_err() {
+            if write_line(stdin, &response).is_err() {
                 return;
             }
         }
@@ -354,6 +404,7 @@ impl Mapper {
                 }]
             }
             Some("control_request") => map_control_request(value),
+            Some("rate_limit_event") => vec![map_rate_limit(value)],
             other => {
                 tracing::trace!(kind = ?other, "claude event ignored");
                 Vec::new()
@@ -512,6 +563,35 @@ fn map_init(value: &Value) -> AgentEvent {
             .map(str::to_string),
         tools: strings("tools"),
         agents: strings("agents"),
+    }
+}
+
+/// A `rate_limit_event`: how full the account's rolling windows are, and when they reset. Only
+/// `unifiedWindows.{five_hour,seven_day}` and the top-level `status` are read — `rateLimitType`,
+/// `overageStatus`, `overageDisabledReason`, `isUsingOverage` and `uuid` have no reader yet.
+fn map_rate_limit(value: &Value) -> AgentEvent {
+    let info = value.get("rate_limit_info");
+    let window = |name: &str| {
+        info.and_then(|i| i.get("unifiedWindows"))
+            .and_then(|windows| windows.get(name))
+            .and_then(|window| {
+                let utilization = window.get("utilization").and_then(Value::as_f64)?;
+                let resets_at = window.get("resetsAt").and_then(Value::as_i64)?;
+                Some(RateLimitWindow {
+                    utilization_pct: (utilization * 100.0).round().clamp(0.0, 100.0) as u8,
+                    resets_at,
+                })
+            })
+    };
+
+    AgentEvent::RateLimitUpdate {
+        five_hour: window("five_hour"),
+        seven_day: window("seven_day"),
+        status: info
+            .and_then(|i| i.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
     }
 }
 
@@ -1005,6 +1085,117 @@ mod tests {
 
     #[test]
     fn an_unknown_event_is_dropped_rather_than_failing() {
-        assert!(map(r#"{"type":"rate_limit_event","rate_limit_info":{}}"#).is_empty());
+        assert!(map(r#"{"type":"some_future_event","foo":"bar"}"#).is_empty());
+    }
+
+    /// The exact shape captured live against Claude Code 2.1.x
+    /// (`_docs/wip/agent-setup.md` §"What Claude actually puts on the wire").
+    #[test]
+    fn a_rate_limit_event_carries_both_windows_and_the_status() {
+        let events = map(r#"{"type":"rate_limit_event","rate_limit_info":{
+                "status":"allowed","resetsAt":1788474600,"rateLimitType":"five_hour",
+                "overageStatus":"rejected","overageDisabledReason":"group_zero_credit_limit",
+                "isUsingOverage":false,
+                "unifiedWindows":{
+                    "five_hour":{"utilization":0.07,"resetsAt":1788474600},
+                    "seven_day":{"utilization":0.21,"resetsAt":1788796800}
+                }},
+                "uuid":"c4051794-ee0c-457f-b210-2a0f053efbb9",
+                "session_id":"80c71643-7bbf-4b6d-862c-60ba6e3d6910"}"#);
+        assert_eq!(
+            events,
+            vec![AgentEvent::RateLimitUpdate {
+                five_hour: Some(RateLimitWindow {
+                    utilization_pct: 7,
+                    resets_at: 1_788_474_600,
+                }),
+                seven_day: Some(RateLimitWindow {
+                    utilization_pct: 21,
+                    resets_at: 1_788_796_800,
+                }),
+                status: "allowed".to_string(),
+            }]
+        );
+    }
+
+    /// Live, two-turn diagnostic against a real, persistent, structured
+    /// Claude Code session (`claude -p --input-format stream-json`, prompts
+    /// on stdin via [`super::write_input`]) — the actual path Ubiq drives, not
+    /// the one-shot `claude -p "prompt"` invocation `discover_models_live_*`
+    /// checks. Skips gracefully when `claude` is absent, same convention as
+    /// that sibling test (`harness/claude.rs`).
+    ///
+    /// This is a diagnostic, not (mainly) an assertion-first test: it prints
+    /// every event so a human/agent can read what the wire actually did. It
+    /// does assert the one thing this bug report needs a permanent regression
+    /// guard for — a user-typed turn is echoed back as `UserMessageChunk`.
+    #[test]
+    fn live_two_turn_structured_session_when_claude_available() {
+        use crate::harness::{Claude, FsTemplateStore, Harness};
+        use crate::provision::provision;
+        use crate::spec::{IoModes, RunSpec};
+        use std::process::{Command, Stdio};
+
+        let has_claude = Command::new("claude")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !has_claude {
+            eprintln!("skipping: `claude` not on PATH");
+            return;
+        }
+
+        let cwd = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), cwd.path().to_path_buf());
+        spec.io = IoModes::Structured;
+
+        let claude = Claude::new();
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&claude, &spec, &templates).expect("provision");
+        let mut bridge = claude
+            .structured_bridge(&provisioned, cwd.path())
+            .expect("structured_bridge");
+
+        let mut turn = |n: u32, prompt: &str| -> Vec<AgentEvent> {
+            bridge
+                .send(AgentInput::prompt(prompt))
+                .unwrap_or_else(|e| panic!("turn {n} send: {e}"));
+            let mut events = Vec::new();
+            loop {
+                match bridge.next_event() {
+                    Ok(Some(ev)) => {
+                        eprintln!("turn {n} event: {ev:?}");
+                        let ended = matches!(ev, AgentEvent::TurnEnded { .. });
+                        events.push(ev);
+                        if ended {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        eprintln!("turn {n}: stdout closed before TurnEnded");
+                        break;
+                    }
+                    Err(e) => panic!("turn {n} next_event: {e}"),
+                }
+            }
+            events
+        };
+
+        let first = turn(1, "Reply with exactly the word BANANA and nothing else.");
+        let second = turn(2, "Now reply with exactly the word MANGO and nothing else.");
+
+        for (n, events) in [(1, &first), (2, &second)] {
+            let has_user_chunk = events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::UserMessageChunk { .. }));
+            assert!(
+                has_user_chunk,
+                "turn {n}: expected a UserMessageChunk echoing the sent prompt, got: {events:?}"
+            );
+        }
     }
 }

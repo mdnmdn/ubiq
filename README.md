@@ -74,6 +74,7 @@ Alpha, under active development.
 ## License
 
 Ubiq is licensed under the [Sustainable Use License](LICENSE) (fair-code, source-available).
+`crates/agent-manager/` is a standalone library and is [MIT](crates/agent-manager/LICENSE).
 
 You may use and modify Ubiq for **personal use** or **internal business purposes** inside your
 organization. You may not host Ubiq (or a substantially similar product) as a paid service,

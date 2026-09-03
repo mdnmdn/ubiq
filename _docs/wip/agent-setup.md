@@ -7,7 +7,7 @@ summary: The protocol, the library work and the order of packages behind a real 
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
 updated: 2026-09-03
 verified: 2026-09-03
-code_anchors: [crates/ubiq-host/src/agent.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/agent-manager/src/profile.rs]
+code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
 ---
@@ -142,7 +142,7 @@ pickers are generated from a list rather than enumerated in code.
 
 ### Library side
 
-**The event vocabulary landed with P1.** `AgentEvent` has fifteen variants (`io/model.rs:543`) —
+**The event vocabulary landed with P1.** `AgentEvent` has sixteen variants (`io/model.rs:553`) —
 turn framing so `RunState` is driven rather than guessed, chunks that are unambiguously appends,
 `ToolCall`/`ToolCallUpdate` in ACP's shape (a stable id, a title, a `kind` from a fixed set which
 is the block's coloured verb, a status, the paths touched, and content that is either text or a
@@ -187,6 +187,26 @@ Three consequences worth stating plainly:
   nothing and survives only through its fallback to the top-level `usage` object, which *is*
   snake_case — dropping per-model attribution and every cache-token field. Fix the document first:
   the code and its test both faithfully implement it.
+- **The persistent, stdin-driven session this probe did not test never echoes the prompt back.**
+  This table was built against a one-shot `claude -p "prompt" --output-format stream-json`
+  invocation; Ubiq drives a different shape — `-p --input-format stream-json`, prompts delivered as
+  NDJSON `{"type":"user",...}` lines on stdin (`io/jsonl.rs`'s `write_input`), the same process kept
+  alive across turns. A live two-turn check against that exact shape
+  (`io::jsonl::tests::live_two_turn_structured_session_when_claude_available`) found stdout carries
+  no `"type":"user"` line at all for either turn — only `system`/`assistant`/`result`. So
+  `write_input` now synthesizes `AgentEvent::UserMessageChunk` itself, locally, the moment a prompt
+  line actually reaches the child's stdin, rather than mapping an echo that mode never sends. The
+  same check found no `"type":"thinking"` content block either — expected, since nothing in the
+  structured argv (`harness/claude.rs`) requests extended thinking, so there is nothing for the
+  existing `map_content_blocks` thinking arm to map; turning thinking on is unbuilt follow-up work,
+  not a mapping defect. And no `ai-title`/title-shaped event of any kind appeared on stdout across
+  six turns of two separate live runs — the `{"type":"ai-title",...}` line this doc once expected
+  to add a `Mapper::map_event` arm for is a shape observed only in Claude Code's on-disk **interactive**
+  session transcript (`~/.claude/projects/**/*.jsonl`), a file headless `-p` runs do not even write;
+  nothing confirms it is part of the headless stdout protocol at all, so no arm was added. The title
+  plumbing (`AgentEvent::SessionInfoUpdate` → `ConvUpdate::Title` → `Conversation::title` →
+  `refresh_agent_record` renaming the `WorkAgent`) is still built end to end, since it costs nothing
+  idle and is what any future title producer — this harness or another — needs to reach a reader.
 
 **The `init` event is mapped**, and generously: `io/jsonl.rs:481` fills `SessionStarted` with the
 session id, the model, `permissionMode` as the mode, the tools and the subagent types. Its
@@ -195,7 +215,9 @@ producer. Three smaller drops, each a feature the UI would otherwise invent: **p
 and `model`** on every `assistant` event go unread, so live per-turn accounting is invisible; a
 **`tool_result` carrying `status: "async_launched"`** is the only progress signal between a tool
 starting and finishing and passes through as opaque content; and every `system` event whose subtype
-is not `init` falls through the mapper, which is where `rate_limit_event` goes to die.
+is not `init` falls through the mapper. `rate_limit_event` is no longer one of them: it is mapped
+(`io/jsonl.rs`'s `map_rate_limit`) to `AgentEvent::RateLimitUpdate` → `ConvUpdate::RateLimit` →
+`Conversation::rate_limit`, drawn in the footer next to cost and the context ring.
 
 ### Ubiq side
 
@@ -253,7 +275,7 @@ be told by the capability query, not discover it by sending into a void.
 **Done when** the same prompt, run as both variations, produces the same transcript, and the two
 raw logs show why any difference exists.
 
-### P2b — Status from what the stream already carries
+### P2b — Status from what the stream already carries — **landed**
 
 Cheap, and the visible payoff of P1's logging: the run pill driven by real activity, the token count
 and context ring from real usage, the cost of a turn, and the rate-limit window. Every field is in
@@ -321,29 +343,46 @@ it is not using.
 the panel's composer; the model/thinking/mode constants stay until P3 can fill them from a real
 list, because a picker that changes nothing beside one that works is worse than no picker.
 
-### P3 — The model, chosen before the harness starts — **next**
+### P3 — The model, chosen before the harness starts — **landed**
 
 **The ordering is forced, and it is cheaper than the obvious one.** A model reaches a harness only
-as a launch flag, so it must be answered before the process exists. Conveniently `discover_models`
-needs no running agent — it spawns its own probe — so discovery happens *instead of* starting the
-agent, not after it:
+as a launch flag, so it must be answered before the process exists. `discover_models` needs no
+running agent — it spawns its own probe — so discovery happens *instead of* starting the agent, not
+after it. `crates/ubiq-host/src/coordinator.rs` keeps that ordering as two stages: a conversation
+the window asked for sits in `pending_conversations` until its harness actually launches, moving
+into `conversations` — where a live pump exists — only then.
 
-1. `+` picks a harness and an identity; a conversation appears at once, with a loader, while the
-   host discovers models.
-2. The list arrives as `ConvUpdate::ConfigOptions` — the shape already on the wire, never yet filled.
-3. The user takes the default or picks another, then sends the first prompt.
-4. **Only now does the harness launch**, with that model on `RunFlags.model`. Changing your mind
-   before step 4 costs nothing, because nothing has started.
+1. `StartConversation` carries an `agent_id` the window mints, the `SessionId` precedent, and the
+   host adopts it: it registers the `WorkAgent` and answers `ConversationStarted` at once, before
+   any harness exists, then discovers that harness's models on a thread of its own.
+2. The list arrives as one `ConvUpdate::ConfigOptions`, addressed to that `agent_id` at `seq: 1` —
+   a single `model` option, filled from what the harness answered, or a lone "Default" choice when
+   discovery could not read anything, per the doc's own rule below.
+3. `SetAgentConfig{config_id: "model", ..}` records the pick on the pending agent; nothing answers
+   it, since the picker's own list already told the window what "current" means.
+4. The window's first `PromptAgent` is what actually launches the harness, carrying the chosen
+   model — or none, letting the harness fall back to its own default — on `RunFlags.model`, then
+   forwards that same prompt as the harness's first turn.
 
-So the loader waits on *discovery*, not a spawn, and the host needs somewhere to keep a conversation
-asked for and not yet started — see open question 5.
+**The window mints the `agent_id` and draws the pending conversation.**
+`StartConversation`'s only caller, `AppState::pick_new_agent_menu`
+(`crates/ubiq/src/app.rs`), generates it with `AgentId::generate()` before sending. `Conversation`
+carries a `launched` flag, `false` from `Conversation::new` until `ConvUpdate::Started` sets it, and
+a `chosen_model` the composer's own picker writes to, since the host does not echo a
+`SetAgentConfig` sent before launch. While `launched` is false, `composer()`
+(`crates/ubiq/src/ui/conversation/mod.rs`) draws a `Picker` dropdown sourced from
+`conversation.config`'s `model`-category option — or a "Discovering models…" note before that
+option has arrived — instead of the footer's read-only pill, and a pick sends
+`AppState::pick_agent_model`.
 
 **Where the vocabulary comes from differs per harness, and none of it is a protocol answer.** Claude
 scrapes `/model`'s free text from a one-shot session; Codex answers `codex debug models --bundled`;
 Copilot's ids come out of `copilot help config`; opencode prints one per line; Grok reads a cache
 file it only writes once authenticated. Three of the five need the harness authenticated, so one
 that cannot answer must offer "whatever it defaults to" rather than an empty picker. `ModelInfo` is
-not `Serialize`, so it needs a `ubiq-proto` counterpart or a mapping into `ConfigOption` host-side.
+not `Serialize`; the host maps it into a `ConfigOption` itself
+(`crates/ubiq-host/src/coordinator.rs`'s `model_config_option`) rather than adding a `ubiq-proto`
+counterpart.
 
 **Thinking effort is not in this package** — there is no catalog to read. The mode is, and nearly
 free: Claude's `init` already reports `permissionMode`.
@@ -463,6 +502,11 @@ much as blocked on P2c, which is what would give it a record to resume from.
   typed. The capability query has to reach the composer, or those harnesses stay terminal-only.
 - **The blocking pull.** `send` and `next_event` both take `&mut self`, so the pump thread owns the
   bridge and a prompt has to reach it through a channel rather than by calling it directly.
+- **A pending agent's `WorkAgent.account` is what was asked for, not what a run resolves.** Before
+  P3, `composed.account()` filled it, taken from the actual run; a pending agent has no run yet, so
+  it carries the requested account (or empty) until launch, and nothing corrects it afterwards. This
+  can only differ once a `default` profile exists to silently supply an account nobody named — no UI
+  creates one yet (P4's remainder) — so the gap is accepted rather than closed.
 
 ## Open questions
 
@@ -479,10 +523,9 @@ much as blocked on P2c, which is what would give it a record to resume from.
    pseudo-terminal reader already works; per window bounds the thread count if someone opens forty.
 4. **Where does "allow always" live?** Per conversation is the protocol's scope; per agent
    definition is what a user would expect to survive a restart. P7 needs an answer.
-5. **Who mints an `AgentId`?** The host does today (`coordinator.rs:706`). P3 needs the UI to draw a
-   conversation that has been asked for and not yet started, which means either the UI mints the id
-   and the host adopts it — the `SessionId` precedent, already live — or the UI keeps a pending slot
-   beside the real ones. The first is less state and matches `SearchId`'s documented intent.
+5. **Who mints an `AgentId`?** Settled by P3: the window mints it — `pick_new_agent_menu()` with
+   `AgentId::generate()`, the `SessionId` precedent — and the host adopts it in
+   `Coordinator::start_conversation` rather than generating its own.
 6. **Should `discover_models` take the composed run?** It takes no account and no directory, so a
    list cannot be scoped to an identity and Claude's probe reads the ambient login. A per-account
    list needs the trait signature to change, and nothing yet says a user would notice.

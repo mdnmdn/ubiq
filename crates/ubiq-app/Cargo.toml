@@ -2,7 +2,7 @@
 name = "ubiq-app"
 version = "0.1.0"
 edition = "2024"
-license = "Apache-2.0"
+license-file = "../../LICENSE"
 description = "Ubiq: the application — the one place the interface and the host are named together"
 publish = false
 

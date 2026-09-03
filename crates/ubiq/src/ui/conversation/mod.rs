@@ -22,13 +22,17 @@ use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::conversation::{ToolContent, ToolKind, ToolStatus};
+use ubiq_proto::conversation::{ConfigCategory, ConfigValue, ToolContent, ToolKind, ToolStatus};
 use ubiq_proto::work::AgentId;
 
 use crate::app::AppState;
-use crate::state::conversation::{ConvBlock, Conversation, Pending, Run};
+use crate::state::conversation::{ConvBlock, Conversation, Pending, QueuedMessage, Run};
 use crate::theme;
-use crate::ui::kit::{field, ghost_button, mono, pill, progress_ring, state_chip};
+use crate::ui::kit::menu::MENU_ANCHOR_UP;
+use crate::ui::kit::{
+    HARNESS_GLYPH, Picker, PickerStyle, field, ghost_button, mono, pill, progress_ring, state_chip,
+};
+use crate::ui::{handler, indexed};
 
 /// What differs between the surfaces that host a conversation.
 pub struct ConversationView {
@@ -431,7 +435,7 @@ fn footer(conversation: &Conversation) -> AnyElement {
             pill(theme::accent())
                 .h(px(22.))
                 .px_2()
-                .child(mono(conversation.harness.clone(), theme::text()).text_size(px(11.))),
+                .child(mono(HARNESS_GLYPH, theme::text()).text_size(px(11.))),
         );
 
     // Which identity answered. Read-only by design: it is chosen once, in the New agent menu,
@@ -471,6 +475,9 @@ fn footer(conversation: &Conversation) -> AnyElement {
             .text_size(px(11.)),
         );
     }
+    if let Some(pct) = conversation.rate_limit_five_hour_pct() {
+        row = row.child(mono(format!("5h {pct}%"), theme::text_muted()).text_size(px(11.)));
+    }
 
     row.into_any_element()
 }
@@ -506,13 +513,83 @@ fn composer(
     let Some(input) = app.column_inputs.get(view.slot).cloned() else {
         return div().into_any_element();
     };
+    let entity = cx.entity();
     let id = conversation.id;
     let slot = view.slot;
     let can_send = !input.read(cx).value().trim().is_empty();
     let focused = input.read(cx).focus_handle(cx).is_focused(window);
     let working = conversation.run == Run::Working;
 
-    let mut controls = div()
+    // Before the harness has launched, the composer offers a model picker instead of the
+    // read-only pill the footer draws once it has — the picker's own row, above the field, rather
+    // than blocking it: the user may type and send before discovery finishes, and the host then
+    // launches with the harness's own default.
+    let model_row = (!conversation.launched).then(|| {
+        let option = conversation
+            .config
+            .iter()
+            .find(|opt| opt.category == Some(ConfigCategory::Model));
+        match option {
+            None => div()
+                .px_3()
+                .py_1()
+                .flex()
+                .flex_none()
+                .child(mono("Discovering models\u{2026}", theme::text_faint()).text_size(px(11.5)))
+                .into_any_element(),
+            Some(option) => {
+                let current = match &option.value {
+                    ConfigValue::Select { current, .. } => current.as_str(),
+                    ConfigValue::Flag { .. } => "",
+                };
+                let chosen = conversation.chosen_model.as_deref().unwrap_or(current);
+                let choices = match &option.value {
+                    ConfigValue::Select { choices, .. } => choices.clone(),
+                    ConfigValue::Flag { .. } => Vec::new(),
+                };
+                let selected = choices
+                    .iter()
+                    .position(|choice| choice.value == chosen)
+                    .unwrap_or(0);
+                let label = choices
+                    .get(selected)
+                    .map(|choice| choice.name.clone())
+                    .unwrap_or_else(|| chosen.to_string());
+                let values: Vec<String> =
+                    choices.iter().map(|choice| choice.value.clone()).collect();
+                let names: Vec<String> = choices.iter().map(|choice| choice.name.clone()).collect();
+
+                div()
+                    .px_3()
+                    .py_1()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .child(
+                        Picker::new(view.eid("model-picker"), label)
+                            .style(PickerStyle::Chip)
+                            .anchor(MENU_ANCHOR_UP)
+                            .items(names)
+                            .selected(selected)
+                            .open(conversation.model_menu_open)
+                            .on_toggle(handler(&entity, move |this, _, cx| {
+                                this.toggle_agent_model_menu(id, cx)
+                            }))
+                            .on_pick(indexed(&entity, move |this, index, _, cx| {
+                                if let Some(value) = values.get(index) {
+                                    this.pick_agent_model(id, value.clone(), cx);
+                                }
+                            }))
+                            .on_dismiss(handler(&entity, move |this, _, cx| {
+                                this.dismiss_agent_model_menu(id, cx)
+                            })),
+                    )
+                    .into_any_element()
+            }
+        }
+    });
+
+    let controls = div()
         .px_2()
         .pb_2()
         .pt_1()
@@ -521,26 +598,48 @@ fn composer(
         .gap_2()
         .child(
             mono(
-                "\u{23ce} send \u{b7} \u{21e7}\u{23ce} newline",
+                "\u{23ce} / cmd\u{2044}ctrl+\u{23ce} send \u{b7} \u{21e7}\u{23ce} newline",
                 theme::text_faint(),
             )
             .text_size(px(10.5)),
         )
         .child(div().flex_1().min_w(px(0.)));
 
-    if working {
-        controls = controls.child(
-            ghost_button(
-                view.eid("stop"),
-                Some(IconName::Close),
-                "Stop",
-                cx.listener(move |this, _, _, cx| this.cancel_turn(id, cx)),
-            )
-            .text_color(theme::danger()),
-        );
-    }
+    // One control, and which it is depends on the turn and the draft: idle sends, a running turn
+    // with nothing typed offers Stop, and a running turn with something typed queues it instead
+    // of writing into a harness mid-turn — the same three states the Enter key answers through
+    // `AppState::send_or_enqueue`, so the button and the key never disagree.
+    let action = if working && !can_send {
+        ghost_button(
+            view.eid("stop"),
+            Some(IconName::Close),
+            "Stop",
+            cx.listener(move |this, _, _, cx| this.cancel_turn(id, cx)),
+        )
+        .text_color(theme::danger())
+    } else if working {
+        ghost_button(
+            view.eid("send"),
+            Some(IconName::Inbox),
+            "Enqueue",
+            cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
+        )
+        .text_color(theme::accent())
+    } else {
+        ghost_button(
+            view.eid("send"),
+            Some(IconName::ArrowUp),
+            "Send",
+            cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
+        )
+        .text_color(if can_send {
+            theme::accent()
+        } else {
+            theme::text_faint()
+        })
+    };
 
-    field(theme::accent(), focused)
+    let field_el = field(theme::accent(), focused)
         .flex_none()
         .flex_col()
         .items_stretch()
@@ -562,20 +661,92 @@ fn composer(
                     input.update(cx, |state, cx| state.focus(window, cx));
                 })),
         )
-        .child(
-            controls.child(
-                ghost_button(
-                    view.eid("send"),
-                    Some(IconName::ArrowUp),
-                    "Send",
-                    cx.listener(move |this, _, window, cx| this.prompt_agent(id, slot, window, cx)),
+        .child(controls.child(action));
+
+    let mut extras: Vec<AnyElement> = Vec::new();
+    extras.extend(model_row);
+    if !conversation.queued.is_empty() {
+        extras.push(queue_list(id, slot, view, &conversation.queued, cx));
+    }
+
+    if extras.is_empty() {
+        field_el.into_any_element()
+    } else {
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .children(extras)
+            .child(field_el)
+            .into_any_element()
+    }
+}
+
+/// Prompts typed while a turn was running, oldest first — each with an edit that loads it back
+/// into the field and a delete that drops it outright. Drawn only when there is one: an empty
+/// queue draws nothing, the same discipline every pill in this file follows.
+fn queue_list(
+    agent_id: AgentId,
+    slot: usize,
+    view: &ConversationView,
+    queued: &[QueuedMessage],
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    const PREVIEW_CHARS: usize = 80;
+
+    let rows: Vec<AnyElement> = queued
+        .iter()
+        .map(|message| {
+            let queued_id = message.id;
+            let mut preview: String = message.text.chars().take(PREVIEW_CHARS).collect();
+            if message.text.chars().count() > PREVIEW_CHARS {
+                preview.push('\u{2026}');
+            }
+
+            div()
+                .id(view.eid(&format!("queued-{queued_id}")))
+                .px_2()
+                .h(px(26.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .bg(theme::surface())
+                .border_l(px(theme::ACCENT_EDGE))
+                .border_color(theme::border())
+                .child(
+                    mono(preview, theme::text_muted())
+                        .flex_1()
+                        .min_w(px(0.))
+                        .text_size(px(11.5)),
                 )
-                .text_color(if can_send {
-                    theme::accent()
-                } else {
-                    theme::text_faint()
-                }),
-            ),
-        )
+                .child(ghost_button(
+                    view.eid(&format!("queued-edit-{queued_id}")),
+                    Some(IconName::Replace),
+                    "Edit",
+                    cx.listener(move |this, _, window, cx| {
+                        this.edit_queued_message(agent_id, slot, queued_id, window, cx);
+                    }),
+                ))
+                .child(ghost_button(
+                    view.eid(&format!("queued-delete-{queued_id}")),
+                    Some(IconName::Delete),
+                    "Delete",
+                    cx.listener(move |this, _, _, cx| {
+                        this.delete_queued_message(agent_id, queued_id, cx);
+                    }),
+                ))
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .px_2()
+        .pt_1()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap_1()
+        .children(rows)
         .into_any_element()
 }

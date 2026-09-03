@@ -19,8 +19,9 @@ mod model;
 pub use model::{
     AgentEvent, AgentInput, AgentInputSink, CommandInfo, ConfigCategory, ConfigChoice,
     ConfigOption, ConfigSetting, ConfigValue, Content, Cost, IoBridge, PermissionKind,
-    PermissionOption, PermissionOutcome, PlanEntry, PlanPriority, PlanStatus, ResourceContents,
-    StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation, ToolStatus,
+    PermissionOption, PermissionOutcome, PlanEntry, PlanPriority, PlanStatus, RateLimitWindow,
+    ResourceContents, StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation,
+    ToolStatus,
 };
 
 pub mod acp;

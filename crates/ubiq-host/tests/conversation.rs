@@ -137,7 +137,7 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
     let messages = drain(&client, 4);
 
     let seqs: Vec<u64> = messages
@@ -194,7 +194,7 @@ fn a_tool_call_and_its_completion_keep_the_same_id() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 0);
     let messages = drain(&client, 3);
 
     let Message::ConversationUpdate { update, .. } = &messages[0] else {
@@ -226,7 +226,7 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
     let (bridge, sent) = Scripted::new(Vec::new());
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 0);
     assert!(conversation.accepts_input());
 
     conversation.prompt("do the thing".to_string()).unwrap();
@@ -243,7 +243,7 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
 fn a_one_shot_harness_refuses_a_second_turn() {
     let (_hub, host_end, client) = bus_pair();
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(OneShot), host);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(OneShot), host, 0);
 
     assert!(!conversation.accepts_input());
     assert!(conversation.prompt("again".to_string()).is_err());
@@ -264,11 +264,13 @@ fn two_conversations_share_one_bus_without_interleaving() {
         first,
         Box::new(one),
         host_end.mailbox(To::Client(client.id())),
+        0,
     );
     let b = Conversation::start(
         second,
         Box::new(two),
         host_end.mailbox(To::Client(client.id())),
+        0,
     );
 
     let messages = drain(&client, 6);
@@ -288,4 +290,22 @@ fn two_conversations_share_one_bus_without_interleaving() {
 
     a.stop();
     b.stop();
+}
+
+/// A pump started with a non-zero `start_seq` continues the count rather than restarting it —
+/// what P3's pending-agent picker needs, since its own pre-launch message already claimed seq 1.
+#[test]
+fn a_pump_continues_from_its_start_seq() {
+    let (_hub, host_end, client) = bus_pair();
+    let (bridge, _) = Scripted::new(vec![text("hello")]);
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 41);
+    let messages = drain(&client, 1);
+
+    let Message::ConversationUpdate { seq, .. } = &messages[0] else {
+        panic!("expected an update, got {:?}", messages[0]);
+    };
+    assert_eq!(*seq, 42, "the first frame continues start_seq, not 1");
+    conversation.stop();
 }

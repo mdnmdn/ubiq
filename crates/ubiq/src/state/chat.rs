@@ -180,7 +180,7 @@ impl ChatState {
             model: 0,
             thinking: 1,
             mode: 0,
-            collapsed: false,
+            collapsed: true,
             attachment: false,
             draft: String::new(),
             next_id,

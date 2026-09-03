@@ -200,6 +200,16 @@ pub enum HarnessChoice {
     },
 }
 
+/// A harness and identity have been picked (from `harness_choices`); nothing has started yet —
+/// the window between picking and typing a name, where leaving costs nothing, the same property
+/// `LoginStep::Choosing` has.
+pub struct PendingNewAgent {
+    /// Index into [`WorkbenchState::agent_types`].
+    pub harness: usize,
+    /// The account id, which is what crosses the wire.
+    pub account: Option<String>,
+}
+
 pub struct WorkbenchState {
     /// Where the host writes everything down, and whether that is the usual place. The status bar
     /// says so when it is not, because a config root you cannot see is a foot-gun.
@@ -244,6 +254,10 @@ pub struct WorkbenchState {
     /// `MenuId::NewAgent`, and it reads the same [`WorkbenchState::agent_types`] the new-pane menu
     /// does: which harnesses this machine has is one answer, asked once.
     pub new_agent_menu: Option<(f32, f32)>,
+    /// A harness and identity have been picked (from `harness_choices`); nothing has started yet
+    /// — the window between picking and typing a name, where leaving costs nothing, the same
+    /// property `LoginStep::Choosing` has.
+    pub naming_agent: Option<PendingNewAgent>,
     /// The shells the host says this machine has, in the order the menu offers them. Empty until
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
@@ -275,6 +289,7 @@ impl Default for WorkbenchState {
             file_tab_menu: None,
             new_pane_menu: None,
             new_agent_menu: None,
+            naming_agent: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
         }

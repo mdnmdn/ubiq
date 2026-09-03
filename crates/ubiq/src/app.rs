@@ -17,9 +17,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::state::agents::{AgentsView, COMPOSER_SLOTS};
+use crate::state::agents::{AgentsView, CHAT_SLOT, COMPOSER_SLOTS};
 use crate::state::board::{BoardState, Field};
-use crate::state::conversation::Conversation;
+use crate::state::conversation::{Conversation, Run};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
 use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
@@ -39,8 +39,8 @@ use crate::state::work::WorkProjection;
 use crate::state::{
     ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
     ExplorerView, FileBody, FileLanguage, HarnessChoice, LogState, MenuId, NewPaneRow, OpenFile,
-    PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState, Toggle,
-    WindowRegistry, WorkbenchState, prefs, sample,
+    PanelKind, PendingNewAgent, ProjectSettings, ProjectSettingsMode, RailMode, Region,
+    SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -77,6 +77,10 @@ const CACHE_DEPTH: u8 = 3;
 /// How long after the last keystroke a filter walk starts. Typing a letter must not walk the
 /// cache on the frame; waiting this long coalesces a burst into one background walk.
 const FILTER_DEBOUNCE: Duration = Duration::from_millis(100);
+
+/// How long after the last zoom a Markdown preview is rebuilt. The rebuild throws away a parsed
+/// document, so a held zoom key must not do it once per point.
+const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
 
 gpui::actions!(ubiq, [OpenSearch, SaveFile, ZoomIn, ZoomOut]);
 
@@ -254,6 +258,7 @@ fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
     let context_pct = conversation.context_pct();
     let tokens = conversation.tokens() as f32;
     let model = conversation.model.clone();
+    let title = conversation.title.clone();
 
     let Some(record) = open.work.agent_mut(id) else {
         return;
@@ -267,6 +272,12 @@ fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
     }
     if let Some(model) = model {
         record.model = model;
+    }
+    // A conversation the harness has not named a title for keeps whatever name it started with —
+    // today's harness-label default from registration. Once it names one, that's the record's
+    // name from here on: the sidebar row, the column header and the chat panel row all read it.
+    if let Some(title) = title {
+        record.name = title;
     }
 }
 
@@ -429,6 +440,9 @@ pub struct AppState {
     /// rather than a shared one, for the reason every other pair here is split: two
     /// states drawn at once would be one field in two places.
     pub login_account_input: Entity<InputState>,
+    /// What the new-agent naming prompt has typed for the conversation's own name. Its own field
+    /// for the same reason `login_account_input` is: a state drawn once, in its own modal.
+    pub new_agent_name_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -453,6 +467,13 @@ pub struct AppState {
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
     explorer_filter_gen: u64,
+    /// Bumped once the point size has settled, and part of every Markdown preview's element id.
+    /// The text view caches the height it measured each block at and only reconsiders when its
+    /// width changes, so a zoom reflows nothing until the preview is keyed anew.
+    pub md_reflow: u64,
+    /// The zoom that asked for the last reflow, so a debounce that lost the race does not rebuild
+    /// a preview the user has already zoomed past.
+    md_reflow_gen: u64,
     pub log_scroll: UniformListScrollHandle,
     /// Which task the panel's fields were last filled from, so a selection change refills them
     /// exactly once. Writing into the component library's state needs a window and a message does
@@ -608,6 +629,12 @@ impl AppState {
 
         let login_account_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
+
+        // Placeholder is set fresh whenever the naming prompt opens (the picked harness's own
+        // label), so this construction-time one is only ever seen if the prompt somehow paints
+        // before its own open path runs.
+        let new_agent_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Name this conversation\u{2026}"));
 
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
@@ -982,6 +1009,7 @@ impl AppState {
             sink_textarea.read(cx).focus_handle(cx),
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
+            new_agent_name_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -1106,6 +1134,7 @@ impl AppState {
             sink_textarea,
             sink_modal_input,
             login_account_input,
+            new_agent_name_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,
@@ -1119,6 +1148,8 @@ impl AppState {
             explorer_scroll: ScrollHandle::new(),
             agents_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,
+            md_reflow: 0,
+            md_reflow_gen: 0,
             log_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,
@@ -1613,6 +1644,21 @@ impl AppState {
             self.pending_focus = Some(pane_id);
         }
         cx.notify();
+    }
+
+    /// A harness renamed itself over its own stream (`ESC ] 0 ; title BEL`). The dedup number
+    /// `pane_title` gave the tab is not the harness's to spend, so it survives the rename.
+    fn pane_title_reported(&mut self, pane_id: PaneId, title: String, cx: &mut Context<Self>) {
+        for open in self.projects.values_mut() {
+            if let Some(pane) = open.panes.iter_mut().find(|pane| pane.id == pane_id) {
+                pane.title = match pane_title_number(&pane.title) {
+                    Some(n) => format!("{title} {n}"),
+                    None => title,
+                };
+                cx.notify();
+                return;
+            }
+        }
     }
 
     pub fn resize_pane(&mut self, pane_id: PaneId, cols: u16, rows: u16, cx: &mut Context<Self>) {
@@ -2133,8 +2179,20 @@ impl AppState {
                     );
                 }
                 conversation.apply(seq, *update);
+                // A turn that just ended may have prompts typed while it was running, waiting
+                // behind it — the front of the queue goes out now, the same way it would have if
+                // the box had been empty when it was typed.
+                let next_prompt = (conversation.run == Run::Idle)
+                    .then(|| conversation.dequeue_front())
+                    .flatten();
                 refresh_agent_record(open, agent_id);
                 cx.notify();
+                if let Some(queued) = next_prompt {
+                    self.bus.send(Message::PromptAgent {
+                        agent_id,
+                        text: queued.text,
+                    });
+                }
             }
 
             // The harness has gone; the transcript has not. The record stops moving, and the
@@ -2429,6 +2487,7 @@ impl AppState {
         let to_host = self.bus.sender();
         let geometry = self.geometry.clone();
         let app = cx.entity().downgrade();
+        let app_title = app.clone();
         let view = cx.new(|cx| {
             TerminalView::new(writer, reader, config, cx)
                 .with_resize_callback(move |cols, rows| {
@@ -2447,6 +2506,11 @@ impl AppState {
                     window.blur(cx);
                     let _ = app.update(cx, |app, cx| app.blur_panes(cx));
                     true
+                })
+                .with_title_callback(move |_window, cx, title| {
+                    let title = title.to_string();
+                    let _ =
+                        app_title.update(cx, |app, cx| app.pane_title_reported(pane_id, title, cx));
                 })
         });
 
@@ -3286,8 +3350,25 @@ impl AppState {
                 view.update_config(ui::terminal::config(cols as u16, rows as u16, size), cx);
             });
         }
+        self.schedule_markdown_reflow(cx);
         self.remember(id, cx);
         cx.notify();
+    }
+
+    /// Rebuild the Markdown previews once the zoom stops moving. See [`AppState::md_reflow`].
+    fn schedule_markdown_reflow(&mut self, cx: &mut Context<Self>) {
+        self.md_reflow_gen = self.md_reflow_gen.wrapping_add(1);
+        let token = self.md_reflow_gen;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(REFLOW_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                if token == this.md_reflow_gen {
+                    this.md_reflow = this.md_reflow.wrapping_add(1);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// Nudge the active project's text size up or down by one point, within the range the chrome
@@ -5668,7 +5749,24 @@ impl AppState {
         }
     }
 
-    /// What one column's composer sends, to the agent that column is showing.
+    /// Which agent slot `slot` is currently addressed at.
+    ///
+    /// The chat panel's own selection for [`CHAT_SLOT`]; otherwise the active tab of whichever
+    /// column owns the slot. The one place this is answered, so the Enter-key path and the
+    /// click-based Send/Enqueue button resolve the same agent for the same slot on every surface
+    /// that hosts a composer.
+    pub fn agent_for_slot(&self, slot: usize, cx: &App) -> Option<AgentId> {
+        if slot == CHAT_SLOT {
+            return self.chat.selected;
+        }
+        self.agents(cx)?
+            .columns
+            .iter()
+            .find(|column| column.slot == slot)
+            .and_then(|column| column.active_agent())
+    }
+
+    /// What one composer sends, to the agent its slot is addressed at.
     ///
     /// Nothing is appended here, for the reason [`Self::send_to_agent`] appends nothing: the line
     /// lands in the thread when the host answers with the agent carrying it.
@@ -5676,21 +5774,19 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
+        let Some(agent_id) = self.agent_for_slot(slot, cx) else {
+            return;
+        };
+        // A column showing a live agent sends or queues, whichever the turn in flight calls for;
+        // one showing a mock keeps the path it had. Both are on screen at once, and the
+        // difference is whether a conversation exists.
+        if self.conversation(agent_id, cx).is_some() {
+            self.send_or_enqueue(agent_id, slot, window, cx);
+            return;
+        }
         let Some(agents) = self.agents(cx) else {
             return;
         };
-        let Some(column) = agents.columns.iter().find(|column| column.slot == slot) else {
-            return;
-        };
-        let Some(agent_id) = column.active_agent() else {
-            return;
-        };
-        // A column showing a live agent prompts it; one showing a mock keeps the path it had.
-        // Both are on screen at once, and the difference is whether a conversation exists.
-        if self.conversation(agent_id, cx).is_some() {
-            self.prompt_agent(agent_id, slot, window, cx);
-            return;
-        }
         let text = agents.draft(slot).trim().to_string();
         if text.is_empty() {
             return;
@@ -5733,10 +5829,125 @@ impl AppState {
         cx.notify();
     }
 
+    /// Send this composer's draft, or hold it for later — the one function both the composer's
+    /// button and its Enter-key path call, so the two ways to send a live agent's conversation
+    /// agree on what "send" means while a turn is running.
+    ///
+    /// Not running: the same as [`Self::prompt_agent`]. Running with something typed: the draft
+    /// is queued on the conversation instead of sent, and the composer is cleared the same way a
+    /// send clears it. Running with nothing typed: nothing to send or hold, so nothing happens —
+    /// Stop is a separate control, not reached through this one.
+    pub fn send_or_enqueue(
+        &mut self,
+        agent_id: AgentId,
+        slot: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let working = self
+            .conversation(agent_id, cx)
+            .is_some_and(|conversation| conversation.run == Run::Working);
+        if !working {
+            self.prompt_agent(agent_id, slot, window, cx);
+            return;
+        }
+        let Some(input) = self.column_inputs.get(slot) else {
+            return;
+        };
+        let text = input.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.enqueue(text);
+        }
+        self.clear_composer(slot, window, cx);
+        cx.notify();
+    }
+
+    /// Take a queued prompt back out and load it into the composer — a queue row's edit control.
+    pub fn edit_queued_message(
+        &mut self,
+        agent_id: AgentId,
+        slot: usize,
+        queued_id: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        let Some(text) = self
+            .projects
+            .get_mut(&id)
+            .and_then(|open| open.conversations.get_mut(&agent_id))
+            .and_then(|conversation| conversation.remove_queued(queued_id))
+        else {
+            return;
+        };
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.set_draft(slot, text.clone());
+        }
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return;
+        };
+        input.update(cx, |state, cx| {
+            state.set_value(text, window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Drop a queued prompt outright — a queue row's delete control.
+    pub fn delete_queued_message(
+        &mut self,
+        agent_id: AgentId,
+        queued_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.remove_queued(queued_id);
+        }
+        cx.notify();
+    }
+
     /// Interrupt the turn in flight.
     pub fn cancel_turn(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         self.bus.send(Message::CancelTurn { agent_id });
         cx.notify();
+    }
+
+    /// End a conversation outright — unlike [`Self::cancel_turn`], this closes it rather than
+    /// interrupting the turn in flight.
+    pub fn end_conversation(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        self.bus.send(Message::EndConversation { agent_id });
+        cx.notify();
+    }
+
+    /// Bench every agent on screen — the "Close all" control on the agents screen.
+    ///
+    /// Closing one tab benches the agent behind it rather than ending it — see `state::agents`'s
+    /// module doc — and this is that same thing for every tab in every column at once, not
+    /// `end_conversation`: closing a column does not kill what was running in it, and "close all"
+    /// is not the exception. A screen with nothing on screen is a correct no-op.
+    pub fn close_all_conversations(&mut self, cx: &mut Context<Self>) {
+        let Some(agents) = self.agents(cx) else {
+            return;
+        };
+        let ids: Vec<AgentId> = agents
+            .columns
+            .iter()
+            .flat_map(|column| column.tabs.iter().copied())
+            .collect();
+        for id in ids {
+            self.bench_agent(id, cx);
+        }
     }
 
     /// Answer a permission the agent is waiting on, naming one of the options it offered.
@@ -5759,6 +5970,51 @@ impl AppState {
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
             conversation.pending = None;
+        }
+        cx.notify();
+    }
+
+    /// Pick a model before this conversation's harness has launched — the send is the same
+    /// `SetAgentConfig` a live conversation would use, but here nothing is running yet to answer
+    /// it, so the pick is also kept locally for the picker to highlight.
+    pub fn pick_agent_model(&mut self, agent_id: AgentId, value: String, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.chosen_model = Some(value.clone());
+            // Picking a model always means the dropdown should close, so this is the one place
+            // that does it rather than leaving it to every caller.
+            conversation.model_menu_open = false;
+        }
+        self.bus.send(Message::SetAgentConfig {
+            agent_id,
+            config_id: "model".to_string(),
+            value,
+        });
+        cx.notify();
+    }
+
+    /// Open or shut the pre-launch model dropdown for one conversation. Its own flag rather than
+    /// the window's single `open_menu`: several pending conversations can each have a picker open
+    /// at once.
+    pub fn toggle_agent_model_menu(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.model_menu_open = !conversation.model_menu_open;
+        }
+        cx.notify();
+    }
+
+    /// Dismiss the pre-launch model dropdown without picking — an outside click.
+    pub fn dismiss_agent_model_menu(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.model_menu_open = false;
         }
         cx.notify();
     }
@@ -5815,16 +6071,20 @@ impl AppState {
         cx.notify();
     }
 
-    /// Start a conversation on the harness — and the identity — at that row of the menu.
+    /// Pick the harness — and the identity — at that row of the menu, and raise the naming
+    /// prompt. Nothing starts yet: [`Self::start_named_agent`] is what sends
+    /// [`Message::StartConversation`], once a name has been typed or skipped.
     ///
     /// A harness the host could not find is drawn disabled and takes no click, so picking it does
-    /// nothing rather than asking for a start that would fail.
-    pub fn pick_new_agent_menu(&mut self, index: usize, cx: &mut Context<Self>) {
+    /// nothing rather than opening a prompt for a start that would fail.
+    pub fn pick_new_agent_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.workbench.open_menu = None;
         self.workbench.new_agent_menu = None;
-        let Some(project_id) = self.project(cx) else {
-            return;
-        };
         // The same list the menu drew, so an index cannot mean one row on screen and another
         // here — the rule every position-matched menu in the window follows.
         let rows = self
@@ -5841,13 +6101,53 @@ impl AppState {
         if !agent.available {
             return;
         }
+        self.workbench.naming_agent = Some(PendingNewAgent { harness, account });
+        let default_name = agent.label.clone();
+        self.new_agent_name_input.update(cx, |state, cx| {
+            state.set_value(default_name, window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Confirm the naming prompt: mint the agent id and send `StartConversation`. An empty name
+    /// is carried as `None` rather than duplicating the host's own fallback to the harness label.
+    pub fn start_named_agent(&mut self, cx: &mut Context<Self>) {
+        let Some(pending) = self.workbench.naming_agent.take() else {
+            return;
+        };
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(agent) = self.workbench.agent_types.get(pending.harness) else {
+            return;
+        };
+        if !agent.available {
+            return;
+        }
+        let name = self
+            .new_agent_name_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let name = if name.is_empty() { None } else { Some(name) };
+        let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
+            agent_id,
             project_id,
             session_id: self.session,
             rel_path: None,
             agent_type: agent.id.clone(),
-            account,
+            account: pending.account,
+            name,
         });
+        cx.notify();
+    }
+
+    /// Abandon the naming prompt. Leaving costs nothing — no harness has started yet.
+    pub fn cancel_named_agent(&mut self, cx: &mut Context<Self>) {
+        self.workbench.naming_agent = None;
         cx.notify();
     }
 
@@ -6636,9 +6936,12 @@ impl AppState {
     /// Show one of the project's conversations in the chat panel.
     ///
     /// Selecting is a change of view and nothing else: the one leaving the panel keeps running,
-    /// because the conversation is the host's and the panel is a perspective on it.
+    /// because the conversation is the host's and the panel is a perspective on it. Selecting also
+    /// closes the list — a pick, whether the list was open to make it or already closed, leaves it
+    /// closed.
     pub fn select_chat(&mut self, id: AgentId, cx: &mut Context<Self>) {
         self.chat.selected = Some(id);
+        self.chat.collapsed = true;
         self.chat_scroll.scroll_to_bottom();
         cx.notify();
     }
@@ -6943,6 +7246,13 @@ pub fn pane_title(agent_type: &str, taken: &[String]) -> String {
         .map(|n| format!("{base} {n}"))
         .find(|name| !taken.iter().any(|used| used == name))
         .unwrap_or_else(|| base.to_string())
+}
+
+/// The disambiguating number `pane_title` appended, if the title still ends in one.
+fn pane_title_number(title: &str) -> Option<&str> {
+    title
+        .rsplit_once(' ')
+        .and_then(|(_, n)| (!n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).then_some(n))
 }
 
 /// Re-exported so `main.rs` can name the palette it boots with.

@@ -274,6 +274,16 @@ impl UsageRecord {
     }
 }
 
+/// How much of the user's rate-limit window is spent, and when it resets.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RateLimitRecord {
+    pub five_hour_pct: Option<u8>,
+    pub five_hour_resets_at: Option<i64>,
+    pub seven_day_pct: Option<u8>,
+    pub seven_day_resets_at: Option<i64>,
+    pub status: String,
+}
+
 /// Why a turn stopped.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StopReason {
@@ -343,6 +353,7 @@ pub enum ConvUpdate {
     Title(String),
 
     Usage(UsageRecord),
+    RateLimit(RateLimitRecord),
 
     /// The agent is asking a human. Answered with `AnswerPermission` naming
     /// one of the options.

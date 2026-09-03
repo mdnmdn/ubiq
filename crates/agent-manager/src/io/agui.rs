@@ -74,6 +74,8 @@ pub fn to_agui(event: &AgentEvent) -> Option<Value> {
         | AgentEvent::PermissionRequest { .. }
         // AG-UI has no context-window concept to carry `used`/`size` into.
         | AgentEvent::UsageUpdate { .. }
+        // Nor a rate-limit concept — Claude Code's own gauge, with no AG-UI equivalent.
+        | AgentEvent::RateLimitUpdate { .. }
         | AgentEvent::Log { .. } => None,
     }
 }

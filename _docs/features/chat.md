@@ -26,10 +26,12 @@ screens.
 **Several conversations, one at a time.** The list shows each chat's title and how long ago it
 moved. The selected row is marked with an accent bar and fill; clicking one swaps the transcript.
 `+ New chat` raises the window's new-agent menu — the same one the agents screen's `New agent`
-control does, painted by `ui::shell` so both surfaces share it — and picking a harness there puts
-an empty conversation at the top and selects it. That chat takes its title from the first thing
-said in it. The list collapses from the panel's header, leaving the transcript
-the whole height.
+control does, painted by `ui::shell` so both surfaces share it. Picking a harness there raises a
+naming prompt rather than starting anything at once; confirming it is what puts an empty
+conversation at the top and selects it. That chat takes its title from the first thing said in it.
+The list starts collapsed, from the panel's header, leaving the transcript the whole
+height; toggling the header opens and closes it by hand, and selecting a chat — whether the list
+was open to pick it or already shut — always leaves it closed again afterward.
 
 **The run state and the context window are always visible.** An `Idle` / `Working` pill takes its
 colour from the status group, never from wording alone, and a second pill carries a drawn ring, the
