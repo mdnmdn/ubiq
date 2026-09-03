@@ -10,6 +10,7 @@
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use ubiq_proto::messages::ShellInfo;
 
@@ -113,7 +114,38 @@ fn basename(program: &str) -> String {
         .into_owned()
 }
 
-/// Where a named program is on this machine, `PATH` first and then the usual homes.
+/// The `PATH` the user's own login shell has, which is not the one a desktop-launched Ubiq
+/// inherits. Asked of the shell once per process: it costs a subprocess, and a machine does not
+/// grow a new toolchain directory while a window is open.
+#[cfg(unix)]
+fn login_path() -> &'static [PathBuf] {
+    static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    DIRS.get_or_init(|| {
+        let shell = default_program();
+        // `-lic` rather than `-c`: the directories a toolchain installer adds are written into the
+        // login and interactive files, not into a non-interactive shell's environment.
+        let Ok(out) = std::process::Command::new(&shell)
+            .args(["-lic", "printf %s \"$PATH\""])
+            .output()
+        else {
+            return Vec::new();
+        };
+        let path = String::from_utf8_lossy(&out.stdout);
+        std::env::split_paths(path.trim()).collect()
+    })
+}
+
+/// Windows has no login shell to ask, so there is nothing beyond `PATH` and the usual homes.
+#[cfg(windows)]
+fn login_path() -> &'static [PathBuf] {
+    &[]
+}
+
+/// Where a named program is on this machine: `PATH` first, then the login shell's own `PATH`, then
+/// the usual homes.
+///
+/// The login shell's `PATH` is what finds a harness installed under the user's home — `~/.local/bin`,
+/// a node prefix — which the environment a desktop launcher hands Ubiq does not name at all.
 pub(crate) fn locate(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH");
     let from_path = path
@@ -122,6 +154,7 @@ pub(crate) fn locate(name: &str) -> Option<PathBuf> {
         .into_iter()
         .flatten();
     from_path
+        .chain(login_path().iter().cloned())
         .chain(EXTRA_DIRS.iter().map(PathBuf::from))
         .map(|dir| dir.join(name))
         .find(|candidate| is_executable(candidate))
@@ -166,6 +199,18 @@ mod tests {
             );
             assert!(!shell.label.contains('/'), "a label is a name, not a path");
         }
+    }
+
+    /// What the login shell's `PATH` holds is this machine's business, so the assertion is the
+    /// invariant instead: the probe still finds a shell, and the answer is computed once.
+    #[test]
+    #[cfg(unix)]
+    fn the_login_path_is_asked_for_once_and_locate_still_finds_a_shell() {
+        assert!(locate("sh").is_some(), "every unix machine has sh");
+        assert!(
+            std::ptr::eq(login_path(), login_path()),
+            "the login shell is asked once per process"
+        );
     }
 
     #[test]

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-03
+verified: 2026-09-03
 code_anchors: [crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -118,7 +118,9 @@ unless they are one of: platform copy (`Cmd+C` on Mac, `Ctrl+Shift+C` elsewhere)
 is consumed and does nothing; paste wraps the clipboard in bracketed paste. Tab and Shift+Tab reach
 the harness: the emulator's `Terminal` key context suppresses the window's focus-cycle bindings.
 Special keys, Ctrl and Alt chords, mouse reporting and the alternate screen are otherwise the
-emulator's.
+emulator's. Enter is `\r`; Shift+Enter is `\x1b\r` — the sequence Claude Code's own
+`/terminal-setup` binds Shift+Enter to — so a harness can tell "newline" from "submit" without
+kitty-protocol negotiation, which this emulator does not track.
 
 **The pointer is the emulator's when the harness has asked for it.** A harness that enables SGR
 mouse reporting owns clicks, drags and the wheel. When reporting is off, a click-drag selects
@@ -249,10 +251,14 @@ not is added to its home region first. `AppState::toggle_region()` is where open
 region starts a pane, and `pane_title()` is where a tab gets its number.
 
 **`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** `available()`
-checks a fixed candidate list against `PATH` and the usual homes — the homes as well, because the
-`PATH` Ubiq itself was launched with is exactly the one that cannot be trusted — and always includes
-`default_program()`, whatever it is. `pty::spawn` asks the same module whether the program it was
-handed is a shell, and `command_for()` builds a login shell when it is: `portable-pty` prefixes argv0
+checks a fixed candidate list against `PATH`, the user's login shell's own `PATH` and the usual
+homes, and always includes `default_program()`, whatever it is. The other two lookups are there
+because the `PATH` Ubiq itself was launched with is exactly the one that cannot be trusted: a
+harness installed under the user's home is named by neither the thin environment a desktop launcher
+hands over nor a fixed list of system directories. The login shell is asked once per process, with
+`-lic`, because the login and interactive files are where a toolchain installer writes its
+directory and a non-interactive shell never reads them.
+`pty::spawn` asks the same module whether the program it was handed is a shell, and `command_for()` builds a login shell when it is: `portable-pty` prefixes argv0
 with `-` only for a builder made with `new_default_prog`, which takes no program name and reads the
 shell out of `SHELL`, so that is where the chosen shell is handed to it. The coordinator answers
 `ListShells` straight from `available()`, and `ListAgentTypes` from `agent::Agents::types()`.

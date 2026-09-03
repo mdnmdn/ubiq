@@ -10,6 +10,7 @@
 //! | Key | Sequence | Notes |
 //! |-----|----------|-------|
 //! | Enter | `\r` (0x0D) | Carriage return |
+//! | Shift+Enter | `\x1b\r` | Newline, not submit — same convention as Claude Code's `/terminal-setup` |
 //! | Escape | `\x1b` (0x1B) | ESC |
 //! | Backspace | `\x7f` (0x7F) | DEL |
 //! | Tab | `\t` (0x09) | Horizontal tab |
@@ -123,7 +124,16 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
             }
             return Some(b" ".to_vec());
         }
-        "enter" => return Some(b"\r".to_vec()),
+        "enter" => {
+            // Plain Enter submits; Shift+Enter must be a distinct sequence or a harness
+            // can't tell "newline" from "submit". `\x1b\r` is the convention Claude Code's
+            // own `/terminal-setup` binds Shift+Enter to (no kitty-protocol negotiation
+            // needed), and other Ink-based agent CLIs follow the same convention.
+            if keystroke.modifiers.shift {
+                return Some(b"\x1b\r".to_vec());
+            }
+            return Some(b"\r".to_vec());
+        }
         "escape" => return Some(b"\x1b".to_vec()),
         "backspace" => return Some(b"\x7f".to_vec()),
         "tab" => {
@@ -326,6 +336,13 @@ mod tests {
         let keystroke = Keystroke::parse("enter").unwrap();
         let bytes = keystroke_to_bytes(&keystroke, TermMode::empty());
         assert_eq!(bytes, Some(b"\r".to_vec()));
+    }
+
+    #[test]
+    fn test_shift_enter() {
+        let keystroke = Keystroke::parse("shift-enter").unwrap();
+        let bytes = keystroke_to_bytes(&keystroke, TermMode::empty());
+        assert_eq!(bytes, Some(b"\x1b\r".to_vec()));
     }
 
     #[test]
