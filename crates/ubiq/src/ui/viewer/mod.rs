@@ -117,12 +117,16 @@ fn drawn(
             ViewerKind::Editor => buf(),
             ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
             // Markdown and Mermaid do have the toggle, so these are unreachable here.
-            ViewerKind::Markdown | ViewerKind::Mermaid => markdown::render(app, &key, &source),
+            ViewerKind::Markdown | ViewerKind::Mermaid => {
+                markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
+            }
         };
     }
 
     let mut preview = || match file.viewer {
-        ViewerKind::Markdown => markdown::render(app, &key, &source),
+        ViewerKind::Markdown => {
+            markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
+        }
         ViewerKind::Mermaid => diagram::render(app, &key, &source, cx),
         ViewerKind::Excalidraw => scene::live(app, &key, &source, cx),
         // `has_preview` names Markdown and Mermaid and nothing else.

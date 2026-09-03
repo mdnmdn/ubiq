@@ -324,7 +324,10 @@ fn rendered(task: &TaskRecord, source: String, cx: &mut Context<AppState>) -> An
     div()
         .id("board-desc-read")
         .cursor_text()
-        .child(TextView::markdown(eid("task-md", task.id), source))
+        .child(
+            TextView::markdown(eid("task-md", task.id), source)
+                .text_size(px(theme::EDITOR_FONT_SIZE)),
+        )
         .on_click(
             cx.listener(|this, _, window, cx| this.begin_task_edit(Field::Description, window, cx)),
         )

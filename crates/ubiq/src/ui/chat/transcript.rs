@@ -85,6 +85,7 @@ fn assistant_turn(message: usize, blocks: &[Block], cx: &mut Context<AppState>) 
                 ElementId::Name(format!("md-{message}-{ix}").into()),
                 source.clone(),
             )
+            .text_size(px(theme::EDITOR_FONT_SIZE))
             .into_any_element(),
             Block::Tool(tool) => tool_block(message, ix, tool, cx),
         });
