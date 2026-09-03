@@ -294,6 +294,7 @@ fn line(
         row.depth,
         is_selected,
         row.on_cursor,
+        font_size,
     );
 
     if tree && row.is_dir {

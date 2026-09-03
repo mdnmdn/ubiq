@@ -28,10 +28,10 @@ use crate::state::MenuId;
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, Tab, badge, card, choice_pill, context_panel, disclosure,
-    file_row, filter_bar, ghost_button, icon_button, kind_icon, meter, mono, panel_header, pill,
-    primary_button, progress_ring, section_label, slab, state_chip, status_dot, stepper, tab_strip,
-    toggle_pill, view_switch,
+    ContextItem, Picker, PickerStyle, ROW_FONT, Tab, badge, card, choice_pill, context_panel,
+    disclosure, file_row, filter_bar, ghost_button, icon_button, kind_icon, meter, mono,
+    panel_header, pill, primary_button, progress_ring, section_label, slab, state_chip, status_dot,
+    stepper, tab_strip, toggle_pill, view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -533,7 +533,7 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
     let specimen = labelled(
         "file_row",
-        file_row("sink-file-row", 1, true, true)
+        file_row("sink-file-row", 1, true, true, ROW_FONT)
             .child(kind_icon(false, theme::warning()))
             .child(mono("main.rs", theme::warning()).text_size(px(13.)))
             .child(badge("M", theme::warning()))
