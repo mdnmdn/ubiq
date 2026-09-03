@@ -623,6 +623,13 @@ what the project remembers, so a document reopens in the layout it was left in. 
 opens in Preview or Source as the Editor setting says; mermaid still opens in Preview. Already-open
 tabs keep the layout they were left in.
 
+**A Markdown preview scrolls, and YAML frontmatter is a bar above it rather than part of it.** A
+document that opens with a `---` block draws it as a collapsible bar at the head of the preview —
+collapsed to its first few field names, expanded to the raw YAML — and the bar keeps its height
+while the document below it takes the rest of the panel and scrolls inside it. Whether the bar is
+open belongs to the file, like the layout toggle. A document without frontmatter is the same view
+without the bar.
+
 **A diagram is drawn in the interface, on a background thread.** A Mermaid document is just text;
 the bus already carries a file's bytes, so nothing about a diagram crosses it. The window renders it
 with a Mermaid implementation of its own, and it renders it **off the frame thread**: layout is
@@ -686,6 +693,14 @@ hand-picked ladder of point sizes rather than every integer, because a size is c
 size is remembered with the project, so a zoom survives a restart. `cmd-=` and `cmd-shift-=` zoom in
 and `cmd--` zoom out by whole points, within the range the chrome admits; the dropdown shows the
 nearest ladder entry when a nudge lands between them.
+
+**An explorer row is sized from its text, not from a constant.** The row's height and the tree's
+per-level indent are both derived from the size the row draws at — `kit::row_height()` and
+`kit::row_indent()`, floored so the twisty and the kind icon never touch the edges and capped so the
+tree does not become a column of buttons at the top of the range. A zoom therefore makes the tree
+taller as well as larger, and a small size gives a genuinely denser list rather than small text in
+the old box. The file picker and the ref list draw the same chrome at `kit::ROW_FONT`, because they
+are dialogs rather than a project's workspace and no project's zoom reaches them.
 
 **The status bar reports facts, not intentions, and an absent fact is drawn as absent.** It reports
 on whatever is on screen, so the rail mode decides which set of facts it has. In IDE mode with a

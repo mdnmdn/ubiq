@@ -71,33 +71,37 @@ pub fn render(
     let size = font_size.unwrap_or(theme::EDITOR_FONT_SIZE);
     let (fm, body) = split_frontmatter(source);
 
-    if let Some(raw_yaml) = fm {
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.))
-            .min_h(px(0.))
-            .overflow_y_hidden()
-            .child(frontmatter_bar(key, raw_yaml, frontmatter_open, size, cx))
-            .child(
-                TextView::markdown(eid("md", key), body.to_string())
-                    .markdown_extensions(extensions().clone())
-                    .p_5()
-                    .text_size(px(size))
-                    .scrollable(false)
-                    .selectable(true),
-            )
-            .into_any_element()
-    } else {
-        TextView::markdown(eid("md", key), body.to_string())
-            .markdown_extensions(extensions().clone())
-            .p_5()
-            .text_size(px(size))
-            .scrollable(true)
-            .selectable(true)
-            .into_any_element()
-    }
+    let document = TextView::markdown(eid("md", key), body.to_string())
+        .markdown_extensions(extensions().clone())
+        .p_5()
+        .text_size(px(size))
+        .scrollable(true)
+        .selectable(true);
+
+    let Some(raw_yaml) = fm else {
+        return document.into_any_element();
+    };
+
+    // The bar keeps its own height and the document takes what is left: a scrollable text view
+    // fills the box it is given, so the box has to be bounded or it scrolls nothing.
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .overflow_hidden()
+        .child(frontmatter_bar(key, raw_yaml, frontmatter_open, size, cx))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .min_h(px(0.))
+                .child(document),
+        )
+        .into_any_element()
 }
 
 /// Split YAML frontmatter from the Markdown body.
@@ -160,6 +164,7 @@ fn frontmatter_bar(
     div()
         .flex()
         .flex_col()
+        .flex_none()
         .child(disclosure(
             eid("md-fm", &key),
             "Frontmatter",

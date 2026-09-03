@@ -18,7 +18,7 @@ use crate::app::AppState;
 use crate::state::git::{RefRow, RefSection};
 use crate::theme;
 use crate::ui::eid;
-use crate::ui::kit::{disclosure, elided, file_row, mono, panel, status_dot};
+use crate::ui::kit::{ROW_FONT, disclosure, elided, file_row, mono, panel, status_dot};
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
@@ -64,7 +64,7 @@ fn ref_row(index: usize, row: &RefRow, selected: bool, cx: &mut Context<AppState
         theme::text_faint()
     };
 
-    file_row(eid("git-ref", index), 0, selected, false)
+    file_row(eid("git-ref", index), 0, selected, false, ROW_FONT)
         .child(status_dot(colour, theme::pane_bg()))
         .child(elided(
             eid("git-ref-name", index),

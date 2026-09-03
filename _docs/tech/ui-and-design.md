@@ -6,7 +6,7 @@ status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-02
-verified: 2026-09-02
+verified: 2026-09-03
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -262,6 +262,10 @@ system ellipsis and carries the whole string as its tooltip, which is why it tak
 name, a path or a title that wrapped instead would push everything under it down, and a column of
 rows is scanned by its left edge — so nothing in a row, a footer or a card header is allowed a second
 line.
+
+**A file row is sized from its text.** `kit::file_row` derives its height (`kit::row_height`) and
+the tree indent (`kit::row_indent`) from the size it draws at — so the explorer's zoom changes the
+tree's density. A surface no project zoom reaches passes `kit::ROW_FONT`.
 
 ## How a screen is put together
 

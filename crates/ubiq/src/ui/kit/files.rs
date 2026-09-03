@@ -18,9 +18,25 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::theme;
 use crate::ui::kit::controls::{field, icon_button};
 
-/// How tall one row is, and how far each level of the tree indents it.
-pub const ROW_HEIGHT: f32 = 24.0;
-pub const INDENT: f32 = 11.0;
+/// The text size a file list draws at when nobody scales it — the picker and the ref list, which
+/// are dialogs rather than a project's workspace.
+pub const ROW_FONT: f32 = 12.5;
+
+/// How tall one row is at a given text size.
+///
+/// **A row is sized from its text, not from a constant.** The explorer scales with the project's
+/// font, so a row that kept a fixed height would leave a gap around small text and clip large
+/// text. The floor keeps the twisty and the kind icon from touching the edges; the ceiling stops
+/// the tree turning into a list of buttons at the top of the range.
+pub fn row_height(font_size: f32) -> f32 {
+    (font_size * 1.7).round().clamp(18.0, 52.0)
+}
+
+/// How far each level of the tree indents, at a given text size. It scales with the row for the
+/// same reason the height does — an indent is read against the text beside it.
+pub fn row_indent(font_size: f32) -> f32 {
+    (font_size * 0.85).round().clamp(8.0, 24.0)
+}
 
 /// The two-arrangement toggle: tree on the left, list on the right, lit when it is the one on
 /// screen.
@@ -87,10 +103,11 @@ pub fn file_row(
     depth: usize,
     selected: bool,
     on_cursor: bool,
+    font_size: f32,
 ) -> Stateful<Div> {
     let mut line = div()
         .id(id)
-        .h(px(ROW_HEIGHT))
+        .h(px(row_height(font_size)))
         .pr_1p5()
         .flex()
         .flex_none()
@@ -98,7 +115,11 @@ pub fn file_row(
         .gap_1()
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
-        .child(div().w(px(6.0 + depth as f32 * INDENT)).flex_none());
+        .child(
+            div()
+                .w(px(6.0 + depth as f32 * row_indent(font_size)))
+                .flex_none(),
+        );
 
     line = match (selected, on_cursor) {
         (true, false) => line

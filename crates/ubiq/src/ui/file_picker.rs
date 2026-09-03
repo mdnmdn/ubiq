@@ -31,8 +31,8 @@ use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
 use crate::ui::kit::{
-    check_box, elided, elided_with, file_row, filter_bar, ghost_button, icon_button, kind_icon,
-    mono, primary_button, twisty, view_switch,
+    ROW_FONT, check_box, elided, elided_with, file_row, filter_bar, ghost_button, icon_button,
+    kind_icon, mono, primary_button, twisty, view_switch,
 };
 
 /// The key context the dialog is answered in, and the one the component library gives the field
@@ -298,6 +298,7 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
         row.depth,
         selected,
         row.on_cursor,
+        ROW_FONT,
     );
 
     if tree && row.is_dir {
