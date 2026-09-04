@@ -61,7 +61,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, IoSupport, Launch, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, SeedFile};
 
 /// The Grok CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -75,30 +75,16 @@ impl Grok {
 }
 
 impl Harness for Grok {
-    fn id(&self) -> crate::spec::HarnessId {
-        "grok".to_string()
-    }
-
-    fn display_name(&self) -> &str {
-        "Grok CLI"
-    }
-
-    fn command(&self) -> &str {
-        "grok"
-    }
-
-    fn aliases(&self) -> &[&str] {
-        &[]
-    }
-
-    fn io_support(&self) -> IoSupport {
-        // Passthrough only: Grok's `--format json` NDJSON stream exists but its
-        // per-field event shapes aren't documented enough to build a faithful
-        // structured bridge yet (see `_docs/harness/grok.md`).
-        IoSupport {
-            passthrough: true,
-            structured: false,
-        }
+    // Passthrough only: Grok's `--format json` NDJSON stream exists but its
+    // per-field event shapes aren't documented enough to build a faithful
+    // structured bridge yet (see `_docs/harness/grok.md`).
+    super::shared::harness_identity! {
+        id: "grok",
+        display_name: "Grok CLI",
+        command: "grok",
+        aliases: [],
+        passthrough: true,
+        structured: false,
     }
 
     /// Class C: Grok has **no config-dir lever** — its only relocation seam is
@@ -256,13 +242,7 @@ impl Harness for Grok {
                 .as_ref()
                 .or(account.auth_token_env.as_ref())
             {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("GROK_API_KEY".to_string(), value));
             }
             // Reuse a prior `am account login` by *seeding* the captured
@@ -397,16 +377,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
-    fn write_skill(dir: &Path, id: &str) -> PathBuf {
-        let skill_dir = dir.join(id);
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            format!("---\nname: {id}\ndescription: test skill\n---\nBody."),
-        )
-        .unwrap();
-        skill_dir
-    }
+    super::super::shared::harness_conformance_tests!(Grok, "grok");
 
     #[test]
     fn provision_writes_user_settings_skills_and_launch_without_touching_home() {
@@ -498,23 +469,6 @@ mod tests {
 
         // Byte-identical-config invariant: no MCP servers => no .grok dir.
         assert!(!config_dir.path().join(".grok").exists());
-    }
-
-    #[test]
-    fn provision_missing_skill_path_is_an_error() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.skills.push(SkillRef {
-            id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from(
-                "/definitely/does/not/exist/anywhere",
-            )),
-        });
-
-        let grok = Grok::new();
-        let err = grok.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("missing"));
     }
 
     #[test]
@@ -629,18 +583,7 @@ mod tests {
         );
 
         // No-secret-on-disk invariant.
-        for entry in walkdir::WalkDir::new(config_dir.path())
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
-            assert!(
-                !content.contains(&expected),
-                "secret value leaked into {}",
-                entry.path().display()
-            );
-        }
+        super::super::shared::assert_no_secret_on_disk(config_dir.path(), &expected);
     }
 
     #[test]
@@ -739,24 +682,6 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
         );
-    }
-
-    #[test]
-    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
-        use crate::account::Account;
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "broken".to_string(),
-            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
-            ..Default::default()
-        });
-
-        let grok = Grok::new();
-        let err = grok.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
     }
 
     #[test]

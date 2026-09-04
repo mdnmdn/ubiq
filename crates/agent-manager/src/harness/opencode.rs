@@ -22,7 +22,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{IoModes, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
 
 /// The opencode harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -36,27 +36,13 @@ impl Opencode {
 }
 
 impl Harness for Opencode {
-    fn id(&self) -> crate::spec::HarnessId {
-        "opencode".to_string()
-    }
-
-    fn display_name(&self) -> &str {
-        "opencode"
-    }
-
-    fn command(&self) -> &str {
-        "opencode"
-    }
-
-    fn aliases(&self) -> &[&str] {
-        &["opencode"]
-    }
-
-    fn io_support(&self) -> IoSupport {
-        IoSupport {
-            passthrough: true,
-            structured: true,
-        }
+    super::shared::harness_identity! {
+        id: "opencode",
+        display_name: "opencode",
+        command: "opencode",
+        aliases: ["opencode"],
+        passthrough: true,
+        structured: true,
     }
 
     /// Class A-clean: `OPENCODE_CONFIG_DIR` relocates the config tier and
@@ -192,11 +178,6 @@ impl Harness for Opencode {
         };
 
         // 5. Account: inject credential *references* into the child's env.
-        // `am`'s account store never holds secret material — only env-var NAMES,
-        // a base URL, and/or a home dir path. The only place a secret value is
-        // ever touched is the transient `std::env::var` read below; it lands
-        // in `Launch.env` (in-memory, passed to the child process) and is never
-        // written to disk.
         let mut env = vec![
             (
                 "OPENCODE_CONFIG".to_string(),
@@ -216,23 +197,11 @@ impl Harness for Opencode {
             // opencode uses whichever provider is configured).
             // TODO(P2+): provider-specific account env.
             if let Some(name) = &account.api_key_env {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
                 env.push(("OPENAI_API_KEY".to_string(), value));
             } else if let Some(name) = &account.auth_token_env {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
                 env.push(("OPENAI_API_KEY".to_string(), value));
             }
@@ -414,16 +383,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
-    fn write_skill(dir: &Path, id: &str) -> PathBuf {
-        let skill_dir = dir.join(id);
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            format!("---\nname: {id}\ndescription: test skill\n---\nBody."),
-        )
-        .unwrap();
-        skill_dir
-    }
+    super::super::shared::harness_conformance_tests!(Opencode, "opencode");
 
     #[test]
     fn provision_writes_opencode_json_skills_agents_md_and_launch_without_touching_home() {
@@ -544,23 +504,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_missing_skill_path_is_an_error() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.skills.push(SkillRef {
-            id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from(
-                "/definitely/does/not/exist/anywhere",
-            )),
-        });
-
-        let opencode = Opencode::new();
-        let err = opencode.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("missing"));
-    }
-
-    #[test]
     fn provision_empty_mcps_still_writes_opencode_json() {
         let config_dir = tempfile::TempDir::new().unwrap();
         let spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
@@ -638,18 +581,7 @@ mod tests {
         );
 
         // No-secret-on-disk invariant.
-        for entry in walkdir::WalkDir::new(config_dir.path())
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
-            assert!(
-                !content.contains(&expected),
-                "secret value leaked into {}",
-                entry.path().display()
-            );
-        }
+        super::super::shared::assert_no_secret_on_disk(config_dir.path(), &expected);
     }
 
     #[test]
@@ -688,24 +620,6 @@ mod tests {
         )
         .unwrap();
         assert!(config_json["mcp"]["postgres"].is_object());
-    }
-
-    #[test]
-    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
-        use crate::account::Account;
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "broken".to_string(),
-            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
-            ..Default::default()
-        });
-
-        let opencode = Opencode::new();
-        let err = opencode.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
     }
 
     #[test]

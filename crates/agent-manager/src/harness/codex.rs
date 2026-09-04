@@ -24,7 +24,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
 
 /// The markers that wrap `am`-managed `[mcp_servers.*]` tables in
 /// `config.toml`, so any hand-authored tables in the same file (were any to
@@ -44,27 +44,13 @@ impl Codex {
 }
 
 impl Harness for Codex {
-    fn id(&self) -> crate::spec::HarnessId {
-        "codex".to_string()
-    }
-
-    fn display_name(&self) -> &str {
-        "Codex"
-    }
-
-    fn command(&self) -> &str {
-        "codex"
-    }
-
-    fn aliases(&self) -> &[&str] {
-        &["codex"]
-    }
-
-    fn io_support(&self) -> IoSupport {
-        IoSupport {
-            passthrough: true,
-            structured: true,
-        }
+    super::shared::harness_identity! {
+        id: "codex",
+        display_name: "Codex",
+        command: "codex",
+        aliases: ["codex"],
+        passthrough: true,
+        structured: true,
     }
 
     /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included
@@ -220,11 +206,6 @@ impl Harness for Codex {
         }
 
         // 6. Account: inject credential *references* into the child's env.
-        // `am`'s account store never holds secret material — only env-var
-        // NAMES, a base URL, a helper command, and/or a home dir path. The
-        // only place a secret value is ever touched is the transient
-        // `std::env::var` read below; it lands in `Launch.env` (in-memory,
-        // passed to the child process) and is never written to disk.
         let mut env = vec![("CODEX_HOME".to_string(), config_home.display().to_string())];
         if let Some(account) = &spec.account {
             // Codex has no separate auth-token env var (unlike Claude's
@@ -232,22 +213,10 @@ impl Harness for Codex {
             // api_key_env and auth_token_env map to OPENAI_API_KEY. If both
             // are set on the account, api_key_env wins.
             if let Some(name) = &account.api_key_env {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("OPENAI_API_KEY".to_string(), value));
             } else if let Some(name) = &account.auth_token_env {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("OPENAI_API_KEY".to_string(), value));
             }
             // TODO(P2+): base_url → model_providers. Codex has no single env
@@ -526,16 +495,7 @@ mod tests {
     use crate::spec::{ConfigStrategy, Instructions, McpRef, Policy, SkillRef};
     use std::path::PathBuf;
 
-    fn write_skill(dir: &Path, id: &str) -> PathBuf {
-        let skill_dir = dir.join(id);
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            format!("---\nname: {id}\ndescription: test skill\n---\nBody."),
-        )
-        .unwrap();
-        skill_dir
-    }
+    super::super::shared::harness_conformance_tests!(Codex, "codex");
 
     #[test]
     fn provision_writes_config_toml_skills_agents_md_and_launch_without_touching_home() {
@@ -674,23 +634,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_missing_skill_path_is_an_error() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.skills.push(SkillRef {
-            id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from(
-                "/definitely/does/not/exist/anywhere",
-            )),
-        });
-
-        let codex = Codex::new();
-        let err = codex.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("missing"));
-    }
-
-    #[test]
     fn provision_empty_mcps_still_writes_config_toml() {
         let config_dir = tempfile::TempDir::new().unwrap();
         let spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
@@ -803,18 +746,7 @@ mod tests {
         );
 
         // No-secret-on-disk invariant.
-        for entry in walkdir::WalkDir::new(config_dir.path())
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
-            assert!(
-                !content.contains(&expected),
-                "secret value leaked into {}",
-                entry.path().display()
-            );
-        }
+        super::super::shared::assert_no_secret_on_disk(config_dir.path(), &expected);
     }
 
     #[test]
@@ -850,24 +782,6 @@ mod tests {
         // Invariant: the MCP stays injected as normal in config.toml.
         let config_toml = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
         assert!(config_toml.contains("[mcp_servers.postgres]"));
-    }
-
-    #[test]
-    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
-        use crate::account::Account;
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "broken".to_string(),
-            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
-            ..Default::default()
-        });
-
-        let codex = Codex::new();
-        let err = codex.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
     }
 
     #[test]

@@ -83,7 +83,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, IoSupport, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
 
 /// The GitHub Copilot CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -97,27 +97,13 @@ impl Copilot {
 }
 
 impl Harness for Copilot {
-    fn id(&self) -> crate::spec::HarnessId {
-        "copilot".to_string()
-    }
-
-    fn display_name(&self) -> &str {
-        "GitHub Copilot"
-    }
-
-    fn command(&self) -> &str {
-        "copilot"
-    }
-
-    fn aliases(&self) -> &[&str] {
-        &[]
-    }
-
-    fn io_support(&self) -> IoSupport {
-        IoSupport {
-            passthrough: true,
-            structured: true,
-        }
+    super::shared::harness_identity! {
+        id: "copilot",
+        display_name: "GitHub Copilot",
+        command: "copilot",
+        aliases: [],
+        passthrough: true,
+        structured: true,
     }
 
     /// Class A: `COPILOT_HOME` relocates the CLI's entire config/state tree —
@@ -255,11 +241,6 @@ impl Harness for Copilot {
         }
 
         // 6. Account: inject credential *references* into the child's env.
-        // `am`'s account store never holds secret material — only env-var
-        // NAMES, a base URL, a helper command, and/or a home dir path. The
-        // only place a secret value is ever touched is the transient
-        // `std::env::var` read below; it lands in `Launch.env` (in-memory,
-        // passed to the child process) and is never written to disk.
         let mut env = vec![("COPILOT_HOME".to_string(), dir.display().to_string())];
         if let Some(account) = &spec.account {
             // `api_key_env` maps to `COPILOT_GITHUB_TOKEN` (highest
@@ -270,22 +251,10 @@ impl Harness for Copilot {
             // if both are set, api_key_env wins (this codebase's established
             // convention). There is no `COPILOT_TOKEN` — see module doc.
             if let Some(name) = &account.api_key_env {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("COPILOT_GITHUB_TOKEN".to_string(), value));
             } else if let Some(name) = &account.auth_token_env {
-                let value = std::env::var(name).map_err(|_| {
-                    anyhow::anyhow!(
-                        "account '{}' references env var '{}' which is not set",
-                        account.id,
-                        name
-                    )
-                })?;
+                let value = super::shared::account_env(account, name)?;
                 env.push(("GITHUB_TOKEN".to_string(), value));
             }
             // `base_url` maps to `COPILOT_GH_HOST` (verified via `copilot
@@ -444,16 +413,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
-    fn write_skill(dir: &Path, id: &str) -> PathBuf {
-        let skill_dir = dir.join(id);
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            format!("---\nname: {id}\ndescription: test skill\n---\nBody."),
-        )
-        .unwrap();
-        skill_dir
-    }
+    super::super::shared::harness_conformance_tests!(Copilot, "copilot");
 
     #[test]
     fn provision_writes_mcp_config_json_skills_and_launch_without_touching_home() {
@@ -554,23 +514,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_missing_skill_path_is_an_error() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.skills.push(SkillRef {
-            id: "missing".to_string(),
-            source: crate::source::Source::Dir(PathBuf::from(
-                "/definitely/does/not/exist/anywhere",
-            )),
-        });
-
-        let copilot = Copilot::new();
-        let err = copilot.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("missing"));
-    }
-
-    #[test]
     fn provision_mcp_in_process_is_an_error() {
         use crate::mcp::{McpService, ToolDef};
         use crate::spec::InProcessMcpHandle;
@@ -664,18 +607,7 @@ mod tests {
         assert!(!launch.env.iter().any(|(k, _)| k == "GITHUB_TOKEN"));
 
         // No-secret-on-disk invariant.
-        for entry in walkdir::WalkDir::new(config_dir.path())
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
-            assert!(
-                !content.contains(&expected),
-                "secret value leaked into {}",
-                entry.path().display()
-            );
-        }
+        super::super::shared::assert_no_secret_on_disk(config_dir.path(), &expected);
     }
 
     #[test]
@@ -727,24 +659,6 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "COPILOT_GH_HOST" && v == "mycompany.ghe.com")
         );
-    }
-
-    #[test]
-    fn provision_account_unset_api_key_env_is_an_error_naming_the_var() {
-        use crate::account::Account;
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "broken".to_string(),
-            api_key_env: Some("__AM_DEFINITELY_UNSET_VAR__".to_string()),
-            ..Default::default()
-        });
-
-        let copilot = Copilot::new();
-        let err = copilot.provision(&spec, config_dir.path()).unwrap_err();
-        assert!(err.to_string().contains("__AM_DEFINITELY_UNSET_VAR__"));
     }
 
     #[test]

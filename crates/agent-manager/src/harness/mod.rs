@@ -20,6 +20,7 @@ mod codex;
 mod copilot;
 mod grok;
 mod opencode;
+mod shared;
 pub use claude::Claude;
 pub use codex::Codex;
 pub use copilot::Copilot;
