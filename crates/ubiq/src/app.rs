@@ -40,10 +40,10 @@ use crate::state::sink::{
 use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState,
-    ExplorerView, FileBody, FileLanguage, HarnessChoice, LogState, MenuId, NewPaneRow, OpenFile,
-    PanelKind, PendingNewAgent, ProjectSettings, ProjectSettingsMode, RailMode, Region,
-    SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
+    ActiveSearch, ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
+    ExplorerState, ExplorerView, FileBody, FileLanguage, HarnessChoice, LogState, MenuId,
+    NewPaneRow, OpenFile, PanelKind, PendingNewAgent, ProjectSettings, ProjectSettingsMode,
+    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -59,7 +59,7 @@ use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
 use ubiq_proto::files::{DiffBase, FileContents, FileError};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
-use ubiq_proto::ids::{PaneId, ProjectId, SessionId, StepId, TaskId};
+use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
@@ -85,7 +85,7 @@ const FILTER_DEBOUNCE: Duration = Duration::from_millis(100);
 /// document, so a held zoom key must not do it once per point.
 const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
 
-gpui::actions!(ubiq, [OpenSearch, SaveFile, ZoomIn, ZoomOut]);
+gpui::actions!(ubiq, [OpenSearch, SaveFile, CloseEditor, ZoomIn, ZoomOut]);
 
 /// The process-wide switchboard, so every window reaches the same host.
 ///
@@ -342,6 +342,11 @@ pub struct AppState {
     /// A rail-mode switch whose mode had no arrangement to restore: which edge regions that mode's
     /// defaults put on screen, for the frame that has a window to force them with.
     pending_regions: Option<(bool, bool, bool)>,
+    /// Whether the left, bottom and right regions held a visible panel as of the last layout
+    /// change — the edge that tells "its content just left" apart from "it was just opened
+    /// empty", so [`Self::toggle_region`] opening a region on purpose is never mistaken for the
+    /// auto-hide this drives. See the `DockEvent::LayoutChanged` subscription in [`Self::new`].
+    region_had_content: (bool, bool, bool),
 
     pub workbench: WorkbenchState,
     pub chat: ChatState,
@@ -424,6 +429,10 @@ pub struct AppState {
     pub project_search: Entity<InputState>,
     /// The search panel's query field.
     pub search_query: Entity<InputState>,
+    /// The settings dialog's two host-owned search lists, each a comma-separated line. They commit
+    /// on Enter and on blur rather than on a keystroke: every commit writes a file on the host.
+    pub search_excludes_input: Entity<InputState>,
+    pub search_fallbacks_input: Entity<InputState>,
     /// The project settings dialog's name field. Also what a picker row used to become while
     /// renaming; that editor now lives in the dialog.
     pub rename_input: Entity<InputState>,
@@ -591,6 +600,13 @@ impl AppState {
 
         let search_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search in project\u{2026}"));
+
+        // Seeded from the host's answer rather than here — see `sync_search_settings_fields`.
+        let search_excludes_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("node_modules, target, .git\u{2026}")
+        });
+        let search_fallbacks_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("grep, ag\u{2026}"));
 
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
         let project_form_about = cx.new(|cx| {
@@ -779,6 +795,7 @@ impl AppState {
             |this, _, event: &DockEvent, window, cx| {
                 if matches!(event, DockEvent::LayoutChanged) {
                     this.enforce_placement(window, cx);
+                    this.hide_emptied_regions(window, cx);
                     this.remember_view(cx);
                     cx.notify();
                 }
@@ -931,6 +948,55 @@ impl AppState {
                 }
                 InputEvent::PressEnter { shift: false, .. } => this.commit_task_title(window, cx),
                 _ => {}
+            },
+        ));
+
+        // Enter is the whole of the search field's contract: the panel declares no action, and a
+        // search is an act rather than a keystroke, so nothing runs while the query is typed.
+        subscriptions.push(cx.subscribe_in(
+            &search_query,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.run_project_search(window, cx);
+                }
+            },
+        ));
+
+        // The titlebar's field is the same contract, one level up: Enter is the only thing it
+        // does, and what it does is hand off to the search panel — see `submit_header_search`.
+        subscriptions.push(cx.subscribe_in(
+            &command_input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.submit_header_search(window, cx);
+                }
+            },
+        ));
+
+        // The two settings lists commit on Enter and on blur, never on a keystroke: a commit puts
+        // `SetSettings` on the bus and the host writes a file. A blur has to commit — the gesture
+        // is type and click away, and there is no button beside the field to be cancelled by it.
+        subscriptions.push(cx.subscribe_in(
+            &search_excludes_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let list = comma_list(&input.read(cx).value());
+                    this.set_search_excludes(list, cx);
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &search_fallbacks_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let list = comma_list(&input.read(cx).value());
+                    this.set_search_fallbacks(list, cx);
+                }
             },
         ));
 
@@ -1107,6 +1173,7 @@ impl AppState {
             pending_panels: Vec::new(),
             pending_layout: None,
             pending_regions: None,
+            region_had_content: (false, false, false),
             workbench: WorkbenchState::default(),
             chat: sample::chat(),
             sink: SinkState::default(),
@@ -1136,6 +1203,8 @@ impl AppState {
             command_input,
             project_search,
             search_query,
+            search_excludes_input,
+            search_fallbacks_input,
             rename_input,
             project_form_about,
             project_form_hex,
@@ -1460,6 +1529,91 @@ impl AppState {
         if let Some(git) = self.git_view_mut(cx) {
             git.clear_filters();
         }
+        cx.notify();
+    }
+
+    // ── Project search ──────────────────────────────────────────────
+
+    /// Run what is in the query field over the project's files.
+    ///
+    /// The search id is minted here and held on `SearchState::active`: every reply is discarded
+    /// unless it names it, which is what makes superseding a search a cancel and a replacement
+    /// rather than two answers interleaving.
+    pub fn run_project_search(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let text = self.search.query.read(cx).value().trim().to_string();
+        // An empty query is not a search and not an error — nothing is sent and what is drawn
+        // stays as it was.
+        if text.is_empty() {
+            return;
+        }
+
+        if let Some(active) = self.search.active.as_ref() {
+            self.bus.send(Message::CancelSearch {
+                project_id: active.project_id,
+                search_id: active.search_id,
+            });
+        }
+
+        let query = ubiq_proto::search::Query {
+            text,
+            case_sensitive: self.search.case_sensitive,
+            whole_word: self.search.whole_word,
+            regex: self.search.regex,
+        };
+        self.search.reset();
+        let search_id = SearchId::generate();
+        self.search.active = Some(ActiveSearch {
+            search_id,
+            project_id,
+        });
+        self.bus.send(Message::SearchProject {
+            project_id,
+            search_id,
+            query,
+            scope: ubiq_proto::search::Scope::Files,
+            filter: ubiq_proto::search::Filter::default(),
+        });
+        cx.notify();
+    }
+
+    /// The titlebar's command field, on Enter: switch to the IDE, hand the typed text to the
+    /// search panel's own query field, reveal it and run the search — then clear the field it
+    /// came from, the way a command palette clears once its command has fired. A no-op with
+    /// nothing open, on the same guard `run_project_search` already applies.
+    pub fn submit_header_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.project(cx).is_none() {
+            return;
+        }
+        let text = self.command_input.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.set_rail_mode(RailMode::Ide, cx);
+        let query = self.search.query.clone();
+        query.update(cx, |state, cx| state.set_value(&text, window, cx));
+        self.reveal_search(window, cx);
+        self.run_project_search(window, cx);
+        let command_input = self.command_input.clone();
+        command_input.update(cx, |state, cx| state.set_value("", window, cx));
+    }
+
+    /// The three query options. A flip applies to the next search, never re-running this one:
+    /// re-searching under the pointer would throw away the list the user is working through.
+    pub fn toggle_search_case(&mut self, cx: &mut Context<Self>) {
+        self.search.case_sensitive = !self.search.case_sensitive;
+        cx.notify();
+    }
+
+    pub fn toggle_search_whole_word(&mut self, cx: &mut Context<Self>) {
+        self.search.whole_word = !self.search.whole_word;
+        cx.notify();
+    }
+
+    pub fn toggle_search_regex(&mut self, cx: &mut Context<Self>) {
+        self.search.regex = !self.search.regex;
         cx.notify();
     }
 
@@ -1931,6 +2085,80 @@ impl AppState {
                 rel_path,
                 error,
             } => self.file_failed(project_id, rel_path, error, cx),
+
+            Message::ProjectFilesChanged {
+                project_id,
+                changed,
+                truncated,
+                repository,
+            } => {
+                if repository {
+                    self.bus.send(Message::RefreshProjectGit {
+                        project_id,
+                        full: true,
+                    });
+                }
+                let Some(open) = self.projects.get(&project_id) else {
+                    return;
+                };
+                // Only folders the tree already holds are re-asked: a listing for one it does not
+                // know is thrown away by `merge` anyway. A burst too large to name its paths says
+                // to re-list the root instead.
+                let mut dirs: Vec<String> = Vec::new();
+                if truncated {
+                    if open.explorer.is_listed() {
+                        dirs.push(String::new());
+                    }
+                } else {
+                    for path in &changed {
+                        let dir = match path.rsplit_once('/') {
+                            Some((head, _)) => head.to_string(),
+                            None => String::new(),
+                        };
+                        if !dirs.contains(&dir) && open.explorer.is_folder_listed(&dir) {
+                            dirs.push(dir);
+                        }
+                    }
+                }
+                // A clean tab shows what is on disk, so it is read again. A dirty one is left
+                // exactly as it is: what has been typed into it is not on disk anywhere.
+                let reload: Vec<String> = changed
+                    .iter()
+                    .filter(|path| {
+                        open.editor
+                            .index_of(path)
+                            .map(|index| &open.editor.open[index])
+                            .is_some_and(|file| !file.dirty() && !file.is_loading())
+                    })
+                    .cloned()
+                    .collect();
+
+                if let Some(open) = self.projects.get_mut(&project_id) {
+                    for dir in &dirs {
+                        open.explorer.set_loading(dir, true);
+                    }
+                    for path in &reload {
+                        if let Some(file) = open.editor.find_mut(path) {
+                            file.reload();
+                        }
+                    }
+                }
+                for dir in dirs {
+                    self.bus.send(Message::ProjectTree {
+                        project_id,
+                        rel_path: dir,
+                        depth: EXPAND_DEPTH,
+                    });
+                }
+                for path in reload {
+                    self.bus.send(Message::ReadProjectFile {
+                        project_id,
+                        rel_path: path,
+                        max_bytes: Some(MAX_FILE_BYTES),
+                    });
+                }
+                cx.notify();
+            }
 
             // ── the git family ──────────────────────────────────────
             Message::GitOverview {
@@ -3528,6 +3756,20 @@ impl AppState {
         }
 
         self.workbench.pending_close = None;
+        // A search over a project this window no longer holds has nowhere to draw: it goes with
+        // the project's other state, and the worker is told so it stops walking.
+        if let Some(active) = self
+            .search
+            .active
+            .as_ref()
+            .filter(|a| a.project_id == project)
+        {
+            self.bus.send(Message::CancelSearch {
+                project_id: active.project_id,
+                search_id: active.search_id,
+            });
+            self.search.reset();
+        }
         let id = self.window_id;
         // Read before the close, while the registry still answers for this project: `close` only
         // drops it from this window's slot, but the snapshot is the same one either side of that.
@@ -3567,6 +3809,8 @@ impl AppState {
             name,
             colour,
             custom_colour: custom,
+            search_excludes: None,
+            no_local_index: None,
         });
         self.workbench.row_action = None;
         cx.notify();
@@ -3966,23 +4210,64 @@ impl AppState {
     /// Put a region away, or bring it back. The dock remembers the size either way, which is what
     /// makes a toggle non-destructive.
     ///
-    /// **Opening the pane region with nothing in it starts a pane.** The region exists to hold
-    /// them, it opens empty — the console is not installed and a closed pane takes its tab with it
-    /// — and a region that opens onto a bar of nothing is not what the switch was asked for. So
-    /// the gesture that asks for the region is the gesture that fills it.
+    /// **Opening the bottom or right region with nothing in it fills it.** The bottom exists to
+    /// hold panes and opens onto a fresh one; the right exists to hold the chat and opens onto it.
+    /// A region that opens onto a bar of nothing is not what the switch was asked for — except the
+    /// left, whose only furniture is the explorer already on screen in every IDE window, so an
+    /// empty left is the user having dragged it away on purpose and the switch leaves it be.
     pub fn toggle_region(&mut self, region: Region, window: &mut Window, cx: &mut Context<Self>) {
         self.dock.update(cx, |dock, cx| {
             dock.toggle_dock(dock::placement_of(region), window, cx);
         });
-        let wants_pane = region == Region::Bottom && {
+        let now_empty = {
             let placement = dock::placement_of(region);
             let dock = self.dock.read(cx);
             dock.is_dock_open(placement) && dock.is_empty(placement, cx)
         };
-        if wants_pane {
-            self.spawn_pane(None, Vec::new(), cx);
+        if now_empty {
+            match region {
+                Region::Bottom => self.spawn_pane(None, Vec::new(), cx),
+                Region::Right => self.pending_panels.push(PanelEdit::Open(PanelKind::Chat)),
+                Region::Left | Region::Centre => {}
+            }
         }
         cx.notify();
+    }
+
+    /// Close a region the user just emptied — by closing its last panel or dragging it elsewhere —
+    /// rather than leaving a bar with nothing in it on screen.
+    ///
+    /// Runs after every dock layout change, so it has to tell that apart from a region a caller
+    /// just opened empty on purpose: [`Self::region_had_content`] is the edge, ticked here, that
+    /// only fires once a region goes from holding something to holding nothing.
+    fn hide_emptied_regions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut close = Vec::new();
+        {
+            let dock = self.dock.read(cx);
+            let (had_left, had_bottom, had_right) = self.region_had_content;
+            let mut check = |region: Region, had: bool| {
+                let placement = dock::placement_of(region);
+                let open = dock.is_dock_open(placement);
+                let empty = dock.is_empty(placement, cx);
+                if open && empty && had {
+                    close.push(region);
+                }
+                open && !empty
+            };
+            self.region_had_content = (
+                check(Region::Left, had_left),
+                check(Region::Bottom, had_bottom),
+                check(Region::Right, had_right),
+            );
+        }
+        if close.is_empty() {
+            return;
+        }
+        self.dock.update(cx, |dock, cx| {
+            for region in close {
+                dock.toggle_dock(dock::placement_of(region), window, cx);
+            }
+        });
     }
 
     /// The panel for one kind, built the first time it is asked for.
@@ -4095,6 +4380,14 @@ impl AppState {
         };
         let dock = self.dock.clone();
         let panels = std::mem::take(&mut self.panels);
+        // Which of them are on screen *now*, read before the restore rearranges the tree. A blob
+        // written before a panel was revealed cannot name it, and dropping it is the panel
+        // vanishing a frame after the user asked for it.
+        let on_screen: Vec<PanelKind> = panels
+            .iter()
+            .filter(|(_, panel)| dock::holds(&dock, panel, cx))
+            .map(|(kind, _)| kind.clone())
+            .collect();
         let app = self.this.clone();
         let mut kept = HashMap::new();
         let mut layouts: Vec<(String, ViewLayout)> = Vec::new();
@@ -4128,11 +4421,22 @@ impl AppState {
         // different arrangement was on screen, or anything at all when the blob was discarded and
         // the default arrangement was installed over it. Losing one would leave a live pane or an
         // open tab with nothing drawing it.
+        //
+        // A panel that was on screen when this ran keeps its place for the same reason one frame
+        // later: the blob predates it. A panel the user closed is not on screen and does not come
+        // back — closing is what took it out of the tree.
         for (kind, panel) in panels {
-            let restorable = kind.pane().is_some() || kind.tab_key().is_some();
+            let restorable =
+                kind.pane().is_some() || kind.tab_key().is_some() || on_screen.contains(&kind);
             if restorable && !kept.contains_key(&kind) {
                 let home = kind.home();
-                dock::add(&dock, &panel, home, window, cx);
+                // On screen before, on screen after: a reveal also brings its region back, which
+                // an arrangement that predates the panel has closed.
+                if on_screen.contains(&kind) {
+                    dock::reveal(&dock, &panel, home, window, cx);
+                } else {
+                    dock::add(&dock, &panel, home, window, cx);
+                }
                 kept.insert(kind, panel);
             }
         }
@@ -4327,6 +4631,50 @@ impl AppState {
         self.workbench.settings.host.isolate_agents = !self.workbench.settings.host.isolate_agents;
         self.remember_host_settings();
         cx.notify();
+    }
+
+    /// The globs every project search skips. Host-owned, and committed rather than typed.
+    pub fn set_search_excludes(&mut self, globs: Vec<String>, cx: &mut Context<Self>) {
+        if self.workbench.settings.host.search_excludes == globs {
+            return;
+        }
+        self.workbench.settings.host.search_excludes = globs;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// The external tools a search may fall back to, in the order they are tried.
+    pub fn set_search_fallbacks(&mut self, tools: Vec<String>, cx: &mut Context<Self>) {
+        if self.workbench.settings.host.search_fallbacks == tools {
+            return;
+        }
+        self.workbench.settings.host.search_fallbacks = tools;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// The two search fields hold what the host has stored, on the Git fields' rule: mirrored while
+    /// the dialog is up and never while the field is being typed into.
+    fn sync_search_settings_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.workbench.settings.open {
+            return;
+        }
+        for (field, wanted) in [
+            (
+                self.search_excludes_input.clone(),
+                self.workbench.settings.host.search_excludes.join(", "),
+            ),
+            (
+                self.search_fallbacks_input.clone(),
+                self.workbench.settings.host.search_fallbacks.join(", "),
+            ),
+        ] {
+            if !field.read(cx).focus_handle(cx).is_focused(window)
+                && field.read(cx).value() != wanted.as_str()
+            {
+                field.update(cx, |state, cx| state.set_value(&wanted, window, cx));
+            }
+        }
     }
 
     // ── Harness logins ──────────────────────────────────────────────
@@ -4856,6 +5204,29 @@ impl AppState {
                         .to_string_lossy()
                         .to_string();
                     let _ = open_in_system(&full);
+                }
+                cx.notify();
+            }
+            ExplorerAction::OpenInWeb => {
+                if let Some(rel) = path
+                    && let Some(snap) = self.project_snapshot(cx)
+                {
+                    let project_id = snap.record.id.to_string();
+                    let project_name = snap.record.name.clone();
+                    let root = std::path::PathBuf::from(&snap.record.path);
+                    match crate::web_export::ensure_started_and_registered(
+                        &project_id,
+                        &project_name,
+                        &root,
+                    ) {
+                        Ok(base) => {
+                            let full = format!("{base}{}", rel.trim_start_matches('/'));
+                            let _ = open_url(&full);
+                        }
+                        Err(err) => {
+                            tracing::error!("web export failed to start: {err}");
+                        }
+                    }
                 }
                 cx.notify();
             }
@@ -5660,6 +6031,30 @@ impl AppState {
             window,
             cx,
         );
+        // The query field takes the keyboard, because typing a query is the only thing revealing
+        // the panel is for. A panel that opens with the caret left where it was reads as nothing
+        // having happened, which is how the gesture looked while the binding was being lost.
+        let field = self.search.query.read(cx).focus_handle(cx);
+        window.focus(&field, cx);
+        cx.notify();
+    }
+
+    /// Serve the active project over the local web-export server and open it in the browser.
+    pub fn open_web_export(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.project_snapshot(cx) else {
+            return;
+        };
+        let project_id = snapshot.record.id.to_string();
+        let project_name = snapshot.record.name.clone();
+        let root = std::path::PathBuf::from(&snapshot.record.path);
+        match crate::web_export::ensure_started_and_registered(&project_id, &project_name, &root) {
+            Ok(url) => {
+                let _ = open_url(&url);
+            }
+            Err(err) => {
+                tracing::error!("web export failed to start: {err}");
+            }
+        }
         cx.notify();
     }
 
@@ -5682,6 +6077,25 @@ impl AppState {
         let buffer = self.editor(cx)?.active_file()?.buffer()?;
         let position = buffer.read(cx).cursor_position();
         Some((position.line + 1, position.character + 1))
+    }
+
+    /// Close the active file's tab — the keyboard equivalent of clicking its ×.
+    pub fn close_active_editor(
+        &mut self,
+        _: &CloseEditor,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        if open.editor.active_file().is_none() {
+            return;
+        }
+        self.close_editor_tab(open.editor.active, cx);
     }
 
     /// Write the active file back.
@@ -7352,6 +7766,7 @@ impl Render for AppState {
         // fights a query being typed.
         self.sync_file_filter_field(window, cx);
         self.sync_git_fields(window, cx);
+        self.sync_search_settings_fields(window, cx);
         // Made anonymous straight away so the frame stops borrowing the window: the queue below
         // is drained on the same `&mut self` the tree was built from.
         let tree = ui::shell::render(self, window, cx).into_any_element();
@@ -7361,6 +7776,15 @@ impl Render for AppState {
         self.drain_diagram_asks(cx);
         tree
     }
+}
+
+/// A comma-separated line as a list: trimmed, and without the empties a trailing comma leaves.
+pub fn comma_list(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// What the interface says about a path the host refused.
@@ -7432,10 +7856,25 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-w", CloseEditor, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-w", CloseEditor, Some("Workbench")),
         gpui::KeyBinding::new("cmd-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
+    ]);
+    // ⌘⇧F means project search wherever the caret is, including inside a field.
+    //
+    // The component library binds it to *replace in this file* at the `Input` context, which is
+    // deeper in the tree than `Workbench` and so wins every tie the moment any field holds focus —
+    // which is most of the time, the search panel's own query bar included. Binding it again at the
+    // field's own depth is what takes it back: same predicate, registered later, and this function
+    // runs after `gpui_component::init`. It is the device `ui::file_picker::key_bindings` documents.
+    //
+    // Replace moves to ⌘⌥F rather than losing its key.
+    cx.bind_keys([
+        gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Input")),
+        gpui::KeyBinding::new("cmd-alt-f", gpui_component::input::Replace, Some("Input")),
     ]);
     // The file picker's and the explorer's, which are the field's as well as the surface's and
     // have to be registered after the component library's own — `ui::file_picker::key_bindings`
@@ -7661,4 +8100,26 @@ fn open_in_system(path: &str) -> std::io::Result<()> {
         command.arg(arg);
     }
     command.arg(dir).spawn().map(|_| ())
+}
+
+/// Open a URL in the system's default browser.
+fn open_url(url: &str) -> std::io::Result<()> {
+    let mut command = if cfg!(target_os = "windows") {
+        // `start` is a cmd.exe builtin, not a standalone executable, and its first quoted arg is
+        // taken as the window title rather than the target — the empty title arg keeps `url` in
+        // the right position.
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", "", url]);
+        command
+    } else {
+        let cmd = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        let mut command = std::process::Command::new(cmd);
+        command.arg(url);
+        command
+    };
+    command.spawn().map(|_| ())
 }

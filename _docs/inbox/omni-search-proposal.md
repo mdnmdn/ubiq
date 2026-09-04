@@ -5,7 +5,7 @@ kind: proposal
 status: proposal
 summary: Content search across a whole project — a shared query with its four options, a second host worker that walks the tree through the project's own ignore rules, a streamed and cancellable answer carrying the first search id on the wire, and a dock tab that draws the hits as places to go.
 read_when: you are deciding how Ubiq searches the contents of a project, where that work runs, or how a long streamed answer is correlated and cancelled
-updated: 2026-09-03
+updated: 2026-09-04
 depends_on: [tech-architecture, tech-transport, feat-workbench, inbox-find, inbox-routing]
 ---
 
@@ -25,36 +25,54 @@ The second mode the title implies — searching tasks, chats and the knowledge b
 is designed here and built later. §4 is why the shape is settled now even though only files answer
 in v1: a source added afterwards must not change a message, a record or a row.
 
-## 0. Where the build has got to — 2026-09-03
+## 0. Where the build has got to — 2026-09-04
 
-**Phases 1 and 2 have landed, phase 3 draws and receives, and no interface gesture starts a
-search.** Everything below is the design; this is the gap between it and the tree, so a later
-session does not re-derive it. §1 is the state before any of this landed, kept for its reasoning
-rather than as a report.
+**Phases 1 to 3 have landed: a query typed into the panel runs over the project, streams back, and
+its rows open files.** Everything below is the design; this is the gap between it and the tree, so a
+later session does not re-derive it. §1 is the state before any of this landed, kept for its
+reasoning rather than as a report.
 
 In the tree: the contract (`crates/ubiq-proto/src/search.rs`, the six message variants); the worker
-(`crates/ubiq-host/src/search/`, answered in `coordinator.rs`); the panel (`PanelKind::Search`, with
-a home region, an availability rule and a saved key, drawn by `crates/ubiq/src/ui/search.rs` as a
-query field, grouped results and a counts line); every reply variant handled on `SearchState`,
-discarding any naming a search the window is not holding; and `⌘⇧F`, which reveals the panel.
+(`crates/ubiq-host/src/search/`, answered in `coordinator.rs`, with `tests/search.rs` covering §8's
+ceilings, §5's interrupt and the filter refusals); the panel (`PanelKind::Search`, with a home
+region, an availability rule and a saved key, drawn by `crates/ubiq/src/ui/search.rs`); and the
+trigger — `AppState::run_project_search` mints the `SearchId`, cancels whatever it supersedes, and
+sends `SearchProject`, fired by Enter on the query field. The three options are `toggle_pill`s that
+apply to the next search rather than re-running the current one, a `SearchError` is drawn in the
+status bar with the results it had left standing, both the group header and each hit row open the
+file, and closing a project cancels its search. `crates/ubiq/tests/search.rs` drives the field's
+Enter rather than the mutator, so the subscription is what is under test.
 
-Missing, and this is the whole of why nothing happens:
+Where the tree is ahead of this document:
 
-- **Nothing sends `SearchProject`** — the variant appears only in the host. No mutator mints a
-  `SearchId`, resets the state, sets `SearchState::active` or puts the message on the bus.
-- **The query field has no submit** — nothing subscribes, the panel declares no Enter action, so it
-  takes text and no one reads it. §1's command field again.
-- **The options are state without controls** — `case_sensitive`, `whole_word` and `regex` sit on
-  `SearchState` with no toggle to set them.
-- **A result row is not a destination** — rows are text; §9's *go to this file at this line* is absent.
-- **Nothing cancels** — `CancelSearch` is answered and never sent, so §5's supersession is exercised
-  from neither end, and the panel-settling pass that opens the panel for an active search is a dead
-  branch until the trigger exists.
-- **The worker has no tests** — no file beside the other host tests, no test module of its own, so
-  §8's ceilings and §5's interrupt are unverified.
+- **The titlebar's command field's Enter is now a second entry point into project search**,
+  switching to the IDE, handing its text to the panel's query field, revealing it and running the
+  search — see `crates/ubiq/src/app.rs`'s `submit_header_search`. §9 reserves that field for the
+  `⌘K` navigator and says "`⌘K` is not an entry point" for this search; nothing currently binds
+  `⌘K` on it, so in practice the field had no contract yet and this is what a direct product
+  decision put there instead. Reconciling the two — a fast navigator whose Enter also happens to
+  start a slow content search — is this document's to settle, not the tree's.
+- **The walk takes a filter and an exclude list.** `Filter { patterns, subdir }` (§7) is honoured by
+  `search::walk`, per-project and global excludes are merged in `coordinator.rs`, and the subdir
+  resolves through `files::path` — the same boundary the file family uses. The settings dialog's
+  Search section edits the two global lists; the panel still sends `Filter::default()`, so no
+  search names a pattern or a subdirectory of its own.
+- **A failed matcher can fall back to an external tool.** `search::fallback` runs a configured
+  `grep` or `ag` when `RegexMatcherBuilder` refuses the pattern, with a watchdog kill; `find` and
+  `fd` are refused by name. This is not designed anywhere below.
 
-What is left is the trigger and what hangs off it: the mutator, the field's Enter, the option
-toggles, the row click, cancel-on-supersede, and the worker's fixture tests.
+Where the tree is behind it:
+
+- **Revealing is not the same as being drawn.** `PanelKind::Search::is_drawn` is
+  `is_ide && has_project`, so revealing the panel from any other rail mode adds it to the dock and
+  the next settling pass sets it invisible. Search is reachable only from IDE mode with a project.
+- **A row opens the file, not the line.** §9's *go to this file at this line* needs the routing
+  proposal's `Destination`; until then the row calls `select_file()`, which is what §9 says to do in
+  the meantime.
+- **The interface does not validate the query.** §6's added `regex` dependency was not taken: a bad
+  pattern travels, the host answers `SearchError::BadQuery`, and the panel draws it. One place
+  compiles the pattern instead of two agreeing.
+- **Phases 4 and 5 are unbuilt** — no handoff with the find bar, no `Batch::Tasks`.
 
 ## 1. Where it stands
 
@@ -317,17 +335,18 @@ click. Groups are ordered by when their first hit arrived, and that is stable fo
 search.
 
 **Two entry points, and the third stays closed.** `⌘⇧F` from anywhere opens the tab and focuses the
-query bar; the titlebar's dead search icon (`titlebar.rs:73`) gets the same job, which is the one
-thing it can mean. `⌘K` is not an entry point — §2. The binding is registered with `cx.on_action` in
+query bar; the titlebar's search icon has the same job, which is the one thing it can mean. Both
+call `reveal_search`, and focusing the field is part of it — a panel that opens with the caret left
+where it was reads as nothing having happened. `⌘K` is not an entry point — §2. The binding is registered with `cx.on_action` in
 a key context an element actually declares, which `G51` records as the mistake `⌘S` already made.
 
-**`⌘⇧F` is taken, and it is being taken back.** The component library binds it to *replace in this
-file* in the key context a focused editor sits in, so as things stand the shortcut means two things
-depending on where the caret is — which is the worst of the three available outcomes. Project search
-gets it, because that is what it means in every editor a user arrives from, and replace-in-file moves
-to `⌘⌥F`. The rebinding belongs to the find bar's phase 3, and until it happens this tab is reached
-from the titlebar and the rail rather than from a keystroke that would fire the wrong action half the
-time.
+**`⌘⇧F` was taken, and it has been taken back.** The component library binds it to *replace in this
+file* at the `Input` context, which is deeper in the tree than `Workbench` and so won every tie the
+moment any field held focus — the shortcut meant two things depending on where the caret was, which
+is the worst of the three available outcomes. Project search gets it, because that is what it means
+in every editor a user arrives from, and replace-in-file moves to `⌘⌥F`. Both are bound again at the
+field's own depth in `install_key_bindings`, which runs after `gpui_component::init`: same
+predicate, registered later, wins. It is the device `ui::file_picker::key_bindings` documents.
 
 **The two searches hand each other their query.** *Search in project* on the editor's find bar opens
 the tab with the query and its four options carried over; *find in this file* on a result group does
@@ -368,23 +387,23 @@ different promises, and neither may be changed to match the other by accident.
    `Query`, `Scope`, `Source`, `Batch`, `FileHit`, `LineHit`, `SearchError` — the six message
    variants, the `SearchId`, and the
    contract document's fifth family. Nothing runs; find-in-file can already use `Query`.
-2. **The worker** — *done, untested.* `crates/ubiq-host/src/search/`, the three dependencies, the
-   parallel walk, the matcher, the batching, the ceilings, the interrupt flag and supersession.
-   Testable without a frame, against a fixture tree, and not yet tested that way.
-3. **The dock tab** — *half: it draws and it receives, and nothing starts it.* `DockTab::Search`,
-   the query bar and its four toggles, the grouped results, the
-   progress and truncation readouts, `⌘⇧F` and the titlebar icon. This is the phase that retires
-   half of `G16`. What is left of it is §0's second list: the trigger, the toggles, the row as a
-   destination, and cancel.
+2. **The worker** — *done.* `crates/ubiq-host/src/search/`, the three dependencies, the
+   parallel walk, the matcher, the batching, the ceilings, the interrupt flag and supersession,
+   tested against a fixture tree in `crates/ubiq-host/tests/search.rs`. The filter and the external
+   fallback landed with it and are §0's first list.
+3. **The panel** — *done, bar the one thing §0 names.* The query bar and its option toggles, the
+   grouped results, the progress and truncation readouts, the trigger, `⌘⇧F` and the titlebar icon,
+   the row as a destination and cancel. This is the phase that retires half of `G16`. A row opens
+   the file rather than the line.
 4. **The two-way handoff.** *Search in project* on the find bar and *find in this file* on a group.
    Waits on the find bar's own phase 1.
 5. **The other sources.** `Batch::Tasks` over the work records, on the coordinator's thread, and the
    group header for it. `Scope::Project` starts answering with two sources instead of one, and the
    interface changes by one arm.
 
-Phases 1–3 are the feature. Phase 5 is why the shape in §4 exists, and it can wait indefinitely
-without leaving anything half-built. Phase 3 is where the tree stands, and §0 says what of it is
-missing.
+Phases 1–3 are the feature, and they are in the tree. Phase 5 is why the shape in §4 exists, and it
+can wait indefinitely without leaving anything half-built. §0 says where the tree and this document
+disagree in either direction.
 
 ## 13. What this asks to be decided
 

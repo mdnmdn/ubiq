@@ -222,6 +222,7 @@ pub enum ExplorerAction {
     CopyPath,
     CopyFullPath,
     OpenInSystem,
+    OpenInWeb,
     Refresh,
     NewFile,
     NewFolder,
@@ -240,6 +241,7 @@ impl ExplorerAction {
             ExplorerAction::CopyPath => "Copy path",
             ExplorerAction::CopyFullPath => "Copy full path",
             ExplorerAction::OpenInSystem => open_in_system_label(),
+            ExplorerAction::OpenInWeb => "Open in Web",
             ExplorerAction::Refresh => "Refresh",
             ExplorerAction::NewFile => "New file",
             ExplorerAction::NewFolder => "New folder",
@@ -440,6 +442,21 @@ impl ExplorerState {
     /// Whether the project's top level has arrived.
     pub fn is_listed(&self) -> bool {
         self.root_listed
+    }
+
+    /// Whether a folder's children have already arrived, which is what says a re-listing would
+    /// fold into the tree rather than be thrown away. The empty path is the root.
+    pub fn is_folder_listed(&self, path: &str) -> bool {
+        if path.is_empty() {
+            return self.root_listed;
+        }
+        matches!(
+            node_of(&self.root, path),
+            Some(FileNode {
+                kind: NodeKind::Dir { listed: true, .. },
+                ..
+            })
+        )
     }
 
     /// The status the repository reports for an exact path, if it has been read at all.
@@ -1259,6 +1276,7 @@ pub fn menu_entries(
             items.push(entry(ExplorerAction::CopyPath));
             items.push(entry(ExplorerAction::CopyFullPath));
             items.push(entry(ExplorerAction::OpenInSystem));
+            items.push(entry(ExplorerAction::OpenInWeb));
             if readable {
                 items.push(entry(ExplorerAction::Refresh));
             }
@@ -1275,6 +1293,7 @@ pub fn menu_entries(
             items.push(entry(ExplorerAction::CopyPath));
             items.push(entry(ExplorerAction::CopyFullPath));
             items.push(entry(ExplorerAction::OpenInSystem));
+            items.push(entry(ExplorerAction::OpenInWeb));
             if readable {
                 items.extend([entry(ExplorerAction::Rename), entry(ExplorerAction::Delete)]);
             }

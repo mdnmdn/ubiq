@@ -20,6 +20,7 @@ pub enum SettingsSection {
     #[default]
     FileExplorer,
     Editor,
+    Search,
     Harnesses,
 }
 
@@ -28,6 +29,7 @@ impl SettingsSection {
         &[
             SettingsSection::FileExplorer,
             SettingsSection::Editor,
+            SettingsSection::Search,
             SettingsSection::Harnesses,
         ]
     }
@@ -36,6 +38,7 @@ impl SettingsSection {
         match self {
             SettingsSection::FileExplorer => "File explorer",
             SettingsSection::Editor => "Editor",
+            SettingsSection::Search => "Search",
             SettingsSection::Harnesses => "Harnesses",
         }
     }

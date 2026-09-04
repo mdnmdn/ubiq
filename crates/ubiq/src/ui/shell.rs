@@ -22,6 +22,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .size_full()
         .key_context("Workbench")
         .on_action(cx.listener(AppState::save_active_file))
+        .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
         .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_ui_font_size(1, cx)))
         .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_ui_font_size(-1, cx)))

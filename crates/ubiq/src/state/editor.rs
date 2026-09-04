@@ -519,6 +519,17 @@ impl OpenFile {
         }
     }
 
+    /// Put the tab back to waiting, so a fresh read fills it — the file changed underneath it.
+    ///
+    /// Only ever called on a tab with nothing unsaved: a dirty buffer is never dropped for what
+    /// is on disk.
+    pub fn reload(&mut self) {
+        self.body = FileBody::Loading;
+        self.save = SaveState::Idle;
+        self.dirty = false;
+        self._change = None;
+    }
+
     /// The host refused. The buffer is untouched and the file is still dirty.
     pub fn save_failed(&mut self, reason: String) {
         self.save = SaveState::Failed(reason);

@@ -186,6 +186,13 @@ pub enum Message {
         colour: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         custom_colour: Option<u32>,
+        /// The project's own search excludes. Absent leaves them as they are; `Some` replaces the
+        /// whole list.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        search_excludes: Option<Vec<String>>,
+        /// Whether this project may be indexed locally. Absent leaves it as it is.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        no_local_index: Option<bool>,
     },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].
@@ -325,6 +332,22 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         error: FileError,
+    },
+    /// Something changed on disk in a project, said without being asked.
+    ///
+    /// Coarse by design: relative paths, never content — the same rule a search hit obeys. A
+    /// reader that wants the new bytes asks the normal way, with `ProjectTree`, `ReadProjectFile`
+    /// or the git family. Coalesced per path over the watcher's debounce window and bounded like a
+    /// search batch; `truncated` means the burst was larger than the window could carry and the
+    /// whole subtree should be re-listed rather than the named paths patched.
+    ProjectFilesChanged {
+        project_id: ProjectId,
+        changed: Vec<String>,
+        truncated: bool,
+        /// Something in the repository's plumbing moved — `HEAD`, `MERGE_HEAD`, the index or a
+        /// ref. Paths under `.git` never appear in `changed`, so this bool is the only way a
+        /// window learns to ask for the git overview again.
+        repository: bool,
     },
 
     // ── Git family: UI → host ───────────────────────────────────────
@@ -622,6 +645,8 @@ pub enum Message {
         search_id: SearchId,
         query: Query,
         scope: search::Scope,
+        /// What the search looks at, beside the query. Empty is the whole project.
+        filter: search::Filter,
     },
     /// Stop a running search. The flag is checked between files and between matched lines.
     CancelSearch {
@@ -658,6 +683,67 @@ pub enum Message {
         search_id: SearchId,
         error: search::SearchError,
     },
+}
+
+impl Message {
+    /// The project this message names, for whichever variant carries one. `None` for a pane-only,
+    /// account-only or catalogue-wide message — [`Message::ProjectError`]'s own `project_id` is
+    /// already an `Option`, for the catalogue-wide case, and is returned as it is.
+    pub fn project_id(&self) -> Option<ProjectId> {
+        match self {
+            Message::SpawnWorkspace { project_id, .. }
+            | Message::ForgetProject { project_id, .. }
+            | Message::UpdateProject { project_id, .. }
+            | Message::LocateProject { project_id, .. }
+            | Message::OpenedProject { project_id, .. }
+            | Message::RefreshProject { project_id, .. }
+            | Message::ProjectForgotten { project_id, .. }
+            | Message::ProjectTree { project_id, .. }
+            | Message::ReadProjectFile { project_id, .. }
+            | Message::WriteProjectFile { project_id, .. }
+            | Message::DiffProjectFile { project_id, .. }
+            | Message::ProjectTreeListing { project_id, .. }
+            | Message::ProjectFileContents { project_id, .. }
+            | Message::ProjectFileWritten { project_id, .. }
+            | Message::ProjectFileDiffed { project_id, .. }
+            | Message::ProjectFileError { project_id, .. }
+            | Message::ProjectFilesChanged { project_id, .. }
+            | Message::ProjectGit { project_id, .. }
+            | Message::RefreshProjectGit { project_id, .. }
+            | Message::GitOverview { project_id, .. }
+            | Message::GitWorkingTree { project_id, .. }
+            | Message::GitError { project_id, .. }
+            | Message::ListWork { project_id, .. }
+            | Message::CreateTask { project_id, .. }
+            | Message::UpdateTask { project_id, .. }
+            | Message::MoveTask { project_id, .. }
+            | Message::AssignTask { project_id, .. }
+            | Message::DeleteTask { project_id, .. }
+            | Message::AddStep { project_id, .. }
+            | Message::RenameStep { project_id, .. }
+            | Message::RemoveStep { project_id, .. }
+            | Message::MoveStep { project_id, .. }
+            | Message::ToggleStep { project_id, .. }
+            | Message::AssignAgent { project_id, .. }
+            | Message::SendToAgent { project_id, .. }
+            | Message::WorkList { project_id, .. }
+            | Message::TaskCreated { project_id, .. }
+            | Message::TaskChanged { project_id, .. }
+            | Message::TaskDeleted { project_id, .. }
+            | Message::AgentChanged { project_id, .. }
+            | Message::WorkError { project_id, .. }
+            | Message::StartConversation { project_id, .. }
+            | Message::ConversationStarted { project_id, .. }
+            | Message::SearchProject { project_id, .. }
+            | Message::CancelSearch { project_id, .. }
+            | Message::SearchMatches { project_id, .. }
+            | Message::SearchProgress { project_id, .. }
+            | Message::SearchFinished { project_id, .. }
+            | Message::SearchError { project_id, .. } => Some(*project_id),
+            Message::ProjectError { project_id, .. } => *project_id,
+            _ => None,
+        }
+    }
 }
 
 /// One shell the host found on this machine, as the new-pane menu offers it.

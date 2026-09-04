@@ -33,6 +33,13 @@ pub struct HostSettings {
     /// Ubiq owns, because Ubiq is what spawns the pane.
     #[serde(default = "isolate_agents_default")]
     pub isolate_agents: bool,
+    /// Globs every project search and every filename index skip, whatever a project record says.
+    #[serde(default = "search_excludes_default")]
+    pub search_excludes: Vec<String>,
+    /// External tools a search may fall back to, in the order they are tried, and only when the
+    /// built-in walk could not answer. Empty means there is no fallback.
+    #[serde(default = "search_fallbacks_default")]
+    pub search_fallbacks: Vec<String>,
 }
 
 /// The shape this host writes and understands.
@@ -45,11 +52,39 @@ fn isolate_agents_default() -> bool {
     true
 }
 
+/// Kept consistent with [`crate::files::WALK_SKIP`] and [`crate::files::LIST_HIDE`] — these are
+/// globs for `ignore`'s `Override`, not bare name tests, so a leaf like `.gitkeep` still matches
+/// wherever it sits.
+fn search_excludes_default() -> Vec<String> {
+    [
+        "node_modules",
+        ".git",
+        "target",
+        "dist",
+        "build",
+        ".venv",
+        "__pycache__",
+        ".cache",
+        ".direnv",
+        ".DS_Store",
+        ".gitkeep",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+fn search_fallbacks_default() -> Vec<String> {
+    ["ag", "grep"].into_iter().map(String::from).collect()
+}
+
 impl Default for HostSettings {
     fn default() -> Self {
         Self {
             schema: HOST_SETTINGS_SCHEMA,
             isolate_agents: isolate_agents_default(),
+            search_excludes: search_excludes_default(),
+            search_fallbacks: search_fallbacks_default(),
         }
     }
 }

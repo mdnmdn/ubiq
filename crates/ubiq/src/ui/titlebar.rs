@@ -110,6 +110,20 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     cx.listener(|this, _, window, cx| this.reveal_search(window, cx)),
                 ))
                 .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}))
+                .when(has_project, |this| {
+                    this.child(
+                        icon_button(
+                            "web-export",
+                            IconName::Globe,
+                            false,
+                            cx.listener(|this, _, window, cx| this.open_web_export(window, cx)),
+                        )
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new("Open in browser")
+                                .build(window, cx)
+                        }),
+                    )
+                })
                 .child(
                     icon_button(
                         "settings",

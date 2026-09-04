@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search and account families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-03
-verified: 2026-09-03
+updated: 2026-09-04
+verified: 2026-09-04
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -225,9 +225,20 @@ answer arrives after the click that asked for it and the window may have changed
 | `ProjectFileWritten` | host → UI | `project_id`, `rel_path`, `version` | — |
 | `ProjectFileDiffed` | host → UI | `project_id`, `rel_path`, `diff` | — |
 | `ProjectFileError` | host → UI | `project_id`, `rel_path`, `error` | — |
+| `ProjectFilesChanged` | host → UI | `project_id`, `changed[]`, `truncated`, `repository` | — |
 
-Every one of these answers only the window that asked. Nothing in this family is broadcast: what one
-window is looking at is not a fact about the catalogue.
+Every one of these answers only the window that asked, except the last, which nobody asked for.
+Nothing in this family is broadcast: what one window is looking at is not a fact about the
+catalogue.
+
+**`ProjectFilesChanged` is the one file-family message the host sends unasked.** It names paths and
+never contents, so a reader that wants what changed asks for it the normal way — a fresh
+`ProjectTree` listing, a `ReadProjectFile`, a `RefreshProjectGit`. It reaches the one window that
+has the project open, because that window's own watch is what produced it. `changed` is
+project-relative paths on this family's rule, coalesced by path over a 150ms quiet window;
+`truncated` means the burst outgrew the batch, so `changed` is empty and the reader re-lists the
+subtree instead of patching names; `repository` means the git directory moved — `HEAD`,
+`MERGE_HEAD`, the index or a ref — and is independent of `changed`, so a message may carry only it.
 
 **The interface holds project-relative paths only.** A `rel_path` is forward-slashed, has no leading
 slash and no `..`, and is empty for the project's root. The host resolves it against the record's

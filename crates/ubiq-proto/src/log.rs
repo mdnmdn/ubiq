@@ -48,18 +48,21 @@ pub enum Subsystem {
     Harness,
     /// The MCP surface Ubiq exposes to the agents it hosts.
     Mcp,
+    /// The file search worker and the project watcher.
+    Search,
     /// Everything else that logs: the framework, and the crates under it.
     External,
 }
 
 impl Subsystem {
     /// Every subsystem, in the order the selector lists them.
-    pub const ALL: [Subsystem; 6] = [
+    pub const ALL: [Subsystem; 7] = [
         Subsystem::Ui,
         Subsystem::Coordinator,
         Subsystem::Pty,
         Subsystem::Harness,
         Subsystem::Mcp,
+        Subsystem::Search,
         Subsystem::External,
     ];
 
@@ -70,6 +73,7 @@ impl Subsystem {
             Subsystem::Pty => "PTY",
             Subsystem::Harness => "Harness",
             Subsystem::Mcp => "MCP",
+            Subsystem::Search => "Search",
             Subsystem::External => "External",
         }
     }
@@ -88,6 +92,9 @@ impl Subsystem {
             Subsystem::Coordinator
         } else if target.starts_with("ubiq_host::mcp_server") {
             Subsystem::Mcp
+        } else if target.starts_with("ubiq_host::search") || target.starts_with("ubiq_host::watch")
+        {
+            Subsystem::Search
         } else if target.starts_with("ubiq") || target.starts_with("gpui_terminal") {
             Subsystem::Ui
         } else if target.starts_with("agent_manager") {

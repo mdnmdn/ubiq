@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
-updated: 2026-09-03
-verified: 2026-09-03
-code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+updated: 2026-09-04
+verified: 2026-09-04
+code_anchors: [crates/ubiq/src/app.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -495,11 +495,15 @@ click to bring that window to the front — which is how the user moves between 
 to open it in a new window. Closing a project that still has terminals running turns the row into a
 question rather than taking the click.
 
-**The middle of the titlebar is one field for finding and for doing.** File search and commands go
-to the same place, marked `⌘K`. The field draws itself with the kit's shared text-entry container —
-a surface with a coloured left edge, and a bottom underline while it holds the keyboard. There is
-no breadcrumb: the titlebar says which project, the tab strip says which file, and repeating it in
-the middle bought nothing.
+**The middle of the titlebar is one field, marked `⌘K`**, though nothing binds the chord yet — the
+mark is a placeholder for the fast file/command navigator [`omni-search-proposal.md`](../inbox/omni-search-proposal.md)
+still designs. What the field does today: Enter switches the window to the IDE, hands its text to
+the search panel's own query field, reveals the panel (`reveal_search`) and runs a project content
+search — then clears itself, the way a command palette clears once its command has fired. A no-op
+with no project open. The field draws itself with the kit's shared text-entry container — a surface
+with a coloured left edge, and a bottom underline while it holds the keyboard. There is no
+breadcrumb: the titlebar says which project, the tab strip says which file, and repeating it in the
+middle bought nothing.
 
 **The window's body is a dock, and the user arranges it.** Everything between the chrome is a tree
 of tabbed groups: dropping a tab in the middle of a group tabs it there, dropping it on a group's
@@ -531,18 +535,75 @@ for as long as a file is open** — the same machinery, which is what brings it 
 when the last tab closes rather than rebuilding it somewhere else.
 
 **The titlebar's switches open and close the dock's edge regions**, and read the dock rather than a
-flag beside it — so a region the user emptied by dragging its last panel out reads as closed. The
+flag beside it. A region the user empties — closing its last panel, or dragging it out to another
+region — is closed the same way the switch would: the switch reads it as closed because it *is*
+closed, not merely because it looks it. The
 left and right switches are drawn only in IDE mode, because the side regions are IDE furniture and
-hide in place in every other mode; the bottom switch is offered in every rail mode. **Opening the pane region with nothing in it starts a pane**: the region exists to hold them, it
-opens empty, and a switch that gave the user a bar of nothing would not have answered what was
-asked. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
+hide in place in every other mode; the bottom switch is offered in every rail mode. **Opening an
+edge region with nothing in it fills it**: the bottom starts a pane, the right opens the chat, and a
+switch that gave the user a bar of nothing would not have answered what was asked. The left is the
+exception — its only furniture, the explorer, is already on screen in every IDE window, so an empty
+left is the user's own doing and the switch leaves it be. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
 group that holds a terminal or the console, in the pane region even when it holds neither, and only
 while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
 machine has, and a row that puts the console on screen. What the rows are and what a click does is
-`feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a gear that
-raises application settings, and the theme switch. The gear lights while settings are up. Settings
-are interface-wide, so the overlay opens with no project.
+`feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a browser button,
+a gear that raises application settings, and the theme switch. The gear lights while settings are
+up. Settings are interface-wide, so the overlay opens with no project.
+
+**The browser button starts the web-export server and opens the project in it.** Drawn only with a
+project open, it starts the local, on-demand `tiny_http` server on first use (or reuses it if
+already running), registers the active project under a slug, and opens the returned URL in the
+system's default browser. The server stays up for the process's life once started; a failure to
+bind or spawn is logged and the next click tries a fresh start — there is no stop control and no
+retry loop. It serves markdown rendered to HTML and other source files as syntax-highlighted code
+(highlighted client-side, via a CDN-loaded highlight.js — there is no server-side highlighter here),
+read-only, over `127.0.0.1` only. See `D55` for why this lives in the interface rather than the host.
+Its palette is Ubiq's own — `style.css`'s custom properties are transcribed from
+`crates/ubiq/src/theme.rs`'s `light()`/`dark()`, not a separate design.
+
+**The page itself has two search affordances, both browser-side.** The sidebar's filter matches
+names already in the DOM, live as it is typed, and its "docs only" toggle beside it (same row as
+the title/filename toggle, both persisted per-browser) hides everything but `.md`/`.markdown` rows
+— the same rule the server uses to classify a file. A second, separate box in the header searches
+file *contents*: Enter hits a `GET /<slug>/_search?q=` route that walks the project the nav tree
+already walks (so `.gitignore` still applies), does a plain case-insensitive substring scan over
+doc and known source files, and returns matches as a dropdown of file/line hits. Clicking one opens
+that file with its in-page find already run — see below. The scan is capped — 200 files, 20 lines
+per file — and says so (`truncated`) rather than pretending a stopped scan was a complete one.
+Deliberately no regex and no ranking: this module keeps zero dependency on `ubiq-host`, so it
+doesn't reach for the ripgrep machinery `crates/ubiq-host/src/search/` already has for the in-app
+project search.
+
+**Every file the server can classify gets one of four views**, decided in `routes.rs`'s `serve_path`
+by extension first and, only when that's not enough, by a bounded read of the file itself. A `.md`
+or a known source extension renders as text — markdown to HTML, source as highlighted code — full
+width, with a toolbar: Copy (fetches the file's own `?raw=1` and writes it to the clipboard),
+Download (a plain link; the `?raw=1&dl=1` response carries a `Content-Disposition: attachment`
+header, so this is a real save, not a re-render), and Find, an in-page search over the rendered
+content that wraps matches in `<mark>` with a count and next/prev — the same box a content-search
+result opens pre-filled with its query, via `?q=` on the destination URL. A recognised image, video
+or PDF embeds inline (`<img>`/`<video>`/`<iframe>`, still pointed at its own `?raw=1`) with only a
+Download button — nothing to copy or find in a picture. Everything else is sized first: past 256
+KiB an unrecognised extension is never read at all, only its name and size are shown beside a
+Download button; at or under that ceiling the file is read once and sniffed (valid UTF-8, no NUL
+byte) — text-shaped, it renders exactly like a known source file; not sure, it stays a size-and-
+Download card with an added "Show text" button that force-renders it client-side, cheap because the
+sniff ceiling already bounded the fetch. No file is ever downloaded by just visiting its page.
+
+**Navigating around the page is a single-page app over a server that still answers every URL on
+its own.** Clicking a same-site content link — the sidebar, a directory listing, a search result,
+the project link — is intercepted, fetched, and swapped into `.app-main`/`.app-toc` via
+`history.pushState`, so the theme and scroll position never flash between pages; the browser's
+back/forward buttons do the same swap on `popstate`. A same-page anchor (a bullet-point table of
+contents, a footnote back-reference) is deliberately left alone to scroll natively rather than
+being swapped for a copy of the page it's already on. None of this is load-bearing: a pasted link,
+a hard refresh, or the router simply failing to fetch all fall through to a normal request, which
+the server renders in full exactly as it always did — the SPA layer is progressive enhancement, not
+the only way to reach a page. A theme flash on a full load is separately prevented by a small
+blocking script at the top of `<head>` that sets `data-theme` from `localStorage` before the
+stylesheet paints, ahead of `script.js`'s own `DOMContentLoaded` handler.
 
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
@@ -610,14 +671,17 @@ the open file: the accent is the file that is open, the keyboard's bar is only w
 lands.
 
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
-path, Copy full path, Open in Finder and prepares Rename and Delete; a folder offers Expand or
-Collapse, Copy path, Copy full path, Open in Finder, Refresh and prepares New file, New folder, Rename
-and Delete; a click on the empty panel offers Collapse all and prepares New file and New folder. The
-four that create or remove a path are drawn and do nothing: nothing on the bus creates or removes a
-path yet, and a menu that hid those rows would have nowhere to put them when the host grows the
-family. `Open in Finder` — Explorer or File Manager on other platforms — reveals the file or its
-folder in the system's file manager, and `Refresh` asks the host to list that folder again. The menu
-is the window's one open menu, dismissed by a click outside it or by escape.
+path, Copy full path, Open in Finder, Open in Web and prepares Rename and Delete; a folder offers
+Expand or Collapse, Copy path, Copy full path, Open in Finder, Open in Web, Refresh and prepares New
+file, New folder, Rename and Delete; a click on the empty panel offers Collapse all and prepares New
+file and New folder. The four that create or remove a path are drawn and do nothing: nothing on the
+bus creates or removes a path yet, and a menu that hid those rows would have nowhere to put them when
+the host grows the family. `Open in Finder` — Explorer or File Manager on other platforms — reveals
+the file or its folder in the system's file manager. `Open in Web` starts the local web-export server
+if it is not already running and opens that file or folder in the system browser — see the titlebar's
+browser button below; unlike every other row here it needs nothing from the host, since the interface
+already reads the project's own files for it (`D55`). `Refresh` asks the host to list that folder
+again. The menu is the window's one open menu, dismissed by a click outside it or by escape.
 
 **A row the host will not follow is drawn and does nothing.** A symlink leading out of the project or
 nowhere, a socket, a device, a pipe: the row appears, faint, and takes no click. Drawing it is the
@@ -626,6 +690,14 @@ point — a tree with rows missing is a tree that lies about what is in the fold
 **The explorer holds project-relative paths and nothing else.** No absolute path reaches the
 interface, for the same reason no file descriptor does: the folder the tree describes is the host's,
 and the two need not be on one machine.
+
+**A change on disk reaches the window without being asked for.** The host watches the folder of the
+project a window has open and reports what changed; the explorer re-lists the parent of each changed
+path, but only the folders it already holds listed, so a change deep inside a shut folder costs
+nothing. A burst too large to name its paths re-lists the root instead. A change to the git
+directory refreshes the overview and the working-tree map, the same refresh a save already sends.
+Nothing is redrawn from the message itself — it names paths and carries no content, so the window
+asks for what it wants the ordinary way.
 
 **The explorer states git position by colour and by badge.** Modified, untracked, conflicted, staged
 and ignored each take a colour from the status group and a single-letter badge, the colour so it
@@ -767,6 +839,12 @@ all of them. A picture is drawn at its own size, which the renderer reads out of
 the file moved under it is reported on the tab and in the status bar, and the file is left alone —
 Ubiq is not the only thing editing these files, and the agents in the panes are the other one. There
 is no merge: resolving a conflict is the user's.
+
+**A tab with nothing typed into it follows the file on disk; a dirty one is left alone.** A clean
+tab whose file changed goes back to reading and comes back with what is there now. A tab with
+unsaved edits is not touched at all — not reloaded, not marked, not asked about — and the save it
+eventually attempts is still refused if the file moved under it, which is where the user hears about
+the collision.
 
 **A file that cannot be edited honestly is not offered for saving.** A read the host cut short at its
 byte ceiling is readable and unsavable, because writing a prefix back would shorten the file. A file
@@ -970,6 +1048,9 @@ project settings reads that flag off the project it is editing to choose its own
 state of their own: `ProjectTree`, `ReadProjectFile` and `WriteProjectFile` going out, and
 `ProjectTreeListing`, `ProjectFileContents`, `ProjectFileWritten` and `ProjectFileError` coming back.
 Every one of them names a project and a path inside it, and each answers only the window that asked.
+`ProjectFilesChanged` is the exception in both respects: the host sends it unasked, from its watch on
+the folder the window has open, and the window answers it with `ProjectTree`, `ReadProjectFile` and
+`RefreshProjectGit` of its own.
 The blob behind what a project remembers grows the arrangement, the open files, the active one, the
 expanded folders and the selected row, and the host neither parses nor validates any of it.
 
@@ -1235,7 +1316,11 @@ serialisation.
 
 `AppState` holds the dock's half of that. `dock()` hands it to the shell; `regions_open()` and
 `toggle_region()` are the titlebar's three switches, both going through the dock rather than a flag
-beside it; `panel()` builds a kind's panel the first time it is asked for. A panel reaches the dock
+beside it; `panel()` builds a kind's panel the first time it is asked for. Opening an empty region
+is the gesture that fills it: the bottom starts a pane and the right opens the chat, because a
+region that opens onto a bar of nothing is not what the switch was asked for — the left is the
+exception, since the explorer is already on screen in every IDE window and an empty left is the
+user's own doing. A panel reaches the dock
 through a `Window` and a message does not come with one, so both halves of a panel's life queue and
 are drained in `render`: `settle_visibility()` builds each panel's `Visibility` and pushes
 `is_drawn()` into it, along with the layout a file panel writes into its payload — pushed rather
@@ -1245,8 +1330,12 @@ rebuilds a saved arrangement and puts the layouts it carried back on the files, 
 with the incoming project's open files when the window changes which project it is pointed at,
 because the files are a project's and the panels are the window's. That is the same
 device the pending focus and the arrived files already use. A `DockEvent::LayoutChanged`
-subscription enforces placement and writes the layout down, in that order, so what is remembered is
-what is on screen; `layout_blob()` is what it writes. A rail-mode switch is the same queue:
+subscription enforces placement, then `hide_emptied_regions()` closes an edge region the change just
+emptied — its last panel closed, or dragged to another region — before the layout is written down,
+so what is remembered is what is on screen. It tells that apart from a region a caller just opened
+empty on purpose (the left, above) through `region_had_content`: the flag it ticks per region on
+every change, so the auto-hide only fires on the edge from holding something to holding nothing, not
+on an emptiness that was already there. `layout_blob()` is what the subscription writes. A rail-mode switch is the same queue:
 `set_rail_mode()` writes the outgoing mode's arrangement down through `remember_view()`, then hands
 the incoming mode's saved blob to `pending_layout`, or — for a mode never arranged — queues its
 `ModeLayout::default_for` flags as `pending_regions`, which `settle_mode()` forces on the frame.
@@ -1506,7 +1595,9 @@ cannot carry one. That convention is
 `crates/ubiq/tests/explorer.rs`. `merge()` puts one directory's listing into the tree, matching
 entries by name so that a folder re-listed keeps the children and the expanded flags below it, an
 entry that has gone is dropped with its subtree, and a new one arrives shut and unlisted — which also
-makes an unsolicited listing harmless. `toggle()` answers whether flipping a folder open means the
+makes an unsolicited listing harmless — which is what the filesystem watch relies on.
+`is_folder_listed()` is the question the watch's answer needs: whether the tree already holds that
+folder listed, and so whether re-asking for it can change anything. `toggle()` answers whether flipping a folder open means the
 host has to be asked. `expanded()` is what gets written down and `reopen()` is what reads it back,
 opening the folders a blob named as each of their parents arrives. The order the host sorted a
 listing in is kept rather than sorted again, so two windows on one project cannot disagree.
@@ -1567,7 +1658,12 @@ project open, not from a keystroke; `schedule_explorer_filter()` debounces the f
 `save_active_file()` sends
 `WriteProjectFile` with the version the read came with. Holding a project also sends `ProjectGit`
 and `RefreshProjectGit { full: true }`, a successful save and a pane exit send the full refresh
-again, and `ui/status_bar.rs` prints the overview's branch. `activate_file()` and `closed_file_panel()`
+again, and `ui/status_bar.rs` prints the overview's branch. `ProjectFilesChanged` is answered in the
+same three currencies: `RefreshProjectGit { full: true }` when it reports the git directory, one
+`ProjectTree` per deduplicated parent directory the tree already holds listed — the root instead
+when the batch is truncated — and one `ReadProjectFile` per open tab that is neither dirty nor
+already loading, put back to reading by `OpenFile::reload()`. `crates/ubiq/tests/files_changed.rs`
+is what asserts each of those without a frame. `activate_file()` and `closed_file_panel()`
 are the other direction — the dock deciding which tab is in front and which has gone, which the
 editor learns from it rather than the other way round. Contents cannot become a buffer where they
 arrive, because a buffer needs a window and a message does not come with one, so they queue and
@@ -1577,7 +1673,8 @@ that reason and no other: `set_value` needs a window and a message does not come
 selection change, a project switch and a `TaskChanged` for the open task each leave a flag for the
 next frame to drain. Its guard is what stops it writing over what is being typed on every frame, and
 it fills from the record the host confirmed rather than from what was typed — never while a field is
-open. `install_key_bindings()` binds `⌘S`, `cmd-=` and `cmd-shift-=` (zoom in) and `cmd--` (zoom out)
+open. `install_key_bindings()` binds `⌘S`, `cmd-w`/`ctrl-w` (`close_active_editor()`, the keyboard
+equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in) and `cmd--` (zoom out)
 in the `Workbench` key context, then the file picker's and
 the explorer's keys — each bound for the surface and for the field inside it, after the component
 library's own so they win — and the binary calls it beside its own quit binding.
@@ -1594,7 +1691,9 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | Every edge region is closed | The rail, titlebar and status bar remain; the centre region fills the dock |
 | A region is closed while it holds the console | The console goes with the region and comes back where it was left. Nothing leaves the tree |
 | The console's tab is closed | It leaves the arrangement, and the new-pane menu's `Logs` row is what brings it back |
-| The user empties a region by dragging its last panel out | The titlebar's switch for it reads as closed, because it reports the dock |
+| The user empties a region by closing its last panel or dragging it out | The region closes itself; the titlebar's switch for it reads as closed |
+| The user opens an empty right region from the titlebar | The chat opens in it |
+| The user opens an empty left region from the titlebar | It stays open and empty — the explorer left it on purpose |
 | A panel is dropped in a region its class forbids | It is moved back to its home region on the same edit, so the drop reads as refused |
 | A saved arrangement is from another version, or is unreadable | It is discarded whole and the window opens on the default arrangement |
 | A saved arrangement names a pane the window still holds | The pane comes back where it was — its group, its split and its tab position |
@@ -1650,6 +1749,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A file is not text | The tab says so rather than drawing bytes as characters |
 | A file changed on disk since it was read | The save is refused, the file is left alone, and the tab and the status bar say so. Ubiq offers no merge |
 | A save fails for any other reason | The same report, cleared by the next edit |
+| The host cannot watch the project's folder | Logged, and the project has no watch: the tree and the git state go stale until something asks for them, which is every other path in this table unchanged |
 | The project is not a repository | The explorer's rows stay unmarked and the status bar prints no branch. That is an ordinary answer, not an error |
 | A repository exists and cannot be read | Badges clear rather than freeze at the last good answer. A corrupt object database is the case this exists for |
 | A working-tree reply is older than one already held | Discarded, so a slow walk cannot repaint what was true earlier |
@@ -1685,4 +1785,6 @@ library's own so they win — and the binary calls it beside its own quit bindin
 - Remember which of the board's columns were shut.
 - Reach a status change from the keyboard, so a card can move without a drag.
 - Keyboard navigation for the rail and the tabs.
-- Make the titlebar's command field find a file in the project.
+- Make the titlebar's command field find a file in the project by name, and run a command — its
+  Enter is taken for project content search (see above); the navigator and the palette are still
+  unbuilt.

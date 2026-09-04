@@ -18,6 +18,20 @@ pub struct Query {
     pub regex: bool,
 }
 
+/// What a search looks at, beside the query itself.
+///
+/// `patterns` are globs on gitignore terms against the project-relative path — `*.md`,
+/// `src/**/*.rs` — and an empty list means every file the ignore rules allow. `subdir` is where
+/// the walk starts, project-relative and validated by the host, which is the same boundary
+/// `ubiq_host::files::path` is for the file family.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Filter {
+    #[serde(default)]
+    pub patterns: Vec<String>,
+    #[serde(default)]
+    pub subdir: Option<String>,
+}
+
 /// What to search.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Scope {
@@ -81,4 +95,7 @@ pub enum SearchError {
     BadQuery(String),
     /// The file walk failed.
     Walk(String),
+    /// The filter was refused: a glob that will not compile, or a starting directory that leaves
+    /// the project.
+    BadFilter(String),
 }

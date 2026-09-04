@@ -56,7 +56,7 @@ pub use layout::Layout;
 pub use logs::LogState;
 pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
 pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
-pub use search::SearchState;
+pub use search::{ActiveSearch, SearchState};
 pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;

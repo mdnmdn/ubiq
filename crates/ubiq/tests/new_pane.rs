@@ -155,6 +155,8 @@ fn a_project() -> ProjectSnapshot {
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
+            search_excludes: Vec::new(),
+            no_local_index: false,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,

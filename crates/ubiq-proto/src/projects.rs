@@ -35,6 +35,14 @@ pub struct ProjectRecord {
     /// Stamped by the host when a window opens it. Absent until first opened.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_opened_at: Option<DateTime<Utc>>,
+    /// Paths and globs this project's searches and its filename index skip, on top of the
+    /// application-wide set in [`crate::settings::HostSettings`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_excludes: Vec<String>,
+    /// Whether this project may be indexed locally. Off is the user saying "walk it, do not keep
+    /// it" — the watcher still runs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_local_index: bool,
 }
 
 /// What the host found when it last looked at the folder.

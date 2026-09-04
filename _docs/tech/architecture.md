@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-03
-verified: 2026-09-03
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs]
+updated: 2026-09-04
+verified: 2026-09-04
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -82,7 +82,10 @@ given, and it is given rather than composed for exactly this reason. A file drop
 every open project is the second exception: the operating system hands the interface an absolute
 path with no host round trip available, and it is given rather than composed there too — the
 interface reads it with `std::fs` to build a read-only guest tab, and never resolves, writes to, or
-sends that path anywhere. `D54` records the decision and its cost.
+sends that path anywhere. `D54` records the decision and its cost. The web-export server
+(`crates/ubiq/src/web_export/`) is a third instance of the same reasoning at a larger scale: it reads
+a whole project's tree with `std::fs` and the `ignore` crate, off its own thread, using the
+project's path from the same `ProjectSnapshot` rather than a path it composed. `D55` records it.
 
 **3. The coordinator renders nothing.** It has no opinion about layout, colour, or what the bytes it
 forwards mean. Terminal *emulation* — parsing those bytes into a screen — belongs to the UI's
@@ -142,6 +145,7 @@ the transport beneath the contract.
 | PTY streams and backpressure | `crates/ubiq-host/src/pty/` | `portable-pty` |
 | A project's folder, its files, a save and a diff | `crates/ubiq-host/src/files/` | The walk, the read, the atomic write and one file's comparison with version control, on a worker thread of their own so no listing blocks the coordinator |
 | A project's repository | `crates/ubiq-host/src/git/` | The overview the status bar reads and the working-tree map the explorer's badges read, on a worker thread of their own so a cold status does not stall every pane |
+| What changed in a project's folder | `crates/ubiq-host/src/watch/` | One recursive `notify` watch and one debounce thread per open project, per window. The only thing in the host that speaks without being asked |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
@@ -168,6 +172,14 @@ and smudge filters, because running those means running programs configured by a
 merely opened. And the comparison carries the family's ceilings — two megabytes a side, four hundred
 hunks, ten thousand rows — past which it comes back `truncated` rather than as a change smaller than
 the one on disk.
+
+**One thing in the host speaks without being asked: the filesystem watch.** `watch::start` takes a
+project's root, the merged excludes and a mailbox, and holds a recursive `notify` watch plus a
+debounce thread; the coordinator keys one per `(client, project)` and drops it when that window
+opens another project or leaves, so a dropped handle is the whole of stopping a watch. What crosses
+is `ProjectFilesChanged` — project-relative paths and a flag for the git directory, never content
+and never an absolute path, on the same rule a search hit follows. A watch that will not start is
+logged and the project simply has none.
 
 `crates/ubiq-app/src/main.rs` does nothing but start the application: resolve the config root, start
 the one host, install the GPUI component library, set the palette, bind the quit action and the

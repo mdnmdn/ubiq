@@ -33,6 +33,7 @@ use crate::reply::Reply;
 use crate::search::{self, Search};
 use crate::settings::Settings;
 use crate::shells;
+use crate::watch;
 use crate::work::Work;
 
 /// The geometry a pane starts at, before the emulator has measured its own bounds and said what it
@@ -80,9 +81,16 @@ struct Coordinator {
     /// The thread that walks a project's files for content search. Long-running by nature, so it
     /// has its own queue: a search behind a slow one would stall every folder expand.
     search: Search,
-    /// One live search per project. The cancel flag is set when a second search arrives, and
-    /// forgotten on finish.
+    /// One live search per project. The flag means two things: a cancel request, set when a
+    /// second search for the same project arrives or `CancelSearch` names this one; and "this
+    /// search is over", set by the worker itself when it finishes, cancelled or not. `search_job`
+    /// reaps entries where the flag is already set, the one place that mints them.
     active_searches: HashMap<ProjectId, (SearchId, Arc<AtomicBool>)>,
+    /// One filesystem watch per window per open project. Keyed by both because a project is open
+    /// in exactly one window and a window shows one project at a time — there is no
+    /// `CloseProject` message, so replacing a client's entry when it opens another project is how
+    /// the old watch stops.
+    watchers: HashMap<(ClientId, ProjectId), watch::Watcher>,
     /// Anything the catalogue wanted said before a window existed to hear it — a corrupt store,
     /// most usefully. Delivered to the first window that attaches.
     pending: Vec<Reply>,
@@ -232,6 +240,7 @@ impl Coordinator {
             git: Git::start(),
             search: Search::start(),
             active_searches: HashMap::new(),
+            watchers: HashMap::new(),
             pending,
             pane_projects: HashMap::new(),
             panes: HashMap::new(),
@@ -308,6 +317,8 @@ impl Coordinator {
     /// live harness behind.
     fn client_gone(&mut self, client: ClientId) {
         self.focused.remove(&client);
+        // Dropping a watch stops its `notify` handle and ends its debounce thread.
+        self.watchers.retain(|(owner, _), _| *owner != client);
         let owned: Vec<PaneId> = self
             .owners
             .iter()
@@ -492,10 +503,17 @@ impl Coordinator {
                 name,
                 colour,
                 custom_colour,
+                search_excludes,
+                no_local_index,
             } => {
-                let replies = self
-                    .projects
-                    .update(project_id, name, colour, custom_colour);
+                let replies = self.projects.update(
+                    project_id,
+                    name,
+                    colour,
+                    custom_colour,
+                    search_excludes,
+                    no_local_index,
+                );
                 self.answer(client, replies);
             }
             Message::LocateProject { project_id, path } => {
@@ -506,6 +524,7 @@ impl Coordinator {
             Message::OpenedProject { project_id } => {
                 let replies = self.projects.opened(project_id);
                 self.answer(client, replies);
+                self.watch_project(client, project_id);
             }
             Message::RefreshProject { project_id } => {
                 let replies = self.projects.refresh(project_id);
@@ -805,9 +824,10 @@ impl Coordinator {
                 project_id,
                 search_id,
                 query,
-                scope,
+                scope: _, // v1: `Files` and `Project` search the same thing.
+                filter,
             } => {
-                self.search_job(client, project_id, search_id, query, scope);
+                self.search_job(client, project_id, search_id, query, filter);
             }
             Message::CancelSearch {
                 project_id,
@@ -815,8 +835,10 @@ impl Coordinator {
             } => {
                 if let Some((active_id, cancel)) = self.active_searches.get(&project_id)
                     && *active_id == search_id
+                    && !cancel.load(Ordering::Relaxed)
                 {
                     cancel.store(true, Ordering::Relaxed);
+                    tracing::info!(search = %search_id, project = %project_id, "search cancelled");
                 }
             }
 
@@ -1178,14 +1200,54 @@ impl Coordinator {
         });
     }
 
+    /// Start watching a project a window just opened, replacing whatever that window watched
+    /// before. A watch that will not start is logged and nothing else: the project is simply not
+    /// live, and every other answer still works.
+    fn watch_project(&mut self, client: ClientId, project_id: ProjectId) {
+        // A window shows one project at a time and there is no `CloseProject`, so opening the next
+        // one is the only signal that the previous watch is unwanted.
+        self.watchers
+            .retain(|(owner, watched), _| *owner != client || *watched == project_id);
+        if self.watchers.contains_key(&(client, project_id)) {
+            return;
+        }
+
+        let Some(record) = self.projects.record(project_id) else {
+            return;
+        };
+        let mut excludes = self.settings.host().search_excludes;
+        excludes.extend(record.search_excludes.iter().cloned());
+        let root = PathBuf::from(&record.path);
+
+        match watch::start(watch::Job {
+            project_id,
+            root,
+            excludes,
+            reply_to: self.host.mailbox(To::Client(client)),
+        }) {
+            Ok(watcher) => {
+                self.watchers.insert((client, project_id), watcher);
+            }
+            Err(error) => {
+                tracing::warn!(project = %project_id, %error, "no filesystem watch for this project");
+            }
+        }
+    }
+
     fn search_job(
         &mut self,
         client: ClientId,
         project_id: ProjectId,
         search_id: SearchId,
         query: ubiq_proto::search::Query,
-        scope: ubiq_proto::search::Scope,
+        filter: ubiq_proto::search::Filter,
     ) {
+        // Reap searches that have finished — the flag also means "this search is over", set by
+        // the worker itself. This is the one place `active_searches` gains an entry, so it is the
+        // one place that needs to drop stale ones.
+        self.active_searches
+            .retain(|_, (_, over)| !over.load(Ordering::Relaxed));
+
         let Some(record) = self.projects.record(project_id) else {
             self.host.send(
                 To::Client(client),
@@ -1198,9 +1260,21 @@ impl Coordinator {
             return;
         };
 
+        // The application-wide excludes and this project's own, merged here because this is the
+        // one place holding both `Settings` and the project record.
+        let host_settings = self.settings.host();
+        let mut excludes = host_settings.search_excludes;
+        excludes.extend(record.search_excludes.iter().cloned());
+
         // Cancel any active search for this project.
-        if let Some((_, cancel)) = self.active_searches.remove(&project_id) {
+        if let Some((superseded, cancel)) = self.active_searches.remove(&project_id) {
             cancel.store(true, Ordering::Relaxed);
+            tracing::info!(
+                search = %superseded,
+                by = %search_id,
+                project = %project_id,
+                "search superseded"
+            );
         }
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1212,7 +1286,9 @@ impl Coordinator {
             search_id,
             root: PathBuf::from(&record.path),
             query,
-            scope,
+            filter,
+            excludes,
+            fallbacks: host_settings.search_fallbacks,
             cancel,
             reply_to: self.host.mailbox(To::Client(client)),
         });

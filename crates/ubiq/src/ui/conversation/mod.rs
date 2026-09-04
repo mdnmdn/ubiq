@@ -221,6 +221,21 @@ fn status_label(status: ToolStatus) -> &'static str {
     }
 }
 
+/// A tool's title: plain for most kinds, a code chip for a command. A command reads the way one
+/// does in the app's own markdown — monospace on a raised surface — because the title has no room
+/// for the coloured edge every other surface here is identified by.
+fn tool_title(kind: ToolKind, title: String) -> gpui::Div {
+    let text = mono(title, theme::text()).text_size(px(12.));
+    if kind != ToolKind::Execute {
+        return text;
+    }
+    div()
+        .bg(theme::surface_raised())
+        .px_1()
+        .py(px(1.))
+        .child(text)
+}
+
 /// A tool call: what it did, to what, and how it went — before any of what it produced.
 fn tool_block(
     agent: AgentId,
@@ -234,13 +249,18 @@ fn tool_block(
     let expandable = !call.content.is_empty();
     let call_id = call.id.clone();
 
+    // A title that wraps — a long command, most often — grows the row rather than being
+    // clipped to one line's height: `min_h` is the floor, not the ceiling, and `items_start`
+    // keeps the icon and the status pinned to the first line instead of drifting to the
+    // paragraph's centre.
     let mut header = div()
         .id(view.eid(&format!("tool-{index}")))
-        .h(px(30.))
+        .min_h(px(30.))
         .px_2()
+        .py_1()
         .flex()
         .flex_none()
-        .items_center()
+        .items_start()
         .gap_2()
         .child(
             Icon::new(if open {
@@ -253,16 +273,24 @@ fn tool_block(
                 theme::text_faint()
             } else {
                 theme::border()
-            }),
+            })
+            .mt(px(2.)),
         )
-        .child(mono(call.kind.label(), colour).text_size(px(11.5)))
         .child(
-            mono(call.title.clone(), theme::text())
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(12.)),
+            mono(call.kind.label(), colour)
+                .text_size(px(11.5))
+                .mt(px(1.)),
         )
-        .child(mono(status_label(call.status), status_colour(call.status)).text_size(px(11.5)));
+        .child(
+            tool_title(call.kind, call.title.clone())
+                .flex_1()
+                .min_w(px(0.)),
+        )
+        .child(
+            mono(status_label(call.status), status_colour(call.status))
+                .text_size(px(11.5))
+                .mt(px(1.)),
+        );
 
     // A block with nothing behind it does not expand: a chevron that opens on emptiness says the
     // detail is missing rather than absent.

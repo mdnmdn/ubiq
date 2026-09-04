@@ -140,6 +140,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
     match item {
         SettingsSection::FileExplorer => IconName::Folder,
         SettingsSection::Editor => IconName::File,
+        SettingsSection::Search => IconName::Search,
         SettingsSection::Harnesses => IconName::Asterisk,
     }
 }
@@ -148,6 +149,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let content = match app.workbench.settings.nav {
         SettingsSection::FileExplorer => file_explorer(app, cx),
         SettingsSection::Editor => editor(app, cx),
+        SettingsSection::Search => search(app),
         SettingsSection::Harnesses => harnesses(app, cx),
     };
 
@@ -212,6 +214,41 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             "New markdown files start in this layout. Source, preview and split remain available \
              on the tab.",
             div().flex().gap_1().children(pills).into_any_element(),
+        ),
+    ])
+}
+
+/// The two host-owned lists. Each is a comma-separated line that commits on Enter and on blur —
+/// see the subscriptions in `app.rs`, and `sync_search_settings_fields` for what fills them.
+fn search(app: &AppState) -> AnyElement {
+    let line = |input| {
+        field(theme::border(), false)
+            .h(px(30.))
+            .w(px(300.))
+            .px_2()
+            .child(Input::new(input).appearance(false))
+            .into_any_element()
+    };
+
+    column(vec![
+        heading(
+            "Search",
+            "What every project search skips, and what it falls back to. Comma-separated, and \
+             written down when the field is left or Enter is pressed.",
+        ),
+        setting_row(
+            "Excluded paths",
+            "Globs every project search skips, on top of the ignore rules the project already \
+             carries. Emptying the field searches everything those rules allow.",
+            line(&app.search_excludes_input),
+        ),
+        setting_row(
+            "Fallback tools",
+            "External tools tried in order, and only when the built-in matcher cannot answer a \
+             query \u{2014} a pattern its stricter regex engine refuses. Empty means there is no \
+             fallback. `find` and `fd` are refused whatever is typed here: they match file names \
+             rather than contents, so they cannot answer a content search.",
+            line(&app.search_fallbacks_input),
         ),
     ])
 }

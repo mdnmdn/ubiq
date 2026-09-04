@@ -5,7 +5,7 @@ kind: proposal
 status: proposal
 summary: A host-owned watcher and three per-project indexes — filename, full text, symbol — so the knowledge base and the local web export answer from a store instead of a fresh walk, and the tree, the git state, and open diffs stop going stale between asks.
 read_when: you are deciding how Ubiq watches a project's folder for change, or how it indexes a project's files for something other than a live content search
-updated: 2026-09-03
+updated: 2026-09-04
 depends_on: [tech-architecture, tech-structure, tech-transport, inbox-omni]
 ---
 
@@ -25,6 +25,42 @@ that proposal's design, and is explicitly not reopened here. What that proposal 
 the knowledge base's own search, because the knowledge base "will be Ubiq's own store rather than the
 user's folder" — its words — and a store is the one thing a live walk of the user's folder can never
 be. This proposes that store, and the watcher that keeps it honest.
+
+## 0. Where the build has got to — 2026-09-04
+
+**Phase 1 has landed: the watcher and its unsolicited push, with no index of any kind built.** No
+filename index, no symbol index, no `tantivy`, no host-owned cache directory — phases 2 to 4 are
+untouched, and §1 below is the state before the watcher landed, kept for its reasoning rather than
+as a report.
+
+In the tree: `crates/ubiq-host/src/watch/mod.rs` (one recursive `notify` watch and one debounce
+thread per open project, `QUIET` 150ms, `BOUND` 64), keyed per window and per project in
+`coordinator.rs` and started from `Message::OpenedProject`, with `crates/ubiq-host/tests/watch.rs`
+over the classification and the batching. `notify` is a direct dependency of `ubiq-host` and
+resolves to the version already in the lock file, so no package entered the graph.
+`Message::ProjectFilesChanged` — which existed on the wire and had no producer and no consumer — now
+has both; the contract for it is
+[`../tech/transport-contract.md`](../tech/transport-contract.md)'s file family, and what the window
+does with it is [`../features/workbench.md`](../features/workbench.md)'s.
+
+Where the tree differs from this document:
+
+- **The two scopes are one recursive watch, filtered per event**, rather than a content scope plus a
+  fixed `.git` scope: a selective watch would have to be re-registered every time a directory
+  appears. `.git/HEAD`, `.git/MERGE_HEAD`, `.git/index` and `.git/refs/**` set `repository` on the
+  next flush and everything else under `.git/` is dropped, which is the behaviour §3 asks for.
+- **The watcher's ignore reading is its own, not the walk's.** §3 has both halves agreeing on one
+  reading of a project's `.gitignore`; the watcher builds a single `Gitignore` from the root's
+  `.gitignore` plus the merged excludes, because `ignore::WalkBuilder` cannot answer a question
+  about one path. `G110` is that gap, and it over-reports rather than under-reporting.
+- **The push is `ProjectFilesChanged`, not a `ProjectChanged` record**, and it carries a
+  `repository` flag beside `changed` and `truncated`. It rides no new primitive, so `G47` is
+  untouched: this is one unsolicited variant in the file family and nothing generalised.
+- **`G30` is not closed.** The watcher reports what changed inside a project's folder and never
+  re-probes the record's health, so a folder that goes away is still noticed only when somebody
+  asks.
+- **There is no `CloseProject`,** which §3's "stops when it closes" assumes. A watch is stopped by
+  the same window opening another project or by the window leaving — `G113`.
 
 ## 1. Where it stands
 

@@ -10,6 +10,8 @@
 //! setting its flag.
 
 pub mod ceiling;
+pub mod fallback;
+pub mod walk;
 pub mod worker;
 
 use std::sync::Arc;
@@ -18,7 +20,7 @@ use std::thread;
 
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::ids::{ProjectId, SearchId};
-use ubiq_proto::search::{Query, Scope};
+use ubiq_proto::search::{Filter, Query};
 
 /// The thread that answers the search family.
 ///
@@ -58,7 +60,13 @@ pub struct Job {
     pub search_id: SearchId,
     pub root: std::path::PathBuf,
     pub query: Query,
-    pub scope: Scope,
+    /// What the search looks at, beside the query: include globs and a starting subdirectory.
+    pub filter: Filter,
+    /// Application-wide and per-project excludes, already merged — the coordinator is the only
+    /// place holding [`crate::settings::Settings`], so it is the only place that can merge them.
+    pub excludes: Vec<String>,
+    /// External tools tried, in order, when the built-in regex engine cannot compile the query.
+    pub fallbacks: Vec<String>,
     pub cancel: Arc<AtomicBool>,
     pub reply_to: Mailbox,
 }

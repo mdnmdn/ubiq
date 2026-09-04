@@ -10,7 +10,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use chrono::Utc;
-use gpui::{AppContext as _, Entity, TestAppContext};
+use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
+use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
@@ -92,6 +93,7 @@ const PATIENCE: Duration = Duration::from_millis(500);
 /// window said. Mirrors `new_pane`'s fixture.
 struct Fixture {
     state: Entity<AppState>,
+    window: WindowHandle<gpui_component::Root>,
     host: bus::HostEnd,
 }
 
@@ -111,7 +113,7 @@ impl Fixture {
 
         let held: Rc<RefCell<Option<Entity<AppState>>>> = Rc::default();
         let taken = held.clone();
-        cx.add_window(move |window, cx| {
+        let window = cx.add_window(move |window, cx| {
             let state = cx.new(|cx| AppState::for_project(Some(project), 'A', window, cx));
             *taken.borrow_mut() = Some(state.clone());
             gpui_component::Root::new(state, window, cx)
@@ -122,7 +124,11 @@ impl Fixture {
             .borrow_mut()
             .take()
             .expect("the window built its state");
-        Self { state, host }
+        Self {
+            state,
+            window,
+            host,
+        }
     }
 
     /// Everything the window has said so far, in order.
@@ -148,6 +154,8 @@ fn a_project() -> ProjectSnapshot {
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
+            search_excludes: Vec::new(),
+            no_local_index: false,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -215,6 +223,7 @@ fn the_hosts_answer_is_what_the_checkbox_shows(cx: &mut TestAppContext) {
     let stored = HostSettings {
         schema: HOST_SETTINGS_SCHEMA,
         isolate_agents: false,
+        ..HostSettings::default()
     };
     fixture.host.send(
         To::Everyone,
@@ -231,4 +240,75 @@ fn the_hosts_answer_is_what_the_checkbox_shows(cx: &mut TestAppContext) {
             .read_with(cx, |state, _| state.workbench.settings.host.isolate_agents),
         "the host's answer is what the checkbox shows, not the default it opened on"
     );
+}
+
+/// The two search lists are text fields holding a comma-separated line. They commit on Enter —
+/// and on blur — rather than on a keystroke, because every commit makes the host write a file.
+#[gpui::test]
+fn committing_the_search_lists_writes_the_parsed_lists(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.type_into(
+        |state| state.search_excludes_input.clone(),
+        "vendor, dist ,,",
+        cx,
+    );
+    fixture.type_into(
+        |state| state.search_fallbacks_input.clone(),
+        " grep ,ag,",
+        cx,
+    );
+
+    let sent = fixture
+        .said()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::SetSettings {
+                layer: SettingsLayer::Host,
+                value,
+            } => serde_json::from_str::<HostSettings>(&value).ok(),
+            _ => None,
+        })
+        .next_back()
+        .expect("both commits wrote the host layer");
+
+    assert_eq!(sent.search_excludes, vec!["vendor", "dist"]);
+    assert_eq!(sent.search_fallbacks, vec!["grep", "ag"]);
+    assert_eq!(sent.schema, HOST_SETTINGS_SCHEMA);
+
+    assert_eq!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.settings.host.clone())
+            .search_excludes,
+        vec!["vendor", "dist"],
+        "the window holds what it sent"
+    );
+}
+
+impl Fixture {
+    /// Type into one of the window's fields and commit it, which is what Enter does.
+    fn type_into(
+        &self,
+        pick: impl Fn(&AppState) -> Entity<gpui_component::input::InputState>,
+        text: &str,
+        cx: &mut TestAppContext,
+    ) {
+        self.window
+            .update(cx, |_, window, cx| {
+                self.state.update(cx, |state, cx| {
+                    let input = pick(state);
+                    input.update(cx, |field, cx| {
+                        field.set_value(text, window, cx);
+                        cx.emit(InputEvent::PressEnter {
+                            shift: false,
+                            secondary: false,
+                        });
+                    });
+                });
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    }
 }

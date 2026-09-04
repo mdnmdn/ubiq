@@ -37,6 +37,9 @@ grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 num_cpus = "1"
+# Filesystem watch: one recursive handle per open project. Already in the workspace build graph
+# through `gpui-component`, so a direct edge here is a manifest line, not a new crate to vet.
+notify = "7"
 
 [dev-dependencies]
 tempfile = "3"

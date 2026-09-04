@@ -22,6 +22,7 @@
 //! - `shells`: which shells this machine has, and how one is started
 //! - `agent`: agent-type definitions and the registry over them
 //! - `conversation`: one live agent, its pump thread, and the one mapping onto the bus
+//! - `watch`: what changed on disk in an open project, said without being asked
 //! - `mcp_server`: the MCP surface Ubiq exposes to the agents it hosts
 
 pub mod agent;
@@ -41,4 +42,5 @@ pub mod search;
 pub mod settings;
 pub mod shells;
 pub mod store;
+pub mod watch;
 pub mod work;

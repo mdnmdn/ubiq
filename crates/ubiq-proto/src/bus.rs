@@ -50,7 +50,12 @@ pub enum To {
 
 /// What the host reads. Two of the three are not contract messages, because a window attaching or
 /// going away is not something it says.
+///
+/// `Said` is as wide as the contract's widest variant, on purpose: [`Message`] is already the one
+/// place a size trade-off is made, for the terminal chunks on the hot path — boxing it again here
+/// would just move the cost to every dispatch site for a clippy heuristic, not for a real one.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum FromClient {
     Connected(ClientId),
     Said {

@@ -43,6 +43,8 @@ fn snapshot(id: ProjectId, name: &str, path: &str, opened: Option<u32>) -> Proje
             temporary: false,
             created_at: at(1),
             last_opened_at: opened.map(at),
+            search_excludes: Vec::new(),
+            no_local_index: false,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,

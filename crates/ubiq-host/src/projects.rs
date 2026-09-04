@@ -218,7 +218,7 @@ impl Projects {
             // twice, or added for real twice — is answered exactly as before.
             if existing.temporary && !temporary {
                 let id = existing.id;
-                return self.promote(id, name, colour, custom_colour);
+                return self.promote(id, name, colour, custom_colour, None, None);
             }
             // The path is a uniqueness key, not an identity: this is the project that is there.
             return vec![Reply::Asker(ubiq_proto::messages::Message::ProjectAdded {
@@ -241,6 +241,8 @@ impl Projects {
             temporary,
             created_at: Utc::now(),
             last_opened_at: None,
+            search_excludes: Vec::new(),
+            no_local_index: false,
         };
 
         let snapshot = self.snapshot(&record);
@@ -261,6 +263,8 @@ impl Projects {
         name: Option<String>,
         colour: Option<usize>,
         custom_colour: Option<u32>,
+        search_excludes: Option<Vec<String>>,
+        no_local_index: Option<bool>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -273,6 +277,12 @@ impl Projects {
         if let Some(colour) = colour {
             record.colour = colour;
             record.custom_colour = custom_colour;
+        }
+        if let Some(search_excludes) = search_excludes {
+            record.search_excludes = search_excludes;
+        }
+        if let Some(no_local_index) = no_local_index {
+            record.no_local_index = no_local_index;
         }
 
         let snapshot = self.snapshot(&record);
@@ -315,13 +325,17 @@ impl Projects {
         replies
     }
 
-    /// Rename or recolour. Display only: it touches no filesystem and cannot fail.
+    /// Rename, recolour, or change what a project's searches skip. Touches no filesystem and
+    /// cannot fail beyond "no such project": `search_excludes` and `no_local_index` are display
+    /// state exactly like the rest — `None` leaves a field as it is, `Some` replaces it.
     pub fn update(
         &mut self,
         id: ProjectId,
         name: Option<String>,
         colour: Option<usize>,
         custom_colour: Option<u32>,
+        search_excludes: Option<Vec<String>>,
+        no_local_index: Option<bool>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -329,7 +343,14 @@ impl Projects {
         // Naming a temporary project in the settings dialog is what keeps it, and this is where
         // that happens — there is deliberately no separate promote message.
         if record.temporary {
-            return self.promote(id, name, colour, custom_colour);
+            return self.promote(
+                id,
+                name,
+                colour,
+                custom_colour,
+                search_excludes,
+                no_local_index,
+            );
         }
         let mut record = record.clone();
         if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
@@ -338,6 +359,12 @@ impl Projects {
         if let Some(colour) = colour {
             record.colour = colour;
             record.custom_colour = custom_colour;
+        }
+        if let Some(search_excludes) = search_excludes {
+            record.search_excludes = search_excludes;
+        }
+        if let Some(no_local_index) = no_local_index {
+            record.no_local_index = no_local_index;
         }
 
         let snapshot = self.snapshot(&record);

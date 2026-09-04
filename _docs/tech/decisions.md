@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-03
-verified: 2026-09-03
+updated: 2026-09-04
+verified: 2026-09-04
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -904,6 +904,31 @@ which architecture rule 2 otherwise forbids the interface — see the exception 
 [`architecture.md`](./architecture.md), rule 2. And a guest tab is read-only for good: promoting one
 to a real, savable file means dropping it again inside the project that holds it, not an in-place
 upgrade.
+
+### D55 — The web-export server lives in the interface, not the host, and reads project files itself
+
+`crates/ubiq/src/web_export/` runs a local, on-demand HTTP server that serves a project's files
+read-only, for browsing markdown and source in a real browser — started from the titlebar's browser
+button or the explorer's "Open in Web" item. It binds its own `tiny_http` listener on its own
+thread, walks the project tree with the `ignore` crate, and reads file bytes with `std::fs`,
+entirely inside the UI crate. No `ubiq-proto` message crosses for any of this — not to start the
+server, not to read a file, not to list a directory.
+
+**Why this is allowed under rule 1:** the interface holds the project's canonical absolute path,
+given rather than composed, on `ProjectSnapshot.record.path` — the same field rule 2's guest-tab
+exception (`D54`) reads with `std::fs`. Serving that project's own tree over loopback HTTP is the
+same read, at a larger scale, for a different display surface; it asks the host for nothing the
+host would have to compute or guard, because nothing here writes.
+
+**Cost:** the two-process detach story in *"Why the split is drawn before it is needed"* stops
+covering this feature specifically — a coordinator on another machine cannot hand a local thread the
+bytes it reads directly, so a remote host would need this module rewound onto `ReadProjectFile`
+before it could keep working. That is an acceptable, explicitly deferred cost: nothing else in the
+interface depends on the web-export server, and detach is not implemented for anything else here
+either. The `ignore`-based tree walk also duplicates, rather than reuses, the host's own
+`ubiq-host/src/search/walk.rs` — the two never merge because the interface must not depend on the
+host crate, and the walker is a few lines against a crate the workspace's lockfile carries for other
+reasons.
 
 ## Related docs
 
