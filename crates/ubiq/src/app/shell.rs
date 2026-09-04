@@ -60,6 +60,15 @@ impl AppState {
             }
         }
 
+        // The tree's first row is the project's name, and the registry is where the window has it
+        // in hand. Set on every reconcile rather than in `ExplorerState::empty`, which has no name
+        // to give it — and so a rename reaches the row as well.
+        for (id, open) in self.projects.iter_mut() {
+            if let Some(snapshot) = WindowRegistry::read(cx).project(*id) {
+                open.explorer.root_name = snapshot.record.name.clone();
+            }
+        }
+
         if self.active_seen != active {
             // The project on screen is leaving it, so its arrangement is written down here rather
             // than trusted to whatever the dock last happened to emit — what comes back when the
@@ -312,11 +321,12 @@ impl AppState {
         cx.notify();
     }
 
-    /// The explorer menu's own outside click. Honours the click that opened it, so that click
-    /// cannot close the menu before it has been drawn.
-    pub fn dismiss_explorer_menu(&mut self, cx: &mut Context<Self>) {
+    /// The explorer menu's own outside click, carrying the menu it was drawn for. A dismiss for a
+    /// menu that has already been replaced — the right-click on a second row fires the first
+    /// menu's handler too — does nothing.
+    pub fn dismiss_explorer_menu(&mut self, epoch: u64, cx: &mut Context<Self>) {
         if let Some(open) = self.open_project_mut(cx) {
-            open.explorer.close_menu();
+            open.explorer.close_menu(epoch);
             if open.explorer.menu.is_none() && self.workbench.open_menu == Some(MenuId::Explorer) {
                 self.workbench.open_menu = None;
             }

@@ -25,7 +25,7 @@ use std::thread;
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::files::{
     DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion, LIST_HIDE,
-    WALK_SKIP,
+    PathOp, WALK_SKIP,
 };
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
@@ -48,6 +48,11 @@ const MAX_READ_BYTES: u64 = 2 * 1024 * 1024;
 
 /// How far into a file a NUL byte is looked for.
 const SNIFF_BYTES: usize = 8 * 1024;
+
+/// How many entries a recursive copy will walk.
+///
+/// A folder copy is the one op here whose cost is not bounded by the path it names.
+const MAX_COPY_ENTRIES: usize = 20_000;
 
 // ── the work itself ─────────────────────────────────────────────────
 
@@ -281,6 +286,113 @@ pub fn save(
     fs::metadata(&file).map(version_of).map_err(from_io)
 }
 
+/// Create, move, copy or remove one path.
+///
+/// Containment is settled before anything on disk is touched, and every destination must be free:
+/// the alternative reading of a taken destination is a forced overwrite, which is what [`save`]
+/// refuses for the same reason.
+///
+/// `to` is the destination, and it belongs to `Move` and `Copy` alone. Present where it is not
+/// wanted, or absent where it is, it is a refusal rather than something quietly dropped — a `to`
+/// the host ignores is a wiring mistake the interface cannot see.
+pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result<(), FileError> {
+    let wants_to = matches!(op, PathOp::Move | PathOp::Copy);
+    if wants_to != to.is_some() {
+        return Err(FileError::Refused(format!(
+            "{op:?} carries the wrong destination"
+        )));
+    }
+
+    match op {
+        PathOp::Create { dir } => {
+            let target = path::resolve_for_write(root, rel_path)?;
+            if target.exists() {
+                return Err(FileError::Conflict);
+            }
+            if dir {
+                fs::create_dir(&target).map_err(from_io)
+            } else {
+                crate::atomic::write_atomic_with(&target, b"", None).map_err(from_io)
+            }
+        }
+        PathOp::Move | PathOp::Copy => {
+            // A move takes its source away, so the project's own root is refused by name; a copy
+            // only reads it, and copying a whole project somewhere inside itself is refused below
+            // as any other self-containment is.
+            let source = if op == PathOp::Move {
+                path::resolve_inside(root, rel_path)?
+            } else {
+                path::resolve(root, rel_path)?
+            };
+            let target = path::resolve_for_write(root, to.unwrap_or_default())?;
+            if target.exists() {
+                return Err(FileError::Conflict);
+            }
+            // Whole components, on the canonical source and a destination whose parent is
+            // canonical: a folder moved into its own child would either lose the tree or copy
+            // forever, and the interface refuses the gesture too rather than raising a dialog for
+            // it.
+            if target.starts_with(&source) {
+                return Err(FileError::Refused(
+                    "a folder cannot go inside itself".to_string(),
+                ));
+            }
+
+            if op == PathOp::Move {
+                fs::rename(&source, &target).map_err(from_io)
+            } else if fs::metadata(&source).map_err(from_io)?.is_dir() {
+                let mut budget = MAX_COPY_ENTRIES;
+                copy_tree(&source, &target, &mut budget)
+            } else {
+                fs::copy(&source, &target).map(|_| ()).map_err(from_io)
+            }
+        }
+        PathOp::Trash => {
+            let target = path::resolve_inside(root, rel_path)?;
+            // The platform's own service answers this, so its refusal is not one of ours: a
+            // headless session has no trash at all, and saying so is better than deleting instead.
+            trash::delete(&target).map_err(|error| FileError::Failed(error.to_string()))
+        }
+        PathOp::Delete => {
+            let target = path::resolve_inside(root, rel_path)?;
+            if fs::metadata(&target).map_err(from_io)?.is_dir() {
+                fs::remove_dir_all(&target).map_err(from_io)
+            } else {
+                fs::remove_file(&target).map_err(from_io)
+            }
+        }
+    }
+}
+
+/// Copy one folder with everything under it, spending `budget` as it goes.
+///
+// ponytail: the ceiling is entries walked, and a copy that hits it stops where it stopped —
+// what is already on disk is left there, named by the error rather than rolled back. Upgrade
+// path: copy into a sibling temporary folder and rename it into place at the end, which is what
+// `atomic::write_atomic_with` does for one file.
+fn copy_tree(source: &Path, target: &Path, budget: &mut usize) -> Result<(), FileError> {
+    fs::create_dir(target).map_err(from_io)?;
+    for found in fs::read_dir(source).map_err(from_io)? {
+        let found = found.map_err(from_io)?;
+        if *budget == 0 {
+            return Err(FileError::Failed(format!(
+                "a folder copy stops at {MAX_COPY_ENTRIES} entries"
+            )));
+        }
+        *budget -= 1;
+
+        let child = target.join(found.file_name());
+        if found.file_type().map_err(from_io)?.is_dir() {
+            copy_tree(&found.path(), &child, budget)?;
+        } else {
+            // A symlink is copied as what it points at, which is what `fs::copy` does and what a
+            // copy inside one project should mean; a link to a folder fails, and says so.
+            fs::copy(found.path(), &child).map_err(from_io)?;
+        }
+    }
+    Ok(())
+}
+
 /// Whether the host will treat these bytes as text.
 ///
 /// A NUL in the first few kilobytes, which is what git does. Not a UTF-8 check: a Latin-1 file, and
@@ -331,6 +443,11 @@ pub enum Request {
     Diff {
         rel_path: String,
         base: DiffBase,
+    },
+    Edit {
+        rel_path: String,
+        to: Option<String>,
+        op: PathOp,
     },
 }
 
@@ -425,6 +542,15 @@ fn answer(job: &Job) -> Message {
                 project_id,
                 rel_path: rel_path.clone(),
                 diff,
+            },
+            Err(error) => file_error(project_id, rel_path, error),
+        },
+        Request::Edit { rel_path, to, op } => match edit(&job.root, rel_path, to.as_deref(), *op) {
+            Ok(()) => Message::ProjectPathEdited {
+                project_id,
+                rel_path: rel_path.clone(),
+                to: to.clone(),
+                op: *op,
             },
             Err(error) => file_error(project_id, rel_path, error),
         },

@@ -6,9 +6,10 @@
 //! right-click menu. The picker ticks and confirms; this panel opens and decorates.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Focusable, InteractiveElement, IntoElement, KeyBinding,
-    MouseButton, MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, Window,
-    div, point, px,
+    AnyElement, App, AppContext as _, ClickEvent, Context, DragMoveEvent, Focusable,
+    InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
+    Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
+    prelude::FluentBuilder, px,
 };
 use gpui_component::IconName;
 use gpui_component::InteractiveElementExt;
@@ -57,6 +58,32 @@ fn icon_colour(status: Option<GitStatus>, readable: bool) -> Rgba {
     }
 }
 
+/// The row under the pointer during a drag. It carries the path alone: where a drop would put it
+/// is the folder's answer, not the drag's.
+///
+/// Its own payload type, so the external-file drop the centre panel already takes
+/// (`on_drop::<ExternalPaths>`) is untouched by any of this.
+#[derive(Clone)]
+struct DraggedPath(String);
+
+/// What follows the pointer during a drag. The row stays where it is and a label travels, the same
+/// shape the task board's drag has.
+struct Ghost(SharedString);
+
+impl Render for Ghost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .bg(theme::surface_raised())
+            .border_l(px(theme::ACCENT_EDGE))
+            .border_color(theme::accent())
+            .text_size(px(12.))
+            .text_color(theme::text())
+            .child(self.0.clone())
+    }
+}
+
 /// The key context the panel is answered in, and the one the component library gives the field
 /// inside it.
 const CONTEXT: &str = "Explorer";
@@ -71,9 +98,21 @@ gpui::actions!(
         ExplorerInto,
         ExplorerEnter,
         ExplorerShiftEnter,
+        ExplorerDelete,
         ExplorerDismiss
     ]
 );
+
+/// The key that removes the row the keyboard is on.
+///
+/// Backspace on macOS and Delete elsewhere, which is what each platform's own file manager uses.
+/// Both are bound on every platform all the same: a keyboard is not always the one the operating
+/// system came with, and the one that is idiomatic here is never wrong on the other.
+const DELETE_KEYS: [&str; 4] = if cfg!(target_os = "macos") {
+    ["backspace", "shift-backspace", "delete", "shift-delete"]
+} else {
+    ["delete", "shift-delete", "backspace", "shift-backspace"]
+};
 
 /// The keys the panel answers to, bound twice each — once for the panel and once for the field
 /// inside it, for the same reason the picker's are: the focus is in the filter, and the component
@@ -98,6 +137,15 @@ pub fn key_bindings() -> Vec<KeyBinding> {
     ]
     .into_iter()
     .flatten()
+    // Delete is bound at the panel and at the field, like every key above it — the focus is in the
+    // filter while the tree is walked, so a binding at the panel alone would never be reached. What
+    // keeps the field usable is `answer_delete`, which hands the key back whenever there is
+    // something typed to edit.
+    .chain(
+        DELETE_KEYS
+            .into_iter()
+            .flat_map(|key| both(key, ExplorerDelete)),
+    )
     .collect()
 }
 
@@ -110,6 +158,21 @@ fn answer(
     if !this.press_explorer_key(key, window, cx) {
         cx.propagate();
     }
+}
+
+/// Backspace or Delete: remove the row the keyboard is on, or edit the filter.
+///
+/// **A filter with anything in it keeps the key.** Backspace is how a query is corrected, and a
+/// tree that deleted a file because the user was fixing a typo would be indefensible — so the
+/// gesture is only a removal when the field is empty, which is exactly when the key has nothing
+/// else to mean. Escape clears the filter first, so the removal is one keystroke away rather than
+/// unreachable.
+fn answer_delete(this: &mut AppState, window: &mut gpui::Window, cx: &mut Context<AppState>) {
+    if !this.workbench.file_filter.is_empty() || !this.file_filter.read(cx).value().is_empty() {
+        cx.propagate();
+        return;
+    }
+    answer(this, ExplorerKey::Delete, window, cx);
 }
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -134,19 +197,25 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     let tree = view == ExplorerView::Tree;
     let menu = explorer.menu.clone();
     let menu_open = app.workbench.open_menu == Some(MenuId::Explorer);
+    // Which folder a drop would land in, which is the only answer the user gets before letting go.
+    let drop_onto = explorer.drop_onto.clone();
 
-    let rows: Vec<AnyElement> = explorer
-        .drawn_rows(&app.workbench.file_filter)
+    let drawn = explorer.drawn_rows(&app.workbench.file_filter);
+    // The project's own row is drawn whatever the filter says, so "nothing matches" is what a
+    // filter leaving nothing *under* it looks like.
+    let filtered_out =
+        !app.workbench.file_filter.trim().is_empty() && drawn.iter().all(|row| row.path.is_empty());
+    let rows: Vec<AnyElement> = drawn
         .iter()
         .map(|row| {
             // The tree scales with the project's font size, the same knob as the editor and the
             // terminal, so a zoom dresses the whole project's workspace at once. The tree is the
             // densest surface, so it sits a half point under the editor's floor.
             let font = app.ui_font_size_or_default(cx) - 0.5;
-            line(row, tree, selected.as_deref(), font, cx)
+            let lit = drop_onto.as_deref() == Some(row.path.as_str());
+            line(row, tree, selected.as_deref(), font, lit, cx)
         })
         .collect();
-    let filtered_out = rows.is_empty() && !app.workbench.file_filter.trim().is_empty();
 
     let mut body = panel()
         .id("explorer")
@@ -174,6 +243,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .on_action(cx.listener(|this, _: &ExplorerDismiss, window, cx| {
             answer(this, ExplorerKey::Dismiss, window, cx)
         }))
+        .on_action(
+            cx.listener(|this, _: &ExplorerDelete, window, cx| answer_delete(this, window, cx)),
+        )
         .border_r_1()
         .border_color(theme::border())
         .child(panel_header(
@@ -195,7 +267,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                     false,
                     cx.listener(|this, event: &ClickEvent, _, cx| {
                         // The plus is the empty-area menu: new file and new folder live there,
-                        // even while those two still wait on the host.
+                        // because that is where those two are asked for with no row in mind.
                         let at = event.position();
                         this.open_explorer_menu(None, (f32::from(at.x), f32::from(at.y)), cx);
                     }),
@@ -248,17 +320,36 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                         );
                     }),
                 )
+                // The panel itself is the project's root: a row dragged onto empty space moves to
+                // the top level. A folder row claims the drop before this sees it.
+                .when(drop_onto.as_deref() == Some(""), |this| {
+                    this.bg(theme::accent_soft())
+                })
+                .on_drag_move(
+                    cx.listener(|this, event: &DragMoveEvent<DraggedPath>, _, cx| {
+                        if event.bounds.contains(&event.event.position) {
+                            this.drag_path_over(Some(String::new()), cx);
+                        }
+                    }),
+                )
+                .on_drop(cx.listener(|this, dragged: &DraggedPath, _, cx| {
+                    this.drop_path_on(dragged.0.clone(), String::new(), cx);
+                }))
                 .children(filtered_out.then(|| empty_panel("Nothing matches")))
                 .children(rows),
         );
 
     if menu_open && let Some(menu) = menu {
+        let epoch = menu.epoch;
         let items: Vec<ContextItem> = menu
             .entries()
             .into_iter()
             .map(|entry| {
+                if entry.is_separator() {
+                    return ContextItem::separator();
+                }
                 let item = ContextItem::new(entry.label());
-                match entry.ready() {
+                match entry.enabled {
                     true => item,
                     false => item.disabled(),
                 }
@@ -268,10 +359,12 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
             "explorer-menu",
             point(px(menu.x), px(menu.y)),
             items,
-            crate::ui::indexed(&cx.entity(), |this, index, _, cx| {
-                this.pick_explorer_action(index, cx);
+            crate::ui::indexed(&cx.entity(), |this, index, window, cx| {
+                this.pick_explorer_action(index, window, cx);
             }),
-            crate::ui::handler(&cx.entity(), |this, _, cx| this.dismiss_explorer_menu(cx)),
+            crate::ui::handler(&cx.entity(), move |this, _, cx| {
+                this.dismiss_explorer_menu(epoch, cx)
+            }),
         ));
     }
 
@@ -283,6 +376,7 @@ fn line(
     tree: bool,
     selected: Option<&str>,
     font_size: f32,
+    lit: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let path = row.path.clone();
@@ -296,6 +390,27 @@ fn line(
         row.on_cursor,
         font_size,
     );
+
+    // A folder is a drop target: it says so by lighting up, and it claims the drop before the
+    // panel behind it — which is the project's root — can take it.
+    if row.is_dir && readable {
+        let folder = row.path.clone();
+        let dropped = row.path.clone();
+        line = line
+            .when(lit, |this| this.bg(theme::accent_soft()))
+            .on_drag_move(
+                cx.listener(move |this, event: &DragMoveEvent<DraggedPath>, _, cx| {
+                    if event.bounds.contains(&event.event.position) {
+                        cx.stop_propagation();
+                        this.drag_path_over(Some(folder.clone()), cx);
+                    }
+                }),
+            )
+            .on_drop(cx.listener(move |this, dragged: &DraggedPath, _, cx| {
+                cx.stop_propagation();
+                this.drop_path_on(dragged.0.clone(), dropped.clone(), cx);
+            }));
+    }
 
     if tree && row.is_dir {
         let folder = row.path.clone();
@@ -376,6 +491,21 @@ fn line(
     if !readable {
         return line.into_any_element();
     }
+
+    // The project itself is not draggable: there is nowhere above it to drop it.
+    if row.path.is_empty() {
+        return line
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.click_explorer_row(String::new(), false, window, cx);
+            }))
+            .into_any_element();
+    }
+
+    let ghost: SharedString = row.name.clone().into();
+    line = line.on_drag(DraggedPath(path.clone()), move |_, _, _, cx: &mut App| {
+        let ghost = ghost.clone();
+        cx.new(|_| Ghost(ghost))
+    });
 
     let double_path = path.clone();
     line.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {

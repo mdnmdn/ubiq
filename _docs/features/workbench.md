@@ -4,10 +4,10 @@ title: The workbench
 kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
+read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, vim mode, or the status bar
 updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -680,6 +680,23 @@ the pane is the half that has to know. Every other row is a `UiSettings` field. 
 out of confinement is not here at all: that belongs to the harness library, which already has the
 shape for it. See [`../tech/agent-manager.md`](../tech/agent-manager.md).
 
+**Vim mode is one switch over every text surface a document is written in.** Off by default, and
+turned on either from the Editor section of settings or by clicking the status bar's mode chip. On,
+the file editor and every multi-line box — the chat composer, an agent's input, a task description,
+a commit message — read keys as vim commands: Normal, Insert and both visual modes, operators over
+motions and text objects, counts, the unnamed register, and `/` search. `*` and `#` take the word under the cursor — the next
+one along the line when the cursor sits on a blank — and match it whole, so `*` on `foo` never stops
+on `foobar`; a pattern typed at `/` means exactly what was typed and still matches inside a word. Single-line fields are
+untouched, because a filter is a question and not a document, and so are terminal panes, which are
+not inputs at all. A buffer is focused in Normal mode and a composer in Insert, so that clicking
+into the chat and typing still works the way it always has; the mode is the window's, not each
+input's, because exactly one input holds focus at a time.
+
+The caret does not change shape between modes. The component paints one fixed caret and offers no
+way to ask for another, so the status bar is where the mode is reported instead — and, since a
+readout the user cannot act on and a switch that does not say what it did are the same slot asked
+twice, that chip is also the switch.
+
 **The `ubiq` command is a small script Ubiq writes onto the shell's `PATH`, and the Command line
 section is where it is put there and taken away.** `ubiq .` opens a folder as a project and
 `ubiq README.md` opens a file, in the window that already holds it when there is one. It is a
@@ -738,6 +755,15 @@ screen, and after a short pause one snapshot — an `Arc` of the tree, not a cop
 background executor. Clearing the field is immediate. Clicking a folder in
 the tree expands it; clicking a file opens it; a folder in the list is only where the cursor lands.
 
+**The project is the tree's first row.** It carries the project's name, sits above everything with a
+twisty of its own, and collapsing it puts the whole tree away behind one handle. Its path is the
+empty one — the same path that already means "the project's own folder" everywhere else in the file
+family — so a right-click on it offers a folder's menu, a drop on it moves the path to the top level,
+and a New file made from it lands there. It is the one row that cannot be dragged, renamed or
+removed: there is nowhere to put a project inside its own tree, and the host refuses its path for the
+same reason. The flat list has no such row, because a list is flat by definition and there is nothing
+for a root to contain.
+
 **The explorer is worked from the keyboard, and the field keeps it the whole time.** The keys that
 drive the rows are bound against the field as well as against the panel, so nothing has to be
 tabbed to. `up` and `down` move a cursor bar through the rows and stop at the ends; `right` opens
@@ -749,18 +775,88 @@ is how `left` and `right` are the field's own caret keys again in the flat list.
 the open file: the accent is the file that is open, the keyboard's bar is only where the next key
 lands.
 
+**Backspace removes the row the cursor is on — Delete does the same, and both work on every
+platform.** Backspace is what a macOS file manager uses and Delete is what the others use, so each
+is bound everywhere rather than made to depend on which operating system the keyboard came with. It
+raises the same question the menu's Delete row does, with the same Shift on it: on its own the path
+goes to the Trash, and with Shift held it is removed outright. **A filter with anything typed in it
+keeps the key**, because Backspace is how a query is corrected and a tree that deleted a file while
+the user was fixing a typo would be indefensible — Escape clears the filter first, so the removal is
+one keystroke away rather than unreachable. The project's own row is refused, as are the rows the
+host will not follow.
+
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
-path, Copy full path, Open in Finder, Open in Web and prepares Rename and Delete; a folder offers
-Expand or Collapse, Copy path, Copy full path, Open in Finder, Open in Web, Refresh and prepares New
-file, New folder, Rename and Delete; a click on the empty panel offers Collapse all and prepares New
-file and New folder. The four that create or remove a path are drawn and do nothing: nothing on the
-bus creates or removes a path yet, and a menu that hid those rows would have nowhere to put them when
-the host grows the family. `Open in Finder` — Explorer or File Manager on other platforms — reveals
+path, Copy full path, Open in Finder, Open in Web, New file, New folder, Copy, Paste, Duplicate,
+Rename and Delete; a folder offers Expand or Collapse, New file, New folder, Copy path, Copy full
+path, Open in Finder, Open in Web, Refresh, Copy, Paste, Duplicate, Rename and Delete; a click on the
+empty panel offers New file, New folder, Paste and Collapse all, because that is where the actions
+that need no row live. **New file, New folder and Paste land in the folder the row is in**, which is
+the row itself when it is a folder and the one holding it when it is a file — so a file row offers
+them rather than making the user find its folder first. Only Paste is ever disabled, and only while
+nothing has been copied.
+
+**The rows are grouped by what they are for**, with a hairline between groups: opening, then making,
+then the clipboard, then the ways of naming a path, then Refresh, then renaming and removing. A
+group with nothing in it takes its separator with it, so an unreadable row's menu is one group and
+no lines. **A separator holds a position in the menu's list as well as on screen**, because a pick
+comes back as an index and rows drawn without matching entries behind them would silently shift
+every action below one. There is no Expand or Collapse row: the twisty and a click on the row
+already do it, and a third way to say the same thing is a row that earns nothing. `Open in Finder` — Explorer or File Manager on other platforms — reveals
 the file or its folder in the system's file manager. `Open in Web` starts the local web-export server
 if it is not already running and opens that file or folder in the system browser — see the titlebar's
 browser button below; unlike every other row here it needs nothing from the host, since the interface
 already reads the project's own files for it (`D55`). `Refresh` asks the host to list that folder
-again. The menu is the window's one open menu, dismissed by a click outside it or by escape.
+again. The menu is the window's one open menu, dismissed by the first click outside it or by escape.
+**A menu is identified rather than flagged:** each one is stamped as it opens, and an outside click
+closes only the menu it was drawn for. That is what lets a right-click on a second row raise its menu
+in the same event that dismisses the first, without the new one being shut by the old one's
+dismissal.
+
+**Making, moving and removing a path is one message with an op on it**, which the transport contract
+owns and `D57` explains. What the panel adds is the gesture and the question in front of it.
+
+**Every gesture that cannot be retyped asks first, and the question says which one it is about to
+do.** New file, New folder and Rename each raise a modal with a single field, seeded with the leaf
+name for a rename and empty for the other two, and the confirm stays dim until the name is both
+non-blank and different from what is already there. **Enter confirms and Escape cancels**, in every
+one of them: Enter reaches a field's dialog as the field's own key rather than as a binding, since
+taking Enter at the depth a text box holds focus would take it from the chat composer too, and both
+keys are handed straight back when no dialog is up so a bare Escape still reaches the explorer and
+the panes. Enter refuses exactly what the dimmed button refuses, so it can never do what the button
+will not. A new file opens in the editor once the host
+says it exists, because a file made and not shown is a gesture with no visible effect.
+
+**Delete offers the Trash, and Shift asks for the other thing.** The row reads Delete, and what it
+does is decided when it is clicked: on its own it moves the path to the platform's trash, and with
+Shift held it removes it outright. The confirmation names which — that it can be restored from the
+Trash, or that nothing comes back — and its button says `Move to Trash` or `Delete permanently`, so
+the difference is read rather than remembered. A folder is named as taking its contents with it. The
+modifier is read at the click and not while the menu is open, which is why the label is the neutral
+one: a row whose wording depended on a key held during a menu that does not redraw would go stale
+without saying so.
+
+**A row is dragged onto a folder to move it, and onto the panel's own background to move it to the
+project's root.** The folder under the pointer lights up, which is the only answer the user gets
+before letting go. A file moves on the drop with no question — it is one path, and a rename already
+asks. A **folder** raises a confirmation, because a mis-drop can rehome a whole subtree, and that
+confirmation carries a *Don't ask again for 10 minutes* checkbox: ticking it lets the next folder
+drag through silently, for ten minutes, per window and only in memory. Ten minutes is not a
+preference — a user reorganising a tree wants the question gone for as long as that takes and back
+again afterwards, and there is nothing about it worth persisting. A drop that changes nothing, a drop
+onto the row itself, and a drop of a folder into its own child are all refused in the panel without
+a round trip, so no confirmation is raised for a move that could never happen.
+
+**Copy, Paste and Duplicate work off one remembered path, and never the system clipboard.** Copy
+remembers the row and asks the host nothing; Paste copies it into the folder that was right-clicked,
+or into the root from the empty panel; Duplicate is a paste into the path's own folder. A name
+already taken is stepped past — `notes.md` becomes `notes copy.md`, then `notes copy 2.md` — which is
+what makes Duplicate work at all, since there a collision is certain. That stepping reads the
+children the host has already named, so it is best-effort by construction: a collision it cannot see
+comes back from the host as a refusal on the row. There is no Cut, because a move is a drag.
+
+**A path the host moved or removed takes its tabs with it.** A rename or a drag retargets every open
+tab at or under the old path; a delete closes them. The explorer's remembered copy is forgotten if it
+was the path that went.
 
 **A row the host will not follow is drawn and does nothing.** A symlink leading out of the project or
 nowhere, a socket, a device, a pipe: the row appears, faint, and takes no click. Drawing it is the
@@ -914,6 +1010,15 @@ panel uses, so a document with several fences fills in as each of them lands rat
 all of them. A picture is drawn at its own size, which the renderer reads out of the SVG's
 `viewBox`, rather than stretched to whatever box it landed in.
 
+**`⌘N` opens a buffer with no file behind it, and `⌘S` asks it where to go.** The tab is titled
+`untitled-1`, numbering up past whatever is already open, and it holds a real editable buffer rather
+than a tab waiting on a read — there is nothing coming. Saving one raises the same single-field modal
+the explorer's own gestures use, asking for a project-relative path; confirming it retitles the tab
+in place — name, language, viewer — and writes the file as a creation, which the host refuses if
+anything is already there. The retitle happens on the confirmation rather than on the host's answer,
+the same bet a click on an explorer row makes, so a refusal is reported on a tab that already carries
+the name the user chose and the message reads correctly.
+
 **`⌘S` writes the active file back, and names the version it read.** A save the host refuses because
 the file moved under it is reported on the tab and in the status bar, and the file is left alone —
 Ubiq is not the only thing editing these files, and the agents in the panes are the other one. There
@@ -963,8 +1068,11 @@ are dialogs rather than a project's workspace and no project's zoom reaches them
 on whatever is on screen, so the rail mode decides which set of facts it has. In IDE mode with a
 project open: the active file's project-relative path, what its save is doing when that is worth a
 word, the project's branch (or detached short id, or unborn name) with ahead/behind and working-tree
-totals when those exist, the caret's real one-based line and column, the file's language, encoding
-and line ending, the harness and mode the composer is set to, and the active file's text size. A project that is not a repository
+totals when those exist, the vim chip, the caret's real one-based line and column, the file's
+language, encoding and line ending, the harness and mode the composer is set to, and the active
+file's text size. The vim chip is the one thing in the strip that is not only a readout: it reads
+`VIM` faint when modal editing is off and the mode — or the command being half-typed over it, or
+the open `/` line — when it is on, and a click toggles the same setting the checkbox does. A project that is not a repository
 prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
 go with the file, so a window with no file open reports neither rather than a position in nothing.
 With no project open it says so and stops. On the two screens over the agents there is no file and
@@ -979,9 +1087,9 @@ reports. At the right it names each harness behind the columns once, which is th
 them the columns' own footers say only one at a time. On the board it counts the work instead: how
 many cards are in each column, how many sub-tasks are done across the cards on screen, and how many
 of them nobody can finish without the user — over the cards the filters leave, because a count that
-disagrees with what is drawn is worse than none. Whichever set it is showing, it says where
-Ubiq is writing whenever that is not the usual `~/.config/ubiq` — a config root you cannot see is a
-foot-gun.
+disagrees with what is drawn is worse than none. Where Ubiq is writing is not among the facts it
+reports: a non-default config root is named once in the log at startup and nowhere in the chrome,
+because the strip is read while working on a file and a path that never changes is not news.
 
 **Two entries at the strip's right are the one deliberate exception to "facts, not intentions."**
 The build version (`version_label()`, `crate::version::short()` with the full string as its tooltip)
@@ -1456,6 +1564,16 @@ remove takes Ubiq's own file and leaves a foreign `ubiq` alone. Shared primitive
 the conventions behind that split are in
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 
+Vim mode is split the way the rest of the window is not: a pure command set in `state/vim/`
+(`step.rs` for the dispatch, `motion.rs`, `object.rs` and `search.rs` under it) that takes a `&str`
+and a byte range and answers with a list of `Effect`s, and one driver in `app/vim.rs` that connects
+it to a real input. The engine names no gpui at all, which is what lets `tests/vim.rs` drive the
+whole command set with plain strings and no window. The driver registers
+`App::intercept_keystrokes` — not `observe_keystrokes`, which fires after dispatch and cannot
+consume anything — resolves the focused input through the component's `WindowExt::focused_input`,
+and applies the effects through `set_selected_range` and `replace`. Undo and redo are the exception:
+the component's undo stack is not reachable, so those two go back out as its own actions.
+
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
 project settings dialog, the application settings overlay, what was typed into the picker's and the
 explorer's filters, and the two menus that came later — `MenuId::FontSize` for the status bar's
@@ -1859,6 +1977,11 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A save fails for any other reason | The same report, cleared by the next edit |
 | The host cannot watch the project's folder | Logged, and the project has no watch: the tree and the git state go stale until something asks for them, which is every other path in this table unchanged |
 | The project is not a repository | The explorer's rows stay unmarked and the status bar prints no branch. That is an ordinary answer, not an error |
+| A vim operator is abandoned with Escape | The half-typed command is dropped and nothing is deleted |
+| Escape is pressed in Normal mode with nothing half-typed | Vim does not claim it, so the modal the textarea sits in still closes |
+| A vim count runs past the end of the buffer | The cursor stops at the last line and the count is spent |
+| `ciw` is pressed where there is no word | The operator is cancelled and the cursor does not move |
+| Vim mode is switched off mid-command | The mode and the half-typed command are both reset, so switching it back on starts in Normal |
 | A repository exists and cannot be read | Badges clear rather than freeze at the last good answer. A corrupt object database is the case this exists for |
 | A working-tree reply is older than one already held | Discarded, so a slow walk cannot repaint what was true earlier |
 | A harness exits | The pane stays, and the window asks the host to refresh that project's version control |

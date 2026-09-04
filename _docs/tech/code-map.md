@@ -80,8 +80,10 @@ crates/ubiq-host/src/
 │   ├── mod.rs
 │   ├── walk.rs
 │   └── worker.rs
-└── watch/
-    └── mod.rs
+├── watch/
+│   └── mod.rs
+├── cli_shortcut.rs
+└── links.rs
 
 crates/ubiq/src/
 ├── state/
@@ -109,13 +111,19 @@ crates/ubiq/src/
 │   ├── settings.rs
 │   ├── conversation.rs
 │   ├── search.rs
-│   └── explorer/
-│       ├── filter.rs  the go-to-file substring filter
-│       ├── keys.rs    keyboard navigation
-│       ├── menu.rs    the row context menu
-│       ├── mod.rs     `ExplorerState`, `FileNode`, `Row`, `GitStatus`
-│       ├── rows.rs    flattening the tree into drawable rows
-│       └── tree.rs    listing, `merge`, expansion
+│   ├── explorer/
+│   │   ├── filter.rs  the go-to-file substring filter
+│   │   ├── keys.rs    keyboard navigation
+│   │   ├── menu.rs    the row context menu
+│   │   ├── mod.rs     `ExplorerState`, `FileNode`, `Row`, `GitStatus`
+│   │   ├── rows.rs    flattening the tree into drawable rows
+│   │   └── tree.rs    listing, `merge`, expansion
+│   └── vim/
+│       ├── mod.rs
+│       ├── motion.rs
+│       ├── object.rs
+│       ├── search.rs
+│       └── step.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -191,7 +199,8 @@ crates/ubiq/src/
 │   │   │   └── highlights.scm
 │   │   └── swift/
 │   │       └── highlights.scm
-│   └── search.rs
+│   ├── search.rs
+│   └── file_dialog.rs
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -215,7 +224,8 @@ crates/ubiq/src/
 │   ├── settings.rs    the settings overlay and harness login
 │   ├── shell.rs       project lifecycle, chrome and menus, rail mode, font and zoom, the `Render` impl
 │   ├── sink.rs        the kitchen sink's setters
-│   └── wire.rs        `receive()`, the pane and terminal calls, focus drains
+│   ├── wire.rs        `receive()`, the pane and terminal calls, focus drains
+│   └── vim.rs
 └── version.rs
 
 crates/ubiq-app/src/
@@ -254,6 +264,7 @@ the documents in its row.
 | `crates/ubiq-app/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/ubiq-host/src/cli_shortcut.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq-host/src/conversation.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq-host/src/coordinator.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`architecture.md`](./architecture.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq-host/src/files/diff.rs` | [`architecture.md`](./architecture.md) |
@@ -261,6 +272,7 @@ the documents in its row.
 | `crates/ubiq-host/src/git/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/observe.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/links.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/projects.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-host/src/settings.rs` | [`architecture.md`](./architecture.md) |
@@ -286,7 +298,9 @@ the documents in its row.
 | `crates/ubiq/src/app/boot.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/app/panels.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/settings.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/shell.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/app/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/wire.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -311,6 +325,11 @@ the documents in its row.
 | `crates/ubiq/src/state/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/viewport.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/vim/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/vim/motion.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/vim/object.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/vim/search.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/vim/step.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/when.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/windows.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/work.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -390,6 +409,7 @@ the documents in its row.
 | `crates/ubiq/tests/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/viewport.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/tests/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `vendor/gpui-terminal/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `vendor/gpui-terminal/src/clipboard.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/input.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
@@ -426,12 +446,12 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq/src/app/graph.rs` |
 | `crates/ubiq/src/app/picker.rs` |
 | `crates/ubiq/src/app/projects.rs` |
-| `crates/ubiq/src/app/settings.rs` |
 | `crates/ubiq/src/app/sink.rs` |
 | `crates/ubiq/src/state/explorer/filter.rs` |
 | `crates/ubiq/src/state/explorer/keys.rs` |
 | `crates/ubiq/src/state/explorer/menu.rs` |
 | `crates/ubiq/src/state/search.rs` |
+| `crates/ubiq/src/ui/file_dialog.rs` |
 | `crates/ubiq/src/ui/file_tab_menu.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
 | `crates/ubiq/src/ui/search.rs` |

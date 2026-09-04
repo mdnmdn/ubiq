@@ -121,6 +121,17 @@ impl AppState {
         cx.notify();
     }
 
+    /// Turn modal editing on or off. Reached from two places — the settings checkbox and the
+    /// status bar's chip — so that the readout and the switch can never disagree.
+    pub fn toggle_vim_mode(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.vim_mode = !self.workbench.settings.ui.vim_mode;
+        // Leaving a half-typed command or a Normal-mode caret behind would mean the next time vim
+        // is switched on it starts somewhere the user never put it.
+        self.vim = VimState::default();
+        self.remember_settings();
+        cx.notify();
+    }
+
     pub fn set_markdown_open(&mut self, choice: MarkdownOpen, cx: &mut Context<Self>) {
         self.workbench.settings.ui.markdown_open = choice;
         self.remember_settings();

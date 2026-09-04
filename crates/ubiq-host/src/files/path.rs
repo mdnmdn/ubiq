@@ -65,6 +65,20 @@ pub fn resolve_for_write(root: &Path, rel_path: &str) -> Result<PathBuf, FileErr
     Ok(target)
 }
 
+/// The same as [`resolve`], refusing the project's own root.
+///
+/// A delete or a move needs something *inside* the project. An empty `rel_path` resolves to the
+/// root itself, and `remove_dir_all` on it would take the project with it — so the one path the
+/// interface can name that must never be an argument is refused by name.
+pub fn resolve_inside(root: &Path, rel_path: &str) -> Result<PathBuf, FileError> {
+    if rel_path.trim().is_empty() {
+        return Err(FileError::Refused(
+            "that is the project's own folder".to_string(),
+        ));
+    }
+    resolve(root, rel_path)
+}
+
 /// A listed child's project-relative path, from its parent's and its own name.
 ///
 /// The one way a `rel_path` is ever constructed, so nothing on disk can leak into a message.

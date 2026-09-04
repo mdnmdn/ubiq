@@ -948,6 +948,29 @@ the settings section draws and the *Update* button rewrites. And off a macOS bun
 its own. A single-instance handoff is the upgrade path and is unbuilt, and the backlog
 carries it.
 
+### D57 — One message with an op enum carries every edit to a path, and Trash is a separate op from Delete
+
+`EditProjectPath` names a path, an optional destination and a `PathOp` — `Create`, `Move`, `Copy`,
+`Trash` or `Delete` — and `ProjectPathEdited` echoes the request. Five request/reply pairs was the
+obvious shape and was rejected: the interface's need is identical every time, the five differ only in
+which arm of one worker function answers, and ten variants would have been ten coordinator arms
+handing work to the same thread. The reply echoes the op because the interface has to know which
+gesture finished before it can finish it — a created file is opened, a moved one retargets its tab, a
+removed one closes it.
+
+Within that one message, removal is deliberately two ops rather than one with a flag. `Trash` hands
+the path to the platform's trash and `Delete` destroys it, and those are two different promises to
+the user; the interface says which one it is about to keep before it asks, and it can only say so
+because the wire keeps them apart. The default gesture is `Trash`, with Shift asking for `Delete` —
+the safe one is the one you get without knowing anything.
+
+**Cost:** a reader of the message set learns less from the variant name than five names would have
+told them, and the payload is wider than any single op needs — `to` is meaningful for two of the five
+and is refused for the other three, which is a runtime check where separate variants would have been
+a type. `Trash` also puts a platform dependency in the host for one gesture, and its behaviour is the
+platform's rather than Ubiq's: what "the trash" means, and whether there is one at all, is not
+something the host can promise on every filesystem it might be pointed at.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

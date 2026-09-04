@@ -196,6 +196,7 @@ fn file_explorer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let current = app.workbench.settings.ui.markdown_open;
+    let vim = app.workbench.settings.ui.vim_mode;
     let pills: Vec<AnyElement> = MarkdownOpen::all()
         .iter()
         .copied()
@@ -220,6 +221,18 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             "New markdown files start in this layout. Source, preview and split remain available \
              on the tab.",
             div().flex().gap_1().children(pills).into_any_element(),
+        ),
+        setting_row(
+            "Vim mode",
+            "Modal editing in the code editor and in every multi-line box \u{2014} the chat \
+             composer, an agent's input, a task description. Single-line fields are unaffected. \
+             The status bar reports the mode, and switches this on and off too.",
+            check_box(
+                "app-settings-vim-mode",
+                vim,
+                cx.listener(|this, _, _, cx| this.toggle_vim_mode(cx)),
+            )
+            .into_any_element(),
         ),
     ])
 }

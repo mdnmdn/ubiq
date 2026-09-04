@@ -12,12 +12,12 @@ use gpui::{
     Anchor, App, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, div, px,
 };
-use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitHead, GitOperation};
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
+use crate::state::vim::VimMode;
 use crate::state::{MenuId, OpenFile, RailMode, SaveState};
 use crate::theme;
 use crate::ui::board::status_colour;
@@ -25,31 +25,6 @@ use crate::ui::kit::{Picker, mono};
 use crate::ui::work::bucket_colour;
 use crate::ui::{handler, indexed};
 use crate::version;
-
-/// Where this run writes everything down, when that is not `~/.config/ubiq`.
-fn config_root(app: &AppState) -> Option<impl IntoElement> {
-    if app.workbench.config_root_is_default {
-        return None;
-    }
-    let root = app.workbench.config_root.clone()?;
-    let shown = match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() => root.replace(&home, "~"),
-        _ => root,
-    };
-
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(
-                Icon::new(IconName::Inspector)
-                    .with_size(Size::XSmall)
-                    .text_color(theme::warning()),
-            )
-            .child(mono(shown, theme::warning())),
-    )
-}
 
 /// The bundle version, at the left edge of the strip's right-justified half. Fixed at build time
 /// by `_devops/scripts/bundle-version.sh` — see `crate::version`. Elided rather than wrapped or
@@ -90,6 +65,36 @@ fn made_with_love() -> impl IntoElement {
         })
 }
 
+/// The vim chip: what mode the focused input is in, and the switch that turns modal editing on and
+/// off. One element for both, because a readout the user cannot act on and a switch that does not
+/// say what it did are the same slot asked twice.
+///
+/// Present whether or not vim is on — off it reads `VIM`, faint. A chip that appeared only once the
+/// feature was enabled would be a switch nobody could find.
+fn vim_chip(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let on = app.workbench.settings.ui.vim_mode;
+    let (text, colour) = if !on {
+        ("VIM".to_string(), theme::text_faint())
+    } else if app.vim.mode == VimMode::Normal {
+        (app.vim.label(), theme::accent())
+    } else {
+        (app.vim.label(), theme::text_muted())
+    };
+
+    mono(text, colour)
+        .id("vim-mode")
+        .cursor_pointer()
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_vim_mode(cx)))
+        .tooltip(move |window, cx| {
+            let note = if on {
+                "Vim mode is on \u{2014} click to turn it off"
+            } else {
+                "Vim mode is off \u{2014} click to turn it on"
+            };
+            gpui_component::tooltip::Tooltip::new(note).build(window, cx)
+        })
+}
+
 /// What the active file's save is doing, when it is doing anything worth a word.
 fn save_state(file: &OpenFile) -> Option<impl IntoElement> {
     let (text, colour) = match (&file.save, file.dirty()) {
@@ -119,7 +124,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         return strip
             .child(mono("no project", theme::text_faint()))
             .child(div().flex_1().min_w(px(0.)))
-            .children(config_root(app))
             .child(made_with_love())
             .child(version_label());
     }
@@ -173,7 +177,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             .child(div().flex_1().min_w(px(0.)))
             .child(version_label())
             .child(made_with_love())
-            .children(config_root(app))
             .child(mono(harnesses.join(" \u{b7} "), theme::text_muted()));
     }
 
@@ -206,8 +209,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             }))
             .child(div().flex_1().min_w(px(0.)))
             .child(version_label())
-            .child(made_with_love())
-            .children(config_root(app));
+            .child(made_with_love());
     }
 
     // The board is a screen about work rather than about a file, so the strip counts the work: how
@@ -233,7 +235,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             .child(div().flex_1().min_w(px(0.)))
             .child(version_label())
             .child(made_with_love())
-            .children(config_root(app))
             .child(mono(
                 format!("{done}/{total} sub-tasks done"),
                 theme::text_muted(),
@@ -264,9 +265,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(version_label())
         .child(made_with_love())
         .children(git_readout(app, cx))
-        // A config root you cannot see is a foot-gun, so a run pointed anywhere but the usual
-        // place says so.
-        .children(config_root(app))
+        .child(vim_chip(app, cx))
         // A caret in a buffer nobody is looking at is not a fact, so the readout goes with the
         // file rather than reporting a position in nothing.
         .children(

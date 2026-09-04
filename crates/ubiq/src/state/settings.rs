@@ -107,6 +107,10 @@ pub struct UiSettings {
     /// The layout a new markdown tab opens in.
     #[serde(default)]
     pub markdown_open: MarkdownOpen,
+    /// Modal editing in the code editor and every multi-line box. Off is the default, and off
+    /// means the interceptor in `app/vim.rs` returns before it looks at anything.
+    #[serde(default)]
+    pub vim_mode: bool,
 }
 
 fn default_true() -> bool {
@@ -119,6 +123,7 @@ impl Default for UiSettings {
             schema: SCHEMA,
             explorer_preview: true,
             markdown_open: MarkdownOpen::Preview,
+            vim_mode: false,
         }
     }
 }

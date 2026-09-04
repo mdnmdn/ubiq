@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::conversation::{ConvUpdate, StopReason};
-use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion};
+use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
 use crate::git::{self, GitEntry, GitRollup, RepoOverview};
 use crate::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
@@ -377,6 +377,25 @@ pub enum Message {
         rel_path: String,
         base: DiffBase,
     },
+    /// Create, move, copy or remove one path.
+    ///
+    /// One message for the five, because the interface's need is the same every time — a path, a
+    /// destination for the two that have one, and what to do — and five variants would be five
+    /// coordinator arms answering the same worker.
+    ///
+    /// `to` is the destination and is present for [`PathOp::Move`] and [`PathOp::Copy`] only. It is
+    /// *refused* where it does not belong rather than ignored, because a field the host silently
+    /// drops is a wiring mistake the interface cannot see.
+    ///
+    /// **Every op refuses a destination that already exists.** The alternative reading is a forced
+    /// overwrite, which is the same thing an absent `expected` on [`Message::WriteProjectFile`]
+    /// refuses, and for the same reason: the contract does not hand one out for free.
+    EditProjectPath {
+        project_id: ProjectId,
+        rel_path: String,
+        to: Option<String>,
+        op: PathOp,
+    },
 
     // ── File family: host → UI ──────────────────────────────────────
     /// `rel_path` first, then every directory listed below it. Both paths are echoed, because an
@@ -403,6 +422,21 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         diff: FileDiff,
+    },
+    /// The edit was made.
+    ///
+    /// The request is echoed whole. An answer arrives after the click that asked for it, and the
+    /// interface has to know which gesture finished before it can finish it: a created file is
+    /// opened, a moved one retargets its tab, a removed one closes it.
+    ///
+    /// A failed edit is [`Message::ProjectFileError`], on the same reasoning that gives every other
+    /// per-path failure that variant — the interface can only mark the row the user is looking at if
+    /// the message says which one.
+    ProjectPathEdited {
+        project_id: ProjectId,
+        rel_path: String,
+        to: Option<String>,
+        op: PathOp,
     },
     /// Something went wrong for one path in one project.
     ///
@@ -783,10 +817,12 @@ impl Message {
             | Message::ReadProjectFile { project_id, .. }
             | Message::WriteProjectFile { project_id, .. }
             | Message::DiffProjectFile { project_id, .. }
+            | Message::EditProjectPath { project_id, .. }
             | Message::ProjectTreeListing { project_id, .. }
             | Message::ProjectFileContents { project_id, .. }
             | Message::ProjectFileWritten { project_id, .. }
             | Message::ProjectFileDiffed { project_id, .. }
+            | Message::ProjectPathEdited { project_id, .. }
             | Message::ProjectFileError { project_id, .. }
             | Message::ProjectFilesChanged { project_id, .. }
             | Message::ProjectGit { project_id, .. }

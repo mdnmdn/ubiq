@@ -189,6 +189,8 @@ pub enum ExplorerKey {
     Enter,
     /// Shift+Enter: open the file permanently (opposite of temp preview).
     ShiftEnter,
+    /// Remove the row the keyboard is on — Backspace on macOS, Delete elsewhere.
+    Delete,
     Dismiss,
 }
 
@@ -208,13 +210,16 @@ pub enum ExplorerPressed {
     Dismissed,
     /// Escape on an empty menu with a filter: the field should go back to blank.
     ClearFilter,
+    /// Delete on a row: the window raises its own confirmation. The tree removes nothing itself,
+    /// because a removal is the host's and a question has to be answered first.
+    Remove { path: String, is_dir: bool },
 }
 
 /// What a right-click on a row (or on the empty panel) offers.
 ///
-/// New file, new folder, rename and delete are drawn and not yet answered: nothing on the bus
-/// creates or removes a path, and a menu that hid those rows would have nowhere to put them when
-/// the host grows the family.
+/// Every row here is answered. Creating, renaming, copying and removing a path all go out as one
+/// `EditProjectPath` with the op on it, so the menu is a list of gestures rather than a list of
+/// message names.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExplorerAction {
     Open,
@@ -226,15 +231,23 @@ pub enum ExplorerAction {
     Refresh,
     NewFile,
     NewFolder,
+    /// Remember the row, so a later Paste knows what to copy. Nothing crosses the bus for it.
+    Copy,
+    /// Copy whatever [`ExplorerAction::Copy`] remembered into this folder.
+    Paste,
+    /// Copy the row beside itself, under a free name.
+    Duplicate,
     Rename,
     Delete,
-    Toggle,
     CollapseAll,
+    /// The line between two groups. It is an action so that it occupies a slot in the list the
+    /// pick indexes into: a separator drawn but not counted would shift every row below it.
+    Separator,
 }
 
 impl ExplorerAction {
-    /// What the row says. `expanded` is only read for [`ExplorerAction::Toggle`].
-    pub fn label(self, expanded: bool) -> &'static str {
+    /// What the row says. A separator says nothing: it is drawn as a hairline.
+    pub fn label(self) -> &'static str {
         match self {
             ExplorerAction::Open => "Open",
             ExplorerAction::OpenDiff => "Open diff vs HEAD",
@@ -245,23 +258,14 @@ impl ExplorerAction {
             ExplorerAction::Refresh => "Refresh",
             ExplorerAction::NewFile => "New file",
             ExplorerAction::NewFolder => "New folder",
+            ExplorerAction::Copy => "Copy",
+            ExplorerAction::Paste => "Paste",
+            ExplorerAction::Duplicate => "Duplicate",
             ExplorerAction::Rename => "Rename",
             ExplorerAction::Delete => "Delete",
-            ExplorerAction::Toggle if expanded => "Collapse",
-            ExplorerAction::Toggle => "Expand",
             ExplorerAction::CollapseAll => "Collapse all",
+            ExplorerAction::Separator => "",
         }
-    }
-
-    /// Whether the window can do it today. The four that create or remove a path wait on the host.
-    pub fn ready(self) -> bool {
-        !matches!(
-            self,
-            ExplorerAction::NewFile
-                | ExplorerAction::NewFolder
-                | ExplorerAction::Rename
-                | ExplorerAction::Delete
-        )
     }
 }
 
@@ -279,22 +283,29 @@ fn open_in_system_label() -> &'static str {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ExplorerEntry {
     pub action: ExplorerAction,
-    pub expanded: bool,
+    /// Whether the row can be picked. Only ever false for [`ExplorerAction::Paste`] with nothing
+    /// remembered: the row stays visible, because a Paste that vanished would read as a menu that
+    /// does not offer one at all.
+    pub enabled: bool,
 }
 
 impl ExplorerEntry {
     pub fn label(self) -> &'static str {
-        self.action.label(self.expanded)
+        self.action.label()
     }
 
-    pub fn ready(self) -> bool {
-        self.action.ready()
+    /// Whether this entry is the line between two groups rather than a row.
+    pub fn is_separator(self) -> bool {
+        self.action == ExplorerAction::Separator
     }
 }
 
 /// The menu a right-click raised, until it is dismissed or another menu takes its place.
 #[derive(Clone, Debug)]
 pub struct ExplorerMenu {
+    /// Which menu this is, so a dismiss aimed at a menu that has already been replaced does
+    /// nothing. See [`ExplorerState::close_menu`].
+    pub epoch: u64,
     /// The row that was clicked. Absent is a click on the empty panel, which still has a menu —
     /// new file, new folder, collapse all — because that is where those actions live when no row
     /// is under the pointer.
@@ -302,6 +313,10 @@ pub struct ExplorerMenu {
     pub is_dir: bool,
     pub readable: bool,
     pub expanded: bool,
+    /// Whether anything was remembered by a Copy when this menu opened. Held here so `entries()`
+    /// stays a pure function of the remembered menu, which is what keeps the pick — an index into
+    /// this list — pointing at the row that was drawn.
+    pub can_paste: bool,
     pub x: f32,
     pub y: f32,
 }
@@ -313,7 +328,7 @@ impl ExplorerMenu {
             self.path.as_deref(),
             self.is_dir,
             self.readable,
-            self.expanded,
+            self.can_paste,
         )
     }
 }
@@ -365,6 +380,12 @@ enum Reach {
 
 pub struct ExplorerState {
     pub root: Arc<Vec<FileNode>>,
+    /// The project's name, which is the tree's own first row. Empty until the window has the
+    /// project's record in hand — the constructor has no name to give it.
+    pub root_name: String,
+    /// Whether that row is open. It is the one handle that collapses the whole project, so it
+    /// starts open and stays drawn even while a filter is typed.
+    pub root_expanded: bool,
     pub selected: Option<String>,
     /// Whether the host's ceiling cut the project's top level short.
     pub truncated: bool,
@@ -377,9 +398,16 @@ pub struct ExplorerState {
     /// and the filter narrows, and an index would be pointing at a different row afterwards.
     cursor: Option<String>,
     pub menu: Option<ExplorerMenu>,
-    /// Set for the click that opened the menu, so that click's own outside-dismiss cannot close it
-    /// before it has been drawn.
-    pub menu_held: bool,
+    /// Stamped onto every menu that opens, so a dismiss can say which menu it was aimed at. A
+    /// right-click on a second row raises a new menu *and* fires the old one's outside-click for
+    /// the same event, and an unconditional close would shut the menu that was just opened.
+    menu_epoch: u64,
+    /// What a Copy remembered, until a Paste uses it or an edit takes the path away. One path
+    /// rather than a list: the menu copies the row that was clicked.
+    pub copied: Option<String>,
+    /// The folder a drag is currently over, which is the only answer the user gets before letting
+    /// go. Empty is the project's root — the scroll container itself is a drop target.
+    pub drop_onto: Option<String>,
     /// Folders the background cache has already asked the host about. Without it a listing that
     /// failed would be asked for again as the next reply landed, and a listing still in flight
     /// would be asked twice.
@@ -412,6 +440,8 @@ struct FilterHits {
 /// Enough of the tree to walk off the frame. No menus, no cache-asked set, no hits of its own.
 pub struct FilterSnap {
     root: Arc<Vec<FileNode>>,
+    root_name: String,
+    root_expanded: bool,
     pub view: ExplorerView,
     cursor: Option<String>,
     selected: Option<String>,

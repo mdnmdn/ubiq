@@ -53,6 +53,10 @@ impl AppState {
         let file_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Go to file\u{2026}"));
 
+        // Seeded whenever a file dialog opens — with nothing for a new path, with the leaf name
+        // for a rename — so this placeholder is only ever seen ahead of that.
+        let file_name = cx.new(|cx| InputState::new(window, cx).placeholder("name\u{2026}"));
+
         let git_search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search message, author or SHA\u{2026}")
         });
@@ -462,6 +466,19 @@ impl AppState {
             },
         ));
 
+        // The file question's field submits on Enter, the same contract the search field has. The
+        // window binds Enter at `Workbench` and cannot bind it at `Input` without taking it from
+        // every other field, so the field's own Enter arrives here instead.
+        subscriptions.push(cx.subscribe_in(
+            &file_name,
+            window,
+            |this, _input, event: &InputEvent, _window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.confirm_file_dialog(cx);
+                }
+            },
+        ));
+
         // The titlebar's field is the same contract, one level up: Enter is the only thing it
         // does, and what it does is hand off to the search panel — see `submit_header_search`.
         subscriptions.push(cx.subscribe_in(
@@ -601,6 +618,11 @@ impl AppState {
             subscriptions.push(cx.on_focus_out(&handle, window, |_, _, _, cx| cx.notify()));
         }
 
+        // Modal editing, when it is switched on. Registered whatever the setting says: the
+        // interceptor's first act is to read it, and a subscription that came and went with a
+        // checkbox would be one more thing to keep in step.
+        subscriptions.push(super::vim::install(window, cx));
+
         // This window's connection to the host, which is process-wide and already running. The
         // window never starts one: two hosts would race the catalogue and disagree about what
         // exists.
@@ -688,10 +710,13 @@ impl AppState {
             diagram_asks: RefCell::new(Vec::new()),
             viewports: RefCell::new(HashMap::new()),
             viewport_drag: RefCell::new(None),
+            vim: VimState::default(),
+            vim_focus: None,
             chat_input,
             agent_input,
             column_inputs,
             file_filter,
+            file_name,
             git_search,
             git_message,
             picker_filter,

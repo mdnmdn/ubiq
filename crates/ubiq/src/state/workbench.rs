@@ -206,6 +206,27 @@ pub struct PendingNewAgent {
     pub account: Option<String>,
 }
 
+/// The question a file gesture is asking, while one is up. One at a time, the rule
+/// `AccountDialog` already follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileDialog {
+    /// Naming something new inside `parent`. Empty `parent` is the project's root.
+    New { parent: String, dir: bool },
+    /// Renaming `path`, seeded with its leaf name.
+    Rename { path: String },
+    /// Removing `path`. `trash` is false when Shift was held, and the wording and the button say
+    /// which one it is rather than leaving the user to know.
+    Remove {
+        path: String,
+        dir: bool,
+        trash: bool,
+    },
+    /// A drag that would move `path` into the folder `into`. Only ever raised for a folder.
+    Move { path: String, into: String },
+    /// An untitled buffer asking where to be saved. `key` is its tab key.
+    SaveAs { key: String },
+}
+
 pub struct WorkbenchState {
     /// Where the host writes everything down, and whether that is the usual place. The status bar
     /// says so when it is not, because a config root you cannot see is a foot-gun.
@@ -248,6 +269,12 @@ pub struct WorkbenchState {
     /// at a time, so this is a single `Option` like `open_menu`; the tab key names the file, the
     /// point anchors the `context_menu` over the window.
     pub file_tab_menu: Option<(String, (f32, f32))>,
+    /// The file question that is up, if one is. One at a time, and drawn from the window's root so
+    /// that both the explorer and the editor's save-as reach it.
+    pub file_dialog: Option<FileDialog>,
+    /// Until when a folder move skips its confirmation, from the dialog's checkbox. In memory and
+    /// per window: ten minutes is not a preference, and there is nothing to migrate.
+    pub move_unasked_until: Option<std::time::Instant>,
     /// Where the new-pane menu's chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::NewPane`.
     pub new_pane_menu: Option<(f32, f32)>,
@@ -289,6 +316,8 @@ impl Default for WorkbenchState {
             work_error: None,
             file_filter: String::new(),
             file_tab_menu: None,
+            file_dialog: None,
+            move_unasked_until: None,
             new_pane_menu: None,
             new_agent_menu: None,
             naming_agent: None,

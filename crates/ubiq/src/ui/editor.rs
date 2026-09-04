@@ -110,7 +110,8 @@ pub fn dirty_colour(file: &OpenFile) -> Rgba {
 pub fn git_colour(file: &OpenFile, explorer: &crate::state::ExplorerState) -> Rgba {
     // A guest tab's path is absolute and outside the explorer's project, so a lookup is a
     // guaranteed miss anyway; asked directly, it stays quiet instead of drawing "untracked".
-    if file.guest {
+    // An untitled buffer names nothing on disk, so version control has nothing to say about it.
+    if file.guest || file.untitled {
         return theme::text_faint();
     }
     crate::ui::explorer::git_colour(explorer.git_status(&file.path))

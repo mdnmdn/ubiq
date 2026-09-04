@@ -294,6 +294,10 @@ pub struct OpenFile {
     /// rather than its own. Exists so the tab can be drawn differently; `savable` — not this — is
     /// what actually refuses the write.
     pub guest: bool,
+    /// A buffer that has never been written anywhere: the tab a new-file keystroke opens. Beside
+    /// `guest` and for the same reason — the tab draws differently — and a save on one asks where
+    /// to put it rather than sending anything, because the path it carries names nothing on disk.
+    pub untitled: bool,
     /// Whether the YAML frontmatter disclosure is open. Per-tab UI state that defaults to closed
     /// so newly opened documents start clean.
     pub frontmatter_open: bool,
@@ -340,6 +344,7 @@ impl OpenFile {
             save: SaveState::Idle,
             temporary: false,
             guest: false,
+            untitled: false,
             frontmatter_open: false,
             dirty: false,
             _change: None,
@@ -353,6 +358,27 @@ impl OpenFile {
             temporary: true,
             ..Self::opening(path, Subject::File, markdown_open)
         }
+    }
+
+    /// A buffer with nowhere to go yet. `path` is the name the tab shows until a save-as gives it
+    /// a real one; nothing is read for it, because there is nothing to read.
+    pub fn untitled(path: &str, markdown_open: ViewLayout) -> Self {
+        Self {
+            untitled: true,
+            ..Self::opening(path, Subject::File, markdown_open)
+        }
+    }
+
+    /// Point the tab at another path, keeping the buffer it holds.
+    ///
+    /// What a rename and a save-as both do: the bytes did not change, so re-reading them would
+    /// only risk dropping whatever has been typed since.
+    pub fn retarget(&mut self, path: &str) {
+        self.name = leaf(path).to_string();
+        self.path = path.to_string();
+        self.language = FileLanguage::of(path);
+        self.viewer = ViewerKind::of(path);
+        self.untitled = false;
     }
 
     /// The key this tab is known by, in the dock's saved layout and in the view prefs.

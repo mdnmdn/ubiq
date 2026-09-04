@@ -9,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 use ubiq_host::files::{self, path};
-use ubiq_proto::files::{EntryKind, FileError, FileVersion};
+use ubiq_proto::files::{EntryKind, FileError, FileVersion, PathOp};
 
 /// A project holding a file and a folder with a file in it.
 fn project() -> TempDir {
@@ -462,5 +462,216 @@ fn a_save_never_creates_a_folder() {
     assert!(
         !dir.path().join("new").exists(),
         "a write brought a folder into existence"
+    );
+}
+
+// ── editing a path ──────────────────────────────────────────────────
+
+#[test]
+fn an_edit_never_takes_the_project_s_own_folder_as_its_source() {
+    let dir = project();
+
+    for op in [PathOp::Trash, PathOp::Delete] {
+        let error = files::edit(dir.path(), "", None, op).unwrap_err();
+        assert!(refused(&error), "{op:?} answered {error:?}");
+    }
+    let error = files::edit(dir.path(), "", Some("moved"), PathOp::Move).unwrap_err();
+    assert!(refused(&error), "a move of the root answered {error:?}");
+
+    assert!(dir.path().join("top.txt").exists(), "the project went away");
+}
+
+#[test]
+fn an_edit_refuses_a_destination_the_op_has_no_use_for() {
+    let dir = project();
+
+    // A `to` the host would drop is a wiring mistake, and dropping it silently is how the
+    // interface comes to believe a move happened.
+    for op in [PathOp::Trash, PathOp::Delete, PathOp::Create { dir: false }] {
+        let error = files::edit(dir.path(), "top.txt", Some("elsewhere"), op).unwrap_err();
+        assert!(refused(&error), "{op:?} answered {error:?}");
+    }
+    // …and the mirror: a move with nowhere to go.
+    for op in [PathOp::Move, PathOp::Copy] {
+        let error = files::edit(dir.path(), "top.txt", None, op).unwrap_err();
+        assert!(refused(&error), "{op:?} answered {error:?}");
+    }
+
+    assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
+}
+
+#[test]
+fn an_edit_onto_a_taken_destination_is_a_conflict() {
+    let dir = project();
+
+    for (rel, to, op) in [
+        ("top.txt", None, PathOp::Create { dir: false }),
+        ("sub", None, PathOp::Create { dir: true }),
+        ("top.txt", Some("sub/inner.txt"), PathOp::Move),
+        ("top.txt", Some("sub/inner.txt"), PathOp::Copy),
+    ] {
+        assert_eq!(
+            files::edit(dir.path(), rel, to, op).unwrap_err(),
+            FileError::Conflict,
+            "{op:?} onto {to:?} was allowed"
+        );
+    }
+
+    // Nothing was overwritten on the way past.
+    assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
+    assert_eq!(
+        fs::read(dir.path().join("sub/inner.txt")).unwrap(),
+        b"inner\n"
+    );
+}
+
+#[test]
+fn a_folder_cannot_be_moved_or_copied_into_its_own_child() {
+    let dir = project();
+
+    for op in [PathOp::Move, PathOp::Copy] {
+        let error = files::edit(dir.path(), "sub", Some("sub/nested"), op).unwrap_err();
+        assert!(
+            refused(&error),
+            "{op:?} into its own child answered {error:?}"
+        );
+    }
+    assert!(fs::read_dir(dir.path().join("sub")).unwrap().count() == 1);
+}
+
+#[test]
+fn an_edit_refuses_a_parent_component_in_either_path() {
+    let dir = project();
+    let outside = TempDir::new().unwrap();
+    fs::write(outside.path().join("victim"), b"untouched\n").unwrap();
+
+    for (rel, to, op) in [
+        ("../victim", Some("stolen.txt"), PathOp::Copy),
+        ("top.txt", Some("../stolen.txt"), PathOp::Copy),
+        ("top.txt", Some("../stolen.txt"), PathOp::Move),
+        ("../victim", None, PathOp::Delete),
+        ("../new.txt", None, PathOp::Create { dir: false }),
+    ] {
+        let error = files::edit(dir.path(), rel, to, op).unwrap_err();
+        assert!(
+            refused(&error),
+            "{op:?} on {rel} → {to:?} answered {error:?}"
+        );
+    }
+
+    assert_eq!(
+        fs::read(outside.path().join("victim")).unwrap(),
+        b"untouched\n"
+    );
+}
+
+#[test]
+fn a_create_makes_one_empty_file_or_one_folder_and_never_a_parent() {
+    let dir = project();
+
+    files::edit(
+        dir.path(),
+        "sub/made.txt",
+        None,
+        PathOp::Create { dir: false },
+    )
+    .unwrap();
+    assert_eq!(fs::read(dir.path().join("sub/made.txt")).unwrap(), b"");
+
+    files::edit(dir.path(), "made", None, PathOp::Create { dir: true }).unwrap();
+    assert!(dir.path().join("made").is_dir());
+
+    // The same rule `save()` keeps: no folder is brought into existence to make a path valid.
+    assert_eq!(
+        files::edit(
+            dir.path(),
+            "new/deep/file.txt",
+            None,
+            PathOp::Create { dir: false }
+        )
+        .unwrap_err(),
+        FileError::Missing
+    );
+    assert!(!dir.path().join("new").exists());
+}
+
+#[test]
+fn a_move_carries_a_file_and_a_folder_with_its_children() {
+    let dir = project();
+
+    files::edit(dir.path(), "top.txt", Some("sub/moved.txt"), PathOp::Move).unwrap();
+    assert!(!dir.path().join("top.txt").exists());
+    assert_eq!(
+        fs::read(dir.path().join("sub/moved.txt")).unwrap(),
+        b"top\n"
+    );
+
+    files::edit(dir.path(), "sub", Some("renamed"), PathOp::Move).unwrap();
+    assert!(!dir.path().join("sub").exists());
+    assert_eq!(
+        fs::read(dir.path().join("renamed/inner.txt")).unwrap(),
+        b"inner\n"
+    );
+}
+
+#[test]
+fn a_copy_leaves_the_source_where_it_was() {
+    let dir = project();
+
+    files::edit(dir.path(), "top.txt", Some("copy.txt"), PathOp::Copy).unwrap();
+    assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
+    assert_eq!(fs::read(dir.path().join("copy.txt")).unwrap(), b"top\n");
+}
+
+#[test]
+fn a_folder_copy_carries_everything_under_it() {
+    let dir = project();
+    fs::create_dir(dir.path().join("sub/deeper")).unwrap();
+    fs::write(dir.path().join("sub/deeper/leaf.txt"), b"leaf\n").unwrap();
+
+    files::edit(dir.path(), "sub", Some("sub-copy"), PathOp::Copy).unwrap();
+
+    assert_eq!(
+        fs::read(dir.path().join("sub-copy/inner.txt")).unwrap(),
+        b"inner\n"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("sub-copy/deeper/leaf.txt")).unwrap(),
+        b"leaf\n"
+    );
+    // And the original is still whole.
+    assert!(dir.path().join("sub/deeper/leaf.txt").exists());
+}
+
+#[test]
+fn a_delete_removes_a_file_and_a_folder_with_its_children() {
+    let dir = project();
+
+    files::edit(dir.path(), "top.txt", None, PathOp::Delete).unwrap();
+    assert!(!dir.path().join("top.txt").exists());
+
+    files::edit(dir.path(), "sub", None, PathOp::Delete).unwrap();
+    assert!(!dir.path().join("sub").exists());
+
+    assert_eq!(
+        files::edit(dir.path(), "sub", None, PathOp::Delete).unwrap_err(),
+        FileError::Missing
+    );
+}
+
+#[test]
+fn a_trash_hands_the_path_to_the_platform() {
+    let dir = project();
+    let answer = files::edit(dir.path(), "top.txt", None, PathOp::Trash);
+
+    // The platform's trash service is the one thing in this suite that is not on the filesystem: a
+    // headless build machine has no desktop session and `trash::delete` fails there. Nothing about
+    // the rule is knowable on such a host, so it says nothing rather than failing the suite.
+    if answer.is_err() {
+        return;
+    }
+    assert!(
+        !dir.path().join("top.txt").exists(),
+        "the trash left the file where it was"
     );
 }

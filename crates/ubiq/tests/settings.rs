@@ -28,6 +28,7 @@ fn a_blob_survives_the_round_trip() {
         schema: settings::SCHEMA,
         explorer_preview: false,
         markdown_open: MarkdownOpen::Source,
+        vim_mode: true,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -39,6 +40,8 @@ fn missing_fields_open_on_defaults() {
     let back = settings::decode(blob).expect("decodes");
     assert!(back.explorer_preview);
     assert_eq!(back.markdown_open, MarkdownOpen::Preview);
+    // A blob written before vim mode existed opens with it off, rather than being discarded.
+    assert!(!back.vim_mode);
 }
 
 #[test]

@@ -220,10 +220,12 @@ answer arrives after the click that asked for it and the window may have changed
 | `ReadProjectFile` | UI → host | `project_id`, `rel_path`, `max_bytes?` | `ProjectFileContents` or `ProjectFileError` |
 | `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?` | `ProjectFileWritten` or `ProjectFileError` |
 | `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` | `ProjectFileDiffed` or `ProjectFileError` |
+| `EditProjectPath` | UI → host | `project_id`, `rel_path`, `to?`, `op` | `ProjectPathEdited` or `ProjectFileError` |
 | `ProjectTreeListing` | host → UI | `project_id`, `rel_path`, `listings[]` | — |
 | `ProjectFileContents` | host → UI | `project_id`, `rel_path`, `contents` | — |
 | `ProjectFileWritten` | host → UI | `project_id`, `rel_path`, `version` | — |
 | `ProjectFileDiffed` | host → UI | `project_id`, `rel_path`, `diff` | — |
+| `ProjectPathEdited` | host → UI | `project_id`, `rel_path`, `to?`, `op` | — |
 | `ProjectFileError` | host → UI | `project_id`, `rel_path`, `error` | — |
 | `ProjectFilesChanged` | host → UI | `project_id`, `changed[]`, `truncated`, `repository` | — |
 
@@ -280,6 +282,28 @@ file with no change against its base answers with no hunks; one the host would n
 `binary`, and one it stopped at a ceiling comes back `truncated`, the way a listing and a read do.
 There is no new error variant: a failure is a `ProjectFileError`, and **a project with no version
 control in it is `Refused`** rather than a missing file or an empty diff.
+
+**An edit to a path is one message with an op on it.** `EditProjectPath` carries a `PathOp` —
+`Create { dir }`, `Move`, `Copy`, `Trash` or `Delete` — and `ProjectPathEdited` echoes the request
+whole. One message rather than five because the interface's need is identical every time: a path, a
+destination for the two ops that have one, and what to do with them; five variants would be five
+coordinator arms handing work to the same worker. The reply echoes the op because an answer arrives
+after the click that asked for it, and what the interface does next depends on which gesture
+finished — a created file is opened, a moved one retargets its tab, a removed one closes it.
+
+`to` is the destination, and it is present for `Move` and `Copy` only. It is **refused** where it does
+not belong rather than ignored: a field the host silently drops is a wiring mistake the interface
+cannot see. **Every op refuses a destination that already exists**, which is the same judgement an
+absent `expected` on a write makes — the contract does not hand out a forced overwrite for free — and
+`Move` and `Copy` also refuse a destination inside their own source, so a folder cannot be moved into
+its own child. `Create` makes exactly one level and never a parent, on the rule a write already keeps.
+
+**`Trash` and `Delete` are two ops because they are two promises.** `Trash` hands the path to the
+platform's own trash, where the user can get it back without Ubiq; `Delete` removes it, and a folder
+goes with everything under it. Which one the interface is about to do is something it says before it
+asks, so the difference is never left for the user to infer — and keeping them apart on the wire is
+what lets it. Neither is a `WriteProjectFile` with no bytes: a write creates and a removal destroys,
+and the version guard that makes a write safe has nothing to say about either.
 
 **`ProjectFileError` is per path**, not per project, for the reason `PaneError` is per pane: the
 interface can only mark the row or the tab the user is looking at if the message says which one. Its

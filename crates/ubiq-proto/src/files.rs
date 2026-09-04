@@ -124,6 +124,31 @@ pub struct FileContents {
     pub version: Option<FileVersion>,
 }
 
+/// What an edit to a path is.
+///
+/// Every variant is a different thing for the interface to do once it has happened — a created file
+/// is opened, a moved one retargets its tab, a removed one closes it — which is why the reply echoes
+/// the op rather than answering every edit the same way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PathOp {
+    /// Make a path that is not there. `dir` picks a folder over an empty file.
+    ///
+    /// Exactly one level: no parent is ever created, which is the rule
+    /// [`crate::messages::Message::WriteProjectFile`] already keeps.
+    Create { dir: bool },
+    /// Rename, or move into another folder. One operation on disk, and one gesture here.
+    Move,
+    /// Copy a file, or a folder with everything under it.
+    Copy,
+    /// Hand the path to the platform's trash, where the user can get it back without Ubiq.
+    Trash,
+    /// Remove it outright. A folder goes with everything under it, and nothing comes back.
+    ///
+    /// Separate from [`PathOp::Trash`] because the two are different promises to the user, and the
+    /// interface says which one it is about to keep before it asks.
+    Delete,
+}
+
 /// What a diff is taken against.
 ///
 /// The two the working tree can be compared with, and nothing else: a diff the interface draws is

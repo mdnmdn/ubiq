@@ -28,6 +28,7 @@ pub mod search;
 pub mod settings;
 pub mod sink;
 pub mod viewport;
+pub mod vim;
 pub mod when;
 pub mod windows;
 pub mod work;
@@ -61,6 +62,6 @@ pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    HarnessChoice, MenuId, NewPaneRow, PendingNewAgent, ProjectSettings, ProjectSettingsMode,
-    RailMode, RowAction, WorkbenchState,
+    FileDialog, HarnessChoice, MenuId, NewPaneRow, PendingNewAgent, ProjectSettings,
+    ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
 };

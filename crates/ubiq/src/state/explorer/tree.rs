@@ -3,6 +3,12 @@ use super::*;
 impl ExplorerState {
     /// Flip a folder open or shut, answering whether its children have to be asked for.
     pub fn toggle(&mut self, path: &str) -> Toggle {
+        // The empty path is the project's own row, which has no node behind it: what it opens and
+        // shuts is the tree itself, and the host has already been asked for the top level.
+        if path.is_empty() {
+            self.root_expanded = !self.root_expanded;
+            return Toggle::Done;
+        }
         let Some(node) = node_mut(cow(&mut self.root), path) else {
             return Toggle::Missing;
         };
@@ -180,7 +186,6 @@ impl ExplorerState {
     pub fn collapse_all(&mut self) {
         collapse_in(cow(&mut self.root));
         self.menu = None;
-        self.menu_held = false;
     }
 
     pub fn set_view(&mut self, view: ExplorerView, filter: &str) {
@@ -201,7 +206,7 @@ impl ExplorerState {
             .as_deref()
             .is_some_and(|path| rows.iter().any(|row| row.path == path));
         if !held {
-            self.cursor = rows.first().map(|row| row.path.clone());
+            self.cursor = Self::first_cursor(&rows);
         }
         self.sync_hit_cursors();
     }
@@ -227,6 +232,9 @@ impl ExplorerState {
     }
 
     pub(super) fn is_expanded(&self, path: &str) -> bool {
+        if path.is_empty() {
+            return self.root_expanded;
+        }
         match node_of(&self.root, path) {
             Some(node) => matches!(node.kind, NodeKind::Dir { expanded: true, .. }),
             None => false,
@@ -234,6 +242,10 @@ impl ExplorerState {
     }
 
     pub(super) fn needs_listing(&self, path: &str) -> bool {
+        // The project's top level is asked for when the project opens, never by a toggle.
+        if path.is_empty() {
+            return false;
+        }
         match node_of(&self.root, path) {
             Some(node) => matches!(
                 node.kind,
@@ -245,6 +257,61 @@ impl ExplorerState {
             ),
             None => false,
         }
+    }
+
+    /// The folder an action on this row lands in: the row itself when it is a folder, otherwise
+    /// the folder holding it. Empty is the project's root.
+    pub fn target_dir(&self, path: &str) -> String {
+        // The project's own row, said rather than fallen out of the rsplit below.
+        if path.is_empty() {
+            return String::new();
+        }
+        let is_dir = node_of(&self.root, path).is_some_and(FileNode::is_dir);
+        if is_dir {
+            return path.to_string();
+        }
+        match path.rsplit_once('/') {
+            Some((parent, _)) => parent.to_string(),
+            None => String::new(),
+        }
+    }
+
+    /// `leaf` inside `parent`, with a suffix if that name is taken among the children the host has
+    /// already named. `notes.md` becomes `notes copy.md`, then `notes copy 2.md`.
+    ///
+    /// Best-effort by construction: it can only see a folder that has been listed, so a collision
+    /// it misses comes back as `FileError::Conflict` and is shown on the row. The point is that
+    /// Duplicate, where a collision is *certain*, does not need a round trip to discover it.
+    pub fn free_name(&self, parent: &str, leaf: &str) -> String {
+        let taken: Vec<&str> = match parent.is_empty() {
+            true => self.root.iter().map(|node| node.name.as_str()).collect(),
+            false => match node_of(&self.root, parent) {
+                Some(FileNode {
+                    kind: NodeKind::Dir { children, .. },
+                    ..
+                }) => children.iter().map(|node| node.name.as_str()).collect(),
+                _ => Vec::new(),
+            },
+        };
+        if !taken.contains(&leaf) {
+            return leaf.to_string();
+        }
+
+        // The extension is kept on the end, because that is what says how to open the copy.
+        let (stem, ext) = match leaf.rsplit_once('.') {
+            Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
+            _ => (leaf, String::new()),
+        };
+        for n in 1.. {
+            let candidate = match n {
+                1 => format!("{stem} copy{ext}"),
+                n => format!("{stem} copy {n}{ext}"),
+            };
+            if !taken.contains(&candidate.as_str()) {
+                return candidate;
+            }
+        }
+        unreachable!("the suffix grows without bound, so some name is free")
     }
 
     // ── the menu ────────────────────────────────────────────────────

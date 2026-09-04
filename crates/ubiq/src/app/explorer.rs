@@ -235,6 +235,18 @@ impl AppState {
                 cx.notify();
                 true
             }
+            // The same question the menu's Delete row raises, and the same modifier on it: the
+            // keyboard is another way to ask, not a second set of rules.
+            ExplorerPressed::Remove { path, is_dir } => {
+                let trash = !window.modifiers().shift;
+                self.workbench.file_dialog = Some(FileDialog::Remove {
+                    path,
+                    dir: is_dir,
+                    trash,
+                });
+                cx.notify();
+                true
+            }
         }
     }
 
@@ -272,7 +284,8 @@ impl AppState {
             }
             ExplorerPressed::Ignored
             | ExplorerPressed::Dismissed
-            | ExplorerPressed::ClearFilter => {}
+            | ExplorerPressed::ClearFilter
+            | ExplorerPressed::Remove { .. } => {}
         }
     }
 
@@ -321,11 +334,15 @@ impl AppState {
     pub(super) fn drop_explorer_menu(&mut self, cx: &mut Context<Self>) {
         if let Some(open) = self.open_project_mut(cx) {
             open.explorer.menu = None;
-            open.explorer.menu_held = false;
         }
     }
 
-    pub fn pick_explorer_action(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub fn pick_explorer_action(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let picked = {
             let Some(open) = self.open_project_mut(cx) else {
                 return;
@@ -337,13 +354,12 @@ impl AppState {
                 return;
             };
             open.explorer.menu = None;
-            open.explorer.menu_held = false;
             self.workbench.open_menu = None;
             (entry, menu.path)
         };
 
         let (entry, path) = picked;
-        if !entry.ready() {
+        if !entry.enabled {
             cx.notify();
             return;
         }
@@ -436,17 +452,244 @@ impl AppState {
                 self.remember(project, cx);
                 cx.notify();
             }
-            ExplorerAction::Toggle => {
+            ExplorerAction::CollapseAll => self.collapse_explorer(cx),
+            ExplorerAction::NewFile | ExplorerAction::NewFolder => {
+                let dir = entry.action == ExplorerAction::NewFolder;
+                let parent = self
+                    .explorer(cx)
+                    .map(|explorer| explorer.target_dir(path.as_deref().unwrap_or_default()))
+                    .unwrap_or_default();
+                self.open_file_dialog(FileDialog::New { parent, dir }, "", window, cx);
+            }
+            ExplorerAction::Rename => {
                 if let Some(path) = path {
-                    self.toggle_folder(path, cx);
+                    let leaf = leaf_of(&path).to_string();
+                    self.open_file_dialog(FileDialog::Rename { path }, &leaf, window, cx);
                 }
             }
-            ExplorerAction::CollapseAll => self.collapse_explorer(cx),
-            ExplorerAction::NewFile
-            | ExplorerAction::NewFolder
-            | ExplorerAction::Rename
-            | ExplorerAction::Delete => cx.notify(),
+            ExplorerAction::Delete => {
+                if let Some(path) = path {
+                    let dir = self
+                        .explorer(cx)
+                        .is_some_and(|explorer| explorer.target_dir(&path) == path);
+                    // Shift is read off the window rather than off the click, because the menu
+                    // row is picked long after the right-click that opened it.
+                    let trash = !window.modifiers().shift;
+                    self.workbench.file_dialog = Some(FileDialog::Remove { path, dir, trash });
+                    cx.notify();
+                }
+            }
+            ExplorerAction::Copy => {
+                if let Some(open) = self.open_project_mut(cx) {
+                    open.explorer.copied = path;
+                }
+                cx.notify();
+            }
+            ExplorerAction::Paste => {
+                let target = self
+                    .explorer(cx)
+                    .map(|explorer| explorer.target_dir(path.as_deref().unwrap_or_default()))
+                    .unwrap_or_default();
+                let source = self.explorer(cx).and_then(|e| e.copied.clone());
+                if let Some(source) = source {
+                    self.copy_path_into(source, target, cx);
+                }
+            }
+            // Never picked: a separator is drawn disabled and the guard above has already
+            // returned. The arm is here because the set is closed.
+            ExplorerAction::Separator => {}
+            ExplorerAction::Duplicate => {
+                if let Some(path) = path {
+                    let parent = parent_dir(&path);
+                    self.copy_path_into(path, parent, cx);
+                }
+            }
         }
+    }
+
+    /// Copy one path into a folder, under a name that folder does not already hold.
+    ///
+    /// The free name is worked out here rather than by the host so that Duplicate — where the
+    /// collision is certain — does not need a refusal to discover it.
+    fn copy_path_into(&mut self, source: String, target: String, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let name = open.explorer.free_name(&target, leaf_of(&source));
+        self.bus.send(Message::EditProjectPath {
+            project_id: project,
+            rel_path: source,
+            to: Some(child_path(&target, &name)),
+            op: PathOp::Copy,
+        });
+        cx.notify();
+    }
+
+    /// Put a file question up, with the field seeded and holding the keyboard.
+    fn open_file_dialog(
+        &mut self,
+        dialog: FileDialog,
+        seed: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.file_dialog = Some(dialog);
+        let field = self.file_name.clone();
+        field.update(cx, |state, cx| state.set_value(seed, window, cx));
+        let handle = self.file_name.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        cx.notify();
+    }
+
+    /// Enter on the dialog that is up. Bound at the window, so it works whether the keyboard is
+    /// in the field or on the modal itself.
+    ///
+    /// With no dialog up the key is handed back: Enter belongs to every field and every list on
+    /// screen, and swallowing it here would take it from all of them.
+    pub fn confirm_dialog(&mut self, _: &DialogConfirm, _: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.file_dialog.is_none() {
+            cx.propagate();
+            return;
+        }
+        self.confirm_file_dialog(cx);
+    }
+
+    /// Escape on the dialog that is up, handed back the same way when there is none — a bare
+    /// Escape is the explorer's, the terminal's and the search panel's.
+    pub fn cancel_dialog(&mut self, _: &DialogCancel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.file_dialog.is_none() {
+            cx.propagate();
+            return;
+        }
+        self.close_file_dialog(cx);
+    }
+
+    pub fn close_file_dialog(&mut self, cx: &mut Context<Self>) {
+        self.workbench.file_dialog = None;
+        cx.notify();
+    }
+
+    /// A row dropped on a folder. Refused when it changes nothing (already there), when the folder
+    /// is the row itself, and when the folder is *under* the row — dragging a folder into its own
+    /// child. The host refuses that last one too; refusing it here is what keeps the gesture from
+    /// raising a confirmation for a move that could never happen.
+    pub fn drop_path_on(&mut self, path: String, into: String, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.drop_onto = None;
+        }
+        if !can_move_into(&path, &into) {
+            cx.notify();
+            return;
+        }
+        let is_dir = self
+            .explorer(cx)
+            .is_some_and(|explorer| explorer.target_dir(&path) == path);
+        let unasked = self
+            .workbench
+            .move_unasked_until
+            .is_some_and(|until| until > std::time::Instant::now());
+        if is_dir && !unasked {
+            self.workbench.file_dialog = Some(FileDialog::Move { path, into });
+            cx.notify();
+            return;
+        }
+        self.send_move(path, into, cx);
+    }
+
+    /// Note which folder a drag is over, so the row under the pointer can say it would take the
+    /// drop. The only answer the user gets before letting go.
+    pub fn drag_path_over(&mut self, into: Option<String>, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx)
+            && open.explorer.drop_onto != into
+        {
+            open.explorer.drop_onto = into;
+            cx.notify();
+        }
+    }
+
+    fn send_move(&mut self, path: String, into: String, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let to = child_path(&into, leaf_of(&path));
+        self.bus.send(Message::EditProjectPath {
+            project_id: project,
+            rel_path: path,
+            to: Some(to),
+            op: PathOp::Move,
+        });
+        cx.notify();
+    }
+
+    /// Answer the file question that is up, with whatever was typed into `file_name`.
+    ///
+    /// One method for all five, because each is the same two steps — one message, then the dialog
+    /// goes away — and the branch is which op the message carries.
+    pub fn confirm_file_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workbench.file_dialog.clone() else {
+            return;
+        };
+        let Some(project) = self.project(cx) else {
+            self.close_file_dialog(cx);
+            return;
+        };
+        let typed = self.file_name.read(cx).value().trim().to_string();
+
+        match dialog {
+            FileDialog::New { parent, dir } => {
+                if typed.is_empty() {
+                    return;
+                }
+                self.bus.send(Message::EditProjectPath {
+                    project_id: project,
+                    rel_path: child_path(&parent, &typed),
+                    to: None,
+                    op: PathOp::Create { dir },
+                });
+            }
+            FileDialog::Rename { path } => {
+                if typed.is_empty() || typed == leaf_of(&path) {
+                    return;
+                }
+                self.bus.send(Message::EditProjectPath {
+                    project_id: project,
+                    rel_path: path.clone(),
+                    to: Some(child_path(&parent_dir(&path), &typed)),
+                    op: PathOp::Move,
+                });
+            }
+            FileDialog::Remove { path, trash, .. } => {
+                self.bus.send(Message::EditProjectPath {
+                    project_id: project,
+                    rel_path: path,
+                    to: None,
+                    op: if trash { PathOp::Trash } else { PathOp::Delete },
+                });
+            }
+            FileDialog::Move { path, into } => {
+                self.send_move(path, into, cx);
+            }
+            FileDialog::SaveAs { key } => {
+                if typed.is_empty() {
+                    return;
+                }
+                self.save_untitled_as(&key, typed, cx);
+            }
+        }
+        self.close_file_dialog(cx);
+    }
+
+    /// Stop asking about a folder move for the next ten minutes. The dialog's checkbox, which is
+    /// window state and in memory: nothing to persist and nothing to migrate.
+    pub fn toggle_move_unasked(&mut self, cx: &mut Context<Self>) {
+        self.workbench.move_unasked_until = match self.workbench.move_unasked_until {
+            Some(_) => None,
+            None => Some(std::time::Instant::now() + MOVE_UNASKED),
+        };
+        cx.notify();
     }
 
     /// Select a row, and open it if it is a file.
@@ -688,4 +931,38 @@ impl AppState {
         self.remember(project, cx);
         cx.notify();
     }
+}
+
+/// The last segment of a project-relative path.
+pub(super) fn leaf_of(path: &str) -> &str {
+    match path.rsplit_once('/') {
+        Some((_, leaf)) => leaf,
+        None => path,
+    }
+}
+
+/// The folder holding a path. Empty is the project's root, which is what every path the interface
+/// builds is relative to.
+pub(super) fn parent_dir(path: &str) -> String {
+    match path.rsplit_once('/') {
+        Some((parent, _)) => parent.to_string(),
+        None => String::new(),
+    }
+}
+
+/// `leaf` inside `parent`, with no leading slash when the parent is the root.
+pub(super) fn child_path(parent: &str, leaf: &str) -> String {
+    match parent.is_empty() {
+        true => leaf.to_string(),
+        false => format!("{parent}/{leaf}"),
+    }
+}
+
+/// Whether moving `path` into the folder `into` is a move at all.
+///
+/// Three refusals: it is already there, the folder is the row itself, and the folder is under the
+/// row — a folder dragged into its own child. The host refuses the last one too, and refusing it
+/// here is what stops the gesture asking about a move that could never happen.
+pub(super) fn can_move_into(path: &str, into: &str) -> bool {
+    path != into && parent_dir(path) != into && !into.starts_with(&format!("{path}/"))
 }

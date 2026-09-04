@@ -22,8 +22,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .size_full()
         .key_context("Workbench")
         .on_action(cx.listener(AppState::save_active_file))
+        .on_action(cx.listener(AppState::new_untitled_file))
         .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
+        // Enter and Escape answer the file question that is up. Both propagate when none is, so
+        // the explorer's Escape and every field's Enter are untouched.
+        .on_action(cx.listener(AppState::confirm_dialog))
+        .on_action(cx.listener(AppState::cancel_dialog))
         .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_ui_font_size(1, cx)))
         .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_ui_font_size(-1, cx)))
         .bg(theme::app_bg())
@@ -95,6 +100,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .dialog
                 .as_ref()
                 .map(|_| settings::account_dialog(app, window, cx)),
+        )
+        // The file question a gesture in the explorer or a save on an untitled buffer asked —
+        // painted here rather than from either, because both raise the same one.
+        .children(
+            app.workbench
+                .file_dialog
+                .as_ref()
+                .map(|_| crate::ui::file_dialog::render(app, window, cx)),
         )
         // The file-tab context menu, named a file and a point by a right-click in the dock. It
         // lives at the window root rather than in a panel, so it stays on screen whether a file

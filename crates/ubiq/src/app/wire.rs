@@ -438,6 +438,13 @@ impl AppState {
                 cx.notify();
             }
 
+            Message::ProjectPathEdited {
+                project_id,
+                rel_path,
+                to,
+                op,
+            } => self.path_edited(project_id, rel_path, to, op, cx),
+
             Message::ProjectFileError {
                 project_id,
                 rel_path,
@@ -1101,6 +1108,116 @@ impl AppState {
             other => return Some(other),
         }
         None
+    }
+
+    /// One path in one project was created, moved, copied or removed.
+    ///
+    /// The request is echoed whole, because the answer arrives long after the click and what to do
+    /// with it is the gesture's: a created file is opened, a moved one takes its tabs with it, a
+    /// removed one closes them. The tabs are settled before anything is re-listed, so a tab on its
+    /// way out is not re-read on the way past.
+    fn path_edited(
+        &mut self,
+        project_id: ProjectId,
+        rel_path: String,
+        to: Option<String>,
+        op: PathOp,
+        cx: &mut Context<Self>,
+    ) {
+        let below = format!("{rel_path}/");
+        let under = |path: &str| path == rel_path || path.starts_with(&below);
+
+        match op {
+            // A tab follows the file it is looking at: the bytes did not move, only the name did,
+            // and re-reading would risk whatever has been typed since.
+            PathOp::Move => {
+                if let Some(to) = &to {
+                    let moved: Vec<(String, String)> = self
+                        .projects
+                        .get(&project_id)
+                        .map(|open| {
+                            open.editor
+                                .open
+                                .iter()
+                                .filter(|file| !file.guest && under(&file.path))
+                                .map(|file| {
+                                    (file.key(), format!("{to}{}", &file.path[rel_path.len()..]))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    for (key, path) in moved {
+                        self.retarget_editor_tab(project_id, &key, &path, cx);
+                    }
+                }
+            }
+            // Nothing is left to draw, and a dirty tab is asked about rather than dropped — which
+            // is `close_editor_tab`'s rule, kept here too.
+            PathOp::Trash | PathOp::Delete => {
+                if self.project(cx) == Some(project_id) {
+                    let doomed: Vec<usize> = self
+                        .projects
+                        .get(&project_id)
+                        .map(|open| {
+                            (0..open.editor.open.len())
+                                .filter(|&ix| under(&open.editor.open[ix].path))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.close_editor_tabs_filtered(|ix, _| doomed.contains(&ix), cx);
+                }
+            }
+            PathOp::Create { .. } | PathOp::Copy => {}
+        }
+
+        // What a Copy remembered is only worth remembering while it is still there.
+        if let Some(open) = self.projects.get_mut(&project_id)
+            && let Some(copied) = open.explorer.copied.as_deref()
+            && matches!(op, PathOp::Move | PathOp::Trash | PathOp::Delete)
+            && under(copied)
+        {
+            open.explorer.copied = None;
+        }
+
+        // The watch would get here on its own; asking now is what makes the gesture feel finished.
+        // Only a folder the tree already holds, the same guard the watch's own handler uses: a
+        // listing for one it does not know is thrown away by `merge` anyway.
+        let mut dirs: Vec<String> = vec![explorer::parent_dir(&rel_path)];
+        if let Some(to) = &to {
+            let other = explorer::parent_dir(to);
+            if !dirs.contains(&other) {
+                dirs.push(other);
+            }
+        }
+        for dir in dirs {
+            let listed = self
+                .projects
+                .get(&project_id)
+                .is_some_and(|open| open.explorer.is_folder_listed(&dir));
+            if !listed {
+                continue;
+            }
+            if let Some(open) = self.projects.get_mut(&project_id) {
+                open.explorer.set_loading(&dir, true);
+            }
+            self.bus.send(Message::ProjectTree {
+                project_id,
+                rel_path: dir,
+                depth: EXPAND_DEPTH,
+            });
+        }
+
+        // A new file opens where the user made it. A new folder has nothing to open.
+        if matches!(op, PathOp::Create { dir: false }) && self.project(cx) == Some(project_id) {
+            self.select_file(rel_path, cx);
+        }
+
+        // An edit changes the working tree, the same as a save does.
+        self.bus.send(Message::RefreshProjectGit {
+            project_id,
+            full: true,
+        });
+        cx.notify();
     }
 
     /// One path in one project failed.

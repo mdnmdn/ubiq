@@ -21,6 +21,8 @@ impl ExplorerState {
     pub fn filter_snap(&self) -> FilterSnap {
         FilterSnap {
             root: Arc::clone(&self.root),
+            root_name: self.root_name.clone(),
+            root_expanded: self.root_expanded,
             view: self.view,
             cursor: self.cursor.clone(),
             selected: self.selected.clone(),
@@ -69,7 +71,7 @@ impl ExplorerState {
             .as_deref()
             .is_some_and(|path| hits.rows.iter().any(|row| row.path == path));
         if !held {
-            self.cursor = hits.rows.first().map(|row| row.path.clone());
+            self.cursor = Self::first_cursor(&hits.rows);
         }
     }
 

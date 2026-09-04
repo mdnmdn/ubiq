@@ -23,6 +23,14 @@ impl ExplorerState {
     /// a folder in the list is only where the cursor lands — there is no depth to walk into.
     pub fn click(&mut self, path: &str) -> ExplorerPressed {
         self.set_cursor(path);
+        // The project's own row has no node behind it, and clicking it means collapse or expand
+        // the whole tree — there is nothing to open.
+        if path.is_empty() {
+            return match self.view {
+                ExplorerView::Tree => self.toggle_result(""),
+                ExplorerView::List => ExplorerPressed::Ignored,
+            };
+        }
         let (readable, is_dir) = match node_of(&self.root, path) {
             Some(node) => (node.readable, node.is_dir()),
             None => return ExplorerPressed::Ignored,
@@ -66,6 +74,7 @@ impl ExplorerState {
             ExplorerKey::Right => self.step_in(filter),
             ExplorerKey::Enter => self.enter(filter),
             ExplorerKey::ShiftEnter => self.enter(filter),
+            ExplorerKey::Delete => self.remove(filter),
         };
         self.sync_hit_cursors();
         pressed
@@ -165,10 +174,29 @@ impl ExplorerState {
         ExplorerPressed::Open { path: row.path }
     }
 
+    /// The row the keyboard is on, offered up for removal.
+    ///
+    /// The project's own row is refused: its path is empty, which names the folder the whole tree
+    /// describes, and the host refuses that too. A row the host will not follow is refused for the
+    /// same reason [`ExplorerState::enter`] refuses it — there is nothing behind it to act on.
+    fn remove(&mut self, filter: &str) -> ExplorerPressed {
+        let rows = self.visible_rows(filter);
+        let Some(at) = self.index_in(&rows) else {
+            return ExplorerPressed::Ignored;
+        };
+        let row = rows[at].clone();
+        if row.path.is_empty() || !row.readable {
+            return ExplorerPressed::Ignored;
+        }
+        ExplorerPressed::Remove {
+            path: row.path,
+            is_dir: row.is_dir,
+        }
+    }
+
     fn dismiss(&mut self, filter: &str) -> ExplorerPressed {
         if self.menu.is_some() {
             self.menu = None;
-            self.menu_held = false;
             return ExplorerPressed::Dismissed;
         }
         if !filter.trim().is_empty() {

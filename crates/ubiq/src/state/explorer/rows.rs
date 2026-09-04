@@ -6,13 +6,17 @@ impl ExplorerState {
     pub fn empty() -> Self {
         Self {
             root: Arc::new(Vec::new()),
+            root_name: String::new(),
+            root_expanded: true,
             selected: None,
             truncated: false,
             root_listed: false,
             view: ExplorerView::Tree,
             cursor: None,
             menu: None,
-            menu_held: false,
+            menu_epoch: 0,
+            copied: None,
+            drop_onto: None,
             cache_asked: HashSet::new(),
             filter_hits: None,
             filter_job: 0,
@@ -65,9 +69,14 @@ impl ExplorerState {
     pub fn rows(&self, filter: &str) -> Vec<Row> {
         let needle = filter.trim().to_lowercase();
         match self.view {
+            // The project is the first row, and everything the host has named hangs under it.
+            // Shut, it is the only row there is; filtered, it stays, so the handle that collapses
+            // the whole project never disappears from under the pointer.
             ExplorerView::Tree => {
-                let mut out = Vec::new();
-                self.tree_rows(&self.root, 0, &needle, &mut out);
+                let mut out = vec![self.root_row()];
+                if self.root_expanded {
+                    self.tree_rows(&self.root, 1, &needle, &mut out);
+                }
                 out
             }
             ExplorerView::List => self.list_rows(&needle),
@@ -78,6 +87,8 @@ impl ExplorerState {
     pub fn rows_from_snap(snap: FilterSnap, filter: &str) -> Vec<Row> {
         let mut tree = ExplorerState::empty();
         tree.root = snap.root;
+        tree.root_name = snap.root_name;
+        tree.root_expanded = snap.root_expanded;
         tree.view = snap.view;
         tree.cursor = snap.cursor;
         tree.selected = snap.selected;
@@ -104,6 +115,34 @@ impl ExplorerState {
             return self.rows("");
         }
         self.hits_for(filter).unwrap_or_else(|| self.rows(filter))
+    }
+
+    /// Where the cursor lands when the row it was on has gone: the first row that is not the
+    /// project's own, because a filter's answer is the matches under it rather than the project.
+    pub(super) fn first_cursor(rows: &[Row]) -> Option<String> {
+        rows.iter()
+            .find(|row| !row.path.is_empty())
+            .or_else(|| rows.first())
+            .map(|row| row.path.clone())
+    }
+
+    /// The project's own row. The empty path names it, the same path a drop on the panel and a
+    /// create with no row in mind already carry. It has no git status: what the repository says
+    /// about the project as a whole is the status bar's branch, not a badge on a row.
+    fn root_row(&self) -> Row {
+        Row {
+            name: self.root_name.clone(),
+            path: String::new(),
+            depth: 0,
+            is_dir: true,
+            expanded: self.root_expanded,
+            loading: !self.root_listed,
+            truncated: self.truncated,
+            git: None,
+            readable: true,
+            on_cursor: self.cursor.as_deref() == Some(""),
+            trailing: String::new(),
+        }
     }
 
     /// The tree: folders the user walked into, and the matches under them.

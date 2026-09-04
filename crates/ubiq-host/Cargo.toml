@@ -40,6 +40,9 @@ num_cpus = "1"
 # Filesystem watch: one recursive handle per open project. Already in the workspace build graph
 # through `gpui-component`, so a direct edge here is a manifest line, not a new crate to vet.
 notify = "7"
+# Deleting to the platform's trash, so a removal the user regrets is recoverable outside Ubiq. It
+# talks to the desktop's own trash service and draws nothing, so `just host` stays green.
+trash = "5"
 
 [dev-dependencies]
 tempfile = "3"

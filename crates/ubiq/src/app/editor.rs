@@ -282,7 +282,7 @@ impl AppState {
 
     /// Close the tabs the filter names, from the highest index down (so removal never shifts an
     /// index still to come). Dirty ones are only asked for, by [`Self::close_editor_tab`].
-    fn close_editor_tabs_filtered(
+    pub(super) fn close_editor_tabs_filtered(
         &mut self,
         keep: impl Fn(usize, &str) -> bool + Copy,
         cx: &mut Context<Self>,
@@ -331,6 +331,12 @@ impl AppState {
         let Some(file) = open.editor.open.get(at) else {
             return;
         };
+        // An untitled buffer names nothing on disk, so the save is a question first.
+        if file.untitled {
+            let key = file.key();
+            self.ask_save_as(key, cx);
+            return;
+        }
         if !file.savable() {
             return;
         }
@@ -541,6 +547,26 @@ impl AppState {
         self.close_editor_tab(open.editor.active, cx);
     }
 
+    /// Close the active file's tab, taking an unsaved edit with it — vim's `:qa`.
+    ///
+    /// `close_editor_tab` asks before it drops a dirty buffer, and asking twice is how the × and
+    /// `cmd-w` force it. This arms that same confirmation rather than adding a second way to close
+    /// a tab, so there is still exactly one path that discards a buffer.
+    pub fn discard_active_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let index = open.editor.active;
+        let Some(file) = open.editor.open.get(index) else {
+            return;
+        };
+        open.editor.pending_tab_close = Some(file.key());
+        self.close_editor_tab(index, cx);
+    }
+
     /// Write the active file back.
     ///
     /// Nothing happens with no project, no active file, bytes that never arrived, or a read the
@@ -555,6 +581,12 @@ impl AppState {
         let Some(file) = open.editor.active_file() else {
             return;
         };
+        // An untitled buffer names nothing on disk, so the save is a question first.
+        if file.untitled {
+            let key = file.key();
+            self.ask_save_as(key, cx);
+            return;
+        }
         if !file.savable() {
             return;
         }
@@ -576,6 +608,119 @@ impl AppState {
             expected,
         });
         cx.notify();
+    }
+
+    /// Open an empty buffer with no path yet.
+    ///
+    /// The tab and its panel open together, the same two steps `select_file` takes; the buffer
+    /// itself is built by the arrival machinery, because a buffer needs a window and this does
+    /// not have one to hand.
+    pub fn new_untitled_file(&mut self, _: &NewFile, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let markdown_open = self.workbench.settings.ui.markdown_open.layout();
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        // Numbered past whatever is already open, so two of them are told apart.
+        let path = (1..)
+            .map(|n| format!("untitled-{n}"))
+            .find(|path| open.editor.index_of(path).is_none())
+            .expect("the numbering grows without bound");
+        open.editor
+            .open
+            .push(OpenFile::untitled(&path, markdown_open));
+        open.editor.active = open.editor.open.len() - 1;
+        self.pending_editor_focus = Some(tab_key(&path, Subject::File));
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::File(tab_key(
+                &path,
+                Subject::File,
+            ))));
+        // No read is coming, so the empty bytes are handed over as if one had arrived.
+        self.pending_files.push(FileArrival {
+            project,
+            path,
+            contents: FileContents {
+                bytes: Vec::new(),
+                len: 0,
+                truncated: false,
+                is_binary: false,
+                version: None,
+            },
+        });
+        cx.notify();
+    }
+
+    fn ask_save_as(&mut self, key: String, cx: &mut Context<Self>) {
+        self.workbench.file_dialog = Some(FileDialog::SaveAs { key });
+        cx.notify();
+    }
+
+    /// Give an untitled buffer a path and write it there.
+    ///
+    /// The tab is retitled on the click rather than on the answer — the same bet `select_file`
+    /// makes — so a refusal lands on `ProjectFileError` for the path the user chose and the
+    /// message on the tab reads correctly. `expected: None` is what already means *create, and
+    /// refuse if anything is there*, so there is no new host code behind this at all.
+    pub(super) fn save_untitled_as(&mut self, key: &str, path: String, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            return;
+        };
+        let Some(text) = open.editor.open[at]
+            .buffer()
+            .map(|buffer| buffer.read(cx).value().to_string())
+        else {
+            return;
+        };
+        self.retarget_editor_tab(project, key, &path, cx);
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_mut(&path)
+        {
+            file.mark_saving(text.clone());
+        }
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path: path,
+            bytes: text.into_bytes(),
+            expected: None,
+        });
+        cx.notify();
+    }
+
+    /// Point one open tab at another path, keeping its buffer.
+    ///
+    /// The panel is keyed by the tab key, and the key is the path — so the panel that drew the old
+    /// key is taken out and one for the new key put in. The buffer lives on the tab rather than in
+    /// the panel, so nothing typed is lost on the way.
+    pub(super) fn retarget_editor_tab(
+        &mut self,
+        project: ProjectId,
+        key: &str,
+        path: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        file.retarget(path);
+        let fresh = file.key();
+        self.pending_panels
+            .push(PanelEdit::Close(PanelKind::File(key.to_string())));
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::File(fresh.clone())));
+        self.pending_editor_focus = Some(fresh);
+        self.remember(project, cx);
     }
 
     /// Turn everything that arrived since the last frame into a buffer.

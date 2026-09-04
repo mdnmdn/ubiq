@@ -39,11 +39,12 @@ use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
 };
 use crate::state::viewport::{Content, Viewport};
+use crate::state::vim::VimState;
 use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
-    ExplorerState, ExplorerView, FileBody, FileLanguage, HarnessChoice, LogState, MenuId,
-    NewPaneRow, OpenFile, PanelKind, PendingNewAgent, ProjectSettings, ProjectSettingsMode,
+    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, HarnessChoice, LogState,
+    MenuId, NewPaneRow, OpenFile, PanelKind, PendingNewAgent, ProjectSettings, ProjectSettingsMode,
     RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
@@ -58,7 +59,7 @@ use gpui_component::dock::{DockArea, DockEvent, PanelId};
 use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
-use ubiq_proto::files::{DiffBase, FileContents, FileError};
+use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{CliShortcutAction, Message, WorkspaceInfo};
@@ -82,11 +83,27 @@ const CACHE_DEPTH: u8 = 3;
 /// cache on the frame; waiting this long coalesces a burst into one background walk.
 const FILTER_DEBOUNCE: Duration = Duration::from_millis(100);
 
+/// How long a ticked "don't ask again" keeps a folder move from asking. In memory and per window,
+/// so it lapses on its own and there is nothing to migrate.
+const MOVE_UNASKED: Duration = Duration::from_secs(10 * 60);
+
 /// How long after the last zoom a Markdown preview is rebuilt. The rebuild throws away a parsed
 /// document, so a held zoom key must not do it once per point.
 const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
 
-gpui::actions!(ubiq, [OpenSearch, SaveFile, CloseEditor, ZoomIn, ZoomOut]);
+gpui::actions!(
+    ubiq,
+    [
+        OpenSearch,
+        SaveFile,
+        NewFile,
+        CloseEditor,
+        ZoomIn,
+        ZoomOut,
+        DialogConfirm,
+        DialogCancel
+    ]
+);
 
 /// The process-wide switchboard, so every window reaches the same host.
 ///
@@ -398,6 +415,13 @@ pub struct AppState {
     /// so a drag that is interrupted leaves the pan where the last move put it.
     viewport_drag: RefCell<Option<(String, gpui::Point<gpui::Pixels>)>>,
 
+    /// Modal editing: which mode the focused input is in, and any half-typed command. One per
+    /// window rather than one per input, because exactly one input holds focus.
+    pub vim: VimState,
+    /// The input `vim` is about. Moving focus to a different one resets the mode, so that a
+    /// composer is never left in Normal mode by a buffer the user has stopped looking at.
+    pub(crate) vim_focus: Option<gpui::EntityId>,
+
     /// The component library's own state entities. Each open file owns its buffer, so none of
     /// them is the editor's.
     pub chat_input: Entity<TextareaState>,
@@ -414,6 +438,9 @@ pub struct AppState {
     /// half, indexed the same way.
     pub column_inputs: Vec<Entity<TextareaState>>,
     pub file_filter: Entity<InputState>,
+    /// What a file dialog is typing into: a new path's name, a rename, or where an untitled buffer
+    /// is to be saved. One field, because one dialog is up at a time.
+    pub file_name: Entity<InputState>,
     /// The Git screen's search over the log, and its commit box. The entities are the window's and
     /// the text in them is the project's, so both are mirrored into the project's `GitView`.
     pub git_search: Entity<InputState>,
@@ -532,6 +559,7 @@ mod projects;
 mod settings;
 mod shell;
 mod sink;
+mod vim;
 mod wire;
 
 /// A comma-separated line as a list: trimmed, and without the empties a trailing comma leaves.
@@ -606,6 +634,8 @@ fn describe(error: &FileError) -> String {
 pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-n", NewFile, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-n", NewFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("cmd-w", CloseEditor, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-w", CloseEditor, Some("Workbench")),
@@ -613,6 +643,10 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-shift-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
+        // Enter answers whichever file question is up; Escape takes it away. Both are handed back
+        // when no dialog is up — `AppState::confirm_dialog` says why that matters.
+        gpui::KeyBinding::new("enter", DialogConfirm, Some("Workbench")),
+        gpui::KeyBinding::new("escape", DialogCancel, Some("Workbench")),
     ]);
     // ⌘⇧F means project search wherever the caret is, including inside a field.
     //
@@ -626,6 +660,11 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Input")),
         gpui::KeyBinding::new("cmd-alt-f", gpui_component::input::Replace, Some("Input")),
+        // The prompt dialogs put the keyboard in a field, and the component library binds keys at
+        // the field's own depth — so Escape is bound there too, or it never reaches the window.
+        // Enter is deliberately *not*: it belongs to the chat composer and every other field, and
+        // the dialog's field submits through its own `PressEnter` subscription instead.
+        gpui::KeyBinding::new("escape", DialogCancel, Some("Input")),
     ]);
     // The file picker's and the explorer's, which are the field's as well as the surface's and
     // have to be registered after the component library's own — `ui::file_picker::key_bindings`

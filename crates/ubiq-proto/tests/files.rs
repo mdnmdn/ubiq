@@ -1,9 +1,12 @@
 //! The file family's payloads on the wire.
 //!
-//! Both tests guard a property somebody would otherwise simplify away: that a failure crosses as a
-//! kind the interface can branch on rather than as prose, and that contents cross as bytes.
+//! Each test guards a property somebody would otherwise simplify away: that a failure crosses as a
+//! kind the interface can branch on rather than as prose, that contents cross as bytes, and that an
+//! edit says which of the five it is by name.
 
-use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion};
+use ubiq_proto::files::{
+    DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion, PathOp,
+};
 
 #[test]
 fn a_file_error_round_trips_by_kind() {
@@ -82,4 +85,33 @@ fn a_version_with_no_modification_time_is_absent_rather_than_null() {
     let json = serde_json::to_string(&version).unwrap();
     assert_eq!(json, r#"{"len":12}"#);
     assert_eq!(serde_json::from_str::<FileVersion>(&json).unwrap(), version);
+}
+
+#[test]
+fn a_path_op_round_trips_by_name() {
+    // `Trash` and `Delete` are the pair worth pinning: they are two different promises to the user,
+    // and a rename that collapsed them into one name would keep compiling.
+    let cases = [
+        PathOp::Create { dir: false },
+        PathOp::Create { dir: true },
+        PathOp::Move,
+        PathOp::Copy,
+        PathOp::Trash,
+        PathOp::Delete,
+    ];
+
+    for op in cases {
+        let json = serde_json::to_string(&op).unwrap();
+        assert_eq!(serde_json::from_str::<PathOp>(&json).unwrap(), op);
+    }
+
+    assert_eq!(serde_json::to_string(&PathOp::Trash).unwrap(), r#""Trash""#);
+    assert_eq!(
+        serde_json::to_string(&PathOp::Delete).unwrap(),
+        r#""Delete""#
+    );
+    assert_eq!(
+        serde_json::to_string(&PathOp::Create { dir: true }).unwrap(),
+        r#"{"Create":{"dir":true}}"#
+    );
 }
