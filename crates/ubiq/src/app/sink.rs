@@ -177,50 +177,38 @@ impl AppState {
         cx.notify();
     }
 
+    /// Which colour the two project forms are editing: the live dialog's when it is up, the
+    /// sink's fixture otherwise. One field, so the maths behind it is written once.
+    pub(crate) fn colour_field(&mut self) -> &mut ColourField {
+        match self.workbench.project_settings.as_mut() {
+            Some(settings) => &mut settings.colour,
+            None => &mut self.sink.project.colour,
+        }
+    }
+
+    /// Print that field's colour into whichever hex input belongs to it.
+    fn sync_colour_hex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.project_settings.is_some() {
+            self.sync_project_form_hex(window, cx);
+        } else {
+            self.sync_sink_project_hex(window, cx);
+        }
+    }
+
     pub fn set_sink_project_colour(
         &mut self,
         colour: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(settings) = self.workbench.project_settings.as_mut() {
-            settings.colour = colour;
-            settings.custom = None;
-            settings.picker_open = false;
-            self.sync_project_form_hex(window, cx);
-        } else {
-            self.sink.project.set_swatch(colour);
-            self.sync_sink_project_hex(window, cx);
-        }
+        self.colour_field().set_swatch(colour);
+        self.sync_colour_hex(window, cx);
         cx.notify();
     }
 
     pub fn toggle_sink_colour_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(settings) = self.workbench.project_settings.as_mut() {
-            let open = !settings.picker_open;
-            if open {
-                let rgb = settings
-                    .custom
-                    .unwrap_or_else(|| project_swatch_rgb(settings.colour));
-                let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
-                settings.hue = hue;
-                settings.sat = sat;
-                settings.val = val;
-            }
-            settings.picker_open = open;
-            self.sync_project_form_hex(window, cx);
-        } else {
-            let open = !self.sink.project.picker_open;
-            if open {
-                let rgb = self.sink_project_rgb();
-                let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
-                self.sink.project.hue = hue;
-                self.sink.project.sat = sat;
-                self.sink.project.val = val;
-            }
-            self.sink.project.picker_open = open;
-            self.sync_sink_project_hex(window, cx);
-        }
+        self.colour_field().toggle_picker();
+        self.sync_colour_hex(window, cx);
         cx.notify();
     }
 
@@ -232,20 +220,8 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(settings) = self.workbench.project_settings.as_mut() {
-            settings.hue = hue.clamp(0.0, 1.0);
-            settings.sat = sat.clamp(0.0, 1.0);
-            settings.val = val.clamp(0.0, 1.0);
-            settings.custom = Some(crate::state::sink::hsv_to_rgb(
-                settings.hue,
-                settings.sat,
-                settings.val,
-            ));
-            self.sync_project_form_hex(window, cx);
-        } else {
-            self.sink.project.set_hsv(hue, sat, val);
-            self.sync_sink_project_hex(window, cx);
-        }
+        self.colour_field().set_hsv(hue, sat, val);
+        self.sync_colour_hex(window, cx);
         cx.notify();
     }
 
@@ -254,28 +230,15 @@ impl AppState {
         let Some(rgb) = crate::state::sink::parse_hex(text.as_ref()) else {
             return;
         };
-        if self.sink.project.custom == Some(rgb) {
-            return;
+        if self.sink.project.colour.apply_hex(rgb) {
+            cx.notify();
         }
-        if self.sink.project.custom.is_none() && rgb == project_swatch_rgb(self.sink.project.colour)
-        {
-            return;
-        }
-        self.sink.project.set_rgb(rgb);
-        cx.notify();
     }
 
     fn sync_sink_project_hex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let hex = crate::state::sink::hex_string(self.sink_project_rgb());
+        let hex = crate::state::sink::hex_string(self.sink.project.colour.rgb());
         let input = self.sink_project_hex.clone();
         input.update(cx, |input, cx| input.set_value(&hex, window, cx));
-    }
-
-    fn sink_project_rgb(&self) -> u32 {
-        self.sink
-            .project
-            .custom
-            .unwrap_or_else(|| project_swatch_rgb(self.sink.project.colour))
     }
 
     pub fn reset_sink_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {

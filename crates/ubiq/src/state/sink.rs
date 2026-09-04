@@ -451,8 +451,9 @@ impl SettingsDemo {
 // ── Project settings ────────────────────────────────────────────────
 
 /// The left nav of the project settings dialog.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ProjectNav {
+    #[default]
     General,
     Documentation,
     Integrations,
@@ -493,11 +494,13 @@ pub const PROJECT_ABOUT: &str = "Tauri + React desktop app that multiplexes codi
 pub const PROJECT_ABOUT_LIMIT: usize = 280;
 pub const PROJECT_COLOUR: usize = 0;
 
-/// What the project settings dialog holds between frames.
-pub struct ProjectDemo {
-    pub nav: ProjectNav,
+/// The colour half of a project form: which swatch is picked, the free colour that took over from
+/// it, and the picker's own state. One shape, because the sink's dialog and the live one are the
+/// same form and the maths behind them has to be the same maths.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ColourField {
     /// Index into the project swatches, used while [`Self::custom`] is empty.
-    pub colour: usize,
+    pub swatch: usize,
     /// A free colour the picker committed, as `0xRRGGBB`. Takes over from the swatch.
     pub custom: Option<u32>,
     pub picker_open: bool,
@@ -506,11 +509,10 @@ pub struct ProjectDemo {
     pub val: f32,
 }
 
-impl Default for ProjectDemo {
+impl Default for ColourField {
     fn default() -> Self {
         Self {
-            nav: ProjectNav::General,
-            colour: PROJECT_COLOUR,
+            swatch: PROJECT_COLOUR,
             custom: None,
             picker_open: false,
             hue: 0.6,
@@ -520,9 +522,20 @@ impl Default for ProjectDemo {
     }
 }
 
-impl ProjectDemo {
-    pub fn reset(&mut self) {
-        *self = Self::default();
+impl ColourField {
+    /// What a form with no colour behind it reads as: the picker is shut and nothing is picked.
+    pub const NONE: Self = Self {
+        swatch: 0,
+        custom: None,
+        picker_open: false,
+        hue: 0.0,
+        sat: 0.0,
+        val: 0.0,
+    };
+
+    /// The colour on screen: the free one if there is one, else the swatch's.
+    pub fn rgb(&self) -> u32 {
+        self.custom.unwrap_or_else(|| swatch_rgb(self.swatch))
     }
 
     pub fn set_hsv(&mut self, hue: f32, sat: f32, val: f32) {
@@ -541,9 +554,55 @@ impl ProjectDemo {
     }
 
     pub fn set_swatch(&mut self, index: usize) {
-        self.colour = index;
+        self.swatch = index;
         self.custom = None;
         self.picker_open = false;
+    }
+
+    /// Open the picker on the colour that is showing, or shut it.
+    pub fn toggle_picker(&mut self) {
+        let open = !self.picker_open;
+        if open {
+            self.seed_hsv();
+        }
+        self.picker_open = open;
+    }
+
+    /// Point the picker's three sliders at the colour that is showing.
+    pub fn seed_hsv(&mut self) {
+        let (hue, sat, val) = rgb_to_hsv(self.rgb());
+        self.hue = hue;
+        self.sat = sat;
+        self.val = val;
+    }
+
+    /// Take a colour typed into the hex field. Nothing happens when it is the colour already
+    /// showing — a field syncing itself must not turn a swatch into a custom colour.
+    pub fn apply_hex(&mut self, rgb: u32) -> bool {
+        if self.custom == Some(rgb) || (self.custom.is_none() && rgb == swatch_rgb(self.swatch)) {
+            return false;
+        }
+        self.set_rgb(rgb);
+        true
+    }
+}
+
+/// One project swatch as `0xRRGGBB`: the theme's colour, seen the way the picker works in.
+pub fn swatch_rgb(index: usize) -> u32 {
+    let colour = crate::theme::project_colour(index);
+    rgb_from_channels(colour.r, colour.g, colour.b)
+}
+
+/// What the project settings dialog holds between frames.
+#[derive(Default)]
+pub struct ProjectDemo {
+    pub nav: ProjectNav,
+    pub colour: ColourField,
+}
+
+impl ProjectDemo {
+    pub fn reset(&mut self) {
+        *self = Self::default();
     }
 }
 

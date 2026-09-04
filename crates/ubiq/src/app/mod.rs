@@ -35,7 +35,7 @@ use crate::state::settings::{
     self as ui_settings, LoginState, LoginStep, MarkdownOpen, SettingsSection,
 };
 use crate::state::sink::{
-    ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
+    ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
 };
 use crate::state::viewport::{Content, Viewport};
 use crate::state::work::WorkProjection;
@@ -576,11 +576,6 @@ fn read_guest_file(path: &Path) -> Result<FileContents, String> {
         is_binary,
         version: None,
     })
-}
-
-fn project_swatch_rgb(index: usize) -> u32 {
-    let colour = theme::project_colour(index);
-    crate::state::sink::rgb_from_channels(colour.r, colour.g, colour.b)
 }
 
 fn describe(error: &FileError) -> String {

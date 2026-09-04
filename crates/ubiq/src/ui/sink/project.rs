@@ -18,8 +18,8 @@ use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use crate::app::AppState;
 use crate::state::WindowRegistry;
 use crate::state::sink::{
-    PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK, PROJECT_NAME,
-    PROJECT_PATH, ProjectNav, hex_string, hsv_to_rgb,
+    ColourField, PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK,
+    PROJECT_NAME, PROJECT_PATH, ProjectNav, hex_string, hsv_to_rgb,
 };
 use crate::state::workbench::ProjectSettingsMode;
 use crate::theme;
@@ -44,36 +44,15 @@ impl Form {
     }
 }
 
-struct ColourPick {
-    colour: usize,
-    custom: Option<u32>,
-    picker_open: bool,
-    hue: f32,
-    sat: f32,
-    val: f32,
-}
-
-fn colour_of(app: &AppState, form: Form) -> ColourPick {
+fn colour_of(app: &AppState, form: Form) -> ColourField {
     match form {
-        Form::Sink => ColourPick {
-            colour: app.sink.project.colour,
-            custom: app.sink.project.custom,
-            picker_open: app.sink.project.picker_open,
-            hue: app.sink.project.hue,
-            sat: app.sink.project.sat,
-            val: app.sink.project.val,
-        },
-        Form::Live => {
-            let settings = app.workbench.project_settings.as_ref();
-            ColourPick {
-                colour: settings.map(|s| s.colour).unwrap_or(0),
-                custom: settings.and_then(|s| s.custom),
-                picker_open: settings.map(|s| s.picker_open).unwrap_or(false),
-                hue: settings.map(|s| s.hue).unwrap_or(0.0),
-                sat: settings.map(|s| s.sat).unwrap_or(0.0),
-                val: settings.map(|s| s.val).unwrap_or(0.0),
-            }
-        }
+        Form::Sink => app.sink.project.colour,
+        Form::Live => app
+            .workbench
+            .project_settings
+            .as_ref()
+            .map(|settings| settings.colour)
+            .unwrap_or(ColourField::NONE),
     }
 }
 
@@ -351,7 +330,7 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
 
 fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form) -> AnyElement {
     let picked = colour_of(app, form);
-    let colour = picked.colour;
+    let colour = picked.swatch;
     let custom = picked.custom;
     let about = form_about(app, form).read(cx).value();
     let used = about.chars().count();
@@ -527,12 +506,7 @@ fn colour_picker(
                         .flex_none()
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            let hue = this
-                                .workbench
-                                .project_settings
-                                .as_ref()
-                                .map(|s| s.hue)
-                                .unwrap_or(this.sink.project.hue);
+                            let hue = this.colour_field().hue;
                             this.set_sink_project_hsv(hue, s, v, window, cx)
                         }))
                         .into_any_element()
@@ -556,12 +530,8 @@ fn colour_picker(
                     this.border_1().border_color(theme::text())
                 })
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    let (sat, val) = this
-                        .workbench
-                        .project_settings
-                        .as_ref()
-                        .map(|s| (s.sat, s.val))
-                        .unwrap_or((this.sink.project.sat, this.sink.project.val));
+                    let field = this.colour_field();
+                    let (sat, val) = (field.sat, field.val);
                     this.set_sink_project_hsv(h, sat, val, window, cx)
                 }))
                 .into_any_element()
@@ -650,7 +620,7 @@ fn current_rgba(app: &AppState, form: Form) -> Rgba {
     let picked = colour_of(app, form);
     match picked.custom {
         Some(rgb) => theme::rgba_of(rgb),
-        None => theme::project_colour(picked.colour),
+        None => theme::project_colour(picked.swatch),
     }
 }
 
@@ -698,8 +668,8 @@ fn footer(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement 
             let about = app.sink_project_about.read(cx).value();
             let dirty = name.as_ref() != PROJECT_NAME
                 || about.as_ref() != PROJECT_ABOUT
-                || app.sink.project.colour != PROJECT_COLOUR
-                || app.sink.project.custom.is_some();
+                || app.sink.project.colour.swatch != PROJECT_COLOUR
+                || app.sink.project.colour.custom.is_some();
             (
                 if dirty {
                     "Unsaved changes"

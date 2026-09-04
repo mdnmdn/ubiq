@@ -9,28 +9,16 @@ impl AppState {
         let Some(settings) = self.workbench.project_settings.as_mut() else {
             return;
         };
-        if settings.custom == Some(rgb) {
-            return;
+        if settings.colour.apply_hex(rgb) {
+            cx.notify();
         }
-        if settings.custom.is_none() && rgb == project_swatch_rgb(settings.colour) {
-            return;
-        }
-        let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
-        settings.hue = hue;
-        settings.sat = sat;
-        settings.val = val;
-        settings.custom = Some(rgb & 0x00ff_ffff);
-        cx.notify();
     }
 
     pub(super) fn sync_project_form_hex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(settings) = self.workbench.project_settings.as_ref() else {
             return;
         };
-        let rgb = settings
-            .custom
-            .unwrap_or_else(|| project_swatch_rgb(settings.colour));
-        let hex = crate::state::sink::hex_string(rgb);
+        let hex = crate::state::sink::hex_string(settings.colour.rgb());
         let input = self.project_form_hex.clone();
         input.update(cx, |input, cx| input.set_value(&hex, window, cx));
     }
@@ -266,12 +254,10 @@ impl AppState {
         self.workbench.settings.open = false;
         self.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Create { path },
-            colour,
-            custom: None,
-            picker_open: false,
-            hue: 0.6,
-            sat: 0.6,
-            val: 0.95,
+            colour: ColourField {
+                swatch: colour,
+                ..ColourField::default()
+            },
         });
         self.fill_project_form = true;
         cx.notify();
@@ -301,12 +287,11 @@ impl AppState {
         self.workbench.settings.open = false;
         self.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Edit { project },
-            colour,
-            custom,
-            picker_open: false,
-            hue: 0.6,
-            sat: 0.6,
-            val: 0.95,
+            colour: ColourField {
+                swatch: colour,
+                custom,
+                ..ColourField::default()
+            },
         });
         self.fill_project_form = true;
         cx.notify();
@@ -328,8 +313,8 @@ impl AppState {
             self.workbench.project_settings = Some(settings);
             return;
         }
-        let colour = settings.colour;
-        let custom = settings.custom;
+        let colour = settings.colour.swatch;
+        let custom = settings.colour.custom;
         match settings.mode {
             ProjectSettingsMode::Create { path } => {
                 self.add_project(path, Some(name), Some(colour), custom, false, cx);
@@ -357,14 +342,8 @@ impl AppState {
                 .map(|entry| entry.record.name.clone())
                 .unwrap_or_default(),
         };
-        let rgb = settings
-            .custom
-            .unwrap_or_else(|| project_swatch_rgb(settings.colour));
-        let (hue, sat, val) = crate::state::sink::rgb_to_hsv(rgb);
         if let Some(settings) = self.workbench.project_settings.as_mut() {
-            settings.hue = hue;
-            settings.sat = sat;
-            settings.val = val;
+            settings.colour.seed_hsv();
         }
         let name_input = self.rename_input.clone();
         name_input.update(cx, |input, cx| {

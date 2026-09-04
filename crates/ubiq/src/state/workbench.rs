@@ -16,6 +16,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ShellInfo};
 
 use crate::state::settings::SettingsState;
+use crate::state::sink::ColourField;
 use crate::theme::ThemeId;
 
 /// The left rail's destinations. `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and `Sink` are
@@ -112,12 +113,7 @@ pub enum ProjectSettingsMode {
 /// frame — `set_value` needs a window, and the folder chooser does not come with one.
 pub struct ProjectSettings {
     pub mode: ProjectSettingsMode,
-    pub colour: usize,
-    pub custom: Option<u32>,
-    pub picker_open: bool,
-    pub hue: f32,
-    pub sat: f32,
-    pub val: f32,
+    pub colour: ColourField,
 }
 
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
