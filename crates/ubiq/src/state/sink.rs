@@ -56,32 +56,12 @@ impl SinkSection {
 
     /// What the strip's tab says.
     pub fn label(self) -> &'static str {
-        match self {
-            SinkSection::Editor => "Editor",
-            SinkSection::Markdown => "Markdown",
-            SinkSection::Mermaid => "Mermaid",
-            SinkSection::Excalidraw => "Excalidraw",
-            SinkSection::Style => "Style",
-            SinkSection::Files => "Files",
-            SinkSection::Settings => "Settings",
-            SinkSection::Project => "Project",
-        }
+        SECTION_COPY[self as usize].0
     }
 
     /// The one line under the page's title: what this page is for testing.
     pub fn note(self) -> &'static str {
-        match self {
-            SinkSection::Editor => "The plain buffer: highlighting, line numbers, folding.",
-            SinkSection::Markdown => "A document with a diagram fence of each kind inside it.",
-            SinkSection::Mermaid => "A diagram the renderer drew, cached by its content.",
-            SinkSection::Excalidraw => "A scene painted from its own JSON.",
-            SinkSection::Style => "Every token, surface, control and field, on one page.",
-            SinkSection::Files => "The file picker, raised every way a screen can ask for it.",
-            SinkSection::Settings => {
-                "Application settings: the nav, the rows, the harness accordion."
-            }
-            SinkSection::Project => "Project settings: the dialog with a nav, a form and a footer.",
-        }
+        SECTION_COPY[self as usize].1
     }
 
     /// The document this page draws, or nothing for the page that draws no document.
@@ -89,6 +69,39 @@ impl SinkSection {
         docs().iter().find(|doc| doc.section == self)
     }
 }
+
+/// The tab and the line under the title, one row per [`SinkSection`], in variant order.
+const SECTION_COPY: [(&str, &str); 8] = [
+    (
+        "Editor",
+        "The plain buffer: highlighting, line numbers, folding.",
+    ),
+    (
+        "Markdown",
+        "A document with a diagram fence of each kind inside it.",
+    ),
+    (
+        "Mermaid",
+        "A diagram the renderer drew, cached by its content.",
+    ),
+    ("Excalidraw", "A scene painted from its own JSON."),
+    (
+        "Style",
+        "Every token, surface, control and field, on one page.",
+    ),
+    (
+        "Files",
+        "The file picker, raised every way a screen can ask for it.",
+    ),
+    (
+        "Settings",
+        "Application settings: the nav, the rows, the harness accordion.",
+    ),
+    (
+        "Project",
+        "Project settings: the dialog with a nav, a form and a footer.",
+    ),
+];
 
 /// One fixture document: what it is called, which page draws it, and its text.
 ///
@@ -158,40 +171,41 @@ pub enum SinkModal {
 
 impl SinkModal {
     pub fn title(self) -> &'static str {
-        match self {
-            SinkModal::Confirm => "Close this pane?",
-            SinkModal::Form => "Name this session",
-            SinkModal::Danger => "Forget this project?",
-        }
+        MODAL_COPY[self as usize].0
     }
 
     /// What the body says. One paragraph, because a modal that needs two is a panel.
     pub fn note(self) -> &'static str {
-        match self {
-            SinkModal::Confirm => {
-                "The harness in it is still running. Closing the pane ends it, and its scrollback \
-                 goes with it."
-            }
-            SinkModal::Form => {
-                "A session is a named piece of work with a folder. The name is what the rail, the \
-                 graph and the board call it."
-            }
-            SinkModal::Danger => {
-                "Ubiq forgets the folder, its arrangement and everything it remembered about it. \
-                 Nothing on disk is touched."
-            }
-        }
+        MODAL_COPY[self as usize].1
     }
 
     /// What the confirming button says. Never "OK": a button says what it does.
     pub fn confirm(self) -> &'static str {
-        match self {
-            SinkModal::Confirm => "Close the pane",
-            SinkModal::Form => "Create",
-            SinkModal::Danger => "Forget it",
-        }
+        MODAL_COPY[self as usize].2
     }
 }
+
+/// Title, body and confirming button, one row per [`SinkModal`], in variant order.
+const MODAL_COPY: [(&str, &str, &str); 3] = [
+    (
+        "Close this pane?",
+        "The harness in it is still running. Closing the pane ends it, and its scrollback goes \
+         with it.",
+        "Close the pane",
+    ),
+    (
+        "Name this session",
+        "A session is a named piece of work with a folder. The name is what the rail, the graph \
+         and the board call it.",
+        "Create",
+    ),
+    (
+        "Forget this project?",
+        "Ubiq forgets the folder, its arrangement and everything it remembered about it. Nothing \
+         on disk is touched.",
+        "Forget it",
+    ),
+];
 
 /// The independent facets the style reference's toggle row draws. Four, because that is what the
 /// graph's bucket row has and the row has to be tested at the width it is used at.
@@ -229,16 +243,19 @@ impl SettingsNav {
     }
 
     pub fn label(self) -> &'static str {
-        match self {
-            SettingsNav::Appearance => "Appearance",
-            SettingsNav::Harnesses => "Harnesses",
-            SettingsNav::AgentDefaults => "Agent defaults",
-            SettingsNav::Sessions => "Sessions & worktrees",
-            SettingsNav::Keyboard => "Keyboard",
-            SettingsNav::Privacy => "Privacy & data",
-        }
+        SETTINGS_NAV_LABELS[self as usize]
     }
 }
+
+/// One label per [`SettingsNav`], in variant order.
+const SETTINGS_NAV_LABELS: [&str; 6] = [
+    "Appearance",
+    "Harnesses",
+    "Agent defaults",
+    "Sessions & worktrees",
+    "Keyboard",
+    "Privacy & data",
+];
 
 /// Which dropdown on the settings page is the one `MenuId::SinkSettings` is holding open.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -451,22 +468,21 @@ impl ProjectNav {
     }
 
     pub fn label(self) -> &'static str {
-        match self {
-            ProjectNav::General => "General",
-            ProjectNav::Documentation => "Documentation",
-            ProjectNav::Integrations => "Integrations",
-        }
+        PROJECT_NAV_COPY[self as usize].0
     }
 
     /// The count the nav prints, when the item has one.
     pub fn count(self) -> Option<u32> {
-        match self {
-            ProjectNav::Documentation => Some(4),
-            ProjectNav::Integrations => Some(1),
-            ProjectNav::General => None,
-        }
+        PROJECT_NAV_COPY[self as usize].1
     }
 }
+
+/// Label and the count beside it, one row per [`ProjectNav`], in variant order.
+const PROJECT_NAV_COPY: [(&str, Option<u32>); 3] = [
+    ("General", None),
+    ("Documentation", Some(4)),
+    ("Integrations", Some(1)),
+];
 
 /// The project the dialog is about. A fixture: the sink has no project behind it.
 pub const PROJECT_NAME: &str = "agent-manager";
