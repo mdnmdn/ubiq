@@ -17,36 +17,46 @@
 #      script terminates on its own once the turn is "done", so the
 #      integration test's event-drain loop returns rather than hanging.
 #
-# `CodexBridge` always serializes outbound JSON-RPC objects via
-# `serde_json`'s default (non-`preserve_order`) map, which sorts object keys
-# alphabetically. For every REQUEST we send (`id` + `jsonrpc` + `method` +
-# `params`), that means `id` always sorts first ("i" < "j" < "m" < "p"), so
-# every request line looks like `{"id":<N>,"jsonrpc":"2.0","method":"...",...`.
-# This script relies on that fixed ordering to pull `id` out with `sed`
-# rather than a JSON parser (kept POSIX `sh` + `sed`/`grep`, no `jq`
-# dependency), and matches on `method` with a `case` glob against the raw
-# line rather than parsing.
+# **Key order is not fixed, and nothing here may assume it is.** `serde_json`
+# sorts object keys alphabetically only in its default configuration; with the
+# `preserve_order` feature its map is an `IndexMap` and keys come out in
+# insertion order instead. That feature is not agent-manager's choice — it
+# arrives through Cargo's workspace-wide feature unification, because Zed's
+# `gpui`/`http_client` crates (which `crates/ubiq` needs) turn it on. So the
+# same request is `{"id":1,"jsonrpc":...}` under `cargo test -p agent-manager`
+# and `{"jsonrpc":"2.0","id":1,...}` under `cargo test --workspace`.
+#
+# An earlier version of this script pulled `id` out with a `sed` anchored to
+# `^{"id":`, which quietly produced a malformed response under the workspace
+# build; the bridge then never matched a response to its `initialize` request
+# and timed out after 10s. That looked for a long time like a load-dependent
+# flake. It was not: it is deterministic per build configuration.
+#
+# `method` is matched with a `case` glob against the raw line, which is
+# already order-independent. Kept to POSIX `sh` builtins — no `jq` dependency.
 
+# Sets `$id` from a JSON-RPC request line, wherever `"id":` appears in it.
 extract_id() {
-    # $1: a JSON-RPC request line shaped like {"id":<N>,"jsonrpc":...
-    echo "$1" | sed -n 's/^{"id":\([0-9][0-9]*\).*/\1/p'
+    rest=${1#*\"id\":}  # everything after the first `"id":`
+    rest=${rest%%,*}    # up to the next comma …
+    id=${rest%%\}*}     # … or the closing brace, when `id` is the last key
 }
 
 while IFS= read -r line; do
     case "$line" in
         *'"method":"initialize"'*)
-            id=$(extract_id "$line")
+            extract_id "$line"
             echo "{\"id\":$id,\"jsonrpc\":\"2.0\",\"result\":{\"serverInfo\":{\"name\":\"fake-codex\"}}}"
             ;;
         *'"method":"initialized"'*)
             # Notification (no `id`) — nothing to answer.
             ;;
         *'"method":"thread/start"'*)
-            id=$(extract_id "$line")
+            extract_id "$line"
             echo "{\"id\":$id,\"jsonrpc\":\"2.0\",\"result\":{\"thread\":{\"id\":\"t-1\"}}}"
             ;;
         *'"method":"turn/start"'*)
-            id=$(extract_id "$line")
+            extract_id "$line"
             echo "{\"id\":$id,\"jsonrpc\":\"2.0\",\"result\":{\"turn\":{\"id\":\"turn-1\"}}}"
             echo '{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item-1","itemType":"agentMessage","text":"hello from fake codex"}}}'
             echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"usage":{"input_tokens":3,"output_tokens":4}}}}'
