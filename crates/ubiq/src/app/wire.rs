@@ -168,7 +168,45 @@ impl AppState {
     }
 
     /// Everything the coordinator says, in the order it said it.
+    ///
+    /// The families are disjoint, so each helper answers with the message back when it is
+    /// none of its own and the next one is offered it.
     pub(super) fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
+        let Some(message) = self.receive_pane(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_project(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_file(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_git(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_work(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_conversation(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_session(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_account(message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_search(message, cx) else {
+            return;
+        };
+        // The rest are the window's own words, coming back the wrong way.
+        tracing::warn!("the window was sent a message only it may send: {message:?}");
+    }
+
+    /// The pane family.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_pane(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
         match message {
             Message::WorkspaceSpawned { workspace } => self.open_pane(workspace, cx),
 
@@ -198,7 +236,7 @@ impl AppState {
                 // path: a harness that finishes its own sign-in exits by itself.
                 if self.login_pane() == Some(pane_id) {
                     self.bus.send(Message::CloseWorkspace { pane_id });
-                    return;
+                    return None;
                 }
                 if let Some(project_id) = project {
                     self.bus.send(Message::RefreshProjectGit {
@@ -215,9 +253,18 @@ impl AppState {
                 cx.notify();
             }
 
-            // ── the project family ──────────────────────────────────
-            // Every window is sent the same snapshots, so each replaces by id and the projection
-            // is idempotent by construction.
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The project family.
+    /// Every window is sent the same snapshots, so each replaces by id and the projection
+    /// is idempotent by construction.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_project(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             Message::ProjectList { projects } => {
                 cx.global_mut::<WindowRegistry>().replace_all(projects);
                 self.adopt_if_owed(cx);
@@ -271,17 +318,24 @@ impl AppState {
                 cx.notify();
             }
 
-            // ── the file family ─────────────────────────────────────
-            // Every answer names its project and its path, so one that arrives after the user has
-            // switched projects lands where it belongs rather than on screen.
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The file family.
+    /// Every answer names its project and its path, so one that arrives after the user has
+    /// switched projects lands where it belongs rather than on screen.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_file(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             Message::ProjectTreeListing {
                 project_id,
                 rel_path,
                 listings,
             } => {
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 open.explorer.set_loading(&rel_path, false);
                 let filter = self.workbench.file_filter.clone();
                 for listing in listings {
@@ -382,9 +436,7 @@ impl AppState {
                         full: true,
                     });
                 }
-                let Some(open) = self.projects.get(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get(&project_id)?;
                 // Only folders the tree already holds are re-asked: a listing for one it does not
                 // know is thrown away by `merge` anyway. A burst too large to name its paths says
                 // to re-list the root instead.
@@ -444,14 +496,21 @@ impl AppState {
                 cx.notify();
             }
 
-            // ── the git family ──────────────────────────────────────
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The git family.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_git(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             Message::GitOverview {
                 project_id,
                 overview,
             } => {
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 match overview {
                     None => {
                         open.git = None;
@@ -464,7 +523,7 @@ impl AppState {
                         if let Some(held) = &open.git
                             && next.generation < held.generation
                         {
-                            return;
+                            return None;
                         }
                         let counts = next
                             .counts
@@ -486,11 +545,9 @@ impl AppState {
                 rollups,
                 truncated,
             } => {
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 if !open.explorer.apply_git(generation, &entries, &rollups) {
-                    return;
+                    return None;
                 }
                 open.git_truncated = truncated;
                 // The Git screen's lists are the pairs themselves, so the map is kept whole beside
@@ -502,9 +559,7 @@ impl AppState {
 
             Message::GitError { project_id, error } => {
                 tracing::error!("git {project_id}: {error}");
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 match error {
                     GitFailure::Corrupt | GitFailure::NotFound => {
                         open.git = None;
@@ -519,14 +574,23 @@ impl AppState {
                 cx.notify();
             }
 
-            // ── the work family ─────────────────────────────────────
-            // Every arm is guarded on the project still being held, because an answer can arrive
-            // after the window has stopped holding it — the file family's rule, for the file
-            // family's reason. The work belongs to the project, so an answer for one nobody here
-            // has open has nowhere to be drawn.
-            //
-            // Anything the host confirms clears the last refusal: a sentence about a change that
-            // did not happen is stale the moment one does.
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The work family.
+    /// Every arm is guarded on the project still being held, because an answer can arrive
+    /// after the window has stopped holding it — the file family's rule, for the file
+    /// family's reason. The work belongs to the project, so an answer for one nobody here
+    /// has open has nowhere to be drawn.
+    ///
+    /// Anything the host confirms clears the last refusal: a sentence about a change that
+    /// did not happen is stale the moment one does.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_work(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             Message::WorkList {
                 project_id,
                 sessions,
@@ -534,9 +598,7 @@ impl AppState {
                 tasks,
             } => {
                 self.workbench.work_error = None;
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 open.work.replace_all(sessions, agents, tasks);
                 open.graph.relayout(&open.work);
                 // Pointing the screen at the first agent was the fixture constructor's job. It
@@ -559,9 +621,7 @@ impl AppState {
 
             Message::TaskCreated { project_id, task } => {
                 self.workbench.work_error = None;
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 let id = task.id;
                 open.work.apply_task(task);
                 open.graph
@@ -579,9 +639,7 @@ impl AppState {
 
             Message::TaskChanged { project_id, task } => {
                 self.workbench.work_error = None;
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 // The mark goes on whatever column the answer reports, the old one included: a
                 // refusal that left the card where it was must not leave it saying it is still on
                 // its way.
@@ -608,9 +666,7 @@ impl AppState {
                 task_id,
             } => {
                 self.workbench.work_error = None;
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 open.work.forget_task(task_id);
                 // A panel pointed at a task that has gone reports on nothing, and a mark for a
                 // move that can never be answered would never come off.
@@ -628,9 +684,7 @@ impl AppState {
 
             Message::AgentChanged { project_id, agent } => {
                 self.workbench.work_error = None;
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 open.work.apply_agent(*agent);
                 open.graph
                     .layout
@@ -644,13 +698,45 @@ impl AppState {
                 cx.notify();
             }
 
-            // ── the conversation family ─────────────────────────────
-            //
-            // A live agent joins the work as any other agent does, so the sidebar and the graph
-            // find it with no change of their own. What is different is that its record is then
-            // kept current from the stream rather than from a reply: what the transcript already
-            // says is what the badge, the ring and the token count are read off, because a round
-            // trip per token would be a round trip per token.
+            Message::WorkError {
+                project_id,
+                task_id,
+                error,
+            } => {
+                tracing::error!("work {project_id} {task_id:?}: {error}");
+                self.workbench.work_error = Some(error);
+                // A refusal ends whatever asked for it, so the panel goes back to reporting the
+                // task the host still holds rather than sitting in a field that will not commit.
+                if let Some(board) = self.board_mut(cx) {
+                    board.stop_editing();
+                    board.moving = None;
+                    board.awaiting_new = false;
+                    board.confirm_delete = false;
+                }
+                self.form_filled = None;
+                cx.notify();
+            }
+
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The conversation family.
+    ///
+    /// A live agent joins the work as any other agent does, so the sidebar and the graph
+    /// find it with no change of their own. What is different is that its record is then
+    /// kept current from the stream rather than from a reply: what the transcript already
+    /// says is what the badge, the ring and the token count are read off, because a round
+    /// trip per token would be a round trip per token.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_conversation(
+        &mut self,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
+        match message {
             Message::ConversationStarted {
                 project_id,
                 agent,
@@ -658,9 +744,7 @@ impl AppState {
                 accepts_input,
             } => {
                 self.workbench.work_error = None;
-                let Some(open) = self.projects.get_mut(&project_id) else {
-                    return;
-                };
+                let open = self.projects.get_mut(&project_id)?;
                 let id = agent.id;
                 let harness = agent.harness.clone();
                 let account = agent.account.clone();
@@ -692,20 +776,15 @@ impl AppState {
                 seq,
                 update,
             } => {
-                let Some(open) = self
+                let open = self
                     .projects
                     .values_mut()
-                    .find(|open| open.conversations.contains_key(&agent_id))
-                else {
-                    return;
-                };
-                let Some(conversation) = open.conversations.get_mut(&agent_id) else {
-                    return;
-                };
+                    .find(|open| open.conversations.contains_key(&agent_id))?;
+                let conversation = open.conversations.get_mut(&agent_id)?;
                 if !conversation.is_next(seq) {
                     tracing::warn!(
                         "conversation {agent_id}: update {seq} does not follow the last one \
-                         applied, so something was lost between them; applying it anyway"
+                             applied, so something was lost between them; applying it anyway"
                     );
                 }
                 conversation.apply(seq, *update);
@@ -731,16 +810,11 @@ impl AppState {
                 agent_id,
                 stop_reason,
             } => {
-                let Some(open) = self
+                let open = self
                     .projects
                     .values_mut()
-                    .find(|open| open.conversations.contains_key(&agent_id))
-                else {
-                    return;
-                };
-                let Some(conversation) = open.conversations.get_mut(&agent_id) else {
-                    return;
-                };
+                    .find(|open| open.conversations.contains_key(&agent_id))?;
+                let conversation = open.conversations.get_mut(&agent_id)?;
                 conversation.ended(stop_reason);
                 refresh_agent_record(open, agent_id);
                 cx.notify();
@@ -762,25 +836,16 @@ impl AppState {
                 cx.notify();
             }
 
-            Message::WorkError {
-                project_id,
-                task_id,
-                error,
-            } => {
-                tracing::error!("work {project_id} {task_id:?}: {error}");
-                self.workbench.work_error = Some(error);
-                // A refusal ends whatever asked for it, so the panel goes back to reporting the
-                // task the host still holds rather than sitting in a field that will not commit.
-                if let Some(board) = self.board_mut(cx) {
-                    board.stop_editing();
-                    board.moving = None;
-                    board.awaiting_new = false;
-                    board.confirm_delete = false;
-                }
-                self.form_filled = None;
-                cx.notify();
-            }
+            other => return Some(other),
+        }
+        None
+    }
 
+    /// The session family: what the host is, and what can be started on it.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_session(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             // What the host is. The status bar says so when the root is not the usual one.
             Message::HostInfo {
                 config_root,
@@ -814,9 +879,18 @@ impl AppState {
                 cx.notify();
             }
 
-            // ── the account family ───────────────────────────────────
-            // Replaced whole for the same reason as the two lists above: the host's answer is
-            // the set of identities, and one deleted elsewhere has to leave the screen.
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The account family.
+    /// Replaced whole for the same reason as the two lists above: the host's answer is
+    /// the set of identities, and one deleted elsewhere has to leave the screen.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_account(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             Message::Accounts { accounts } => {
                 self.workbench.settings.accounts = accounts;
                 cx.notify();
@@ -845,7 +919,16 @@ impl AppState {
                 self.login_ended(false, error, cx);
             }
 
-            // ── the search family ────────────────────────────────────
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The search family.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_search(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+        match message {
             Message::SearchMatches {
                 project_id,
                 search_id,
@@ -857,7 +940,7 @@ impl AppState {
                     .as_ref()
                     .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
                 if !dominated {
-                    return;
+                    return None;
                 }
                 if let ubiq_proto::search::Batch::Files(file_hits) = batch {
                     for hit in file_hits {
@@ -894,7 +977,7 @@ impl AppState {
                     .as_ref()
                     .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
                 if !dominated {
-                    return;
+                    return None;
                 }
                 self.search.files_seen = files_seen;
                 cx.notify();
@@ -912,7 +995,7 @@ impl AppState {
                     .as_ref()
                     .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
                 if !dominated {
-                    return;
+                    return None;
                 }
                 self.search.truncated |= truncated;
                 self.search.finished = true;
@@ -931,7 +1014,7 @@ impl AppState {
                     .as_ref()
                     .is_some_and(|a| a.search_id == search_id && a.project_id == project_id);
                 if !dominated {
-                    return;
+                    return None;
                 }
                 self.search.error = Some(error);
                 self.search.finished = true;
@@ -939,9 +1022,9 @@ impl AppState {
                 cx.notify();
             }
 
-            // The rest are the window's own words, coming back the wrong way.
-            other => tracing::warn!("the window was sent a message only it may send: {other:?}"),
+            other => return Some(other),
         }
+        None
     }
 
     /// One path in one project failed.
