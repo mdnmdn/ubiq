@@ -70,6 +70,14 @@ impl ModeLayout {
 pub struct InterfacePrefs {
     pub schema: u32,
     pub theme: ThemeId,
+    /// Every key in the blob this build does not know, kept as it was found and written back out.
+    ///
+    /// Serde drops what a struct does not name, so without this a blob carrying more than this
+    /// build understands — one written by a newer build at the same schema, or by an edition
+    /// keeping a namespaced key of its own — loses those keys the first time this build writes
+    /// the blob back. The doc above promises the forward direction; this is the other one.
+    #[serde(flatten, default)]
+    pub rest: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for InterfacePrefs {
@@ -77,6 +85,7 @@ impl Default for InterfacePrefs {
         Self {
             schema: SCHEMA,
             theme: ThemeId::Dark,
+            rest: Default::default(),
         }
     }
 }
@@ -135,6 +144,14 @@ pub struct ViewPrefs {
     /// default.
     #[serde(default)]
     pub editor_wrap: Option<bool>,
+    /// Every key in the blob this build does not know, kept as it was found and written back out.
+    ///
+    /// Serde drops what a struct does not name, so without this a blob carrying more than this
+    /// build understands — one written by a newer build at the same schema, or by an edition
+    /// keeping a namespaced key of its own — loses those keys the first time this build writes
+    /// the blob back. The doc above promises the forward direction; this is the other one.
+    #[serde(flatten, default)]
+    pub rest: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for ViewPrefs {
@@ -150,6 +167,7 @@ impl Default for ViewPrefs {
             file_filter: String::new(),
             ui_font_size: None,
             editor_wrap: None,
+            rest: Default::default(),
         }
     }
 }

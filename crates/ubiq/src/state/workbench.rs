@@ -214,6 +214,11 @@ pub struct WorkbenchState {
 
     pub rail_mode: RailMode,
     pub theme_id: ThemeId,
+    /// The interface-scope preference keys this build does not know, carried between the blob it
+    /// read and the blob it writes. `remember_interface` builds a fresh `InterfacePrefs`, so
+    /// without somewhere to keep them they would be dropped on the first write — see
+    /// `state/prefs.rs`'s `rest`.
+    pub interface_rest: std::collections::BTreeMap<String, serde_json::Value>,
     pub open_menu: Option<MenuId>,
 
     /// What was typed into the project menu's search field.
@@ -273,6 +278,7 @@ impl Default for WorkbenchState {
             config_root_is_default: true,
             rail_mode: RailMode::Ide,
             theme_id: ThemeId::Dark,
+            interface_rest: Default::default(),
             open_menu: None,
             project_filter: String::new(),
             pending_close: None,

@@ -392,11 +392,12 @@ impl AppState {
 
         match scope {
             Scope::Interface => {
-                if let Some(prefs) = prefs::decode::<prefs::InterfacePrefs>(&blob)
-                    && prefs.theme != self.workbench.theme_id
-                {
-                    self.workbench.theme_id = prefs.theme;
-                    theme::set_mode(prefs.theme, cx);
+                if let Some(prefs) = prefs::decode::<prefs::InterfacePrefs>(&blob) {
+                    self.workbench.interface_rest = prefs.rest;
+                    if prefs.theme != self.workbench.theme_id {
+                        self.workbench.theme_id = prefs.theme;
+                        theme::set_mode(prefs.theme, cx);
+                    }
                 }
             }
             Scope::Project(id) => {

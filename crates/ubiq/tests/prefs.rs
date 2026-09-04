@@ -30,6 +30,7 @@ fn a_blob_survives_the_round_trip() {
         file_filter: "main".to_string(),
         ui_font_size: Some(16.0),
         editor_wrap: Some(false),
+        rest: Default::default(),
     };
 
     let back: ViewPrefs = prefs::decode(&prefs::encode(&view)).expect("decodes");
@@ -129,6 +130,7 @@ fn the_interface_blob_carries_the_palette() {
     let prefs_in = InterfacePrefs {
         schema: prefs::SCHEMA,
         theme: ThemeId::Light,
+        rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
     assert_eq!(back.theme, ThemeId::Light);
@@ -210,4 +212,44 @@ fn the_arrangement_may_be_absent() {
     assert!(view.modes.is_empty());
     let fresh = ModeLayout::default_for(RailMode::Ide);
     assert!(fresh.show_left && fresh.show_right && !fresh.show_bottom);
+}
+
+/// A blob may carry more than this build names — a newer build's field, or an edition's own
+/// namespaced key. Serde drops what a struct does not name, so without `rest` the first write
+/// back would take those keys with it.
+#[test]
+fn a_key_this_build_does_not_know_survives_a_read_and_a_write() {
+    let blob = format!(
+        r#"{{"schema":{},"theme":"Light","vendor.thing":{{"kept":true}}}}"#,
+        prefs::SCHEMA
+    );
+
+    let read: InterfacePrefs = prefs::decode(&blob).expect("decodes");
+    assert_eq!(read.theme, ThemeId::Light);
+    assert_eq!(
+        read.rest.get("vendor.thing"),
+        Some(&serde_json::json!({ "kept": true }))
+    );
+
+    let written = prefs::encode(&read);
+    let again: InterfacePrefs = prefs::decode(&written).expect("decodes");
+    assert_eq!(
+        again.rest, read.rest,
+        "the unknown key did not survive the write"
+    );
+}
+
+/// The same for a project's blob, which is the one an edition would keep a per-project key in.
+#[test]
+fn a_project_blob_keeps_a_key_it_does_not_know() {
+    let blob = format!(
+        r#"{{"schema":{},"rail_mode":"Ide","vendor.thing":42}}"#,
+        prefs::SCHEMA
+    );
+
+    let read: ViewPrefs = prefs::decode(&blob).expect("decodes");
+    assert_eq!(read.rest.get("vendor.thing"), Some(&serde_json::json!(42)));
+
+    let again: ViewPrefs = prefs::decode(&prefs::encode(&read)).expect("decodes");
+    assert_eq!(again.rest, read.rest);
 }
