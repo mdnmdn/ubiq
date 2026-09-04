@@ -176,7 +176,9 @@ fn reads_asked(said: &[Message]) -> Vec<String> {
 }
 
 #[gpui::test]
-fn a_disk_change_relists_known_folders_and_rereads_only_clean_tabs(cx: &mut TestAppContext) {
+fn a_disk_change_relists_known_folders_and_rereads_only_clean_background_tabs(
+    cx: &mut TestAppContext,
+) {
     let fixture = Fixture::open(cx);
 
     // A root and one listed folder under it. `vendor` is named but never listed, so the tree does
@@ -195,16 +197,23 @@ fn a_disk_change_relists_known_folders_and_rereads_only_clean_tabs(cx: &mut Test
             rel_path: "src".to_string(),
             listings: vec![listing(
                 "src",
-                vec![file("src", "main.rs"), file("src", "lib.rs")],
+                vec![
+                    file("src", "main.rs"),
+                    file("src", "lib.rs"),
+                    file("src", "util.rs"),
+                ],
             )],
         },
         cx,
     );
 
+    // `main.rs` and `lib.rs` open first and end up in the background; `util.rs` opens last and is
+    // the tab on screen.
     fixture.open_file("src/main.rs", "fn main() {}\n", cx);
     fixture.open_file("src/lib.rs", "pub fn one() {}\n", cx);
+    fixture.open_file("src/util.rs", "pub fn two() {}\n", cx);
 
-    // One tab has unsaved edits in it, which is what the change must not touch.
+    // One background tab has unsaved edits in it, which is what the change must not touch.
     fixture
         .window
         .update(cx, |_, _window, cx| {
@@ -220,6 +229,28 @@ fn a_disk_change_relists_known_folders_and_rereads_only_clean_tabs(cx: &mut Test
         })
         .expect("the window is open");
 
+    // The other background tab's cursor is not at the top, which is where a careless reread would
+    // put it.
+    let moved_cursor = 5..5;
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                let open = state.open_project_mut(cx).expect("the project is open");
+                let buffer = open
+                    .editor
+                    .find_mut("src/lib.rs")
+                    .expect("the tab is open")
+                    .buffer()
+                    .expect("the tab has a buffer")
+                    .clone();
+                buffer.update(cx, |buffer, cx| {
+                    buffer.set_selected_range(moved_cursor.clone(), cx);
+                });
+            });
+        })
+        .expect("the window is open");
+
     let _ = fixture.said();
 
     fixture.deliver(
@@ -228,6 +259,7 @@ fn a_disk_change_relists_known_folders_and_rereads_only_clean_tabs(cx: &mut Test
             changed: vec![
                 "src/main.rs".to_string(),
                 "src/lib.rs".to_string(),
+                "src/util.rs".to_string(),
                 "vendor/thing.rs".to_string(),
             ],
             truncated: false,
@@ -241,7 +273,7 @@ fn a_disk_change_relists_known_folders_and_rereads_only_clean_tabs(cx: &mut Test
     assert_eq!(
         listings.iter().filter(|path| *path == "src").count(),
         1,
-        "two changes in one folder are one listing: {said:?}"
+        "three changes in one folder are one listing: {said:?}"
     );
     assert!(
         !listings.iter().any(|path| path == "vendor"),
@@ -252,11 +284,125 @@ fn a_disk_change_relists_known_folders_and_rereads_only_clean_tabs(cx: &mut Test
     assert_eq!(
         reads,
         vec!["src/lib.rs".to_string()],
-        "the clean tab is read again and the dirty one is left alone: {said:?}"
+        "the clean background tab is read again; the dirty background tab and the tab on \
+         screen are both left alone: {said:?}"
     );
     assert!(
         said.iter()
             .any(|message| matches!(message, Message::RefreshProjectGit { .. })),
         "the repository moved, so the git overview is asked for again: {said:?}"
+    );
+
+    // The reread's answer rebuilds the buffer; the cursor it lands with is the one the old
+    // buffer had, not the top of the file.
+    let text = "pub fn one() {}\n";
+    fixture.deliver(
+        Message::ProjectFileContents {
+            project_id: fixture.project,
+            rel_path: "src/lib.rs".to_string(),
+            contents: FileContents {
+                bytes: text.as_bytes().to_vec(),
+                len: text.len() as u64,
+                truncated: false,
+                is_binary: false,
+                version: Some(FileVersion {
+                    len: text.len() as u64,
+                    modified: None,
+                }),
+            },
+        },
+        cx,
+    );
+
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                let open = state.open_project_mut(cx).expect("the project is open");
+                let buffer = open
+                    .editor
+                    .find_mut("src/lib.rs")
+                    .expect("the tab is open")
+                    .buffer()
+                    .expect("the reread filled a fresh buffer")
+                    .clone();
+                assert_eq!(
+                    buffer.read(cx).selected_range(),
+                    moved_cursor,
+                    "the fresh buffer keeps the cursor the old one had, not the top of the file"
+                );
+            });
+        })
+        .expect("the window is open");
+}
+
+#[gpui::test]
+fn a_change_this_window_just_wrote_is_not_reread(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+
+    fixture.deliver(
+        Message::ProjectTreeListing {
+            project_id: fixture.project,
+            rel_path: String::new(),
+            listings: vec![listing("", vec![dir("src")])],
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::ProjectTreeListing {
+            project_id: fixture.project,
+            rel_path: "src".to_string(),
+            listings: vec![listing(
+                "src",
+                vec![
+                    file("src", "main.rs"),
+                    file("src", "lib.rs"),
+                    file("src", "extra.rs"),
+                ],
+            )],
+        },
+        cx,
+    );
+
+    // Two background tabs, both clean, so a careless handler would reread both. A third stays on
+    // screen, which is where the tab-on-screen exclusion is not what this test is about.
+    fixture.open_file("src/main.rs", "fn main() {}\n", cx);
+    fixture.open_file("src/lib.rs", "pub fn one() {}\n", cx);
+    fixture.open_file("src/extra.rs", "pub fn extra() {}\n", cx);
+
+    // `main.rs` is the one this window just wrote — the host's acknowledgement of a save this
+    // window made, not something typed elsewhere.
+    fixture.deliver(
+        Message::ProjectFileWritten {
+            project_id: fixture.project,
+            rel_path: "src/main.rs".to_string(),
+            version: FileVersion {
+                len: 13,
+                modified: None,
+            },
+        },
+        cx,
+    );
+
+    let _ = fixture.said();
+
+    // The watcher echoes that same write back, bundled with a real external change to the other
+    // file.
+    fixture.deliver(
+        Message::ProjectFilesChanged {
+            project_id: fixture.project,
+            changed: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
+            truncated: false,
+            repository: false,
+        },
+        cx,
+    );
+
+    let reads = reads_asked(&fixture.said());
+    assert_eq!(
+        reads,
+        vec!["src/lib.rs".to_string()],
+        "the write this window made is not reread; the other file's real change still is: \
+         {reads:?}"
     );
 }

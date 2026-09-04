@@ -687,7 +687,23 @@ impl AppState {
         if let Some(open) = self.projects.get_mut(&project)
             && let Some(file) = open.editor.find_mut(&path)
         {
-            file.attach(buffer, text, contents.truncated, contents.version, change);
+            // A reload's cursor and scroll were saved off the buffer this one replaces; put them
+            // back now so a background tab's refresh lands where the user left it rather than at
+            // the top. Nothing to restore for a tab that was never reloaded.
+            let restore = file.take_restore();
+            file.attach(
+                buffer.clone(),
+                text,
+                contents.truncated,
+                contents.version,
+                change,
+            );
+            if let Some((selection, scroll)) = restore {
+                buffer.update(cx, |state, cx| {
+                    state.set_selected_range(selection, cx);
+                    state.set_scroll_offset(scroll, cx);
+                });
+            }
         }
         cx.notify();
     }

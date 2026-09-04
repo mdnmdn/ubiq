@@ -10,6 +10,7 @@ pub mod app;
 pub mod state;
 pub mod theme;
 pub mod ui;
+pub mod version;
 pub mod web_export;
 
 pub use app::AppState;

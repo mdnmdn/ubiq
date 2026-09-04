@@ -53,6 +53,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     app.workbench.project_settings.is_some(),
                     cx.listener(|this, _, _, cx| this.open_edit_project(cx)),
                 )
+                .h_full()
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(label).build(window, cx)
                 }),
@@ -63,6 +64,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .child(div().flex_1().min_w(px(0.)))
         .child(
             div()
+                .h_full()
                 .flex()
                 .flex_none()
                 .items_center()
@@ -70,46 +72,60 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 // The side regions are IDE furniture: in any other rail mode they are disabled, so
                 // their switches are not offered. The bottom region stays openable in every mode.
                 .when(app.workbench.is_ide(), |this| {
-                    this.child(icon_button(
-                        "toggle-left",
-                        IconName::PanelLeft,
-                        left,
-                        cx.listener(|this, _, window, cx| {
-                            this.toggle_region(crate::state::Region::Left, window, cx)
-                        }),
-                    ))
-                    .child(icon_button(
-                        "toggle-right",
-                        IconName::PanelRight,
-                        right,
-                        cx.listener(|this, _, window, cx| {
-                            this.toggle_region(crate::state::Region::Right, window, cx)
-                        }),
-                    ))
+                    this.child(
+                        icon_button(
+                            "toggle-left",
+                            IconName::PanelLeft,
+                            left,
+                            cx.listener(|this, _, window, cx| {
+                                this.toggle_region(crate::state::Region::Left, window, cx)
+                            }),
+                        )
+                        .h_full(),
+                    )
                 })
-                .child(icon_button(
-                    "toggle-bottom",
-                    IconName::PanelBottom,
-                    bottom,
-                    cx.listener(|this, _, window, cx| {
-                        this.toggle_region(crate::state::Region::Bottom, window, cx)
-                    }),
-                ))
+                .child(
+                    icon_button(
+                        "toggle-bottom",
+                        IconName::PanelBottom,
+                        bottom,
+                        cx.listener(|this, _, window, cx| {
+                            this.toggle_region(crate::state::Region::Bottom, window, cx)
+                        }),
+                    )
+                    .h_full(),
+                )
+                .when(app.workbench.is_ide(), |this| {
+                    this.child(
+                        icon_button(
+                            "toggle-right",
+                            IconName::PanelRight,
+                            right,
+                            cx.listener(|this, _, window, cx| {
+                                this.toggle_region(crate::state::Region::Right, window, cx)
+                            }),
+                        )
+                        .h_full(),
+                    )
+                })
                 .child(
                     div()
                         .w(px(1.))
-                        .h(px(18.))
+                        .h_full()
                         .mx_1()
                         .flex_none()
                         .bg(theme::border()),
                 )
-                .child(icon_button(
-                    "search",
-                    IconName::Search,
-                    false,
-                    cx.listener(|this, _, window, cx| this.reveal_search(window, cx)),
-                ))
-                .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}))
+                .child(
+                    icon_button(
+                        "search",
+                        IconName::Search,
+                        false,
+                        cx.listener(|this, _, window, cx| this.reveal_search(window, cx)),
+                    )
+                    .h_full(),
+                )
+                .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}).h_full())
                 .when(has_project, |this| {
                     this.child(
                         icon_button(
@@ -118,6 +134,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             false,
                             cx.listener(|this, _, window, cx| this.open_web_export(window, cx)),
                         )
+                        .h_full()
                         .tooltip(move |window, cx| {
                             gpui_component::tooltip::Tooltip::new("Open in browser")
                                 .build(window, cx)
@@ -131,20 +148,24 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         app.workbench.settings.open,
                         cx.listener(|this, _, _, cx| this.toggle_settings(cx)),
                     )
+                    .h_full()
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new("Settings").build(window, cx)
                     }),
                 )
-                .child(icon_button(
-                    "theme",
-                    if app.workbench.theme_id == crate::theme::ThemeId::Dark {
-                        IconName::Sun
-                    } else {
-                        IconName::Moon
-                    },
-                    false,
-                    cx.listener(|this, _, _, cx| this.toggle_theme(cx)),
-                )),
+                .child(
+                    icon_button(
+                        "theme",
+                        if app.workbench.theme_id == crate::theme::ThemeId::Dark {
+                            IconName::Sun
+                        } else {
+                            IconName::Moon
+                        },
+                        false,
+                        cx.listener(|this, _, _, cx| this.toggle_theme(cx)),
+                    )
+                    .h_full(),
+                ),
         )
 }
 
@@ -157,7 +178,7 @@ fn command_field(app: &AppState, window: &Window, cx: &App) -> impl IntoElement 
         .is_focused(window);
     field(theme::border(), focused)
         .w(px(420.))
-        .h(px(28.))
+        .h_full()
         .px_2()
         .flex_none()
         .gap_2()

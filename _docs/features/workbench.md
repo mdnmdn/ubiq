@@ -841,10 +841,12 @@ Ubiq is not the only thing editing these files, and the agents in the panes are 
 is no merge: resolving a conflict is the user's.
 
 **A tab with nothing typed into it follows the file on disk; a dirty one is left alone.** A clean
-tab whose file changed goes back to reading and comes back with what is there now. A tab with
-unsaved edits is not touched at all — not reloaded, not marked, not asked about — and the save it
-eventually attempts is still refused if the file moved under it, which is where the user hears about
-the collision.
+tab whose file changed goes back to reading and comes back with what is there now, its cursor and
+scroll put back where they were rather than reset to the top — so the reread is invisible, whether
+the change is the app's own save echoing back through the file watcher or a real edit from outside.
+A tab with unsaved edits is not touched at all — not reloaded, not marked, not asked about — and the
+save it eventually attempts is still refused if the file moved under it, which is where the user
+hears about the collision.
 
 **A file that cannot be edited honestly is not offered for saving.** A read the host cut short at its
 byte ceiling is readable and unsavable, because writing a prefix back would shorten the file. A file
@@ -901,6 +903,13 @@ of them nobody can finish without the user — over the cards the filters leave,
 disagrees with what is drawn is worse than none. Whichever set it is showing, it says where
 Ubiq is writing whenever that is not the usual `~/.config/ubiq` — a config root you cannot see is a
 foot-gun.
+
+**Two entries at the strip's right are the one deliberate exception to "facts, not intentions."**
+The build version (`version_label()`, `crate::version::short()` with the full string as its tooltip)
+and the "Made with ♥ in Turin" attribution (`made_with_love()`) sit at the leftmost position of the
+right-justified half, in every rail mode. Neither is a fact about what is on screen — a build never
+changes while the window is open, and the attribution reports nothing at all — so the rule above is
+about state, and this is static branding drawn alongside it, not a fact the strip forgot to gate.
 
 **The window remembers the arrangement it was left in, and which files were open in it.** The whole
 dock as it serialises itself — the tree, the axes, the sizes and which tab of each group was
@@ -1662,8 +1671,11 @@ again, and `ui/status_bar.rs` prints the overview's branch. `ProjectFilesChanged
 same three currencies: `RefreshProjectGit { full: true }` when it reports the git directory, one
 `ProjectTree` per deduplicated parent directory the tree already holds listed — the root instead
 when the batch is truncated — and one `ReadProjectFile` per open tab that is neither dirty nor
-already loading, put back to reading by `OpenFile::reload()`. `crates/ubiq/tests/files_changed.rs`
-is what asserts each of those without a frame. `activate_file()` and `closed_file_panel()`
+already loading, put back to reading by `OpenFile::reload()` — after `set_restore()` has captured the
+outgoing buffer's `selected_range()` and scroll offset, so the fresh `Entity<EditorState>` the
+answering contents build is put back where the old one was read rather than opened at the top.
+`crates/ubiq/tests/files_changed.rs` is what asserts each of those without a frame, cursor position
+included. `activate_file()` and `closed_file_panel()`
 are the other direction — the dock deciding which tab is in front and which has gone, which the
 editor learns from it rather than the other way round. Contents cannot become a buffer where they
 arrive, because a buffer needs a window and a message does not come with one, so they queue and

@@ -62,6 +62,7 @@ fn header(file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
         .flex()
         .flex_none()
         .items_center()
+        .justify_end()
         .gap_1()
         .bg(theme::pane_bg())
         .border_b_1()
@@ -74,6 +75,7 @@ fn header(file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
                 current == layout,
                 cx.listener(move |this, _, _, cx| this.set_view_layout(&key, layout, cx)),
             )
+            .h_full()
         }))
 }
 

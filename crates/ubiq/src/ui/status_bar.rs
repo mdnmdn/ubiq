@@ -8,7 +8,10 @@
 //! screen with no buffer is not a fact. A project in a repository prints its branch; a project
 //! that is not one prints nothing git-related.
 
-use gpui::{Anchor, App, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::{
+    Anchor, App, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, div, px,
+};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitHead, GitOperation};
@@ -21,6 +24,7 @@ use crate::ui::board::status_colour;
 use crate::ui::kit::{Picker, mono};
 use crate::ui::work::bucket_colour;
 use crate::ui::{handler, indexed};
+use crate::version;
 
 /// Where this run writes everything down, when that is not `~/.config/ubiq`.
 fn config_root(app: &AppState) -> Option<impl IntoElement> {
@@ -45,6 +49,45 @@ fn config_root(app: &AppState) -> Option<impl IntoElement> {
             )
             .child(mono(shown, theme::warning())),
     )
+}
+
+/// The bundle version, at the left edge of the strip's right-justified half. Fixed at build time
+/// by `_devops/scripts/bundle-version.sh` — see `crate::version`. Elided rather than wrapped or
+/// dropped, the way every other value in this strip is, so it never grows the strip; the full
+/// string is the tooltip.
+fn version_label() -> impl IntoElement {
+    mono(version::short(), theme::text_faint())
+        .id("bundle-version")
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new(version::FULL).build(window, cx)
+        })
+}
+
+/// The attribution just after the version. The heart never gives up its room — the words around
+/// it do, clipping away first when the strip runs out of space, so a narrow window still shows
+/// the heart and the full line stays one hover away.
+fn made_with_love() -> impl IntoElement {
+    div()
+        .id("made-with-love")
+        .flex()
+        .items_center()
+        .min_w(px(0.))
+        .child(
+            div()
+                .min_w(px(0.))
+                .overflow_hidden()
+                .child(mono("Made with ", theme::text_faint())),
+        )
+        .child(mono("\u{2665}", theme::danger()))
+        .child(
+            div()
+                .min_w(px(0.))
+                .overflow_hidden()
+                .child(mono(" in Turin", theme::text_faint())),
+        )
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new("Made with \u{2665} in Turin").build(window, cx)
+        })
 }
 
 /// What the active file's save is doing, when it is doing anything worth a word.
@@ -76,6 +119,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         return strip
             .child(mono("no project", theme::text_faint()))
             .child(div().flex_1().min_w(px(0.)))
+            .child(version_label())
+            .child(made_with_love())
             .children(config_root(app));
     }
 
@@ -126,6 +171,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .child(version_label())
+            .child(made_with_love())
             .children(config_root(app))
             .child(mono(harnesses.join(" \u{b7} "), theme::text_muted()));
     }
@@ -158,6 +205,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .child(version_label())
+            .child(made_with_love())
             .children(config_root(app));
     }
 
@@ -182,6 +231,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .child(version_label())
+            .child(made_with_love())
             .children(config_root(app))
             .child(mono(
                 format!("{done}/{total} sub-tasks done"),
@@ -210,6 +261,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         // takes the danger colour, because it is the only thing here the user has to act on.
         .children(active.and_then(save_state))
         .child(div().flex_1().min_w(px(0.)))
+        .child(version_label())
+        .child(made_with_love())
         .children(git_readout(app, cx))
         // A config root you cannot see is a foot-gun, so a run pointed anywhere but the usual
         // place says so.

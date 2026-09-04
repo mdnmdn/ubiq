@@ -12,7 +12,7 @@
 //! Every mutator ends in `cx.notify()`. One that forgets is a panel that stops updating.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -222,6 +222,10 @@ pub struct OpenProject {
     /// The Git screen's view of all of it: which sections are open, what is selected, what is
     /// typed in the commit box. Per project, for the reason the graph's view is.
     pub git_view: GitView,
+    /// Paths this window wrote and has not yet seen the watcher echo back. `ProjectFilesChanged`
+    /// naming one of these is our own write, not a change to react to — the tab already holds
+    /// exactly those bytes, so rereading it would only blink the highlighter for nothing.
+    just_saved: HashSet<String>,
 }
 
 impl OpenProject {
@@ -244,6 +248,7 @@ impl OpenProject {
             git_truncated: false,
             git_entries: Vec::new(),
             git_view: GitView::new(sample::git_refs(), sample::git_history()),
+            just_saved: HashSet::new(),
         }
     }
 }

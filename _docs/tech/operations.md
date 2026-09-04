@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands.
 read_when: you are setting the project up, running or testing it, or adding a command
-updated: 2026-09-01
-verified: 2026-09-01
-code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist]
+updated: 2026-09-04
+verified: 2026-09-04
+code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -124,13 +124,21 @@ repository commits one pointing at `_data/config`, which is ignored by git, so r
 checkout never touches the catalogue a user works with all day. A malformed one is an error rather
 than a fallback, and the status bar says when the root is not the default.
 
-Three variables affect a run:
+Four variables affect a run:
 
 | Variable | Effect |
 |---|---|
 | `RUST_LOG` | Log filter, through `tracing-subscriber`. `just verbose` sets it to `debug` |
 | `CARGO_TARGET_DIR` | Redirects build output, useful when disk is tight |
 | `UBIQ_CONFIG_DIR` | The config root, below `--config-root` and above a `ubiq.toml` |
+| `UBIQ_VERSION` | The bundle version baked into the binary. Set it to pin a build to a known string; left unset, the Justfile computes one |
+
+`UBIQ_VERSION` is exported near the top of the Justfile as `` `_devops/scripts/bundle-version.sh` ``,
+so every recipe's cargo invocations carry it into `option_env!("UBIQ_VERSION")` at compile time —
+see [`architecture.md`](./architecture.md) for the `version` module that reads it. The script's
+precedence: `UBIQ_VERSION` already in the environment, verbatim; else the git tag starting with `v`
+on a clean, tagged `HEAD`; else, with no git available, `dev-<cargo version>-<UTC timestamp>`; else
+`dev-<UTC timestamp>-<8-char git hash>`.
 
 Harness configuration is the embedded library's business, including every environment variable it
 sets for a run. Those live with that crate — see [`agent-manager.md`](./agent-manager.md).

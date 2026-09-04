@@ -9,7 +9,9 @@
 //! avoid once the buffer *is* the file's state. The mapping from a language onto the highlighter's
 //! own enum still lives in `ui/editor.rs`, because that is a drawing decision and this is not.
 
-use gpui::{Entity, Subscription};
+use std::ops::Range;
+
+use gpui::{Entity, Pixels, Point, Subscription};
 use gpui_component::input::EditorState;
 use ubiq_proto::files::{DiffBase, FileDiff, FileVersion};
 
@@ -301,6 +303,11 @@ pub struct OpenFile {
     /// The buffer's change event, which is what keeps `dirty` current. Held here because it must
     /// live exactly as long as the file does.
     _change: Option<Subscription>,
+    /// Where the cursor and scroll were when an external change sent this tab back to
+    /// [`FileBody::Loading`], so the fresh buffer [`OpenFile::attach`] builds can be put back where
+    /// the user was looking rather than opening at the top. Set only for a background tab: the tab
+    /// on screen is never silently reloaded in the first place.
+    restore: Option<(Range<usize>, Point<Pixels>)>,
 }
 
 impl OpenFile {
@@ -336,6 +343,7 @@ impl OpenFile {
             frontmatter_open: false,
             dirty: false,
             _change: None,
+            restore: None,
         }
     }
 
@@ -528,6 +536,18 @@ impl OpenFile {
         self.save = SaveState::Idle;
         self.dirty = false;
         self._change = None;
+    }
+
+    /// Where the cursor and scroll were, for [`OpenFile::reload`] to hand back to whatever buffer
+    /// replaces this one. The caller reads these off the buffer this tab is about to lose.
+    pub fn set_restore(&mut self, selection: Range<usize>, scroll: Point<Pixels>) {
+        self.restore = Some((selection, scroll));
+    }
+
+    /// The position a fresh buffer should be put at, once — reading it twice would put a second
+    /// tab's fresh buffer at the first tab's spot.
+    pub fn take_restore(&mut self) -> Option<(Range<usize>, Point<Pixels>)> {
+        self.restore.take()
     }
 
     /// The host refused. The buffer is untouched and the file is still dirty.

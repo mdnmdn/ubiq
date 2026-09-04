@@ -69,7 +69,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     let mut trigger = div()
         .id("project-picker")
         .relative()
-        .h(px(26.))
+        .h_full()
         .px_2()
         .flex()
         .flex_none()

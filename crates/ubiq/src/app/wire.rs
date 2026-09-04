@@ -383,10 +383,13 @@ impl AppState {
                     .map(|buffer| buffer.read(cx).value().to_string())
                     .unwrap_or_default();
 
-                if let Some(open) = self.projects.get_mut(&project_id)
-                    && let Some(file) = open.editor.find_mut(&rel_path)
-                {
-                    file.saved(version, &current);
+                if let Some(open) = self.projects.get_mut(&project_id) {
+                    if let Some(file) = open.editor.find_mut(&rel_path) {
+                        file.saved(version, &current);
+                    }
+                    // The watcher will echo this write back as a `ProjectFilesChanged` shortly;
+                    // that arrival is not a change to react to.
+                    open.just_saved.insert(rel_path);
                 }
                 self.bus.send(Message::RefreshProjectGit {
                     project_id,
@@ -456,25 +459,53 @@ impl AppState {
                         }
                     }
                 }
-                // A clean tab shows what is on disk, so it is read again. A dirty one is left
-                // exactly as it is: what has been typed into it is not on disk anywhere.
-                let reload: Vec<String> = changed
+                // A clean background tab shows what is on disk, so it is read again. A dirty one is
+                // left exactly as it is: what has been typed into it is not on disk anywhere. The
+                // tab on screen is left alone too — rebuilding its buffer reruns the highlighter,
+                // which is a visible flash for a file the user is looking at right now; later this
+                // is where "the file changed, keep mine or reload" will hook in instead of silence.
+                // A path this window just wrote is the watcher echoing our own save, not a change
+                // to react to at all.
+                // Whatever is reread keeps its cursor and scroll — captured off the buffer here,
+                // before `reload` drops it, and handed back once the fresh bytes attach — because a
+                // reread is not a fact the user asked to see from the top; the file they were
+                // looking at just changed under them, in place.
+                let active_key = open.editor.active_file().map(|file| file.key());
+                type Restore = (std::ops::Range<usize>, gpui::Point<Pixels>);
+                let reload: Vec<(String, Option<Restore>)> = changed
                     .iter()
-                    .filter(|path| {
-                        open.editor
+                    .filter_map(|path| {
+                        if open.just_saved.contains(path) {
+                            return None;
+                        }
+                        let file = open
+                            .editor
                             .index_of(path)
-                            .map(|index| &open.editor.open[index])
-                            .is_some_and(|file| !file.dirty() && !file.is_loading())
+                            .map(|index| &open.editor.open[index])?;
+                        if file.dirty() || file.is_loading() || Some(file.key()) == active_key {
+                            return None;
+                        }
+                        let restore = file.buffer().map(|buffer| {
+                            let state = buffer.read(cx);
+                            (state.selected_range(), state.scroll_offset())
+                        });
+                        Some((path.clone(), restore))
                     })
-                    .cloned()
                     .collect();
 
                 if let Some(open) = self.projects.get_mut(&project_id) {
+                    // The echo this arrival might be has now arrived either way.
+                    for path in &changed {
+                        open.just_saved.remove(path);
+                    }
                     for dir in &dirs {
                         open.explorer.set_loading(dir, true);
                     }
-                    for path in &reload {
+                    for (path, restore) in &reload {
                         if let Some(file) = open.editor.find_mut(path) {
+                            if let Some((selection, scroll)) = restore {
+                                file.set_restore(selection.clone(), *scroll);
+                            }
                             file.reload();
                         }
                     }
@@ -486,7 +517,7 @@ impl AppState {
                         depth: EXPAND_DEPTH,
                     });
                 }
-                for path in reload {
+                for (path, _) in reload {
                     self.bus.send(Message::ReadProjectFile {
                         project_id,
                         rel_path: path,

@@ -1,5 +1,9 @@
 # Ubiq — every command anyone runs. Reference: _docs/tech/operations.md
 
+# The bundle version baked into the footer — env override, else derived from git.
+# See _devops/scripts/bundle-version.sh.
+export UBIQ_VERSION := `_devops/scripts/bundle-version.sh`
+
 # List the recipes
 default:
     @just --list

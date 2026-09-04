@@ -63,7 +63,7 @@ pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .border_color(theme::border())
         .child(
             div()
-                .size(px(28.))
+                .size(px(44.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -86,7 +86,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .items_center()
-                .gap_1()
                 .pb_3()
                 .child(div().pt_3().pb_1().child(section_label(label)))
                 .children(items),
@@ -116,7 +115,7 @@ fn rail_item(mode: RailMode, active: bool, cx: &mut Context<AppState>) -> AnyEle
         .id(ElementId::Name(
             format!("rail-{}", mode.label().to_lowercase()).into(),
         ))
-        .w(px(56.))
+        .w_full()
         .py_2()
         .flex()
         .flex_none()

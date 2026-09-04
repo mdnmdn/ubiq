@@ -757,6 +757,8 @@ fn render_page(
         .replace("{{NAV_TREE}}", nav_tree_html)
         .replace("{{CONTENT}}", content_html)
         .replace("{{TOC}}", &toc_block)
+        .replace("{{VERSION_SHORT}}", &html_escape(&crate::version::short()))
+        .replace("{{VERSION_FULL}}", &html_escape(crate::version::FULL))
 }
 
 // --- Small helpers: escaping, extension maps, HTTP plumbing ---

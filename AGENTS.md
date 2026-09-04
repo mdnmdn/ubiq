@@ -32,7 +32,7 @@ document; file it instead.
 - Use tools and scripts in a smart way: always use the most efficient way to do the operation: if it's cheper using 
   default tools, use them, if it's better or safer using bash or script use them, if an operation is batched or complex
   evaulate to create a new `_tools`
-- to make single updates on the file USE THE DEFAULT TOOLS, do not run scripts
+- USE THE DEFAULT TOOLS for targeted updates, do not run scripts
 
 ## Architecture rules
 

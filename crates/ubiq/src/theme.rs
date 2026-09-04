@@ -32,7 +32,7 @@ pub const EDITOR_FONT_MAX: f32 = 36.0;
 /// Fixed chrome heights, in pixels.
 pub const TITLEBAR_HEIGHT: f32 = 44.0;
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
-pub const RAIL_WIDTH: f32 = 72.0;
+pub const RAIL_WIDTH: f32 = 56.0;
 
 /// The size each of the dock's three edge regions opens at, in pixels. What a drag will not pass
 /// is the dock's own, so a region is one number rather than a triple; what the user drags one to
