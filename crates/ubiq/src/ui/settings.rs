@@ -13,17 +13,17 @@ use gpui::{
 use gpui_component::IconName;
 use gpui_component::input::Input;
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::{AccountInfo, LoginStatus};
+use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus};
 
 use crate::app::AppState;
 use crate::state::settings::{
-    AccountDialog, LoginStep, MarkdownOpen, SettingsSection, describe_status,
+    AccountDialog, CliShortcut, LoginStep, MarkdownOpen, SettingsSection, describe_status,
 };
 use crate::theme;
 use crate::ui::kit::{
     check_box, choice_pill, column, confirm_modal, elided, field, ghost_button, heading,
-    icon_button, label_block, modal, modal_note, nav_item, primary_button, prompt_modal,
-    setting_row,
+    icon_button, label_block, modal, modal_note, modal_sized, nav_item, primary_button,
+    prompt_modal, setting_row,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -146,6 +146,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
         SettingsSection::Editor => IconName::File,
         SettingsSection::Search => IconName::Search,
         SettingsSection::Harnesses => IconName::Asterisk,
+        SettingsSection::CommandLine => IconName::SquareTerminal,
     }
 }
 
@@ -155,6 +156,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Editor => editor(app, cx),
         SettingsSection::Search => search(app),
         SettingsSection::Harnesses => harnesses(app, cx),
+        SettingsSection::CommandLine => command_line(app, cx),
     };
 
     div()
@@ -295,6 +297,155 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     );
     rows.push(accounts(app, cx));
     column(rows)
+}
+
+/// The `ubiq` command on the shell's `PATH`.
+///
+/// Everything drawn here is the host's answer — where the shortcut is, where one would go, which
+/// directories were considered. The interface owns none of these paths and asks for one of three
+/// actions; `app/settings.rs` sends them and the answer redraws this section.
+fn command_line(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(cli) = app.workbench.settings.cli.clone() else {
+        return column(vec![
+            heading(COMMAND_LINE_NOTE.0, COMMAND_LINE_NOTE.1),
+            note("Looking\u{2026}", theme::text_faint()),
+        ]);
+    };
+
+    let installed = cli.installed.is_some();
+    let (verb, action) = match (installed, cli.stale) {
+        (true, true) => ("Update", CliShortcutAction::Install),
+        (true, false) => ("Remove", CliShortcutAction::Remove),
+        (false, _) => ("Install", CliShortcutAction::Install),
+    };
+    let target = cli.target.clone().unwrap_or_default();
+    let on_path = cli
+        .candidates
+        .iter()
+        .find(|dir| dir.chosen)
+        .is_some_and(|dir| dir.on_path);
+
+    let status = match (&cli.installed, cli.stale, cli.target.is_some(), on_path) {
+        (_, _, false, _) => (
+            "No directory on this machine can hold the command.".to_string(),
+            theme::danger(),
+        ),
+        (Some(path), true, ..) => (
+            format!("{path} \u{2014} launches another build of Ubiq"),
+            theme::danger(),
+        ),
+        (Some(path), false, _, true) => (format!("{path} \u{b7} on PATH"), theme::text_muted()),
+        (Some(path), false, _, false) => (
+            format!("{path} \u{b7} not on PATH \u{2014} add it to your shell profile"),
+            theme::text_faint(),
+        ),
+        (None, .., true) => (format!("would be written to {target}"), theme::text_faint()),
+        (None, ..) => (
+            format!("would be written to {target} \u{b7} not on PATH"),
+            theme::text_faint(),
+        ),
+    };
+
+    let mut rows = vec![
+        heading(COMMAND_LINE_NOTE.0, COMMAND_LINE_NOTE.1),
+        setting_row(
+            "The `ubiq` command",
+            "`ubiq .` opens a folder as a project and `ubiq README.md` opens a file, in the \
+             window that already holds it when there is one.",
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    primary_button(
+                        "app-settings-cli-action",
+                        Some(IconName::SquareTerminal),
+                        verb,
+                        cx.listener(move |this, _, _, cx| {
+                            this.ask_cli_shortcut(action);
+                            cx.notify();
+                        }),
+                    )
+                    .when(cli.target.is_none(), |button| button.opacity(0.5)),
+                )
+                .child(note(&status.0, status.1))
+                .into_any_element(),
+        ),
+    ];
+    if let Some(error) = cli.error.clone() {
+        rows.push(error_banner(&error, cx));
+    }
+    rows.push(candidate_list(&cli));
+    column(rows)
+}
+
+/// The section's own heading, named once because the "looking" state draws it too.
+const COMMAND_LINE_NOTE: (&str, &str) = (
+    "Command line",
+    "A small script Ubiq writes into a directory on your PATH. Removing it removes only that \
+     script \u{2014} never a `ubiq` you put there yourself.",
+);
+
+/// Every directory considered, in the order the host considered them, so a machine that has none
+/// of them says why rather than failing silently.
+fn candidate_list(cli: &CliShortcut) -> AnyElement {
+    let rows: Vec<AnyElement> = cli
+        .candidates
+        .iter()
+        .map(|dir| {
+            let chosen = dir.chosen;
+            let state = match (dir.exists, dir.on_path) {
+                (false, _) => "missing",
+                (true, true) => "exists \u{b7} on PATH",
+                (true, false) => "exists \u{b7} not on PATH",
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_size(px(11.))
+                .child(
+                    div()
+                        .w(px(220.))
+                        .text_color(if chosen {
+                            theme::text()
+                        } else {
+                            theme::text_muted()
+                        })
+                        .child(SharedString::from(dir.path.clone())),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(theme::text_faint())
+                        .child(SharedString::from(state)),
+                )
+                .when(chosen, |row| {
+                    row.child(
+                        div()
+                            .text_color(theme::accent())
+                            .child(SharedString::from("\u{2713} chosen")),
+                    )
+                })
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .children(rows)
+        .into_any_element()
+}
+
+/// One line of status beside a control, in the weight the settings rows use for it.
+fn note(text: &str, colour: gpui::Rgba) -> AnyElement {
+    div()
+        .text_size(px(11.))
+        .text_color(colour)
+        .child(SharedString::from(text.to_string()))
+        .into_any_element()
 }
 
 /// What the host last refused for a rename, delete or sign-out. The same warning-banner shape
@@ -638,6 +789,10 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
         return div().into_any_element();
     };
     let view = cx.entity();
+    // Only the Running step is a full-screen TUI's terminal; every other step is a short
+    // question and stays at the ordinary modal width — a 960px-wide modal holding one text
+    // field would look absurd.
+    let wide = matches!(login.step, LoginStep::Running { .. });
 
     let (title, body, footer) = match &login.step {
         LoginStep::Choosing { agent_type } => (
@@ -696,15 +851,29 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
         ),
     };
 
-    modal(
-        "app-settings-login",
-        theme::accent(),
-        title,
-        body,
-        footer,
-        crate::ui::handler(&view, |this, _, cx| this.close_harness_login(cx)),
-        window,
-    )
+    if wide {
+        modal_sized(
+            "app-settings-login",
+            theme::accent(),
+            theme::LOGIN_MODAL_WIDTH,
+            Some(theme::LOGIN_MODAL_HEIGHT),
+            title,
+            body,
+            footer,
+            crate::ui::handler(&view, |this, _, cx| this.close_harness_login(cx)),
+            window,
+        )
+    } else {
+        modal(
+            "app-settings-login",
+            theme::accent(),
+            title,
+            body,
+            footer,
+            crate::ui::handler(&view, |this, _, cx| this.close_harness_login(cx)),
+            window,
+        )
+    }
 }
 
 /// Step one: which harness, and what to call the identity.
@@ -827,9 +996,17 @@ fn starting(app: &AppState, agent_type: &str) -> AnyElement {
 
 /// Step two: the harness's own login, in a real terminal.
 ///
-/// The height is explicit because the modal body is a scrolling column, and the emulator
-/// measures its own bounds to decide the geometry it reports to the harness — a box that
-/// measured to nothing would tell the harness it had no screen.
+/// This step draws in `modal_sized`'s fill shape (see `login()`), so this whole body — not just
+/// the terminal box — is a fixed-size, non-scrolling flex column: the terminal gets `flex_1` and
+/// `min_h(0)`, the pattern `ui/terminal.rs::pane` already expects, and actually fills the space
+/// because its ancestors now resolve to a real height instead of a scrolling column's hugged one.
+/// A box inside a scroller never resolves a height to measure, which is why the emulator — which
+/// measures its own bounds to decide the geometry it reports to the harness — used to sit in a
+/// hard-coded, cramped box instead.
+///
+/// The links list is capped rather than left to grow: a long list must not squeeze the terminal
+/// down, so it is `flex_none` with a `max_h` and its own scroll once there are enough URLs to
+/// need it.
 fn running(
     app: &AppState,
     pane: PaneId,
@@ -839,6 +1016,8 @@ fn running(
     let mut body = div()
         .flex()
         .flex_col()
+        .flex_1()
+        .min_h(px(0.))
         .gap_3()
         .pt_3()
         .child(modal_note(
@@ -846,7 +1025,8 @@ fn running(
         ))
         .child(
             div()
-                .h(px(260.))
+                .flex_1()
+                .min_h(px(0.))
                 .border_1()
                 .border_color(theme::border())
                 .child(crate::ui::terminal::pane(app, pane, cx)),
@@ -859,12 +1039,20 @@ fn running(
                  terminal is a poor place to click text.",
             ))
             .child(
-                div().flex().flex_col().gap_1().children(
-                    links
-                        .iter()
-                        .enumerate()
-                        .map(|(index, url)| login_link_row(index, url.clone(), cx)),
-                ),
+                div()
+                    .id("app-settings-login-links")
+                    .flex_none()
+                    .max_h(px(140.))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .children(
+                        links
+                            .iter()
+                            .enumerate()
+                            .map(|(index, url)| login_link_row(index, url.clone(), cx)),
+                    ),
             );
     }
 

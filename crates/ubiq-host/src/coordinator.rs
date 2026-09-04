@@ -22,6 +22,7 @@ use ubiq_proto::projects::ProjectHealth;
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, PendingLogin};
+use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::conversation::Conversation;
 use crate::files::{self, Files};
@@ -601,6 +602,13 @@ impl Coordinator {
                 account,
             } => {
                 self.delete_harness_login(client, agent_type, account);
+            }
+
+            // The `ubiq` command on PATH. Every path in the exchange is the host's: the interface
+            // says which of the three things to do and is told what is there afterwards.
+            Message::CliShortcut { action } => {
+                let reply = Reply::Asker(cli_shortcut::handle(action));
+                self.answer(client, vec![reply]);
             }
 
             Message::GetSettings { layer } => {

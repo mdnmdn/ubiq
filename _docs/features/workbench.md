@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
 updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -608,10 +608,11 @@ stylesheet paints, ahead of `script.js`'s own `DOMContentLoaded` handler.
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Three sections ship: **File explorer** (whether a
+it dismisses project settings, and the reverse. Four sections ship: **File explorer** (whether a
 single click opens a preview tab), **Editor** (whether a new markdown file opens in preview or
-source), and **Harnesses** (whether an agent is confined to its project, over the accounts
-registered here and an Add button that signs a new one in). The kitchen sink still draws the larger
+source), **Harnesses** (whether an agent is confined to its project, over the accounts
+registered here and an Add button that signs a new one in), and **Command line** (the `ubiq`
+command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 
 **An account is a home, drawn as one block per identity, with a harness line under it for each
@@ -646,7 +647,11 @@ opens a dialog, starts a login, or dismisses it by hand.
 
 **Signing in is a modal with a real terminal in it, because the harness runs its own login.** Add
 harness asks two things — which harness, and what to call the identity — and then the harness's own
-flow runs in a pane inside the modal, browser round-trip included. Between asking and the harness
+flow runs in a pane inside the modal, browser round-trip included. That running step alone draws
+in a wider, taller surface than the rest of the flow — some harnesses' logins are full-screen TUIs,
+not a line-based prompt, and need real room to redraw correctly; the picker and the brief
+Signing-in step in between stay at the ordinary modal size, because they are just a question. The
+shape itself is `tech/ui-and-design.md`'s to state. Between asking and the harness
 actually answering, the modal shows a **Signing in** step with nothing to interact with but Cancel
 — the same step a re-authentication starts on directly, skipping the picker because both the
 harness and the identity are already known. A modal rather than a tab on purpose: an OAuth flow
@@ -674,6 +679,46 @@ Host layer rather than the interface's own — an agent runs under a policy, and
 the pane is the half that has to know. Every other row is a `UiSettings` field. Which harnesses opt
 out of confinement is not here at all: that belongs to the harness library, which already has the
 shape for it. See [`../tech/agent-manager.md`](../tech/agent-manager.md).
+
+**The `ubiq` command is a small script Ubiq writes onto the shell's `PATH`, and the Command line
+section is where it is put there and taken away.** `ubiq .` opens a folder as a project and
+`ubiq README.md` opens a file, in the window that already holds it when there is one. It is a
+script rather than a symbolic link because that is the only shape that reaches the running
+application: on a macOS bundle the script runs `open -a Ubiq.app`, so LaunchServices hands the path
+to the window that is already up. Off a bundle it execs the binary, and a second application starts
+with a catalogue of its own — the section says so rather than pretending otherwise, and `D56`
+records why. What the window then does with the path is what a drop on the window does — a folder
+opens as a temporary project, a file outside every project opens as a guest tab (`D54`).
+
+**Every script Ubiq writes carries a `# ubiq-target:` marker naming the build it launches, and that
+line does both of the section's jobs.** Its presence is the proof Ubiq wrote the file, so **Remove**
+deletes only a shortcut of Ubiq's own and never a `ubiq` the user put on their `PATH` themselves.
+The path on it, compared against the running executable, is how a shortcut left behind by a moved or
+replaced build is told apart from a current one — that is the `stale` case, and the button reads
+**Update** in the danger tint instead of **Remove**.
+
+**The section is one row over the list of directories the host considered.** The row is a button —
+**Install**, **Remove** or **Update** — and a status line saying where the shortcut is or where one
+would go, and whether that directory is on `PATH`; a directory that is not draws the line asking the
+user to add it to their shell profile. Under it every candidate is listed in the order the host
+considered them, each marked *missing*, *exists · on PATH* or *exists · not on PATH*, with the
+chosen one ticked, so a machine none of them fit says why rather than failing quietly. The button is
+disabled when no directory can be used at all. Which directory is used is never the interface's
+choice: the candidates, the choice among them and every path drawn here are the host's answer, and
+the interface sends one of three actions and draws what it is told. The candidates, best first, are
+`~/.local/bin`, `/usr/local/bin`, `~/bin` and then any `PATH` entry under the home directory — on
+Windows, `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps` and then `PATH` entries under the home
+directory. The one written to is the directory already holding a shortcut, else the first directory
+**in the user's own tree** that both exists and is on `PATH`, else `~/.local/bin`, which install
+creates. `/usr/local/bin` is listed so that a shortcut already sitting there is found and can be
+removed, and is never chosen: it is root-owned on a stock machine, and choosing it would answer a
+button press with a permission error while a writable directory sat one line above it. A write or a delete the
+host refused surfaces as a banner over the section, in the same shape the harnesses section uses.
+
+**The section asks every time it is opened**, for the same reason the harnesses section re-lists its
+accounts: a shortcut can be moved, deleted or left behind by another build while the window is open,
+and the answer costs a directory listing. Until the host answers, the section says it is looking —
+which is a different thing from saying no shortcut is installed.
 
 **The explorer draws the project's folder, one directory at a time, in the same two arrangements
 the file picker uses.** Opening a project asks the host for its top level; expanding a folder asks
@@ -1084,6 +1129,12 @@ project settings reads that flag off the project it is editing to choose its own
 `Create` for a temporary project's first real save or `Save changes` otherwise. The full family is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
+**The `ubiq` command crosses the bus as a single pair.** `CliShortcut` goes out carrying nothing but
+`Query`, `Install` or `Remove`, and `CliShortcutState` comes back to every one of them — where a
+shortcut is, whether it launches this build, where one would go, and the directories considered. The
+interface names no directory in either direction, because which one the shell would find is a fact
+about the machine's `PATH` and the host is the half allowed to look.
+
 **A guest tab never touches the bus.** It is read with `std::fs` and never resolves through
 `ProjectTree`, `ReadProjectFile` or a project id at all — see *Behaviour* above and `D54`.
 
@@ -1390,7 +1441,18 @@ its own module rather than a `Picker`, because a project row carries actions and
 is not just a value. Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
 shell paints the same dialog over the window when a project is being created or edited. Application
 settings is `ui/settings.rs`: the titlebar's gear raises it, `state/settings.rs` holds the overlay
-and the Ui-layer schema, and a toggle sends `SetSettings`. Shared primitives are in `ui/kit/`;
+and the Ui-layer schema, and a toggle sends `SetSettings`. Its Command line section is
+`ui/settings.rs`, `command_line()` — the row and its button — over `candidate_list()`, the
+directories the host considered; `app/settings.rs` is the traffic, `ask_cli_shortcut()` out and
+`apply_cli_shortcut()` back, with `set_settings_nav()` asking a `Query` whenever the section is
+opened. `SettingsState::cli` in `state/settings.rs` holds the answer, and it is `None` until one
+arrives, which is what lets the section say it is looking rather than say there is no shortcut. The
+half that knows anything about a path is the host's `crates/ubiq-host/src/cli_shortcut.rs`:
+`handle()` takes the action, `candidates()` and `install_dir()` decide where, `script()` writes the
+launcher, `marked_target()` reads the marker line, and `state()` is the answer all three actions
+share. Its tests cover the three things that would be silent if they broke — the script is written
+marked and executable, a bundle is launched through `open -a` where a bare binary is exec'd, and
+remove takes Ubiq's own file and leaves a foreign `ubiq` alone. Shared primitives are in `ui/kit/`;
 the conventions behind that split are in
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
 

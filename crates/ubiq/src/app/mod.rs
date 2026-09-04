@@ -32,8 +32,8 @@ use crate::state::file_picker::{
 use crate::state::git::{GitView, RefSection, Side as GitSide};
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
-    self as ui_settings, AccountDialog, LoginState, LoginStep, MAX_LOGIN_LINKS, MarkdownOpen,
-    SettingsSection,
+    self as ui_settings, AccountDialog, CliShortcut, LoginState, LoginStep, MAX_LOGIN_LINKS,
+    MarkdownOpen, SettingsSection,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -61,7 +61,7 @@ use ubiq_proto::bus::{self, Client};
 use ubiq_proto::files::{DiffBase, FileContents, FileError};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
-use ubiq_proto::messages::{Message, WorkspaceInfo};
+use ubiq_proto::messages::{CliShortcutAction, Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};

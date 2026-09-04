@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-03
+updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -139,6 +139,12 @@ the pane gives it the keyboard again. The host still records the last focused pa
 new size in character cells, telling the coordinator, setting the pseudo-terminal's size, and
 letting the kernel signal the harness so it redraws. A pane that resizes visually while its harness
 still believes the old dimensions is the failure this rule exists to prevent.
+
+**This holds for a pane drawn outside the dock, too.** A harness login runs in a pane the same way
+any workspace does — `AppState::open_terminal` installs the same resize callback regardless of
+where the pane ends up drawn, and the coordinator resizes whatever pane it owns without asking
+where the interface put it. The harness login modal is the one caller of this today: its terminal
+box sizing is `tech/ui-and-design.md`'s to state, not this one's.
 
 **Geometry is measured in cells, not pixels.** The conversion happens once, in the UI, where the
 font metrics are known. Everything downstream speaks columns and rows.

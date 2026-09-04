@@ -318,6 +318,32 @@ pub enum Message {
         error: String,
     },
 
+    // ── The command-line shortcut ───────────────────────────────────
+    /// Ask after, write or delete the small `ubiq` script that puts the application on the
+    /// shell's `PATH`. The host owns every path in this exchange and chooses the directory
+    /// itself; the interface only says which of the three things to do. Answered with
+    /// [`Message::CliShortcutState`].
+    CliShortcut {
+        action: CliShortcutAction,
+    },
+
+    // ── The command-line shortcut: host → UI ────────────────────────
+    /// Where the shortcut is, where one would go, and what the candidate directories look like.
+    /// Sent in answer to every [`Message::CliShortcut`], whichever action it carried, so one
+    /// path in the interface draws the section.
+    CliShortcutState {
+        /// Where a shortcut this application wrote was found, if one was.
+        installed: Option<String>,
+        /// It was found, but it launches a different build than the one running.
+        stale: bool,
+        /// Where writing one would put it. Absent when no directory can be used at all.
+        target: Option<String>,
+        /// Every directory considered, in the order they were considered.
+        candidates: Vec<CliDir>,
+        /// Why the last write or delete did not happen. A sentence, never a stack trace.
+        error: Option<String>,
+    },
+
     // ── File family: UI → host ──────────────────────────────────────
     /// One level of a project's tree. `rel_path` is empty for the root; `depth` is how many levels
     /// below it to list, clamped by the host, and one is what an expand asks for.
@@ -849,6 +875,33 @@ pub struct AccountInfo {
     /// present — so one account can serve several harnesses, and an empty list means the
     /// account is a reference to an environment variable rather than a captured session.
     pub logged_in: Vec<String>,
+}
+
+/// The three things the interface can ask about the `ubiq` command.
+///
+/// `Install` names no directory: which one is a fact about the machine's `PATH`, and the host is
+/// the half that may look at it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CliShortcutAction {
+    /// Look, change nothing.
+    Query,
+    /// Write the shortcut, replacing one this application wrote before.
+    Install,
+    /// Delete it. A file this application did not write is left alone.
+    Remove,
+}
+
+/// One directory the shortcut could live in, as the host found it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliDir {
+    pub path: String,
+    /// The directory is there. Absent directories are still offered — the first candidate is
+    /// created on install.
+    pub exists: bool,
+    /// The shell would find a command here.
+    pub on_path: bool,
+    /// This is the one the shortcut is in, or would go into.
+    pub chosen: bool,
 }
 
 /// What a stored credential says about its own validity, as the host computed it from

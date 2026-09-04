@@ -126,6 +126,7 @@ restyling the shell should be one file to visit.
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
 | `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
+| `LOGIN_MODAL_WIDTH`, `LOGIN_MODAL_HEIGHT` | The one modal that is not one question: a running harness login, sized through `kit::modal_sized`'s fill mode so a full-screen TUI (`opencode`, `grok`) gets a real terminal instead of the ~50×16 a one-question modal would give it |
 | `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
 
 The Git screen's own four — `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT` and the graph's
@@ -238,9 +239,16 @@ scrim occludes the mouse**, so nothing behind a modal can be clicked while it is
 the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
 
 **A modal's body is not always static.** The harness login modal embeds a live `TerminalView` in
-its running step — a pane with a real byte stream, resized and focused exactly as a dock pane is —
-so `kit::modal` makes no assumption about what its body renders beyond the scrolling column it sits
-in. A modal that hosts a pane still follows every rule above; only what fills the body changes.
+its running step — a pane with a real byte stream, resized and focused exactly as a dock pane is.
+A terminal measures its own bounds to decide the geometry it reports to the harness, and a box
+inside a scrolling column never resolves a height to measure — fine for a line-based `claude auth
+login`, but a full-screen TUI (`opencode auth login`, bare `grok`) redraws garbage for whatever
+size it is told it has. So the running step alone draws through **`kit::modal_sized`**, at
+`LOGIN_MODAL_WIDTH`/`LOGIN_MODAL_HEIGHT` with `fill_height: Some(..)`: the body becomes a
+fixed-size flex column instead of a scroller, so the terminal's `flex_1`/`min_h(0)` — the same
+pattern `ui/terminal.rs::pane` uses — resolves against a real height rather than a hugged one.
+Every other step keeps `kit::modal`'s ordinary `MODAL_WIDTH` and scrolling body; a modal that
+hosts a pane still follows every rule above, only what fills the body changes.
 
 Two primitives are built on top of `kit::modal` rather than beside it, in `ui/kit/overlay.rs`, so a
 screen never hand-rolls a confirm or a "type a name" dialog again. **`confirm_modal`** is a question

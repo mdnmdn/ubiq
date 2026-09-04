@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::{AccountInfo, LoginStatus};
+use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus};
 use ubiq_proto::settings::HostSettings;
 
 use crate::state::editor::ViewLayout;
@@ -29,6 +29,7 @@ pub enum SettingsSection {
     Editor,
     Search,
     Harnesses,
+    CommandLine,
 }
 
 impl SettingsSection {
@@ -38,6 +39,7 @@ impl SettingsSection {
             SettingsSection::Editor,
             SettingsSection::Search,
             SettingsSection::Harnesses,
+            SettingsSection::CommandLine,
         ]
     }
 
@@ -47,8 +49,23 @@ impl SettingsSection {
             SettingsSection::Editor => "Editor",
             SettingsSection::Search => "Search",
             SettingsSection::Harnesses => "Harnesses",
+            SettingsSection::CommandLine => "Command line",
         }
     }
+}
+
+/// What the host last said about the `ubiq` command on the shell's `PATH`.
+///
+/// Every field is the host's answer and none of it is decided here: the interface draws what it
+/// was told and sends one of three actions back. `None` on the state means nothing has answered
+/// yet, which reads differently from "no shortcut installed".
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CliShortcut {
+    pub installed: Option<String>,
+    pub stale: bool,
+    pub target: Option<String>,
+    pub candidates: Vec<CliDir>,
+    pub error: Option<String>,
 }
 
 /// How a newly opened markdown file is drawn. Split is a per-tab choice, not a default.
@@ -177,6 +194,8 @@ pub struct SettingsState {
     /// read differently. Pruned whenever `Accounts` arrives, so a renamed or deleted pair
     /// cannot linger here.
     pub statuses: HashMap<(String, String), LoginStatus>,
+    /// The `ubiq` command's shortcut, as the host last reported it. Absent until it answers.
+    pub cli: Option<CliShortcut>,
     /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
     /// user acts: opens a dialog, starts a login, or dismisses it.
     pub error: Option<String>,
@@ -204,6 +223,7 @@ impl Default for SettingsState {
             login: None,
             dialog: None,
             statuses: HashMap::new(),
+            cli: None,
             error: None,
         }
     }

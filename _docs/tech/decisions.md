@@ -930,6 +930,24 @@ either. The `ignore`-based tree walk also duplicates, rather than reuses, the ho
 host crate, and the walker is a few lines against a crate the workspace's lockfile carries for other
 reasons.
 
+### D56 — The `ubiq` command is a generated script that runs `open -a`, not a symbolic link
+
+The shortcut Ubiq writes onto the shell's `PATH` is a small script carrying a `# ubiq-target:`
+marker, written by `crates/ubiq-host/src/cli_shortcut.rs`. On a macOS bundle it runs
+`open -a Ubiq.app "$@"`, so LaunchServices delivers the path to the window that is already open. A
+symbolic link to the executable was the obvious shape and was rejected: it starts a second
+application every time, and reaching the running one is the whole of what `ubiq .` is for. The
+marker is what makes *Remove* safe — a `ubiq` the user put on their own `PATH` carries no marker and
+is never deleted — and what makes a shortcut left behind by a moved or replaced build detectable
+rather than mysterious.
+
+**Cost:** the script is generated text on the user's `PATH` rather than a link the filesystem keeps
+correct, so a moved application leaves a shortcut pointing at where it was; that is the `stale` case
+the settings section draws and the *Update* button rewrites. And off a macOS bundle there is no
+`open -a` to use: the script execs the binary and a second application starts with a catalogue of
+its own. A single-instance handoff is the upgrade path and is unbuilt, and the backlog
+carries it.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

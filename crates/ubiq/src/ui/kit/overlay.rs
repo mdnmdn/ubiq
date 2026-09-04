@@ -30,6 +30,9 @@ use crate::ui::kit::settings::label_block;
 ///
 /// `edge` is what the modal is about — `theme::accent()` for a question, `theme::danger()` for
 /// something irreversible — because the edge is what identifies a surface in this interface.
+///
+/// [`MODAL_WIDTH`](theme::MODAL_WIDTH), body scrolling inside a hugged height — the shape every
+/// modal but a running harness login wants. See [`modal_sized`] for the other one.
 pub fn modal(
     id: &'static str,
     edge: Rgba,
@@ -39,20 +42,77 @@ pub fn modal(
     on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
     window: &Window,
 ) -> AnyElement {
+    modal_sized(
+        id,
+        edge,
+        theme::MODAL_WIDTH,
+        None,
+        title,
+        body,
+        footer,
+        on_dismiss,
+        window,
+    )
+}
+
+/// [`modal`], with its own width and, for a body that must fill rather than scroll, the height to
+/// fill.
+///
+/// `fill_height: None` is `modal`'s own shape exactly: the body scrolls inside a panel that hugs
+/// its content up to `MODAL_MAX_HEIGHT` of the window. `fill_height: Some(height)` is for a body
+/// that cannot be a scroller — a live terminal, which measures its own bounds to decide the
+/// geometry it reports to the harness, and a box inside a scrolling column never resolves a
+/// height to measure. That panel is given `height` outright (clamped to `MODAL_MAX_HEIGHT` of the
+/// window, the same ceiling the scrolling shape uses) so the body's own `flex_1` children have a
+/// real height to fill, the way `ui/settings.rs`'s fixed-size dialog already gives its body one.
+#[allow(clippy::too_many_arguments)]
+pub fn modal_sized(
+    id: &'static str,
+    edge: Rgba,
+    width: f32,
+    fill_height: Option<f32>,
+    title: &str,
+    body: AnyElement,
+    footer: AnyElement,
+    on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    window: &Window,
+) -> AnyElement {
     let dismiss = Rc::new(on_dismiss);
     let close = dismiss.clone();
     let viewport = window.viewport_size();
+    let max_h = viewport.height * theme::MODAL_MAX_HEIGHT;
 
-    let panel = div()
+    let mut panel = div()
         .id(ElementId::Name(format!("{id}-panel").into()))
-        .w(px(theme::MODAL_WIDTH))
-        .max_h(viewport.height * theme::MODAL_MAX_HEIGHT)
+        .w(px(width))
+        .max_w(viewport.width)
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
         .border_l(px(theme::ACCENT_EDGE))
         .border_color(edge)
-        .shadow_lg()
+        .shadow_lg();
+    panel = match fill_height {
+        Some(height) => panel.h(px(height)).max_h(max_h),
+        None => panel.max_h(max_h),
+    };
+
+    let mut body_slot = div()
+        .id(ElementId::Name(format!("{id}-body").into()))
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .gap_3()
+        .px_3()
+        .pb_3();
+    body_slot = if fill_height.is_some() {
+        body_slot
+    } else {
+        body_slot.overflow_y_scroll()
+    };
+
+    let panel = panel
         .child(
             div()
                 .h(px(38.))
@@ -70,19 +130,7 @@ pub fn modal(
                     move |_, window, cx| close(window, cx),
                 )),
         )
-        .child(
-            div()
-                .id(ElementId::Name(format!("{id}-body").into()))
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h(px(0.))
-                .gap_3()
-                .px_3()
-                .pb_3()
-                .overflow_y_scroll()
-                .child(body),
-        )
+        .child(body_slot.child(body))
         .child(
             div()
                 .px_3()

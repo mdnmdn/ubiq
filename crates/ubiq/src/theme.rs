@@ -59,6 +59,17 @@ pub const NEW_COLUMN_STRIP: f32 = 28.0;
 pub const MODAL_WIDTH: f32 = 460.0;
 pub const MODAL_MAX_HEIGHT: f32 = 0.8;
 
+/// The one modal that is not one question: a running harness login for a full-screen TUI
+/// (`opencode auth login`, bare `grok`). Those measure the box they are given and redraw for it,
+/// so a one-question width and a squeezed height is what garbles their output — see
+/// `_docs/tech/ui-and-design.md`. `LOGIN_MODAL_WIDTH` and `LOGIN_MODAL_HEIGHT` size the panel
+/// itself (through `kit::modal_sized`'s fill mode, not the scroll-and-hug a normal modal uses),
+/// generous enough for a real TUI while still clamped to the viewport the same way
+/// `MODAL_MAX_HEIGHT` clamps an ordinary modal. `LOGIN_MODAL_HEIGHT` leaves the terminal box
+/// itself at roughly 30 rows once the note above it and the header/footer chrome are subtracted.
+pub const LOGIN_MODAL_WIDTH: f32 = 960.0;
+pub const LOGIN_MODAL_HEIGHT: f32 = 720.0;
+
 /// Application settings: a page overlay with a nav, not a one-question modal. Fixed size so
 /// switching sections does not resize the panel. Same width as project settings.
 pub const SETTINGS_WIDTH: f32 = 820.0;

@@ -27,6 +27,7 @@
 
 pub mod agent;
 pub mod atomic;
+pub mod cli_shortcut;
 pub mod config;
 pub mod conversation;
 pub mod coordinator;

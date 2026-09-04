@@ -3,7 +3,7 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search and account families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account and command-line families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-04
 verified: 2026-09-04
@@ -528,7 +528,7 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Twenty-eight records travel inside payloads.
+Twenty-nine records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -560,6 +560,7 @@ Twenty-eight records travel inside payloads.
 | `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
 | `ConfigChoice` | `value`, `name`, `description?`, `group?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
+| `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
@@ -572,7 +573,7 @@ field on a task is like `health` or `open_panes`, which can only be known at the
 asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round — per-request payloads
 with no store behind them, in the class `DirEntry` and `DirListing` are in.
 
-Twelve enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
+Thirteen enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
 or `Failed`, and the file family's section says what each one asks the interface to do.
 
@@ -606,6 +607,11 @@ question in [`../backlog.md`](../backlog.md). `StopReason` is ACP's five plus `F
 ours and means the run broke rather than the model declining. `ConfigCategory` — `Mode`, `Model`,
 `ModelConfig`, `ThoughtLevel`, or an `Other` carrying whatever a harness invented — is a hint about
 which picker draws an option and must never change what an id means.
+
+`CliShortcutAction` — `Query`, `Install` or `Remove` — is the whole of what the interface may ask
+about the `ubiq` command, and a `CliDir` is one directory the host considered, with whether it
+exists and whether the shell would find a command in it. A directory that does not exist is still
+offered: the first candidate is created on install.
 
 `DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
 textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.
@@ -725,6 +731,37 @@ does not remove it from the stream. The pane still shows the harness's real outp
 naming an account that already exists re-runs the harness's flow, and the mtime rule that decides
 capture (above) already distinguishes a fresh credential from the old one.
 
+## The command-line family
+
+The tenth family, and the smallest: one request and one answer, about the `ubiq` script on the
+shell's `PATH`. It names no project, no pane and no account, because what it is about is the
+machine.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `CliShortcut` | UI → host | `action` | `CliShortcutState` |
+| `CliShortcutState` | host → UI | `installed?`, `stale`, `target?`, `candidates[]`, `error?` | — |
+
+**The request carries no directory.** `CliShortcutAction` is `Query`, `Install` or `Remove`, and
+nothing else rides with it. Which directory the shortcut belongs in is a fact about the machine's
+`PATH`, and the host is the half allowed to look — so every path in this exchange travels host to
+UI, and the interface draws what it was told rather than proposing anywhere.
+
+**One answer serves all three actions.** `Install` and `Remove` are answered with the same
+`CliShortcutState` a `Query` is, so one path in the interface draws the section and a failed write
+is a state with an `error` on it rather than a variant of its own. `error` is one sentence about the
+last write or delete, never a stack trace.
+
+**`installed` and `stale` are different questions.** `installed` is where a shortcut Ubiq wrote was
+found, recognised by the marker line it carries; `stale` says that shortcut launches a build other
+than the one running. A `ubiq` on the `PATH` that Ubiq did not write is reported as neither, because
+it is not Ubiq's to name or to delete.
+
+**`target` is where a write would land, and its absence is a refusal.** No candidate usable means no
+`target`, which is what the interface draws its disabled button from. `candidates` is every
+directory considered, in the order it was considered, each a `CliDir` — so a machine that fits none
+of them shows why.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -749,6 +786,7 @@ capture (above) already distinguishes a fresh credential from the old one.
    If it names a project alone, the project family. Otherwise the
    session family.
    If it names an **agent** and carries something that agent said, the conversation family.
+   If it names nothing in Ubiq at all and asks about the machine, the command-line family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

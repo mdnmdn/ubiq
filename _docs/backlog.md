@@ -113,7 +113,6 @@ change what Ubiq does (here), or where a document lives (there)?
 | G89 | mouse scrolling direction in terminal should follow the os (for macos is inverted) |
 | G90 | double click on the folder in the explorer opens an empy editor, it should be ignored |
 | G91 | the markdown preview does not scroll anymore |
-| G102 | `argv` is ignored and `on_open_urls`/`on_reopen` are not installed, so `ubiq .`, `open -a Ubiq <path>` and a drop on the dock icon onto a running window do nothing — `Info.plist` declares the document types that earn those events, and nothing in `crates/ubiq-app` answers them | [`_tools/Info.plist`](../_tools/Info.plist), [`tech/architecture.md`](./tech/architecture.md) |
 | G103 | The clipboard is write-only and text-only in `crates/ubiq`: no `read_from_clipboard` and no `ClipboardEntry::ExternalPaths` in either direction | [`inbox/shell-integration-proposal.md`](./inbox/shell-integration-proposal.md) |
 | G104 | The explorer cannot drag a file out to the operating system, though `external_drag_payload` and `FileDragPaths` are available at the pinned gpui revision | [`inbox/shell-integration-proposal.md`](./inbox/shell-integration-proposal.md) |
 | G105 | An external drop onto the explorer does nothing — no import, no move, no copy — because the file family has no message to create, move or copy a path yet (`G70`) | [`features/workbench.md`](./features/workbench.md), [`inbox/shell-integration-proposal.md`](./inbox/shell-integration-proposal.md) |
@@ -125,6 +124,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G114 | Phase 1 of [`inbox/indexing-fswatch-proposal.md`](./inbox/indexing-fswatch-proposal.md) has shipped and the proposal is still in `inbox/`. Its watcher design is documented state under `tech/` and `features/`, and what is left of the document is phases 2 to 4 — the filename, symbol and full-text indexes. A librarian pass owes it a promotion, a split or a filing | [`inbox/indexing-fswatch-proposal.md`](./inbox/indexing-fswatch-proposal.md) |
 | G115 | `AppState`'s diagram and viewport caches (`diagrams`, `viewports` in `crates/ubiq/src/app/mod.rs`, filled by `crates/ubiq/src/app/chat.rs`) are insert-only: nothing ever removes an entry. A window accumulates one per diagram rendered and one per theme switch for as long as it stays open | [`features/chat.md`](./features/chat.md) |
 | G116 | A conversation's transcript (`Conversation::blocks` in `crates/ubiq/src/state/conversation.rs`) grows without bound for the life of the chat — it can hold full diff bodies, and nothing ever trims or pages it out | [`features/chat.md`](./features/chat.md) |
+| G117 | Off a macOS bundle the `ubiq` command execs the binary, so a second application starts with a catalogue of its own instead of the path reaching the window that is up. The single-instance handoff — a socket in `crates/ubiq-app` a live instance answers — is unbuilt, and `script()` in `crates/ubiq-host/src/cli_shortcut.rs` marks the spot | [`features/workbench.md`](./features/workbench.md), [`tech/decisions.md`](./tech/decisions.md) |
 
 
 

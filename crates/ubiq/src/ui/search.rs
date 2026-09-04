@@ -214,8 +214,7 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .flex_none()
                     .items_center()
                     .child(
-                        mono("+ more hits truncated", theme::text_faint())
-                            .text_size(px(font - 1.)),
+                        mono("+ more hits truncated", theme::text_faint()).text_size(px(font - 1.)),
                     )
                     .into_any_element(),
             );

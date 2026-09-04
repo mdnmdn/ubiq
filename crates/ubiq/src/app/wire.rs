@@ -312,6 +312,23 @@ impl AppState {
 
             Message::Preferences { scope, value } => self.apply_preferences(scope, value, cx),
 
+            Message::CliShortcutState {
+                installed,
+                stale,
+                target,
+                candidates,
+                error,
+            } => self.apply_cli_shortcut(
+                CliShortcut {
+                    installed,
+                    stale,
+                    target,
+                    candidates,
+                    error,
+                },
+                cx,
+            ),
+
             Message::Settings { layer, value } => self.apply_settings(layer, value, cx),
             Message::SettingsError { layer, error } => {
                 tracing::error!("settings {layer:?}: {error}");

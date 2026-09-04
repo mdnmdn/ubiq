@@ -118,7 +118,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     if app.project(cx).is_none() {
         return strip
             .child(mono("no project", theme::text_faint()))
-            .child(div().flex_1().min_w(px(0.)))         
+            .child(div().flex_1().min_w(px(0.)))
             .children(config_root(app))
             .child(made_with_love())
             .child(version_label());

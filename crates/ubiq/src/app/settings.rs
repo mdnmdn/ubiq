@@ -95,6 +95,23 @@ impl AppState {
 
     pub fn set_settings_nav(&mut self, nav: SettingsSection, cx: &mut Context<Self>) {
         self.workbench.settings.nav = nav;
+        if nav == SettingsSection::CommandLine {
+            // Asked on arrival for the same reason the accounts are: the shortcut can be moved,
+            // deleted or left behind by another build while the window is open, and the answer
+            // costs a directory listing.
+            self.ask_cli_shortcut(CliShortcutAction::Query);
+        }
+        cx.notify();
+    }
+
+    /// Ask after, write or delete the `ubiq` command. All three answer the same way, so one
+    /// sender serves the section and `apply_cli_shortcut` is the only thing that draws.
+    pub fn ask_cli_shortcut(&mut self, action: CliShortcutAction) {
+        self.bus.send(Message::CliShortcut { action });
+    }
+
+    pub(super) fn apply_cli_shortcut(&mut self, cli: CliShortcut, cx: &mut Context<Self>) {
+        self.workbench.settings.cli = Some(cli);
         cx.notify();
     }
 

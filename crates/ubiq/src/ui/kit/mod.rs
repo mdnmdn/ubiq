@@ -37,6 +37,6 @@ pub use files::{
     ROW_FONT, file_row, filter_bar, kind_icon, row_height, row_indent, twisty, view_switch,
 };
 pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};
-pub use overlay::{confirm_modal, modal, modal_note, prompt_modal};
+pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use settings::{column, heading, label_block, nav_item, setting_row};
