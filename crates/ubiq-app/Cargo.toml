@@ -8,6 +8,10 @@ publish = false
 
 # The only crate that names both halves, and it names the host once: to start it and hand the
 # interface the other end of the bus.
+[lib]
+name = "ubiq_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "ubiq"
 path = "src/main.rs"
