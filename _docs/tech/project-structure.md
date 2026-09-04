@@ -145,7 +145,8 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq/src/ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |
 | `ubiq/src/theme.rs` | The colour palette and its tokens | A literal colour used anywhere else |
 | `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, what a panel is and where it may sit, the projections of the host's catalogue and of a project's work, the three views over that work — `agents.rs` for the columns, `orchestration.rs` for the graph, `board.rs` for the board — and the fixture that still seeds the chat | Rendering, or any component-library type |
-| `ubiq-app/src/main.rs` | Application start: the config root, the host, the theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
+| `ubiq-app/src/lib.rs` | The boot as a library: `Stores` (the four boxed store traits), `Boot` (what an edition composes — the stores it hands in) and `run(boot)`, the whole start sequence: config root, host, theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
+| `ubiq-app/src/main.rs` | Three lines: `run(Boot::default())`. The base edition's binary, entire | A step of the boot — a second binary composing these crates must not be able to skip one |
 
 The "never holds" column is the enforcement of the architecture's rules in file terms. A
 `portable-pty` type under `ui/`, or a GPUI type in `messages.rs`, is a violation you can grep for —

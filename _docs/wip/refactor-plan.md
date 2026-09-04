@@ -3,7 +3,7 @@ id: wip-refactor-plan
 title: Pre-editions refactoring plan
 kind: wip
 status: current
-summary: Phases 0-3 are done — app.rs, state/explorer.rs and cli/account.rs are split, the harness boilerplate is deduplicated, and the colour picker exists once. What remains is phase 4, the editions-proposal groundwork.
+summary: Phases 0-3 are done — app.rs, state/explorer.rs and cli/account.rs are split, the harness boilerplate is deduplicated, and the colour picker exists once. Of phase 4, the editions-proposal groundwork, the composition root and the preference round-trip landed; three items remain, each blocked or deferred for a recorded reason.
 read_when: you are picking up refactoring work ahead of the editions split
 updated: 2026-09-04
 depends_on: [inbox-editions]
@@ -15,7 +15,8 @@ Source: a four-way audit (read-only subagents) of the largest files in `ubiq`, `
 `ubiq-proto` and `agent-manager`, cross-checked against `inbox/editions-proposal.md`. Deleted when
 phase 4 closes — promote anything durable to `tech/` or `backlog.md` before that.
 
-**Phases 0-3 landed on 2026-09-04.** Phase 4 is the only work left here.
+**Phases 0-3 landed on 2026-09-04, and so did phase 4's first item.** What is left of phase 4 is
+three items, each with a recorded reason it is left.
 
 ## What the split produced
 
@@ -67,19 +68,42 @@ Recorded because the same mistakes are easy to make again from the same reading.
 
 ## Phase 4 — editions-proposal groundwork
 
-The remaining work, in the proposal's own order (`inbox-editions` §14):
+In the proposal's own order (`inbox-editions` §14).
 
-1. **Composition root** (§3) — `ubiq-app` becomes a library (`Boot`, `Stores`, `run()`) with a
-   three-line `main.rs`. Mechanical, zero screen impact, cheapest to do first. `main.rs` is 246
-   lines doing six things; the four stores are boxed at `:53-65`.
-2. **`Feature` dispatch arm** — drops straight in before `app/wire.rs`'s chain-ending warning and
-   `coordinator.rs`'s equivalent. No match restructuring needed first.
-3. **`Screen`/`Contribution` trait** — model it as a proper `dyn Trait` with named methods, the same
-   shape as `ui/dock/skin.rs::Skin`'s `DockAreaRenderer`/`TabGroupRenderer`/`TilesRenderer`. **Not**
-   `skin.rs`'s `NewPane` (a bag of loose closures) — that shape is forced by crossing
-   `gpui_component`'s foreign renderer trait, not a template to repeat.
-4. **`RailMode`/`PanelKind` `Extension` variants** — ~4 touch points for `RailMode`, ~10 for
-   `PanelKind`. Fix the `Copy` claim above before promising it.
+### Landed on 2026-09-04
+
+1. **Composition root** (§3), `3c51380` — `ubiq-app` is a library: `Stores` (the four boxed store
+   traits, with `Stores::files`), `Boot` (one field, `stores: Box<dyn FnOnce(&Path) -> Stores>`,
+   because the config root is resolved inside `run`) and `run(boot)`, the former 246-line `main()`
+   verbatim. `main.rs` is three lines. `Cargo.toml` gained `[lib] name = "ubiq_app"`. Zero behaviour
+   change, and the boot gained a test that hands in the memory stores.
+   The proposal's `Boot::features` and `Boot::contributions` are absent by design — `Feature` and
+   `Contribution` do not exist, and the proposal's own rule is that an extension point with no
+   base-side user is not built.
+- **The `ViewPrefs`/`InterfacePrefs` unknown-key round-trip** (§6), `3db7b4a` — out of §14's phase 4,
+  because it is a real forward-compatibility hole on its own: serde dropped every key the structs did
+  not name, so a blob written by a newer build lost them the first time an older build wrote it back.
+  Both gained `#[serde(flatten, default)] rest: BTreeMap<String, Value>` — a general catch-all rather
+  than §6's named `extensions` map, since the mechanism is the same and only the general one has a
+  base-side user today. `remember_interface` rebuilds `InterfacePrefs`, so the unknown keys park on
+  `WorkbenchState::interface_rest`.
+
+### Not done, and why
+
+2. **`Feature` dispatch arm** — deliberately deferred. It drops straight in before `app/wire.rs`'s
+   chain-ending warning and `coordinator.rs`'s equivalent, with no match restructuring needed first,
+   but landing it today ships a trait with zero implementations and four unreachable message
+   variants. `inbox-editions` §14 puts it after the second repository exists, which is what can
+   validate it.
+3. **`Screen`/`Contribution` trait** — blocked on `inbox-routing` phase 1, which is `status:
+   proposal` with no `Destination` type in the code. When it unblocks: model it as a proper
+   `dyn Trait` with named methods, the same shape as `ui/dock/skin.rs::Skin`'s
+   `DockAreaRenderer`/`TabGroupRenderer`/`TilesRenderer`. **Not** `skin.rs`'s `NewPane` (a bag of
+   loose closures) — that shape is forced by crossing `gpui_component`'s foreign renderer trait, not
+   a template to repeat.
+4. **`RailMode`/`PanelKind` `Extension` variants** — blocked on the same `inbox-routing` phase 1.
+   ~4 touch points for `RailMode`, ~10 for `PanelKind`. Fix the `Copy` claim above before promising
+   it.
 
 ## What is confirmed healthy — leave alone
 

@@ -5,7 +5,7 @@ kind: proposal
 status: proposal
 summary: Ubiq split into a source-available base under the Sustainable Use License and a closed Pro edition in a second repository — the composition root moved out of the binary so a second binary can compose the same halves with more in them, three registration points that each already have a base-side user, one opaque message family for everything a Pro feature says, and the rule that keeps the base working with nothing registered.
 read_when: you are deciding what belongs in the base repository and what belongs in Pro, how a closed feature reaches into the interface or the host, or how the two are developed and built together
-updated: 2026-09-03
+updated: 2026-09-04
 depends_on: [tech-architecture, tech-transport, tech-structure, tech-agent-manager, feat-workbench, inbox-routing]
 ---
 
@@ -49,8 +49,8 @@ Ubiq embeds rather than a part of Ubiq.
 
 **Four seams exist and are proven.** The store traits in `crates/ubiq-host/src/store/mod.rs` —
 `ProjectStore:70`, `TaskStore:77`, `PreferenceStore:86`, `SettingsStore:98`, each `Send + Sync`, each
-boxed into its subsystem at `crates/ubiq-app/src/main.rs:54-69`, each with a file and a memory
-implementation. `agent_manager::harness::Harness` (`harness/mod.rs:456`), resolved by string.
+boxed into its subsystem by `Stores::files` in `crates/ubiq-app/src/lib.rs`, each with a file and a
+memory implementation. `agent_manager::harness::Harness` (`harness/mod.rs:456`), resolved by string.
 `IoBridge` and `AgentInputSink` (`io/model.rs:758,769`), already substituted by
 `tests/conversation.rs:72`. And `agent_manager::registry`, a trait precisely so an embedder can back
 the skill and MCP catalogue with a database or a remote service, with `source::Source` making the two
@@ -116,28 +116,26 @@ linked. The base gains no loader, no ABI and no sandbox for one. §8.
 
 ## 3. The composition root
 
-`crates/ubiq-app/src/main.rs` is 130 lines and does six things: resolve the config root, open the
-stores, start the one host, install the component library and the palette, bind quit, ask for the
-first window. All six are the same in both editions; what differs is what is registered before the
-first window. So the file becomes two files, and the diff is a move:
+**Landed on 2026-09-04 (`3c51380`), as a move with no behaviour change.** `main()` was 246 lines
+doing six things — config root, stores, host, component library and palette, quit, first window — all
+six the same in both editions. So the file became two:
 
 ```rust
 // crates/ubiq-app/src/lib.rs — the boot, and the only crate that names both halves.
-pub struct Boot {
-    pub features: Vec<Box<dyn ubiq_host::Feature>>,        // runs in the host; empty in the base
-    pub contributions: Vec<Box<dyn ubiq::ext::Contribution>>, // appears in the interface; ditto
-    pub stores: Stores,                                    // an edition may wrap them
-}
+pub struct Stores { projects, preferences, tasks, settings }  // the four boxed store traits
+impl Stores { pub fn files(root: &Path) -> Stores { /* the Box::new the boot made inline */ } }
+pub struct Boot { pub stores: Box<dyn FnOnce(&Path) -> Stores> }  // an edition may wrap them
+impl Default for Boot { /* Stores::files */ }
+pub fn run(boot: Boot) { /* the former main(), verbatim, and its private helpers */ }
 
-impl Default for Boot { /* the file stores, and nothing registered */ }
-
-pub fn run(boot: Boot) -> ! { /* the present main(), verbatim */ }
+// crates/ubiq-app/src/main.rs, entire.                    // pro: crates/ubiq-pro-app/src/main.rs.
+fn main() { ubiq_app::run(ubiq_app::Boot::default()) }     // ubiq_app::run(ubiq_pro::boot())
 ```
 
-```rust
-// crates/ubiq-app/src/main.rs, entire.       // pro: crates/ubiq-pro-app/src/main.rs, entire.
-fn main() { ubiq_app::run(Boot::default()) }  // fn main() { ubiq_app::run(ubiq_pro::boot()) }
-```
+`Cargo.toml` gained `[lib] name = "ubiq_app"` beside `[[bin]] name = "ubiq"`; `stores` is a
+`FnOnce(&Path)` because the config root is resolved inside `run`. **`Boot` has one field, not
+three:** `features` and `contributions` await `Feature` and `Contribution` — the rule above, that an
+extension point with no base-side user is not built. §14's phases 4 and 2 add them.
 
 Three properties follow, and each is a requirement. **The base works out of the box because
 `Boot::default()` is the base** — not a reduced configuration, not a mode; a base feature that only
@@ -152,8 +150,9 @@ and `just ui` are the two `cargo tree` greps from `Justfile:48-57`. A closed edi
 architecture rule 1 is one nobody could later split into two processes, which is the reason the rule
 exists.
 
-`Stores` is tier 0 made reachable: the four boxes `main.rs:54-69` builds today, lifted into a struct
-so Pro can hand in a wrapped `PreferenceStore`. No new trait, no new indirection.
+`Stores` is tier 0 made reachable: the four boxes the boot built inline, lifted into a struct so Pro
+can hand in a wrapped `PreferenceStore`. No new trait, no indirection — and the boot is testable, by
+`an_edition_can_hand_in_stores_of_its_own`, which hands in the memory stores.
 
 ## 4. What an extension is
 
@@ -288,13 +287,14 @@ Three places, each an existing arrangement with one more namespace.
 | A feature's interface state | The preference blob under `Scope::Interface` or `Scope::Project`, in an object keyed by the feature's id | The interface's half of that feature |
 | A feature's host settings | Its own directory — a fifth store would be a new trait for one user | The feature |
 
-**`ViewPrefs` must round-trip keys it does not know**, and today it cannot: `prefs.rs:161`'s `decode`
-discards the whole blob on a schema mismatch, and serde drops every field the struct does not name.
-So `ViewPrefs` and `InterfacePrefs` each gain one field —
-`#[serde(default)] extensions: BTreeMap<String, serde_json::Value>`, keyed by feature id — preserved
-and rewritten untouched, or a user who opens their catalogue in the base once loses every Pro setting
-they had. Likewise **a persisted `RailMode::Extension` no registered spec claims resolves to the
-default mode**, silently, and is written back unchanged, so returning to Pro returns to the screen.
+**`ViewPrefs` must round-trip keys it does not know**, or a user who opens their catalogue in the
+base once loses every Pro setting they had. **Landed 2026-09-04 (`3db7b4a`)** as a general catch-all,
+not the named `extensions` map sketched here: both it and `InterfacePrefs` gained
+`#[serde(flatten, default)] rest: BTreeMap<String, Value>`, keeping every key the struct does not
+name, feature ids among them — identical mechanism, and only the general one has a base user today.
+`remember_interface` rebuilds `InterfacePrefs`, so its keys park on `interface_rest`. Likewise **a
+persisted `RailMode::Extension` no registered spec claims resolves to the default mode**, silently,
+and is written back unchanged, so returning to Pro returns to the screen.
 
 ## 7. Five hypothetical Pro features, and the seam each uses
 
@@ -431,9 +431,9 @@ Four, and they erode a commit at a time rather than in a decision.
 
 ## 14. Phases
 
-1. **The composition root.** `ubiq-app` becomes a library with a three-line `main.rs`; `Boot` and
-   `Stores` exist; `Boot::default()` is present behaviour. Nothing changes on screen, nothing is
-   registrable — and the boot becomes testable.
+1. **The composition root — landed 2026-09-04 (`3c51380`).** `ubiq-app` is a library with a
+   three-line `main.rs`; `Boot` (its `stores` alone) and `Stores` exist; `Boot::default()` is present
+   behaviour, nothing is registrable, the boot is testable. §6's round-trip landed with it.
 2. **The interface registries.** `ScreenSpec`, `PanelSpec`, `CommandSpec`, the three `Extension`
    variants and `RailMode`'s serde pair — and the part that earns its keep, the base's own kitchen
    sink registered through the screen registry rather than matched in five files: the registry is
@@ -442,7 +442,7 @@ Four, and they erode a commit at a time rather than in a decision.
    boundary greps, a proprietary `LICENSE`, and a binary that registers nothing and runs. Ships no
    feature; proves the composition.
 4. **The host feature.** `Feature`, `Ctx`, `extensions/<id>/`, the `Extension` family and its one
-   dispatch arm, and the unknown-key round-trip in `ViewPrefs`. Still no Pro feature.
+   dispatch arm. Still no Pro feature. Its unknown-key round-trip in `ViewPrefs` landed with phase 1.
 5. **One real feature end to end.** The issue-tracker task source, the §7 row touching the most
    seams at once — a store decorator, a host thread, the message family, a settings surface, a
    command and a card badge. Whatever is wrong with §§3-6 is found here, with one feature's worth of

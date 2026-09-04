@@ -199,26 +199,28 @@ crates/ubiq/src/
 │   ├── mod.rs
 │   ├── routes.rs
 │   └── server.rs
-└── app/
-    ├── agents.rs      agents, conversations and the new-agent menu
-    ├── board.rs       the task board and the jumps out of it
-    ├── boot.rs        `for_project` — the constructor that opens the bus and builds a window
-    ├── chat.rs        chat, diagrams and viewports
-    ├── editor.rs      open files, tabs and saving
-    ├── explorer.rs    explorer rows, menus and file opening
-    ├── git.rs         the git view and project search
-    ├── graph.rs       the orchestration graph and inspector
-    ├── mod.rs         `AppState`, `OpenProject`, `PaneState`, `BusHub`, the free window functions and the key bindings
-    ├── panels.rs      the dock: settling mode, layout, visibility and placement
-    ├── picker.rs      the file picker and the log panel
-    ├── projects.rs    add, edit and close a project; preference persistence
-    ├── settings.rs    the settings overlay and harness login
-    ├── shell.rs       project lifecycle, chrome and menus, rail mode, font and zoom, the `Render` impl
-    ├── sink.rs        the kitchen sink's setters
-    └── wire.rs        `receive()`, the pane and terminal calls, focus drains
+├── app/
+│   ├── agents.rs      agents, conversations and the new-agent menu
+│   ├── board.rs       the task board and the jumps out of it
+│   ├── boot.rs        `for_project` — the constructor that opens the bus and builds a window
+│   ├── chat.rs        chat, diagrams and viewports
+│   ├── editor.rs      open files, tabs and saving
+│   ├── explorer.rs    explorer rows, menus and file opening
+│   ├── git.rs         the git view and project search
+│   ├── graph.rs       the orchestration graph and inspector
+│   ├── mod.rs         `AppState`, `OpenProject`, `PaneState`, `BusHub`, the free window functions and the key bindings
+│   ├── panels.rs      the dock: settling mode, layout, visibility and placement
+│   ├── picker.rs      the file picker and the log panel
+│   ├── projects.rs    add, edit and close a project; preference persistence
+│   ├── settings.rs    the settings overlay and harness login
+│   ├── shell.rs       project lifecycle, chrome and menus, rail mode, font and zoom, the `Render` impl
+│   ├── sink.rs        the kitchen sink's setters
+│   └── wire.rs        `receive()`, the pane and terminal calls, focus drains
+└── version.rs
 
 crates/ubiq-app/src/
-└── main.rs
+├── main.rs            three lines: `run(Boot::default())`
+└── lib.rs             `Stores`, `Boot` and `run(boot)` — the whole boot sequence, and the only crate that names both halves
 ```
 
 <!-- generated:end tree -->
@@ -234,6 +236,7 @@ the documents in its row.
 |---|---|
 | `Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `Justfile` | [`operations.md`](./operations.md) |
+| `_devops/scripts/bundle-version.sh` | [`operations.md`](./operations.md) |
 | `_tools/Info.plist` | [`operations.md`](./operations.md) |
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
 | `_tools/excalidraw.py` | [`diagram-format.md`](./diagram-format.md) |
@@ -247,7 +250,8 @@ the documents in its row.
 | `crates/agent-manager/src/resolve.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/agent-manager/src/spec.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq-app/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
-| `crates/ubiq-app/src/main.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-app/src/lib.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-app/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq-host/src/conversation.rs` | [`agent-manager.md`](./agent-manager.md) |
@@ -369,6 +373,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/viewer/scene.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/viewer/viewport.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/work.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/version.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/web_export/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/tests/agents.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/board.rs` | [`features/workbench.md`](../features/workbench.md) |

@@ -40,8 +40,8 @@ that way, and one that forgets is a pane that stops updating.
 **Layout is flexbox.** Elements are composed with the same direction, grow, gap and alignment
 vocabulary as CSS flexbox, in Rust builder form.
 
-`crates/ubiq-app/src/main.rs` installs the component library and its assets, sets the palette and binds
-the quit action, then asks for the first window. Windows themselves are opened by
+`crates/ubiq-app/src/lib.rs`'s `run` installs the component library and its assets, sets the palette
+and binds the quit action, then asks for the first window. Windows themselves are opened by
 `app::open_project_window`, which is the only place one is created, so the first window and "open in
 a new window" go through the same code. Each window owns its own `AppState` and they share nothing
 but the palette, which is process-wide. Everything drawn belongs under `crates/ubiq/src/ui/`.

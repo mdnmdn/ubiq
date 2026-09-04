@@ -50,7 +50,7 @@ minimum system version — no `CFBundleDocumentTypes`, no `LSItemContentTypes`, 
 *Open With*, and never sends the application an open event. `just bundle` assembles `target/Ubiq.app`
 by hand from that plist and does not sign it.
 
-**No application-level open hook is installed.** `crates/ubiq-app/src/main.rs` opens a window and
+**No application-level open hook is installed.** `crates/ubiq-app/src/lib.rs` opens a window and
 nothing else; `cx.on_open_urls` and `cx.on_reopen` are unused, and `argv` is not read.
 
 **The toolkit is not the obstacle.** At the pinned revision (`gpui` 0.2.2, rev `6840b8d`) everything
@@ -240,7 +240,7 @@ deliberate — Ubiq should be offered, never seize the default handler for every
 machine.
 
 **The application installs the hook before the first window.** `cx.on_open_urls` in
-`crates/ubiq-app/src/main.rs`, next to the existing `gpui_component::init` call, converting each
+`crates/ubiq-app/src/lib.rs`, next to the existing `gpui_component::init` call, converting each
 `file://` URL to a path. `cx.on_reopen` covers a dock click with no window open, which today does
 nothing. Both must survive arriving **before the host is ready and before a window exists**: paths
 queue in a small global, and the queue is drained when the first window has a client. This is the

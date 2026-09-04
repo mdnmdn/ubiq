@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -138,6 +138,7 @@ the transport beneath the contract.
 | A project's tasks, and the sessions and agents over them | `crates/ubiq-host/src/work/` | Tasks are the user's data, written down per project; sessions and agents are the host's mocks, minted per project and never written |
 | Window, panes, chrome, focus | `crates/ubiq/src/app/`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
+| Build/bundle version | `crates/ubiq/src/version.rs` | `option_env!("UBIQ_VERSION")`, baked in at compile time by the Justfile from `_devops/scripts/bundle-version.sh`, `"dev"` when unset. Read by the status bar and the web-export footer |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor, chat, agents, orchestration and board state, and the projection of a project's work. A window holds one tree, one set of open files and one projection of the work per project |
 | The message set | `crates/ubiq-proto/src/messages.rs` | The contract, serialisable by construction |
 | The bus, and a pane's byte streams | `crates/ubiq-proto/src/bus.rs` | The channel pair, and the `Read`/`Write` ends the emulator gets |
@@ -181,12 +182,20 @@ is `ProjectFilesChanged` — project-relative paths and a flag for the git direc
 and never an absolute path, on the same rule a search hit follows. A watch that will not start is
 logged and the project simply has none.
 
-`crates/ubiq-app/src/main.rs` does nothing but start the application: resolve the config root, start
-the one host, install the GPUI component library, set the palette, bind the quit action and the
-interface's own, and ask for the first window. Opening a window is
-`app::open_project_window`, the single place one is created, so the first window and "open in a new
-window" cannot drift apart. `main.rs` consumes the crate as a library rather than redeclaring its
-modules, so the tree is compiled once. All real logic sits in the library root,
+**The boot is a library, and the binary is three lines.** `crates/ubiq-app/src/lib.rs` holds the
+whole start sequence in one function, `run(boot)`: install logging, resolve the config root, open the
+stores, start the one host, install the GPUI component library, set the palette, bind the quit action
+and the interface's own, and ask for the first window. `crates/ubiq-app/src/main.rs` is
+`run(Boot::default())` and nothing else. `Boot` carries what a binary composes — today the four boxed
+store traits, gathered as `Stores`, as a `FnOnce(&Path)` because the config root is resolved inside
+`run` from this process's own arguments — and `Boot::default()` is the base itself, not a reduced
+configuration: nothing in the sequence is conditional on anything. A second binary over these same
+crates hands in a different value and cannot skip a step, because `run` is the whole sequence. The
+boot is therefore testable, and a test substitutes the memory stores through `Boot`.
+
+Opening a window is `app::open_project_window`, the single place one is created, so the first window
+and "open in a new window" cannot drift apart. `ubiq-app` consumes `crates/ubiq` as a library rather
+than redeclaring its modules, so the tree is compiled once. All real logic sits in the library root,
 `crates/ubiq/src/lib.rs`.
 
 **A window is one `AppState`.** Several may be open, each pointed at its own project. They share the
