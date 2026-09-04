@@ -19,7 +19,7 @@ and fetching are a later proposal that this one is deliberately shaped to accept
 
 ## 1. Where it stands
 
-`crates/ubiq/src/state/explorer.rs` defines `GitStatus` — `Modified`, `Untracked`, `Conflict`,
+`crates/ubiq/src/state/explorer/mod.rs` defines `GitStatus` — `Modified`, `Untracked`, `Conflict`,
 `Staged`, `Ignored` — with a badge letter each, and `FileNode::git` is an `Option<GitStatus>` whose
 header already says the right thing: **`None` is not "clean"**, it is "nothing has been read".
 `crates/ubiq/src/state/workbench.rs` holds `branches`, `branch`, `ahead`, `behind`, `modified`,

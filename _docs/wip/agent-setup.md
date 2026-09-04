@@ -366,7 +366,7 @@ into `conversations` — where a live pump exists — only then.
 
 **The window mints the `agent_id` and draws the pending conversation.**
 `StartConversation`'s only caller, `AppState::pick_new_agent_menu`
-(`crates/ubiq/src/app.rs`), generates it with `AgentId::generate()` before sending. `Conversation`
+(`crates/ubiq/src/app/agents.rs`), generates it with `AgentId::generate()` before sending. `Conversation`
 carries a `launched` flag, `false` from `Conversation::new` until `ConvUpdate::Started` sets it, and
 a `chosen_model` the composer's own picker writes to, since the host does not echo a
 `SetAgentConfig` sent before launch. While `launched` is false, `composer()`

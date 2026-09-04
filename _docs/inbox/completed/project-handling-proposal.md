@@ -256,7 +256,7 @@ row.
 ## 7. One host, many windows
 
 **A catalogue is process-wide; the coordinator is per window.** Each `AppState` opens its own bus in
-`crates/ubiq/src/app.rs` and starts its own coordinator thread. Two hosts with a catalogue each
+`crates/ubiq/src/app/boot.rs` and starts its own coordinator thread. Two hosts with a catalogue each
 would race the store file and disagree about what exists — and "headless host" is singular by
 definition.
 

@@ -143,7 +143,7 @@ half-lives, and different failure modes when stale.
 ### 4.3 Code in documents
 
 - Fenced code ≤ **15%** of a document's lines; each fence ≤ **20 lines**.
-- Beyond that, name the file and the symbol — `crates/ubiq/src/app.rs`, `spawn_pane()` — and drop
+- Beyond that, name the file and the symbol — `crates/ubiq/src/app/wire.rs`, `spawn_pane()` — and drop
   the block.
 - **Never cite line numbers.** They rot within one commit. File plus symbol is stable and greppable.
 - Fences are for what cannot be pointed at: a message shape, a directory tree, a shell invocation.

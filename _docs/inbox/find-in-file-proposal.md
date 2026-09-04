@@ -24,7 +24,7 @@ replace that cannot make edits the user is unable to save, and a hand-off to
 ## 1. Where it stands
 
 **The find bar is live in the tree today.** `attach_file` builds each buffer with `EditorState::new`
-(`crates/ubiq/src/app.rs:2088-2096`), and that constructor sets `searchable = true` itself — the flag
+(`crates/ubiq/src/app/editor.rs`), and that constructor sets `searchable = true` itself — the flag
 defaults to `false` for every other input and the code-editor mode overrides it. The `Search` and
 `Replace` actions and their `cmd-f` / `cmd-shift-f` bindings are registered by
 `gpui_component::init`, which `crates/ubiq-app/src/main.rs:70` calls at startup, in the `"Input"` key

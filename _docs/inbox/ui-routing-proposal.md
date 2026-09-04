@@ -30,7 +30,7 @@ problem, and the rest is shaped around it.
 ## 1. Where it stands
 
 **Two jumps exist, and each is a function that knows both ends.** `show_task_in_graph()` and
-`open_task_chat()` in `crates/ubiq/src/app.rs` are what the board's task panel calls; between them
+`open_task_chat()` in `crates/ubiq/src/app/board.rs` are what the board's task panel calls; between them
 they set the graph's selection, the inspector's tab and the rail mode. They are correct and they do
 not compose: a third jump is a third function, and neither can be recorded or written down.
 
@@ -173,7 +173,7 @@ ubiq://<project-id>/<view>[/<item>][#<locus>]
 
 | Written | Example |
 |---|---|
-| A file at a line | `ubiq://01J7…/ide/crates/ubiq/src/app.rs#L1712` |
+| A file at a line | `ubiq://01J7…/ide/crates/ubiq/src/app/wire.rs#L1712` |
 | A range | `ubiq://01J7…/ide/README.md#L10-24` |
 | A heading in a rendered document | `ubiq://01J7…/ide/_docs/INDEX.md#catalogue` |
 | A task | `ubiq://01J7…/tasks/<task-id>` |
@@ -231,7 +231,7 @@ worth keeping across a restart is the recents list in §8, which is a set rather
 window is skipped, and the control says so rather than yanking the project across. An entry whose
 project has been forgotten is dropped from the stack entirely.
 
-Back and forward are two actions bound beside `SaveFile` in `crates/ubiq/src/app.rs` — `⌃-` and
+Back and forward are two actions bound beside `SaveFile` in `crates/ubiq/src/app/mod.rs` — `⌃-` and
 `⌃⇧-`, the editor convention — and two controls in the titlebar, each disabled when its end of the
 stack is empty and each carrying the name of where it would go.
 

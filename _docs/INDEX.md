@@ -89,7 +89,7 @@ states the boundary once.
 | [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-04 |
 | [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-03 |
 | [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-04 |
-| [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-02 |
+| [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-04 |
 | [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-04 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-09-01 |
@@ -112,7 +112,7 @@ states the boundary once.
 |---|---|---|
 | [agent-login-note.md](./wip/agent-login-note.md) | — | — |
 | [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver. | 2026-09-04 |
-| [Pre-editions refactoring plan](./wip/refactor-plan.md) | What to clean up before the editions-proposal's registry work lands — sized, ordered, sourced from a four-agent audit of the largest files in each crate. | — |
+| [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done — app.rs, state/explorer.rs and cli/account.rs are split, the harness boilerplate is deduplicated, and the colour picker exists once. What remains is phase 4, the editions-proposal groundwork. | — |
 
 <!-- generated:end catalogue -->
 

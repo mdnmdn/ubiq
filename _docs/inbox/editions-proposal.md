@@ -220,7 +220,8 @@ pub trait Screen {
 
 `PanelSpec` is the same idea over `PanelKind`'s five functions — `name`, `class`, `home`, `is_drawn`
 and a `build` — and is the cheapest of the three, because `dock.rs` is already written this way. The
-three closed sets each gain one variant, and each keeps `Copy`:
+three closed sets each gain one variant, and none loses a derive it has today — `RailMode` and
+`Destination::view` keep `Copy`, and `PanelKind` never had it, because it holds a `File(String)`:
 
 | Set | New variant | Why it stays cheap |
 |---|---|---|

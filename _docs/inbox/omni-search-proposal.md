@@ -47,7 +47,7 @@ Where the tree is ahead of this document:
 
 - **The titlebar's command field's Enter is now a second entry point into project search**,
   switching to the IDE, handing its text to the panel's query field, revealing it and running the
-  search — see `crates/ubiq/src/app.rs`'s `submit_header_search`. §9 reserves that field for the
+  search — see `crates/ubiq/src/app/git.rs`'s `submit_header_search`. §9 reserves that field for the
   `⌘K` navigator and says "`⌘K` is not an entry point" for this search; nothing currently binds
   `⌘K` on it, so in practice the field had no contract yet and this is what a direct product
   decision put there instead. Reconciling the two — a fast navigator whose Enter also happens to
@@ -78,13 +78,13 @@ Where the tree is behind it:
 
 **The titlebar has two search affordances and neither does anything.** `command_field` in
 `crates/ubiq/src/ui/titlebar.rs:94-120` draws an `Input` over `AppState.command_input`
-(`crates/ubiq/src/app.rs:249`, built at `:323-324`) with the placeholder *Search files, or run a
+(`crates/ubiq/src/app/mod.rs`) with the placeholder *Search files, or run a
 command…* and a `⌘K` hint; nothing subscribes to it — the field is declared, constructed, assigned
 and never read again. Beside it, `titlebar.rs:73` draws a search icon whose handler is `|_, _, _| {}`.
 That is `G16`.
 
 **The one filter that works matches names, not contents.** `ExplorerState::rows(&filter)`
-(`crates/ubiq/src/state/explorer.rs:187-202`) does a case-insensitive substring test against a row's
+(`crates/ubiq/src/state/explorer/filter.rs`) does a case-insensitive substring test against a row's
 whole path (`:353`), fed from `workbench.file_filter`. It is a *go to file* field, and it is the
 thing users mistake for search.
 
@@ -317,7 +317,7 @@ the root gone, the query bad, the walk refused at the top.
 
 ## 9. Where it appears
 
-**A third dock tab.** `DockTab` is `Pane | Logs` (`crates/ubiq/src/app.rs:93-97`), and search is the
+**A third dock tab.** `DockTab` is `Pane | Logs` (`crates/ubiq/src/app/mod.rs`), and search is the
 third: a query bar with the four option toggles, then results grouped by file, each group collapsible,
 each line one row. The dock is right because a result list is a place the user returns to while
 working through it — a modal closes on the first click, and the explorer panel is too narrow for a

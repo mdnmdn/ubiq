@@ -32,8 +32,8 @@ that three of the four gestures are blocked on.
 appears nowhere in `crates/ubiq`. **The explorer and the editor have no drop handler of any kind.**
 
 **The clipboard is write-only and text-only.** `cx.write_to_clipboard(ClipboardItem::new_string(…))`
-is called three times — *Copy path*, *Copy full path* on an explorer row (`crates/ubiq/src/app.rs:4360,
-4372`) and the same on a file tab (`:4946`). There is no `read_from_clipboard` in `crates/ubiq` at
+is called three times — *Copy path*, *Copy full path* on an explorer row (`crates/ubiq/src/app/explorer.rs`)
+and the same on a file tab. There is no `read_from_clipboard` in `crates/ubiq` at
 all, so no paste of any kind exists outside the terminal's own `arboard` path.
 
 **Nothing on the bus creates, moves, copies or removes a path.** The file family is
@@ -67,7 +67,7 @@ the four gestures need is present and public:
 
 **And one fact that decides section 3: the interface already builds absolute paths.** *Copy full
 path* and *Open in Finder* join `snap.record.path` with the row's `rel_path` and hand the result to
-the clipboard or to `open -R` (`crates/ubiq/src/app.rs:4372-4392, 4946-4966`). The project root
+the clipboard or to `open -R` (`crates/ubiq/src/app/explorer.rs`). The project root
 travels in `ProjectRecord`, so the rule as
 [`architecture.md`](../tech/architecture.md) states it — no path crosses into UI code — is already
 narrower in the tree than in the prose: what holds is that *no path the interface composes is ever

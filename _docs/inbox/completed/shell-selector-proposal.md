@@ -13,7 +13,7 @@ depends_on: [feat-panes, feat-logs, tech-transport]
 
 **Today the "+" on the bottom region's tab bar does one thing: it opens `$SHELL` with no args.**
 `NewPane.run` (`crates/ubiq/src/ui/dock/skin.rs:57`) calls `spawn_pane(None, Vec::new(), cx)`
-(`crates/ubiq/src/app.rs:1187`), which sends `SpawnWorkspace { agent_type: None, .. }`. The
+(`crates/ubiq/src/app/wire.rs`), which sends `SpawnWorkspace { agent_type: None, .. }`. The
 coordinator resolves `None` to `shells::default_program()` — `$SHELL`, or `/bin/sh` — and that is the only program a pane has ever been
 started with from the UI; `agent_type: Some(..)` exists on the message and is exercised only by
 `crates/ubiq-host/tests/coordinator.rs`. There is no way, today, to open a pane running a shell other
@@ -73,7 +73,7 @@ there. This step alone already fixes the errors in
 Reuse the one dropdown mechanism the window already has —
 [`crates/ubiq/src/ui/kit/menu.rs`](../../crates/ubiq/src/ui/kit/menu.rs), the same trigger-plus-
 `deferred`-list `Picker`/`Action` pattern `file_tab_menu` uses off `open_file_tab_menu()`
-(`crates/ubiq/src/app.rs:4199`) — rather than introducing a second menu mechanism. The rows:
+(`crates/ubiq/src/app/editor.rs`) — rather than introducing a second menu mechanism. The rows:
 
 - One row per shell **actually present** on the machine, OS-aware:
   - macOS / Linux candidates: `zsh`, `bash`, `fish` (and any others worth a fixed list — not an open

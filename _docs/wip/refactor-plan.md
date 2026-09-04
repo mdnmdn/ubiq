@@ -3,7 +3,7 @@ id: wip-refactor-plan
 title: Pre-editions refactoring plan
 kind: wip
 status: current
-summary: What to clean up before the editions-proposal's registry work lands — sized, ordered, sourced from a four-agent audit of the largest files in each crate.
+summary: Phases 0-3 are done — app.rs, state/explorer.rs and cli/account.rs are split, the harness boilerplate is deduplicated, and the colour picker exists once. What remains is phase 4, the editions-proposal groundwork.
 read_when: you are picking up refactoring work ahead of the editions split
 updated: 2026-09-04
 depends_on: [inbox-editions]
@@ -11,156 +11,89 @@ depends_on: [inbox-editions]
 
 # Pre-editions refactoring plan
 
-Source: a four-way audit (Sonnet subagents, read-only) of the largest files in `ubiq`, `ubiq-host`,
+Source: a four-way audit (read-only subagents) of the largest files in `ubiq`, `ubiq-host`,
 `ubiq-proto` and `agent-manager`, cross-checked against `inbox/editions-proposal.md`. Deleted when
-this refactor closes — promote anything durable to `tech/` or `backlog.md` before that.
+phase 4 closes — promote anything durable to `tech/` or `backlog.md` before that.
 
-## Headline numbers
+**Phases 0-3 landed on 2026-09-04.** Phase 4 is the only work left here.
 
-- `crates/ubiq/src/app.rs`: **7685 lines**, `AppState` ~60 fields + `OpenProject` ~15, a 690-line
-  constructor, a 707-line 48-arm message dispatcher. Nine times the size of the next-biggest file in
-  the workspace.
-- `crates/agent-manager/src/harness/*.rs`: 5 files, 5149 lines, **~20-25% (1000-1200 lines)
-  structural duplication** — identical trait-identity boilerplate and an identical account
-  env-injection block, five times over.
-- `crates/ubiq-host/src/coordinator.rs` + `crates/ubiq-proto/src/messages.rs`: **healthy, no
-  restructuring needed.** The dispatch match already delegates by family; the flat message enum is
-  adequate at 88 variants.
-- `crates/ubiq/src/state/*.rs`, `ui/dock/*.rs`: **mostly healthy.** One tangled file
-  (`state/explorer.rs`), a handful of small ponytail findings, and one factual correction to the
-  editions-proposal (below).
+## What the split produced
 
-## Correction to `inbox/editions-proposal.md`
-
-§4.2's table claims `PanelKind` "keeps `Copy`" when it gains an `Extension` variant. **`PanelKind` is
-not `Copy` today** — it holds a `File(String)` variant, so it's `Clone, PartialEq, Eq, Hash, Debug`
-only. Not a blocker, but the proposal's phase 2 needs to know this going in rather than discover it
-mid-change.
-
-## Phase 0 — quick deletions and shrinks (no architectural risk, do first, any order)
-
-Ponytail-tagged findings, each independent and small:
-
-- `delete:` `state/sink.rs`'s dead `rgb`-equivalent (app.rs's `sink_project_rgb` duplicates it inline
-  instead of calling it) — pick one, delete the other.
-- `delete:` `io/copilot.rs::CopilotBridge.turn_ended` and `io/opencode.rs::OpencodeBridge.turn_ended`
-  — both `#[allow(dead_code)]`, both genuinely dead (a clone does the real work).
-- `yagni:` `state/explorer.rs::ExplorerAction` (NewFile/NewFolder/Rename/Delete) and
-  `ExplorerKey::ShiftEnter` — wired to menus/dispatch for filesystem mutations and a temp-vs-permanent
-  distinction that don't exist on the bus. Either wire them for real (there's backlog appetite —
-  see `G70`, `G105`) or strip the dead paths.
-- `yagni:` `harness/mod.rs::TemplateStore` — trait with one production impl, doc comment admits it's
-  speculative ("so an embedder can back templates with a database"). Leave as a plain `FsTemplateStore`
-  until a second implementation is real.
-- `shrink:` `app.rs`'s sink-vs-project-form colour-picker logic (`apply_sink_project_hex` /
-  `sync_sink_project_hex` / `sink_project_rgb` / `sink_project_swatch_rgb` vs `apply_project_form_hex`
-  / `sync_project_form_hex`, ~90 lines) is the same HSV/hex math branched twice. One `ColourField`
-  helper covers both targets.
-- `shrink:` `state/sink.rs`'s four enum→match→string boilerplate blocks (`SinkSection`, `SettingsNav`,
-  `ProjectNav`, `SinkModal`, ~150 lines) — collapse using the array-of-structs pattern the same file
-  already uses for `HarnessFixture`.
-- `shrink:` `state/sink.rs`'s four one-line clamp functions (`nudge_font`/`nudge_agents`/`nudge_warn`/
-  `nudge_idle`) differ only by field/range — one generic `nudge(value, delta, range)`.
-- `stdlib:` `state/explorer.rs`'s five near-identical recursive tree walkers (`node_of`/`node_mut`/
-  `collect_cache`/`collect_expanded`/`paint_nodes`) — one generic "recurse into `NodeKind::Dir`" walker
-  parameterized by what each caller does per node.
-
-## Phase 1 — split `app.rs` (the big one)
-
-`AppState` carries three kinds of fields today: window-shell state that's genuinely central (panes,
-dock, bus), per-project domain state that already delegates to `state/*.rs` (explorer, editor, git),
-and screen-private state with nowhere else to live (the kitchen sink's ~17 fields and ~45 methods,
-the board's methods, the agents/orchestration methods). Split along those lines, one `impl AppState`
-block per file (no trait needed for this step):
-
-| New file | Carries | Est. lines |
+| Was | Is | Largest file now |
 |---|---|---|
-| `app/shell.rs` | `AppState` struct, slimmed `for_project()`, project sync/enter/drop, pane accessors, key bindings, window lifecycle | ~600 |
-| `app/bus.rs` | `receive()` split into `receive_git`/`receive_explorer`/`receive_agents`/`receive_files`, pane open/close plumbing | ~750 |
-| `app/dock.rs` | `settle_panels`/`settle_mode`/`settle_layout`/`settle_visibility`/`enforce_placement`, `PanelEdit` | ~400 |
-| `app/sink.rs` | All ~45 `sink_*` methods, unified with the project-form colour picker via `ColourField` | ~450 |
-| `app/explorer.rs` | Explorer mutators (`toggle_folder` … `pick_explorer_action`) | ~600 |
-| `app/editor.rs` | Editor mutators (`select_file` … `save_active_file`) | ~750 |
-| `app/agents.rs` | Agent/conversation mutators through tab-drag settling | ~800 |
-| `app/graph.rs` | Orchestration graph methods | ~250 |
-| `app/board.rs` | Task board methods | ~500 |
-| `app/chat.rs`, `app/diagrams.rs`, `app/viewport.rs` | Remaining small groups, `Render` impl | ~300 combined |
-| `app/project_mgmt.rs` | Add/edit/close project, preference persistence | ~450 |
+| the old `app.rs`, 8120 lines, one 7060-line `impl AppState` | `crates/ubiq/src/app/`, 16 files | `app/wire.rs`, 1241 |
+| `receive()`, a 775-line match over the whole bus protocol | 31 lines chaining nine `receive_<family>` helpers | `receive_file`, 172 |
+| the old `state/explorer.rs`, 1405 lines | `crates/ubiq/src/state/explorer/`, 6 files | `tree.rs`, 454 |
+| the old `cli/account.rs`, 1754 lines | `crates/agent-manager/src/cli/account/`, 6 files | `import.rs`, 439 |
+| five harness files carrying five copies of three things | `harness/shared.rs` | −419 lines, test count unchanged |
 
-Also worth doing in the same pass: the 8 bespoke "drain a pending queue next frame because this
-mutator needs a `Window`" flags (`pending_panels`, `pending_regions`, `pending_layout`,
-`refill_fields`, `refill_columns`, `fill_project_form`, `form_filled`) are the same workaround
-repeated 8 times — one small deferred-action queue drained once in `render()` replaces all of them.
+`crates/ubiq/src/app/sink.rs` and `app/board.rs` are the two screen-private files
+editions-proposal §4.2 needs as its base-side user. `app/wire.rs`'s chain ends at the same
+unhandled-message warning the `Extension` arm slots in before.
 
-**Why this is the prerequisite, not a nice-to-have:** editions-proposal §4.2 says a closed screen
-needs to own its state because it cannot add a field to `AppState`. `app/sink.rs` and `app/board.rs`
-are the two pieces of today's own UI that are *already* screen-private in everything but syntax —
-they're the base-side user the `Screen` trait needs to justify existing (§4.2, and the opening rule's
-own test). Do this split before the trait, not as part of it: it's independently valuable (nothing
-here is over 1000 lines any more) and it turns the trait migration into "move two already-separated
-files behind an interface" instead of "extract state from a monolith and design an interface at the
-same time."
+`_docs/tech/code-map.md` is the current map of both new directories.
 
-## Phase 2 — split `state/explorer.rs`
+## What the audit got wrong
 
-One 715-line `impl ExplorerState` block tangles five unrelated responsibilities that already have
-their own doc-comment banners in the file: tree merge, git-status paint, filter cache, keyboard
-handling, context-menu state. Split along those banners into submodules under `state/explorer/`.
-Apply the phase-0 tree-walker consolidation here too.
+Recorded because the same mistakes are easy to make again from the same reading.
 
-## Phase 3 — `agent-manager` harness dedup
+| The claim | What is actually true |
+|---|---|
+| Child modules cannot see parent-private **fields**, so the split needs a visibility bump | They can — a private item is visible in its module *and all descendants*. No field changed. What did need bumping was 41 private **methods** now called from a *sibling* module, which is not a descendant relationship |
+| `explorer.rs` splits along a grid of doc-comment banners | There were two banners, both inside one impl. The split was made along responsibilities the file left implicit |
+| The five tree walkers consolidate into one generic visitor | `node_of`/`node_mut` is a const/mut pair Rust cannot unify without a macro, and `paint_nodes`/`collect_cache` share only the recursion skeleton. Left alone |
+| `turn_ended` is a dead method on a `ubiq`-side io bridge | It was a **field** in `crates/agent-manager/src/io/`, and only the struct's copy was dead — the reader thread's clone was live. It is now a plain thread-local `bool` |
+| `state/sink.rs` has a dead `rgb` the app duplicates | Two separate findings: `ProjectDemo::rgb` had no callers, and the duplicate was `sink_project_swatch_rgb` against the free `project_swatch_rgb`. Both gone |
+| The colour-picker duplication is six helpers, ~90 lines | It was `set_rgb`'s body inlined against a second state in four places, plus a **third** copy of the shape in `ui/sink/project.rs`. One `ColourField` in `state/sink.rs` now owns the maths |
+| The env-injection block is identical five times, ~50 lines each | Only the `std::env::var(…).map_err(…)` expression was identical (9 times). The surrounding branch shapes genuinely differ — claude sets key and token independently, grok collapses with `.or()`, opencode pushes two vars per arm. Only the resolver was extracted |
+| `PanelKind` "keeps `Copy`" (editions §4.2) | It is not `Copy` today — it holds `File(String)`. Fix the proposal before phase 4 promises it in a derive list |
 
-Extract `harness/shared.rs` (or free functions re-exported from `harness/mod.rs` — four of the trait's
-methods already have default bodies, so this is a continuation of an existing pattern, not a new one):
+## What was deliberately not done
 
-- An identity macro/table for the five copy-pasted `id`/`display_name`/`command`/`aliases`/
-  `io_support` blocks (~25 lines × 5).
-- `inject_account_env(spec, primary_var, fallback_var)` for the copy-pasted account env-injection
-  block in every `provision()` (~50 lines × 5).
-- A `harness_conformance_tests!` macro for the near-verbatim `write_skill()` helper and the "missing
-  skill path" / "no secret leaked" tests repeated 4-5×.
-
-Estimated savings: ~500-650 lines removed across the five harness files; the genuinely
-harness-specific 75-80% (native config serialization, model discovery, argv shape) is untouched.
-
-Separately, `cli/account.rs` (1754 lines) is nine CLI subcommands with parsing, business logic and
-formatting interleaved in one file with no behavior problem — split into
-`cli/account/{mod,dump,import,login,check_renew}.rs` for readability. No logic change.
+- **`ExplorerAction`'s NewFile/NewFolder/Rename/Delete.** The dead-end is real — `app/explorer.rs`
+  collapses all four to `cx.notify()` — but it is *documented as deliberate* in
+  `state/explorer/mod.rs`, and `G70`/`G105` own wiring them. `ExplorerKey::ShiftEnter` is **not**
+  dead: it picks pin-vs-preview and stays.
+- **A deferred-action queue** replacing the eight pending flags. They are heterogeneous
+  (`Vec<PanelEdit>`, `Option<Value>`, `Option<(bool,bool,bool)>`, `bool`, `Option<TaskId>`), each is
+  drained by a named settler, and `Render` calls those settlers in a load-bearing, commented order
+  that a closure queue would lose. Revisit if a ninth flag appears.
+- **`nudge_font`/`nudge_agents`/`nudge_warn`/`nudge_idle`.** 15 lines; a generic version pushes the
+  bounds into every `ui/` call site.
+- **Deleting `harness::TemplateStore`.** One implementation, yes — but it is documented public API
+  of a standalone MIT library in `crates/agent-manager/_docs/am-as-library.md`, listed beside
+  `Registry`, `AccountStore` and `SessionStore`, which editions §1 calls proven seams. Narrowing a
+  published library contract to delete 12 lines is a net loss.
 
 ## Phase 4 — editions-proposal groundwork
 
-Only after phases 1-3 land, per the proposal's own phase order (`inbox-editions` §14):
+The remaining work, in the proposal's own order (`inbox-editions` §14):
 
 1. **Composition root** (§3) — `ubiq-app` becomes a library (`Boot`, `Stores`, `run()`) with a
-   three-line `main.rs`. Mechanical, zero screen impact, can actually happen any time — it doesn't
-   depend on the app.rs split. Cheapest phase-4 item to do first.
-2. **`Feature` dispatch arm** — confirmed by the host/proto audit: drop straight in before
-   `coordinator.rs`'s existing unhandled-message warning, no match restructuring needed first.
+   three-line `main.rs`. Mechanical, zero screen impact, cheapest to do first. `main.rs` is 246
+   lines doing six things; the four stores are boxed at `:53-65`.
+2. **`Feature` dispatch arm** — drops straight in before `app/wire.rs`'s chain-ending warning and
+   `coordinator.rs`'s equivalent. No match restructuring needed first.
 3. **`Screen`/`Contribution` trait** — model it as a proper `dyn Trait` with named methods, the same
-   shape as the existing `DockAreaRenderer`/`TabGroupRenderer`/`TilesRenderer` pattern `ui/dock/
-   skin.rs::Skin` already implements. **Not** `skin.rs`'s `NewPane` (a bag of four loose closures) —
-   that shape is a one-off forced by crossing `gpui_component`'s foreign renderer trait, not a
-   template to repeat.
+   shape as `ui/dock/skin.rs::Skin`'s `DockAreaRenderer`/`TabGroupRenderer`/`TilesRenderer`. **Not**
+   `skin.rs`'s `NewPane` (a bag of loose closures) — that shape is forced by crossing
+   `gpui_component`'s foreign renderer trait, not a template to repeat.
 4. **`RailMode`/`PanelKind` `Extension` variants** — ~4 touch points for `RailMode`, ~10 for
-   `PanelKind` across `dock.rs` and `ui/dock/mod.rs`. Fix the `Copy` claim (above) before promising it
-   in the variant's derive list.
+   `PanelKind`. Fix the `Copy` claim above before promising it.
 
-## What's confirmed healthy — leave alone
+## What is confirmed healthy — leave alone
 
-- `coordinator.rs`'s dispatch match: already delegates by family (`work_job`/`file_job`/`git_job`
-  helpers collapse 13 work-family arms to one line each). Two optional, unrelated shrinks if ever
-  touching that code: a `pane_job` helper for `TerminalInput`/`TerminalResize`'s duplicated
-  owns-check-then-error shape, and extracting `SetAgentConfig`'s inline 30-line body to its own
-  method for consistency with every other multi-line arm.
-- `messages.rs`: flat 88-variant enum, family-grouped by comment, is adequate. Splitting into
-  per-family sub-enums doesn't buy incremental-compile granularity (same crate either way) and isn't
-  worth the churn.
+- `coordinator.rs`'s dispatch match: already delegates by family. Two optional shrinks if ever
+  touching it: a `pane_job` helper for `TerminalInput`/`TerminalResize`'s duplicated
+  owns-check-then-error shape, and extracting `SetAgentConfig`'s inline body to its own method.
+- `messages.rs`: the flat 88-variant enum, family-grouped by comment, is adequate. Per-family
+  sub-enums buy no incremental-compile granularity in one crate.
 - `ui/dock/mod.rs`, `ui/dock/skin.rs`, `state/file_picker.rs`, `state/editor.rs`, `theme.rs`'s
-  `Palette`: clean, no dead code, no speculative generality. `file_picker.rs::PickerOwner` even
-  documents honestly that it has one variant rather than gold-plating for a second.
+  `Palette`.
 
 ## Related docs
 
 - [`../inbox/editions-proposal.md`](../inbox/editions-proposal.md) — the target architecture phase 4 builds toward
-- [`../tech/architecture.md`](../tech/architecture.md) — the rules this refactor must not cross
-- [`../backlog.md`](../backlog.md) — where the `ExplorerAction`/`ShiftEnter` yagni finding overlaps `G70`/`G105`
+- [`../tech/code-map.md`](../tech/code-map.md) — the map of `app/` and `state/explorer/`
+- [`../tech/architecture.md`](../tech/architecture.md) — the rules this refactor did not cross
+- [`../backlog.md`](../backlog.md) — where the `ExplorerAction` finding overlaps `G70`/`G105`

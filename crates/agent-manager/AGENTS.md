@@ -111,6 +111,7 @@ agent-manager/
     ├── overlay.rs         # materialize a profile's Source overlay into the run dir + run-dir GC (core)
     ├── harness/           # the Harness trait + impls (core)
     │   ├── mod.rs         #   Harness trait, Launch, IoSupport; TemplateStore trait + FsTemplateStore; seed_login(&Source)
+    │   ├── shared.rs      #   harness_identity! macro, account_env, harness_conformance_tests!
     │   ├── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
     │   ├── codex.rs       #   Codex provisioner (P2, Harness impl)
     │   ├── copilot.rs     #   GitHub Copilot CLI provisioner (Class A, COPILOT_HOME bridge)
@@ -138,7 +139,13 @@ agent-manager/
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
     │   ├── catalog.rs     #   `am catalog ls|show|path|import`
-    │   ├── account.rs     #   `am account ls|use|import` (P2)
+    │   ├── account/       #   `am account ...` (P2)
+    │   │   ├── mod.rs     #     arg parsing, dispatch, the shared store/harness helpers
+    │   │   ├── dump.rs    #     `am account dump`
+    │   │   ├── check.rs   #     `am account check|renew`
+    │   │   ├── manage.rs  #     `am account ls|use|rm|rename`
+    │   │   ├── import.rs  #     `am account import`
+    │   │   └── login.rs   #     `am account login`
     │   └── session.rs     #   `am session ls|show|resume` (P3)
     └── tui.rs             # ratatui front end (parked, feature: tui)
 ```

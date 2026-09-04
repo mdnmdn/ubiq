@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -136,7 +136,7 @@ the transport beneath the contract.
 | The config root, and every store under it | `crates/ubiq-host/src/config.rs`, `store/` | Movable by flag, environment or a bootstrap `ubiq.toml`. Four traits: the catalogue, a project's tasks, the interface's opaque view state, and settings (Ui opaque, Host parsed) |
 | The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | A project's tasks, and the sessions and agents over them | `crates/ubiq-host/src/work/` | Tasks are the user's data, written down per project; sessions and agents are the host's mocks, minted per project and never written |
-| Window, panes, chrome, focus | `crates/ubiq/src/app.rs`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
+| Window, panes, chrome, focus | `crates/ubiq/src/app/`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor, chat, agents, orchestration and board state, and the projection of a project's work. A window holds one tree, one set of open files and one projection of the work per project |
 | The message set | `crates/ubiq-proto/src/messages.rs` | The contract, serialisable by construction |

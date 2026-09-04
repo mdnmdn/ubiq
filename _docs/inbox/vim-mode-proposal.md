@@ -311,7 +311,7 @@ editor's bounds.
 | `crates/ubiq/src/ui/vim/replace.rs` | Replace mode: like insert but overwrites instead of inserting |
 | `crates/ubiq/src/ui/vim/status.rs` | The status indicator overlay |
 | `crates/ubiq/src/state/editor.rs` | `OpenFile` gains an `Option<VimInput<EditorState>>` field |
-| `crates/ubiq/src/app.rs` | Keystroke observer registration for editors and textareas; `chat_input` and `agent_input` wrapped in `VimInput<TextareaState>` when vim is enabled |
+| `crates/ubiq/src/app/mod.rs` | Keystroke observer registration for editors and textareas; `chat_input` and `agent_input` wrapped in `VimInput<TextareaState>` when vim is enabled |
 | `crates/ubiq/src/ui/viewer/mod.rs` | `buffer()` function uses `VimInput<EditorState>` when vim is enabled |
 | `crates/ubiq/src/ui/chat/composer.rs` | Composer renders `VimInput<TextareaState>` when vim is enabled; toolbar shows vim mode indicator |
 | `crates/ubiq/src/ui/agents/inspector.rs` | Agent input wrapped in `VimInput<TextareaState>` when vim is enabled |

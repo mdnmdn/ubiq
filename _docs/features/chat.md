@@ -85,7 +85,7 @@ how to launch one — see [`../tech/agent-manager.md`](../tech/agent-manager.md)
 `crates/ubiq/src/state/chat.rs` holds the model: `Chat`, `ChatMessage`, `Block`, `ToolCall`,
 `DiffLine`, `RunState`, and the `ChatState` that owns the list, the selection, the composer's
 selections and the draft. `ChatState::send` appends the user turn and the canned reply;
-`AppState::send_chat` in `crates/ubiq/src/app.rs` clears the textarea, refocuses it and scrolls.
+`AppState::send_chat` in `crates/ubiq/src/app/chat.rs` clears the textarea, refocuses it and scrolls.
 
 Rendering is four modules under `crates/ubiq/src/ui/chat/`, and they are the panel's own rather than
 the shared renderer's: `mod.rs` assembles the panel,

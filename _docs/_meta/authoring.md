@@ -123,7 +123,7 @@ summary: One line. This is the document's entry in INDEX.md.
 read_when: you are changing pane layout, focus or resize
 updated: 2026-08-31            # you changed the content
 verified: 2026-08-31           # you checked it against the code and it held
-code_anchors: [crates/ubiq/src/app.rs]   # the files a reader would open next
+code_anchors: [crates/ubiq/src/app/mod.rs]   # the files a reader would open next
 depends_on: [tech-architecture]          # ids, not paths
 review_cycle: quarterly        # monthly if this area changes often
 ---
@@ -146,7 +146,7 @@ Beyond imitation, six constraints:
 
 1. **Present tense, current state.** Describe what holds today. Never "now", "no longer", "used to",
    "not yet" — a reader must not have to reconstruct a timeline. What changed is git's job.
-2. **Cite code as file plus symbol** — `crates/ubiq/src/app.rs`, `spawn_pane()`. Never a line number.
+2. **Cite code as file plus symbol** — `crates/ubiq/src/app/wire.rs`, `spawn_pane()`. Never a line number.
 3. **Keep code out.** Under twenty lines per fence, and only where prose genuinely cannot carry it.
    Otherwise point at the file.
 4. **State a fact once, in the document that owns it.** If it is written elsewhere, link instead of

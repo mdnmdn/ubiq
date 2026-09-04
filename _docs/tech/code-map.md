@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it.
 read_when: you changed a file and need to know which documents owe an update, or you are looking for where something lives
-updated: 2026-09-02
-verified: 2026-09-02
+updated: 2026-09-04
+verified: 2026-09-04
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -88,7 +88,6 @@ crates/ubiq/src/
 │   ├── mod.rs
 │   ├── chat.rs
 │   ├── editor.rs
-│   ├── explorer.rs
 │   ├── sample.rs
 │   ├── workbench.rs
 │   ├── windows.rs
@@ -109,7 +108,14 @@ crates/ubiq/src/
 │   ├── git.rs
 │   ├── settings.rs
 │   ├── conversation.rs
-│   └── search.rs
+│   ├── search.rs
+│   └── explorer/
+│       ├── filter.rs  the go-to-file substring filter
+│       ├── keys.rs    keyboard navigation
+│       ├── menu.rs    the row context menu
+│       ├── mod.rs     `ExplorerState`, `FileNode`, `Row`, `GitStatus`
+│       ├── rows.rs    flattening the tree into drawable rows
+│       └── tree.rs    listing, `merge`, expansion
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -186,14 +192,30 @@ crates/ubiq/src/
 │   │   └── swift/
 │   │       └── highlights.scm
 │   └── search.rs
-├── app.rs
 ├── lib.rs
 ├── theme.rs
-└── web_export/
-    ├── assets.rs
-    ├── mod.rs
-    ├── routes.rs
-    └── server.rs
+├── web_export/
+│   ├── assets.rs
+│   ├── mod.rs
+│   ├── routes.rs
+│   └── server.rs
+└── app/
+    ├── agents.rs      agents, conversations and the new-agent menu
+    ├── board.rs       the task board and the jumps out of it
+    ├── boot.rs        `for_project` — the constructor that opens the bus and builds a window
+    ├── chat.rs        chat, diagrams and viewports
+    ├── editor.rs      open files, tabs and saving
+    ├── explorer.rs    explorer rows, menus and file opening
+    ├── git.rs         the git view and project search
+    ├── graph.rs       the orchestration graph and inspector
+    ├── mod.rs         `AppState`, `OpenProject`, `PaneState`, `BusHub`, the free window functions and the key bindings
+    ├── panels.rs      the dock: settling mode, layout, visibility and placement
+    ├── picker.rs      the file picker and the log panel
+    ├── projects.rs    add, edit and close a project; preference persistence
+    ├── settings.rs    the settings overlay and harness login
+    ├── shell.rs       project lifecycle, chrome and menus, rail mode, font and zoom, the `Render` impl
+    ├── sink.rs        the kitchen sink's setters
+    └── wire.rs        `receive()`, the pane and terminal calls, focus drains
 
 crates/ubiq-app/src/
 └── main.rs
@@ -257,7 +279,11 @@ the documents in its row.
 | `crates/ubiq-proto/src/settings.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
-| `crates/ubiq/src/app.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/app/boot.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/app/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/app/panels.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/shell.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/app/wire.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/board.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -266,7 +292,9 @@ the documents in its row.
 | `crates/ubiq/src/state/diagrams.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/dock.rs` | [`features/logs.md`](../features/logs.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/state/explorer.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/explorer/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/explorer/rows.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/explorer/tree.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/file_picker.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/state/git.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/layout.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -384,6 +412,20 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/search/worker.rs` |
 | `crates/ubiq-host/src/work/mock.rs` |
 | `crates/ubiq-proto/src/search.rs` |
+| `crates/ubiq/src/app/agents.rs` |
+| `crates/ubiq/src/app/board.rs` |
+| `crates/ubiq/src/app/chat.rs` |
+| `crates/ubiq/src/app/editor.rs` |
+| `crates/ubiq/src/app/explorer.rs` |
+| `crates/ubiq/src/app/git.rs` |
+| `crates/ubiq/src/app/graph.rs` |
+| `crates/ubiq/src/app/picker.rs` |
+| `crates/ubiq/src/app/projects.rs` |
+| `crates/ubiq/src/app/settings.rs` |
+| `crates/ubiq/src/app/sink.rs` |
+| `crates/ubiq/src/state/explorer/filter.rs` |
+| `crates/ubiq/src/state/explorer/keys.rs` |
+| `crates/ubiq/src/state/explorer/menu.rs` |
 | `crates/ubiq/src/state/search.rs` |
 | `crates/ubiq/src/ui/file_tab_menu.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |

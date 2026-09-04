@@ -74,7 +74,7 @@ the editor's syntax highlighting; nothing walks a parse tree for structure.
 
 **Nothing watches a project's folder.** `notify` is already in the dependency graph, pulled in
 transitively through `gpui-component`, and nothing in Ubiq calls it. `ExplorerState::merge` in
-`crates/ubiq/src/state/explorer.rs` was written with this in mind — its own doc comment says a
+`crates/ubiq/src/state/explorer/tree.rs` was written with this in mind — its own doc comment says a
 re-listing folds into what is already known "rather than destructive," which is "what makes a
 re-listing — a restore, or one day a filesystem watch — idempotent." The watcher this proposes is
 that one day, and it can reuse the merge it already describes.

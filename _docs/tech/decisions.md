@@ -899,7 +899,7 @@ to a buffer that has no save button. That is narrower than a loose project's rea
 it is the whole of why the interface is allowed to read the bytes itself here: nothing it produces
 can be written back.
 
-**Cost:** two of them. `crates/ubiq/src/app.rs` calls `Path::is_dir` and `std::fs::read` directly,
+**Cost:** two of them. `crates/ubiq/src/app/mod.rs` calls `Path::is_dir` and `std::fs::read` directly,
 which architecture rule 2 otherwise forbids the interface — see the exception recorded in
 [`architecture.md`](./architecture.md), rule 2. And a guest tab is read-only for good: promoting one
 to a real, savable file means dropping it again inside the project that holds it, not an in-place

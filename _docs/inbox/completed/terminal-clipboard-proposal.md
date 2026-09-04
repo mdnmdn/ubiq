@@ -32,7 +32,7 @@ There is no check for `Cmd` modifier at all — GPUI's `Keystroke::modifiers` ca
 
 **The key handler.** `TerminalView` exposes `with_key_handler()` (`view.rs:576-582`), a callback
 that runs before `keystroke_to_bytes`. If it returns `true`, the keystroke is consumed and never
-reaches the PTY. Ubiq's terminal creation (`crates/ubiq/src/app.rs:1731-1741`) does not set a key
+reaches the PTY. Ubiq's terminal creation (`crates/ubiq/src/app/wire.rs`) does not set a key
 handler, so every keystroke flows through.
 
 **The clipboard wrapper.** `Clipboard` (`vendor/gpui-terminal/src/clipboard.rs`) wraps `arboard` with
@@ -225,8 +225,8 @@ terminal level, and the clipboard shortcut is a different key.
 | `vendor/gpui-terminal/src/view.rs` | `on_mouse_down/up/move` call through to `TerminalState` selection methods |
 | `vendor/gpui-terminal/src/event.rs` | `TerminalEvent::ClipboardLoad` carries the base64 clipboard type from alacritty's `Event::ClipboardLoad` |
 | `vendor/gpui-terminal/src/terminal.rs` | Expose selection methods: `selection_to_string()`, `selection_new()`, `selection_update()`, `selection_clear()` — thin wrappers over `Term`'s own methods |
-| `crates/ubiq/src/app.rs` | Wire the key handler, clipboard store callback, and clipboard load callback at terminal creation (line 1731) |
-| `crates/ubiq/src/app.rs` | Instantiate `Clipboard` in the key handler closure |
+| `crates/ubiq/src/app/wire.rs` | Wire the key handler, clipboard store callback, and clipboard load callback at terminal creation |
+| `crates/ubiq/src/app/wire.rs` | Instantiate `Clipboard` in the key handler closure |
 
 **No new crates.** `arboard` is already a dependency of `gpui-terminal`. No new message types in
 `ubiq-proto` — clipboard is local to the UI process, not a bus concern.

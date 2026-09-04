@@ -405,7 +405,7 @@ renderer work and benefit from being together. Phase 5 is straightforward and in
 | `vendor/gpui-terminal/src/clipboard.rs` | Already complete — no changes needed |
 | `vendor/gpui-terminal/src/render.rs` | Selection highlight rendering pass; OSC 8 hyperlink visual styling (undercurl); URL regex detection and hit-test map |
 | `vendor/gpui-terminal/src/terminal.rs` | Expose selection methods as thin wrappers over `Term` |
-| `crates/ubiq/src/app.rs` | Wire key handler, clipboard callbacks, and defocus logic at terminal creation (`open_pane`, ~line 1731) |
+| `crates/ubiq/src/app/wire.rs` | Wire key handler, clipboard callbacks, and defocus logic at terminal creation (`open_pane`) |
 | `crates/ubiq/src/ui/terminal.rs` | No changes — the `TerminalView` handles everything internally |
 | `crates/ubiq/src/theme.rs` | Two new tokens: `link_underline`, `link_underline_hover` |
 
