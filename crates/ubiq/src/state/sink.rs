@@ -509,11 +509,6 @@ impl ProjectDemo {
         *self = Self::default();
     }
 
-    /// The colour the dialog is showing, as `0xRRGGBB`, when a custom one has been picked.
-    pub fn rgb(&self) -> Option<u32> {
-        self.custom
-    }
-
     pub fn set_hsv(&mut self, hue: f32, sat: f32, val: f32) {
         self.hue = hue.clamp(0.0, 1.0);
         self.sat = sat.clamp(0.0, 1.0);

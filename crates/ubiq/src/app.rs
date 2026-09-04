@@ -3221,7 +3221,7 @@ impl AppState {
         if self.sink.project.custom == Some(rgb) {
             return;
         }
-        if self.sink.project.custom.is_none() && rgb == self.sink_project_swatch_rgb() {
+        if self.sink.project.custom.is_none() && rgb == project_swatch_rgb(self.sink.project.colour) {
             return;
         }
         self.sink.project.set_rgb(rgb);
@@ -3238,12 +3238,7 @@ impl AppState {
         self.sink
             .project
             .custom
-            .unwrap_or_else(|| self.sink_project_swatch_rgb())
-    }
-
-    fn sink_project_swatch_rgb(&self) -> u32 {
-        let colour = theme::project_colour(self.sink.project.colour);
-        crate::state::sink::rgb_from_channels(colour.r, colour.g, colour.b)
+            .unwrap_or_else(|| project_swatch_rgb(self.sink.project.colour))
     }
 
     pub fn reset_sink_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {

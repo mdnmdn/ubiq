@@ -46,7 +46,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdout};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -67,11 +67,6 @@ pub struct OpencodeBridge {
     child: Child,
     events: mpsc::Receiver<AgentEvent>,
     reader: Option<std::thread::JoinHandle<()>>,
-    /// Whether a terminal `TurnEnded` has already been emitted via the stream
-    /// (an explicit error), so EOF doesn't send a second one.
-    /// Shared with the reader thread via `Arc<Mutex<bool>>`.
-    #[allow(dead_code)]
-    turn_ended: Arc<Mutex<bool>>,
 }
 
 impl OpencodeBridge {
@@ -91,16 +86,13 @@ impl OpencodeBridge {
         let _ = child.stdin.take();
 
         let (tx, rx) = mpsc::channel();
-        let turn_ended = Arc::new(Mutex::new(false));
-        let turn_ended_clone = Arc::clone(&turn_ended);
 
-        let reader = std::thread::spawn(move || read_loop(stdout, tx, turn_ended_clone));
+        let reader = std::thread::spawn(move || read_loop(stdout, tx));
 
         Ok(Self {
             child,
             events: rx,
             reader: Some(reader),
-            turn_ended,
         })
     }
 }
@@ -178,7 +170,10 @@ impl Drop for OpencodeBridge {
 /// to zero-or-more [`AgentEvent`]s and push them onto `tx`. On stream end,
 /// emit a terminal [`AgentEvent::TurnEnded`] if one hasn't been sent already
 /// (no explicit error), then drop `tx` (closing the channel).
-fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, turn_ended: Arc<Mutex<bool>>) {
+fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>) {
+    // Whether a terminal `TurnEnded` has already gone out via the stream (an explicit
+    // `result`/`session.error`), so EOF doesn't send a second one.
+    let mut turn_ended = false;
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -194,10 +189,8 @@ fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, turn_ended: Arc<
 
         for ev in map_event(&value) {
             tracing::debug!(event = ?ev, "opencode event");
-            if matches!(ev, AgentEvent::TurnEnded { .. })
-                && let Ok(mut ended) = turn_ended.lock()
-            {
-                *ended = true;
+            if matches!(ev, AgentEvent::TurnEnded { .. }) {
+                turn_ended = true;
             }
             if tx.send(ev).is_err() {
                 // No one is listening anymore.
@@ -207,16 +200,13 @@ fn read_loop(stdout: ChildStdout, tx: mpsc::Sender<AgentEvent>, turn_ended: Arc<
     }
 
     // EOF: emit a successful turn end if the stream didn't already end one.
-    if let Ok(mut ended) = turn_ended.lock()
-        && !*ended
-    {
+    if !turn_ended {
         let ev = AgentEvent::TurnEnded {
             stop_reason: StopReason::EndTurn,
             error: None,
         };
         tracing::debug!(event = ?ev, "opencode event");
         let _ = tx.send(ev);
-        *ended = true;
     }
 }
 
