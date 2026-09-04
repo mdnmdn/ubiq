@@ -6,20 +6,24 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, ElementId, Focusable, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred,
-    div, point, px,
+    AnyElement, ClipboardItem, Context, ElementId, Focusable, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
+    deferred, div, point, px,
 };
 use gpui_component::IconName;
 use gpui_component::input::Input;
 use ubiq_proto::ids::PaneId;
+use ubiq_proto::messages::{AccountInfo, LoginStatus};
 
 use crate::app::AppState;
-use crate::state::settings::{LoginStep, MarkdownOpen, SettingsSection};
+use crate::state::settings::{
+    AccountDialog, LoginStep, MarkdownOpen, SettingsSection, describe_status,
+};
 use crate::theme;
 use crate::ui::kit::{
-    check_box, choice_pill, column, field, ghost_button, heading, icon_button, label_block, modal,
-    modal_note, nav_item, primary_button, setting_row,
+    check_box, choice_pill, column, confirm_modal, elided, field, ghost_button, heading,
+    icon_button, label_block, modal, modal_note, nav_item, primary_button, prompt_modal,
+    setting_row,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -255,7 +259,7 @@ fn search(app: &AppState) -> AnyElement {
 
 fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let isolated = app.workbench.settings.host.isolate_agents;
-    column(vec![
+    let mut rows = vec![
         heading(
             "Harnesses",
             "Every agent runs on a harness. Register as many as you like — the same tool twice \
@@ -272,6 +276,11 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .into_any_element(),
         ),
+    ];
+    if let Some(error) = app.workbench.settings.error.clone() {
+        rows.push(error_banner(&error, cx));
+    }
+    rows.push(
         div()
             .flex()
             .items_center()
@@ -283,18 +292,48 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 cx.listener(|this, _, window, cx| this.open_harness_login(window, cx)),
             ))
             .into_any_element(),
-        accounts(app),
-    ])
+    );
+    rows.push(accounts(app, cx));
+    column(rows)
+}
+
+/// What the host last refused for a rename, delete or sign-out. The same warning-banner shape
+/// `ui/project_menu.rs`'s row confirmations use, dismissible because it is history the moment
+/// it is read.
+fn error_banner(error: &str, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .px_3()
+        .py_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .bg(theme::warning_soft())
+        .border_l(px(theme::ACCENT_EDGE))
+        .border_color(theme::warning())
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(px(12.))
+                .text_color(theme::text())
+                .child(SharedString::from(error.to_string())),
+        )
+        .child(ghost_button(
+            "app-settings-account-error-dismiss",
+            None,
+            "Dismiss",
+            cx.listener(|this, _, _, cx| this.dismiss_account_error(cx)),
+        ))
+        .into_any_element()
 }
 
 /// The identities registered here, each with the harnesses it can actually start.
 ///
-/// What a row shows is a *reference*: a name, and which harnesses have a captured login
-/// under it. No credential and no path — neither ever crosses the bus, so neither is here to
-/// draw.
-fn accounts(app: &AppState) -> AnyElement {
-    let accounts = &app.workbench.settings.accounts;
-    if accounts.is_empty() {
+/// What a block shows is a *reference*: a name, and which harnesses have a captured login
+/// under it, each with the check status last asked for. No credential and no path — neither
+/// ever crosses the bus, so neither is here to draw.
+fn accounts(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    if app.workbench.settings.accounts.is_empty() {
         return div()
             .px_3()
             .py_8()
@@ -319,47 +358,270 @@ fn accounts(app: &AppState) -> AnyElement {
             .into_any_element();
     }
 
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let accounts = app.workbench.settings.accounts.clone();
+
     div()
         .flex()
         .flex_col()
-        .gap_px()
-        .children(accounts.iter().map(|account| {
-            // An account with no captured login is a reference to an environment variable
-            // rather than a session, and saying so is the difference between "nothing here"
-            // and "nothing to seed a run with".
-            let signed_in = if account.logged_in.is_empty() {
-                "not signed in".to_string()
-            } else {
-                account.logged_in.join(", ")
-            };
+        .gap_4()
+        .children(
+            accounts
+                .iter()
+                .map(|account| account_block(app, account, now_ms, cx)),
+        )
+        .into_any_element()
+}
+
+/// The harness's display name, resolved through what the host offers — falling back to the
+/// raw id when the host does not (or no longer) list that harness.
+fn harness_label<'a>(app: &'a AppState, agent_type: &'a str) -> &'a str {
+    app.workbench
+        .agent_types
+        .iter()
+        .find(|info| info.id == agent_type)
+        .map(|info| info.label.as_str())
+        .unwrap_or(agent_type)
+}
+
+/// One account: its header, and one line per harness it has a captured login for.
+fn account_block(
+    app: &AppState,
+    account: &AccountInfo,
+    now_ms: i64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let id = account.id.clone();
+
+    let header = {
+        let rename_id = id.clone();
+        let delete_id = id.clone();
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .py_1()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::text())
+                    .child(SharedString::from(id.clone())),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(icon_button(
+                        ElementId::Name(format!("app-settings-account-{id}-rename").into()),
+                        IconName::Replace,
+                        false,
+                        cx.listener(move |this, _, window, cx| {
+                            this.open_rename_account(rename_id.clone(), window, cx)
+                        }),
+                    ))
+                    .child(icon_button(
+                        ElementId::Name(format!("app-settings-account-{id}-delete").into()),
+                        IconName::Delete,
+                        false,
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_delete_account(delete_id.clone(), cx)
+                        }),
+                    )),
+            )
+    };
+
+    let rows: Vec<AnyElement> = if account.logged_in.is_empty() {
+        vec![
             div()
-                .px_3()
-                .py_2()
+                .py_1()
+                .text_size(px(11.))
+                .text_color(theme::text_faint())
+                .child(SharedString::from("not signed in"))
+                .into_any_element(),
+        ]
+    } else {
+        account
+            .logged_in
+            .iter()
+            .map(|agent_type| harness_row(app, &id, agent_type, now_ms, cx))
+            .collect()
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .child(header)
+        .child(div().flex().flex_col().gap_1().pl_1().pt_1().children(rows))
+        .into_any_element()
+}
+
+/// One harness under one account: its display name, its last-checked status, and the three
+/// things that can be done to a login rather than to the account as a whole.
+fn harness_row(
+    app: &AppState,
+    account: &str,
+    agent_type: &str,
+    now_ms: i64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let label = harness_label(app, agent_type).to_string();
+    let status = app
+        .workbench
+        .settings
+        .statuses
+        .get(&(agent_type.to_string(), account.to_string()));
+
+    let status_line = status.map(|status| {
+        let colour = if matches!(status, LoginStatus::Expired { .. }) {
+            theme::danger()
+        } else if matches!(status, LoginStatus::Missing) {
+            theme::text_faint()
+        } else {
+            theme::text_muted()
+        };
+        div()
+            .text_size(px(11.))
+            .text_color(colour)
+            .child(SharedString::from(describe_status(status, now_ms)))
+            .into_any_element()
+    });
+
+    let (check_id, reauth_id, signout_id) = (
+        ElementId::Name(format!("app-settings-account-{account}-{agent_type}-check").into()),
+        ElementId::Name(format!("app-settings-account-{account}-{agent_type}-reauth").into()),
+        ElementId::Name(format!("app-settings-account-{account}-{agent_type}-signout").into()),
+    );
+
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .py_1()
+        .child(
+            div()
                 .flex()
                 .items_center()
-                .justify_between()
-                .gap_3()
-                .border_b_1()
-                .border_color(theme::border())
+                .gap_2()
+                .min_w(px(0.))
                 .child(
                     div()
-                        .text_size(px(13.))
-                        .font_weight(FontWeight::MEDIUM)
+                        .text_size(px(12.5))
                         .text_color(theme::text())
-                        .child(SharedString::from(account.id.clone())),
+                        .child(SharedString::from(label)),
                 )
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(if account.logged_in.is_empty() {
-                            theme::text_faint()
-                        } else {
-                            theme::text_muted()
-                        })
-                        .child(SharedString::from(signed_in)),
-                )
-        }))
+                .children(status_line),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(ghost_button(
+                    check_id,
+                    None,
+                    "Check",
+                    cx.listener({
+                        let account = account.to_string();
+                        let agent_type = agent_type.to_string();
+                        move |this, _, _, cx| {
+                            this.check_harness_login(agent_type.clone(), account.clone(), cx)
+                        }
+                    }),
+                ))
+                .child(ghost_button(
+                    reauth_id,
+                    None,
+                    "Re-authenticate",
+                    cx.listener({
+                        let account = account.to_string();
+                        let agent_type = agent_type.to_string();
+                        move |this, _, _, cx| {
+                            this.reauthenticate_harness(agent_type.clone(), account.clone(), cx)
+                        }
+                    }),
+                ))
+                .child(ghost_button(
+                    signout_id,
+                    None,
+                    "Sign out",
+                    cx.listener({
+                        let account = account.to_string();
+                        let agent_type = agent_type.to_string();
+                        move |this, _, _, cx| {
+                            this.open_sign_out(agent_type.clone(), account.clone(), cx)
+                        }
+                    }),
+                )),
+        )
         .into_any_element()
+}
+
+/// The rename, delete or sign-out question over one account, drawn from the same place the
+/// login modal is: over the settings page, so it layers correctly above it.
+pub fn account_dialog(
+    app: &AppState,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let view = cx.entity();
+    match app.workbench.settings.dialog.clone() {
+        None => div().into_any_element(),
+        Some(AccountDialog::Rename { account }) => {
+            let value = app.account_rename_input.read(cx).value().to_string();
+            let enabled = !value.trim().is_empty() && value.trim() != account;
+            prompt_modal(
+                "app-settings-account-rename",
+                "Rename account",
+                Some("Every harness signed in here keeps its login and answers to the new name."),
+                "Name",
+                &app.account_rename_input,
+                "Rename",
+                enabled,
+                crate::ui::handler(&view, |this, _, cx| this.confirm_rename_account(cx)),
+                crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
+                window,
+                cx,
+            )
+        }
+        Some(AccountDialog::Delete { account }) => confirm_modal(
+            "app-settings-account-delete",
+            "Delete account",
+            &format!(
+                "Delete {account}? Its stored credential and every harness signed in there go \
+                 with it. Unlike forgetting a project, there is nothing left behind."
+            ),
+            "Delete",
+            true,
+            crate::ui::handler(&view, |this, _, cx| this.confirm_delete_account(cx)),
+            crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
+            window,
+        ),
+        Some(AccountDialog::SignOut {
+            agent_type,
+            account,
+        }) => {
+            let label = harness_label(app, &agent_type).to_string();
+            confirm_modal(
+                "app-settings-account-signout",
+                "Sign out",
+                &format!(
+                    "Sign {account} out of {label}? {account} keeps its other harnesses — only \
+                     this one's credential is removed."
+                ),
+                "Sign out",
+                true,
+                crate::ui::handler(&view, |this, _, cx| this.confirm_sign_out(cx)),
+                crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
+                window,
+            )
+        }
+    }
 }
 
 /// The login modal: pick a harness, name the identity, watch the harness do its own login.
@@ -383,9 +645,24 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
             choosing(app, agent_type.as_deref(), window, cx),
             choosing_footer(agent_type.is_some(), app, cx),
         ),
+        LoginStep::Starting { agent_type } => (
+            "Signing in",
+            starting(app, agent_type),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-settings-login-cancel-starting",
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
+                ))
+                .into_any_element(),
+        ),
         LoginStep::Running { pane } => (
             "Signing in",
-            running(app, *pane, cx),
+            running(app, *pane, &login.links, cx),
             div()
                 .flex()
                 .items_center()
@@ -535,13 +812,31 @@ fn choosing_footer(picked: bool, _app: &AppState, cx: &mut Context<AppState>) ->
         .into_any_element()
 }
 
+/// Between `Choosing` and `Running`: `BeginHarnessLogin` is on its way and nothing has
+/// answered yet. Without this step the picker — or, for a re-authentication, nothing at all —
+/// sat on screen after the button was pressed, reading as though the click had done nothing.
+fn starting(app: &AppState, agent_type: &str) -> AnyElement {
+    div()
+        .pt_3()
+        .child(modal_note(&format!(
+            "Starting {}\u{2026}",
+            harness_label(app, agent_type)
+        )))
+        .into_any_element()
+}
+
 /// Step two: the harness's own login, in a real terminal.
 ///
 /// The height is explicit because the modal body is a scrolling column, and the emulator
 /// measures its own bounds to decide the geometry it reports to the harness — a box that
 /// measured to nothing would tell the harness it had no screen.
-fn running(app: &AppState, pane: PaneId, cx: &mut Context<AppState>) -> AnyElement {
-    div()
+fn running(
+    app: &AppState,
+    pane: PaneId,
+    links: &[String],
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let mut body = div()
         .flex()
         .flex_col()
         .gap_3()
@@ -555,6 +850,69 @@ fn running(app: &AppState, pane: PaneId, cx: &mut Context<AppState>) -> AnyEleme
                 .border_1()
                 .border_color(theme::border())
                 .child(crate::ui::terminal::pane(app, pane, cx)),
+        );
+
+    if !links.is_empty() {
+        body = body
+            .child(modal_note(
+                "The harness's own output printed these — offered as buttons because a \
+                 terminal is a poor place to click text.",
+            ))
+            .child(
+                div().flex().flex_col().gap_1().children(
+                    links
+                        .iter()
+                        .enumerate()
+                        .map(|(index, url)| login_link_row(index, url.clone(), cx)),
+                ),
+            );
+    }
+
+    body.into_any_element()
+}
+
+/// One URL the login pane printed: a button that opens it, and a small icon that copies it.
+/// Truncated so a long URL cannot blow out the modal's fixed width — the full string is still
+/// the element's tooltip, via [`elided`].
+fn login_link_row(index: usize, url: String, cx: &mut Context<AppState>) -> AnyElement {
+    let open_url = url.clone();
+    let copy_url = url.clone();
+
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .child(
+            div()
+                .id(ElementId::Name(
+                    format!("app-settings-login-link-{index}").into(),
+                ))
+                .flex_1()
+                .min_w(px(0.))
+                .h(px(24.))
+                .px_2()
+                .flex()
+                .items_center()
+                .bg(theme::surface())
+                .border_l(px(theme::ACCENT_EDGE))
+                .border_color(theme::accent())
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::hover()))
+                .child(elided(
+                    ElementId::Name(format!("app-settings-login-link-{index}-text").into()),
+                    url,
+                    theme::accent(),
+                    12.,
+                ))
+                .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&open_url))),
         )
+        .child(icon_button(
+            ElementId::Name(format!("app-settings-login-link-{index}-copy").into()),
+            IconName::Copy,
+            false,
+            cx.listener(move |_, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_url.clone()));
+            }),
+        ))
         .into_any_element()
 }

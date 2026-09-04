@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -96,7 +96,9 @@ name its pane is a message that will need reworking the moment a second pane exi
 
 **5. Terminal bytes stay opaque.** Only control messages are structured. Ubiq writes no VT parser
 and no terminal state engine; it shuttles bytes between a pseudo-terminal and an emulator built for
-exactly that problem.
+exactly that problem. The host may still read the bytes it forwards unchanged — a login pane's
+output is scanned for a URL to surface as a button — without that being VT parsing: the scan is a
+crude text search over raw bytes, not an interpretation of what they draw.
 
 **6. The host reserves the interface's workarea and never reads inside it.** Every project's
 `ProjectSnapshot` carries a `workarea` — one directory, under that project's own folder in the

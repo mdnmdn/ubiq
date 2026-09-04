@@ -32,7 +32,8 @@ use crate::state::file_picker::{
 use crate::state::git::{GitView, RefSection, Side as GitSide};
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
-    self as ui_settings, LoginState, LoginStep, MarkdownOpen, SettingsSection,
+    self as ui_settings, AccountDialog, LoginState, LoginStep, MAX_LOGIN_LINKS, MarkdownOpen,
+    SettingsSection,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -463,6 +464,10 @@ pub struct AppState {
     /// What the new-agent naming prompt has typed for the conversation's own name. Its own field
     /// for the same reason `login_account_input` is: a state drawn once, in its own modal.
     pub new_agent_name_input: Entity<InputState>,
+    /// The accounts section's rename dialog field, seeded with the account's current id when
+    /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
+    /// drawn once, in its own dialog.
+    pub account_rename_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every

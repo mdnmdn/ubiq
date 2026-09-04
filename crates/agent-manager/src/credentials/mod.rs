@@ -96,6 +96,100 @@ pub struct CredentialMeta {
     pub captured: BTreeMap<String, String>,
 }
 
+/// The validity of a stored credential, as computed by [`credential_validity`]
+/// from any embedded expiry field. Harness-agnostic (it just looks for a
+/// numeric `*expire*` key anywhere in the parsed JSON).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Validity {
+    /// An expiry was found and is still in the future (or no expiry field was
+    /// found but blobs are present — see [`credential_validity`], which uses
+    /// [`Validity::Unknown`] for that case, so `expires_at_ms` here is always
+    /// `Some`). Kept as `Option` to leave room for future "valid, no expiry".
+    Valid {
+        /// Epoch-millis expiry, if one was found.
+        expires_at_ms: Option<i64>,
+    },
+    /// An expiry was found and is at/before `now_ms`.
+    Expired {
+        /// Epoch-millis expiry that has passed.
+        expires_at_ms: i64,
+    },
+    /// Blobs are present but carry no recognizable expiry field.
+    Unknown,
+    /// No blobs are stored for this credential.
+    Empty,
+}
+
+/// Compute a stored credential's [`Validity`] at `now_ms` (epoch millis).
+///
+/// Harness-agnostic but Claude-aware: for each blob, parse the bytes as JSON
+/// and recursively search for a numeric field whose key case-insensitively
+/// contains `"expire"` (covers Claude's `claudeAiOauth.expiresAt`, which is
+/// epoch **millis**). Each value is normalized — numbers below `10^12` are
+/// treated as **seconds** and scaled to millis — and the **maximum** expiry
+/// across all blobs wins. Pure (takes `now_ms`) so it's unit-testable without
+/// a clock. Returns [`Validity::Empty`] for no blobs, [`Validity::Unknown`]
+/// for blobs with no expiry field, else `Valid`/`Expired`.
+pub fn credential_validity(blobs: &[CredentialBlob], now_ms: i64) -> Validity {
+    if blobs.is_empty() {
+        return Validity::Empty;
+    }
+    let mut max_expiry: Option<i64> = None;
+    for blob in blobs {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&blob.bytes)
+            && let Some(ms) = max_expiry_ms(&v)
+        {
+            max_expiry = Some(max_expiry.map_or(ms, |cur| cur.max(ms)));
+        }
+    }
+    match max_expiry {
+        Some(ms) if ms > now_ms => Validity::Valid {
+            expires_at_ms: Some(ms),
+        },
+        Some(ms) => Validity::Expired { expires_at_ms: ms },
+        None => Validity::Unknown,
+    }
+}
+
+/// Recursively find the maximum numeric `*expire*` value in `v`, normalized to
+/// epoch millis (values below `10^12` are treated as seconds and ×1000).
+fn max_expiry_ms(v: &serde_json::Value) -> Option<i64> {
+    fn normalize(n: i64) -> i64 {
+        if n < 1_000_000_000_000 {
+            n.saturating_mul(1000)
+        } else {
+            n
+        }
+    }
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut best: Option<i64> = None;
+            for (k, val) in map {
+                if k.to_lowercase().contains("expire")
+                    && let Some(n) = val.as_i64().or_else(|| val.as_f64().map(|f| f as i64))
+                {
+                    let ms = normalize(n);
+                    best = Some(best.map_or(ms, |cur| cur.max(ms)));
+                }
+                if let Some(ms) = max_expiry_ms(val) {
+                    best = Some(best.map_or(ms, |cur| cur.max(ms)));
+                }
+            }
+            best
+        }
+        serde_json::Value::Array(items) => {
+            let mut best: Option<i64> = None;
+            for item in items {
+                if let Some(ms) = max_expiry_ms(item) {
+                    best = Some(best.map_or(ms, |cur| cur.max(ms)));
+                }
+            }
+            best
+        }
+        _ => None,
+    }
+}
+
 /// A store of harness login secrets, keyed by [`CredentialId`].
 ///
 /// Every method is synchronous and local — no network I/O is implied by the
@@ -321,6 +415,86 @@ impl crate::account::AccountStore for SecretBackedAccountStore {
 mod tests {
     use super::*;
     use crate::harness::SeedFile;
+
+    fn blob(bytes: &[u8]) -> CredentialBlob {
+        CredentialBlob {
+            name: "x".to_string(),
+            rel_path: PathBuf::from(".claude/.credentials.json"),
+            bytes: bytes.to_vec(),
+        }
+    }
+
+    #[test]
+    fn credential_validity_claude_future_expiry_is_valid() {
+        // Claude shape: expiresAt in epoch MILLIS, far in the future.
+        let future = 5_000_000_000_000i64; // year ~2128
+        let bytes = format!("{{\"claudeAiOauth\":{{\"expiresAt\":{future}}}}}");
+        let v = credential_validity(&[blob(bytes.as_bytes())], 1_000_000_000_000);
+        assert_eq!(
+            v,
+            Validity::Valid {
+                expires_at_ms: Some(future)
+            }
+        );
+    }
+
+    #[test]
+    fn credential_validity_past_expiry_is_expired() {
+        let past = 1_000_000_000_000i64;
+        let bytes = format!("{{\"claudeAiOauth\":{{\"expiresAt\":{past}}}}}");
+        let v = credential_validity(&[blob(bytes.as_bytes())], 2_000_000_000_000);
+        assert_eq!(
+            v,
+            Validity::Expired {
+                expires_at_ms: past
+            }
+        );
+    }
+
+    #[test]
+    fn credential_validity_no_expiry_field_is_unknown() {
+        let v = credential_validity(&[blob(b"{\"apiKey\":\"sk-1\"}")], 1_000);
+        assert_eq!(v, Validity::Unknown);
+    }
+
+    #[test]
+    fn credential_validity_empty_blobs_is_empty() {
+        assert_eq!(credential_validity(&[], 1_000), Validity::Empty);
+    }
+
+    #[test]
+    fn credential_validity_normalizes_seconds_to_millis() {
+        // A bare epoch-SECONDS expiry (< 10^12) must be scaled by 1000 so it
+        // compares correctly against a millis `now`. 2_000_000_000s = year
+        // 2033, well ahead of a `now` of 1_500_000_000_000ms (~2017).
+        let secs = 2_000_000_000i64;
+        let bytes = format!("{{\"expires_at\":{secs}}}");
+        let v = credential_validity(&[blob(bytes.as_bytes())], 1_500_000_000_000);
+        assert_eq!(
+            v,
+            Validity::Valid {
+                expires_at_ms: Some(secs * 1000)
+            }
+        );
+    }
+
+    #[test]
+    fn credential_validity_takes_max_expiry_across_blobs() {
+        let near = 1_600_000_000_000i64;
+        let far = 4_000_000_000_000i64;
+        let b1 = format!("{{\"expiresAt\":{near}}}");
+        let b2 = format!("{{\"expiresAt\":{far}}}");
+        let v = credential_validity(
+            &[blob(b1.as_bytes()), blob(b2.as_bytes())],
+            1_000_000_000_000,
+        );
+        assert_eq!(
+            v,
+            Validity::Valid {
+                expires_at_ms: Some(far)
+            }
+        );
+    }
 
     #[test]
     fn blobs_from_seed_round_trips_claude_style_paths() -> Result<()> {

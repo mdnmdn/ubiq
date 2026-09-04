@@ -66,6 +66,31 @@ unbuilt, and the stepping stone is easy to mistake for the finished feature.
 The `am account login <id> --harness <h>` flow is implemented (contract +
 command + all four harness `login()` impls + reuse). Remaining:
 
+- **Two-tier gap (now documented, not unified).** This crate has two physically
+  separate credential trees: `AccountStore`/`FsAccountStore` (`<root>/<id>/`, a
+  per-account HOME each harness writes its own files into — what `am account
+  login` and the Ubiq embedder's `capture_login` actually use) and
+  `SecretStore`/`FileSecretStore` (`<root>/<name>/<harness>/<rel_path>` — what
+  `am account rename|delete|check` operate on). An account created by `am
+  account login` therefore couldn't be renamed, deleted, or checked by anything
+  in this crate. `AccountStore` now has its own `rename_account`/
+  `delete_account`/`sign_out`/`login_validity` (see `account.rs`,
+  `_docs/am-as-library.md` §5) so an embedder can offer those operations on the
+  tier the login flow actually writes — but the two tiers are still separate
+  storage, and the CLI's `account rename|delete|check` still only see the
+  `SecretStore` tier. Unifying them (one storage model, or a bridge that keeps
+  both in sync) remains open.
+- **`login_validity` / `effective_harnesses` / `has_capture` triplication.**
+  Three call sites now compute essentially the same "is there a login here"
+  fact, independently: `account::login_validity` (this change, `AccountStore`
+  tier, full `Validity`), `cli::account::effective_harnesses`
+  (`cli/account/mod.rs`, `AccountStore` tier, boolean-only, predates this
+  change and wasn't refactored onto `login_validity` to keep this change's
+  diff scoped to library API), and `ubiq-host`'s `Agents::has_capture`
+  (`crates/ubiq-host/src/agent.rs`, boolean-only, outside this crate). All
+  three read the same `ConfigAnchor::login_seed` files off an account home.
+  Worth collapsing onto `login_validity` (== `Validity::Empty` for the boolean
+  case) in a follow-up that touches both crates.
 - **Metadata extraction (the documented "plus") is not built.** `Account.captured:
   BTreeMap<String,String>` exists but is never populated. The per-harness
   "Extractable metadata" tables in `_docs/harness/<h>.md` list the non-secret

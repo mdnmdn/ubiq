@@ -34,6 +34,7 @@ pub mod files;
 pub mod gc;
 pub mod git;
 pub mod health;
+pub mod links;
 pub mod mcp_server;
 pub mod projects;
 pub mod pty;

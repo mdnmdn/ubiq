@@ -70,11 +70,13 @@ pub fn filter_bar(
     trailing: impl IntoElement,
     focused: bool,
 ) -> impl IntoElement {
-    div().px_3().pb_1().flex().flex_none().child(
+    // Flush with the panel's edges: the field is chrome, not content, so it touches the borders
+    // rather than floating inside a margin.
+    div().flex().flex_none().child(
         field(theme::border(), focused)
             .w_full()
-            .h(px(26.))
-            .px_1p5()
+            .h(px(28.))
+            .px_2()
             .gap_1p5()
             .child(
                 Icon::new(IconName::Search)

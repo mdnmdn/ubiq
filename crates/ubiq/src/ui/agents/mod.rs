@@ -30,17 +30,16 @@ pub mod column;
 pub mod sidebar;
 
 use gpui::{
-    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, point, px,
 };
-use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::HarnessChoice;
 use crate::theme;
 use crate::ui::empty;
-use crate::ui::kit::{self, field, ghost_button, label_block, modal, mono, primary_button};
+use crate::ui::kit::{self, ghost_button, mono};
 use crate::ui::{handler, indexed};
 
 /// What a dragged tab carries. The agent alone: which column it came from is a question the view
@@ -260,55 +259,18 @@ pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement 
 /// [`AppState::cancel_named_agent`].
 pub fn new_agent_naming(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
-    let focused = app
-        .new_agent_name_input
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
-
-    let body = div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .pt_3()
-        .child(label_block(
-            "Name",
-            "What to call this conversation. Leave it to use the harness's own name.",
-        ))
-        .child(
-            field(theme::border(), focused)
-                .h(px(30.))
-                .px_2()
-                .child(Input::new(&app.new_agent_name_input).appearance(false)),
-        )
-        .into_any_element();
-
-    let footer = div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(ghost_button(
-            "agents-naming-cancel",
-            None,
-            "Cancel",
-            cx.listener(|this, _, _, cx| this.cancel_named_agent(cx)),
-        ))
-        .child(primary_button(
-            "agents-naming-start",
-            None,
-            "Start",
-            cx.listener(|this, _, _, cx| this.start_named_agent(cx)),
-        ))
-        .into_any_element();
-
-    modal(
+    kit::prompt_modal(
         "agents-naming",
-        theme::accent(),
         "Name this conversation",
-        body,
-        footer,
+        Some("What to call this conversation. Leave it to use the harness's own name."),
+        "Name",
+        &app.new_agent_name_input,
+        "Start",
+        true,
+        handler(&view, |this, _, cx| this.start_named_agent(cx)),
         handler(&view, |this, _, cx| this.cancel_named_agent(cx)),
         window,
+        cx,
     )
 }
 

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-02
+updated: 2026-09-04
 verified: 2026-09-04
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
@@ -212,6 +212,14 @@ fills its half of the dock, and the explorer's tree pads only on the right so a 
 accent runs to the panel edge. Inline controls — chips, pills, tabs — are not surfaces in this
 sense and keep their own spacing.
 
+**Chrome is flush, and its controls are square.** A control that belongs to a chrome row — the
+titlebar's switches, a panel's filter field, the mark above the rail — takes the row's full height
+and no margin of its own: it touches the row's top and bottom borders, and the first and last touch
+its ends. Side by side they are separated by a hairline rather than a gap, and where a group needs
+telling from the next one it is a 1px rule, not whitespace. An icon button keeps its 30px width, so
+what fills the height reads as a square in a short row — which is why `TITLEBAR_HEIGHT` is short
+enough for that to be true. Content pads; chrome does not.
+
 Circles survive in exactly one place: state dots, which are dots.
 
 **A modal is that same surface, over the window.** One question at a time, drawn by `kit::modal`:
@@ -228,6 +236,23 @@ outside click and by its own close**, through `on_mouse_down_out` on the panel, 
 dropdown is, so the two behave the same way and neither uses the scrim as a click target. And **the
 scrim occludes the mouse**, so nothing behind a modal can be clicked while it is up. It sits above
 the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
+
+**A modal's body is not always static.** The harness login modal embeds a live `TerminalView` in
+its running step — a pane with a real byte stream, resized and focused exactly as a dock pane is —
+so `kit::modal` makes no assumption about what its body renders beyond the scrolling column it sits
+in. A modal that hosts a pane still follows every rule above; only what fills the body changes.
+
+Two primitives are built on top of `kit::modal` rather than beside it, in `ui/kit/overlay.rs`, so a
+screen never hand-rolls a confirm or a "type a name" dialog again. **`confirm_modal`** is a question
+with two answers — `danger: true` draws the `danger` edge for something irreversible, `false` draws
+`accent` for an ordinary question — with a Cancel and a labelled confirm underneath, in the ghost
+and primary button shapes every other footer in the window uses. **`prompt_modal`** is one labelled
+field and a confirm: the caller owns the field's `InputState`, so what was typed survives a redraw
+and the caller reads it back when the confirm fires, and `confirm_enabled: false` dims the confirm
+button the same `.opacity(0.5)` way a disabled action dims everywhere else — there is no second
+disabled style. Both close over `kit::modal`'s scrim, edge and dismiss rules rather than repeating
+them; a screen that needs a bespoke body still reaches for `kit::modal` directly, as the harness
+login and the new-agent naming prompt's picker step do.
 
 **A dialog is that same modal, worked in rather than answered.** The file picker — `ui/file_picker.rs`,
 raised over any screen — keeps every rule the modal keeps and differs in the three ways a dialog with

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
 use ubiq_proto::conversation::{
@@ -40,6 +40,11 @@ use crate::work::Work;
 /// really is. The harness is told the truth a frame later, by [`Message::TerminalResize`].
 const INITIAL_COLS: u16 = 80;
 const INITIAL_ROWS: u16 = 24;
+
+/// How long the run loop's wait may be while a conversation is live, so a harness that ends on its
+/// own is reaped promptly rather than only on the next unrelated message. See the wait computation
+/// in `run` for why this is needed at all.
+const CONVERSATION_POLL: Duration = Duration::from_millis(500);
 
 /// Start the coordinator on its own thread. One per process, started before the first window: the
 /// catalogue it will own is process-wide, and two of them would disagree about what exists.
@@ -145,6 +150,14 @@ struct PendingConversation {
 /// is there to ask.
 fn accepts_second_turn(agent_type: &str) -> bool {
     matches!(agent_type, "claude-code" | "codex")
+}
+
+/// Now, in epoch milliseconds — the unit a stored credential's own expiry is in.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// The models `agent_type` will answer for, resolved directly against the library rather than
@@ -256,8 +269,18 @@ impl Coordinator {
     fn run(mut self) {
         loop {
             // A queued preference has to be written even if nobody says anything else, so the wait
-            // is bounded whenever something is pending.
-            let event = match self.projects.next_due(Instant::now()) {
+            // is bounded whenever something is pending. A harness that ends on its own sets a flag
+            // rather than sending anything (see `Conversation::ended`), so nothing would otherwise
+            // wake this loop to notice — the wait is bounded the same way whenever a conversation
+            // is live, taking the sooner of the two deadlines, or its run directory (credentials
+            // seeded into it included) would outlive it until the next thing the user did.
+            let due = self.projects.next_due(Instant::now());
+            let wait = if self.conversations.is_empty() {
+                due
+            } else {
+                Some(due.map_or(CONVERSATION_POLL, |due| due.min(CONVERSATION_POLL)))
+            };
+            let event = match wait {
                 Some(wait) => match self.host.recv_timeout(wait) {
                     Ok(event) => Some(event),
                     Err(flume::RecvTimeoutError::Timeout) => None,
@@ -275,6 +298,7 @@ impl Coordinator {
                 Some(FromClient::Gone(client)) => self.client_gone(client),
                 None => {}
             }
+            self.reap_conversations();
             self.projects.flush_due(Instant::now());
         }
         // Nothing is left to say it to, but what the user last did still belongs on disk.
@@ -496,6 +520,11 @@ impl Coordinator {
                 // is the only place that knows both services.
                 self.work.forget(project_id);
                 self.git_forget(client, project_id);
+                // Dropping a watch stops its `notify` handle and ends its debounce thread — the
+                // catalogue no longer holds this project, so nothing should still be sending
+                // `ProjectFilesChanged` for it.
+                self.watchers
+                    .retain(|(_, watched), _| *watched != project_id);
                 self.answer(client, replies);
             }
             Message::UpdateProject {
@@ -551,6 +580,27 @@ impl Coordinator {
                 account,
             } => {
                 self.begin_harness_login(client, agent_type, account);
+            }
+            Message::CheckHarnessLogin {
+                agent_type,
+                account,
+            } => {
+                self.check_harness_login(client, agent_type, account);
+            }
+            Message::RenameAccount {
+                account,
+                new_account,
+            } => {
+                self.rename_account(client, account, new_account);
+            }
+            Message::DeleteAccount { account } => {
+                self.delete_account(client, account);
+            }
+            Message::DeleteHarnessLogin {
+                agent_type,
+                account,
+            } => {
+                self.delete_harness_login(client, agent_type, account);
             }
 
             Message::GetSettings { layer } => {
@@ -1084,6 +1134,27 @@ impl Coordinator {
         }
     }
 
+    /// Reap conversations whose harness ended on its own — a one-shot bridge's stream, or any
+    /// bridge's process exiting unasked — rather than by an explicit `EndConversation`.
+    ///
+    /// Without this, a one-shot harness (`accepts_second_turn` false: everything but
+    /// claude-code/codex) leaks its `conversations`/`conversation_owners`/`work.live` rows and its
+    /// run directory — credentials included — on every conversation, until the window closes.
+    /// The same shape `active_searches` already uses: a flag the worker sets on its way out,
+    /// polled here rather than raced against.
+    fn reap_conversations(&mut self) {
+        let ended: Vec<AgentId> = self
+            .conversations
+            .iter()
+            .filter(|(_, conversation)| conversation.ended())
+            .map(|(agent_id, _)| *agent_id)
+            .collect();
+        for agent_id in ended {
+            tracing::debug!("agent {agent_id}'s harness ended on its own; reaping");
+            self.end_conversation(agent_id, StopReason::EndTurn);
+        }
+    }
+
     /// Stop an agent and take everything it owned with it.
     ///
     /// The pump answers its own `ConversationEnded` on the way out, so nothing is said here: two
@@ -1352,7 +1423,7 @@ impl Coordinator {
         };
 
         let spawned = pty::spawn(&program, Some(cwd.as_path()), INITIAL_COLS, INITIAL_ROWS);
-        let (pane, child) = match spawned {
+        let (mut pane, mut child) = match spawned {
             Ok(spawned) => spawned,
             Err(error) => {
                 self.agents.retire(pane_id);
@@ -1380,8 +1451,11 @@ impl Coordinator {
         self.owners.insert(pane_id, client);
         let mailbox = self.host.mailbox(To::Client(client));
 
-        if let Err(error) = pane.forward_output(pane_id, mailbox.clone()) {
+        if let Err(error) = pane.forward_output(pane_id, mailbox.clone(), false) {
             self.owners.remove(&pane_id);
+            // The reader never started, so nothing else will ever wait on this child.
+            pane.kill();
+            let _ = child.wait();
             mailbox.send(Message::PaneError {
                 pane_id,
                 error: error.to_string(),
@@ -1465,7 +1539,7 @@ impl Coordinator {
             env_clear: launch.env_clear,
         };
         let pane_id = PaneId::generate();
-        let (pane, child) =
+        let (mut pane, mut child) =
             match pty::spawn(&program, Some(pending.home()), INITIAL_COLS, INITIAL_ROWS) {
                 Ok(spawned) => spawned,
                 Err(error) => return refuse(self, error.to_string()),
@@ -1473,8 +1547,11 @@ impl Coordinator {
 
         self.owners.insert(pane_id, client);
         let mailbox = self.host.mailbox(To::Client(client));
-        if let Err(error) = pane.forward_output(pane_id, mailbox.clone()) {
+        if let Err(error) = pane.forward_output(pane_id, mailbox.clone(), true) {
             self.owners.remove(&pane_id);
+            // The reader never started, so nothing else will ever wait on this child.
+            pane.kill();
+            let _ = child.wait();
             return refuse(self, error.to_string());
         }
         pty::reap(pane_id, child, mailbox.clone());
@@ -1537,6 +1614,78 @@ impl Coordinator {
                     },
                 );
             }
+        }
+    }
+
+    /// Whether `account` has a login currently mid-capture — the whole of that harness's for a
+    /// sign-out, any harness for a rename or a delete, since either would race the filesystem
+    /// against a login the pane owning it has not finished writing.
+    fn login_running(&self, account: &str, agent_type: Option<&str>) -> bool {
+        self.logins.values().any(|pending| {
+            pending.account == account && agent_type.is_none_or(|t| pending.agent_type == t)
+        })
+    }
+
+    /// A stored credential could not be checked, renamed or deleted; say so to the window that
+    /// asked, and nobody else — the same routing `refuse` in [`Self::begin_harness_login`] uses.
+    fn account_error(&self, client: ClientId, error: String) {
+        self.host
+            .send(To::Client(client), Message::AccountError { error });
+    }
+
+    /// Answer whether `account` has a usable credential for `agent_type`. Always answered —
+    /// an unknown harness or account reads as [`ubiq_proto::messages::LoginStatus::Missing`],
+    /// not an error.
+    fn check_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
+        let now_ms = now_ms();
+        let status = self.agents.check_login(&agent_type, &account, now_ms);
+        tracing::debug!(harness = %agent_type, %account, ?status, "login checked");
+        self.host.send(
+            To::Client(client),
+            Message::HarnessLoginStatus {
+                agent_type,
+                account,
+                status,
+            },
+        );
+    }
+
+    fn rename_account(&mut self, client: ClientId, account: String, new_account: String) {
+        if self.login_running(&account, None) {
+            return self.account_error(
+                client,
+                format!("a sign-in for account '{account}' is still running"),
+            );
+        }
+        match self.agents.rename_account(&account, &new_account) {
+            Ok(()) => self.send_accounts(client),
+            Err(error) => self.account_error(client, format!("{error:#}")),
+        }
+    }
+
+    fn delete_account(&mut self, client: ClientId, account: String) {
+        if self.login_running(&account, None) {
+            return self.account_error(
+                client,
+                format!("a sign-in for account '{account}' is still running"),
+            );
+        }
+        match self.agents.delete_account(&account) {
+            Ok(()) => self.send_accounts(client),
+            Err(error) => self.account_error(client, format!("{error:#}")),
+        }
+    }
+
+    fn delete_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
+        if self.login_running(&account, Some(&agent_type)) {
+            return self.account_error(
+                client,
+                format!("a sign-in for account '{account}' is still running"),
+            );
+        }
+        match self.agents.delete_harness_login(&agent_type, &account) {
+            Ok(()) => self.send_accounts(client),
+            Err(error) => self.account_error(client, format!("{error:#}")),
         }
     }
 

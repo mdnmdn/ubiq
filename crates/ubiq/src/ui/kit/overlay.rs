@@ -16,13 +16,15 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, ElementId, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px, relative,
+    AnyElement, App, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
+    Rgba, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px, relative,
 };
 use gpui_component::IconName;
+use gpui_component::input::{Input, InputState};
 
 use crate::theme;
-use crate::ui::kit::controls::{icon_button, section_label};
+use crate::ui::kit::controls::{field, ghost_button, icon_button, primary_button, section_label};
+use crate::ui::kit::settings::label_block;
 
 /// One modal: a title, a body, and whatever actions the caller offers under it.
 ///
@@ -123,4 +125,144 @@ pub fn modal_note(text: &str) -> impl IntoElement {
         .text_size(px(12.5))
         .text_color(theme::text_muted())
         .child(text.to_string())
+}
+
+/// A question with two answers, on top of [`modal`].
+///
+/// `danger` picks the edge colour: something irreversible reads in [`theme::danger`], an
+/// ordinary question in [`theme::accent`] — the same rule a modal's edge always follows. This
+/// is the shape three hand-rolled confirms in the window used to repeat each with its own
+/// footer; they answer to this one instead.
+#[allow(clippy::too_many_arguments)]
+pub fn confirm_modal(
+    id: &'static str,
+    title: &str,
+    message: &str,
+    confirm_label: &str,
+    danger: bool,
+    on_confirm: impl Fn(&mut Window, &mut App) + 'static,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+    window: &Window,
+) -> AnyElement {
+    let edge = if danger {
+        theme::danger()
+    } else {
+        theme::accent()
+    };
+    let dismiss = Rc::new(on_dismiss);
+    let cancel_dismiss = dismiss.clone();
+    let modal_dismiss = dismiss;
+
+    let body = div().pt_3().child(modal_note(message)).into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            ElementId::Name(format!("{id}-cancel").into()),
+            None,
+            "Cancel",
+            move |_, window, cx| cancel_dismiss(window, cx),
+        ))
+        .child(primary_button(
+            ElementId::Name(format!("{id}-confirm").into()),
+            None,
+            confirm_label.to_string(),
+            move |_, window, cx| on_confirm(window, cx),
+        ))
+        .into_any_element();
+
+    modal(
+        id,
+        edge,
+        title,
+        body,
+        footer,
+        move |window, cx| modal_dismiss(window, cx),
+        window,
+    )
+}
+
+/// One labelled field and a confirm, on top of [`modal`].
+///
+/// The caller owns the [`InputState`], so what was typed survives a redraw and the caller reads
+/// it back when `on_confirm` fires — this primitive never copies the text into state of its
+/// own. `note`, when given, is the paragraph above the field explaining what it is for, in
+/// [`modal_note`]'s voice; `confirm_enabled: false` dims the confirm button the same way a
+/// disabled action dims anywhere else in this window, rather than inventing a second disabled
+/// style.
+#[allow(clippy::too_many_arguments)]
+pub fn prompt_modal(
+    id: &'static str,
+    title: &str,
+    note: Option<&str>,
+    label: &str,
+    input: &Entity<InputState>,
+    confirm_label: &str,
+    confirm_enabled: bool,
+    on_confirm: impl Fn(&mut Window, &mut App) + 'static,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+    window: &Window,
+    cx: &App,
+) -> AnyElement {
+    let focused = input.read(cx).focus_handle(cx).is_focused(window);
+
+    let mut body = div().flex().flex_col().gap_3().pt_3();
+    if let Some(note) = note {
+        body = body.child(modal_note(note));
+    }
+    let body = body
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(label, ""))
+                .child(
+                    field(theme::border(), focused)
+                        .h(px(30.))
+                        .px_2()
+                        .child(Input::new(input).appearance(false)),
+                ),
+        )
+        .into_any_element();
+
+    let dismiss = Rc::new(on_dismiss);
+    let cancel_dismiss = dismiss.clone();
+    let modal_dismiss = dismiss;
+
+    let confirm = primary_button(
+        ElementId::Name(format!("{id}-confirm").into()),
+        None,
+        confirm_label.to_string(),
+        move |_, window, cx| on_confirm(window, cx),
+    );
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            ElementId::Name(format!("{id}-cancel").into()),
+            None,
+            "Cancel",
+            move |_, window, cx| cancel_dismiss(window, cx),
+        ))
+        .child(if confirm_enabled {
+            confirm
+        } else {
+            confirm.opacity(0.5)
+        })
+        .into_any_element();
+
+    modal(
+        id,
+        theme::accent(),
+        title,
+        body,
+        footer,
+        move |window, cx| modal_dismiss(window, cx),
+        window,
+    )
 }

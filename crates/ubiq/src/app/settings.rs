@@ -179,7 +179,9 @@ impl AppState {
         self.workbench.settings.login = Some(LoginState {
             account: String::new(),
             step: LoginStep::Choosing { agent_type: None },
+            links: Vec::new(),
         });
+        self.workbench.settings.error = None;
         cx.notify();
     }
 
@@ -217,6 +219,9 @@ impl AppState {
 
         let agent_type = agent_type.clone();
         login.account = account.clone();
+        login.step = LoginStep::Starting {
+            agent_type: agent_type.clone(),
+        };
         self.bus.send(Message::BeginHarnessLogin {
             agent_type,
             account,
@@ -264,6 +269,7 @@ impl AppState {
         self.workbench.settings.login = Some(LoginState {
             account,
             step: LoginStep::Running { pane: pane_id },
+            links: Vec::new(),
         });
         self.pending_focus = Some(pane_id);
         self.bus.send(Message::Focus { pane_id });
@@ -281,7 +287,28 @@ impl AppState {
         }
         if let Some(login) = &mut self.workbench.settings.login {
             login.step = LoginStep::Done { captured, message };
+            login.links.clear();
         }
+        cx.notify();
+    }
+
+    /// A URL the running login's own output printed. Pushed only while a login is running in
+    /// exactly this pane — a link for a pane that is not the login's own, or one arriving with
+    /// no login up at all, is ignored rather than misfiled onto the wrong flow.
+    ///
+    /// Capped and deduplicated here as well as on the host: state must not grow from a
+    /// misbehaving one.
+    pub(super) fn login_link(&mut self, pane_id: PaneId, url: String, cx: &mut Context<Self>) {
+        let Some(login) = &mut self.workbench.settings.login else {
+            return;
+        };
+        if !matches!(login.step, LoginStep::Running { pane } if pane == pane_id) {
+            return;
+        }
+        if login.links.contains(&url) || login.links.len() >= MAX_LOGIN_LINKS {
+            return;
+        }
+        login.links.push(url);
         cx.notify();
     }
 
@@ -303,6 +330,141 @@ impl AppState {
             self.pending_focus = None;
         }
         self.bus.send(Message::CloseWorkspace { pane_id: pane });
+        cx.notify();
+    }
+
+    /// Ask whether an account's credential for a harness is still good. No modal: the status
+    /// line updates in place when `HarnessLoginStatus` answers.
+    pub fn check_harness_login(
+        &mut self,
+        agent_type: String,
+        account: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.error = None;
+        self.bus.send(Message::CheckHarnessLogin {
+            agent_type,
+            account,
+        });
+        cx.notify();
+    }
+
+    /// Re-authenticate a harness that already has a name: an ordinary login, skipping the
+    /// picker because both the harness and the identity are already known.
+    ///
+    /// `login` is set before the send, on the same reasoning `login_started` requires it —
+    /// an answer with no modal to draw it closes the pane instead. The harness may well say
+    /// it is already logged in; that is its own output for the user to read, not something
+    /// this method pre-empts.
+    pub fn reauthenticate_harness(
+        &mut self,
+        agent_type: String,
+        account: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.error = None;
+        self.workbench.settings.login = Some(LoginState {
+            account: account.clone(),
+            step: LoginStep::Starting {
+                agent_type: agent_type.clone(),
+            },
+            links: Vec::new(),
+        });
+        self.bus.send(Message::BeginHarnessLogin {
+            agent_type,
+            account,
+        });
+        cx.notify();
+    }
+
+    /// Raise the rename dialog, seeded with the account's current id.
+    pub fn open_rename_account(
+        &mut self,
+        account: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.account_rename_input
+            .update(cx, |state, cx| state.set_value(&account, window, cx));
+        self.workbench.settings.dialog = Some(AccountDialog::Rename { account });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Send the rename. The dialog closes optimistically; a refusal comes back as
+    /// `AccountError` and reads as the banner in the harnesses section, and `Accounts`
+    /// redraws the list on success — this method mutates no account itself.
+    pub fn confirm_rename_account(&mut self, cx: &mut Context<Self>) {
+        let new_account = self
+            .account_rename_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let Some(AccountDialog::Rename { account }) = self.workbench.settings.dialog.take() else {
+            return;
+        };
+        if new_account.is_empty() {
+            return;
+        }
+        self.bus.send(Message::RenameAccount {
+            account,
+            new_account,
+        });
+        cx.notify();
+    }
+
+    /// Raise the delete confirmation, over one account.
+    pub fn open_delete_account(&mut self, account: String, cx: &mut Context<Self>) {
+        self.workbench.settings.dialog = Some(AccountDialog::Delete { account });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Delete the account and every harness login inside it.
+    pub fn confirm_delete_account(&mut self, cx: &mut Context<Self>) {
+        let Some(AccountDialog::Delete { account }) = self.workbench.settings.dialog.take() else {
+            return;
+        };
+        self.bus.send(Message::DeleteAccount { account });
+        cx.notify();
+    }
+
+    /// Raise the sign-out confirmation, over one harness on one account.
+    pub fn open_sign_out(&mut self, agent_type: String, account: String, cx: &mut Context<Self>) {
+        self.workbench.settings.dialog = Some(AccountDialog::SignOut {
+            agent_type,
+            account,
+        });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Sign one harness out, leaving the account and its other harnesses alone.
+    pub fn confirm_sign_out(&mut self, cx: &mut Context<Self>) {
+        let Some(AccountDialog::SignOut {
+            agent_type,
+            account,
+        }) = self.workbench.settings.dialog.take()
+        else {
+            return;
+        };
+        self.bus.send(Message::DeleteHarnessLogin {
+            agent_type,
+            account,
+        });
+        cx.notify();
+    }
+
+    /// Dismiss whichever account dialog is up, with nothing sent.
+    pub fn close_account_dialog(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.dialog = None;
+        cx.notify();
+    }
+
+    /// Dismiss the last refusal the host reported for an account action.
+    pub fn dismiss_account_error(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.error = None;
         cx.notify();
     }
 

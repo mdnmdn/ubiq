@@ -668,6 +668,13 @@ one comes into being and how the interface learns which exist.
 | `HarnessLoginStarted` | host → UI | `pane_id`, `agent_type`, `account`, `cols`, `rows` | — |
 | `HarnessLoginCaptured` | host → UI | `agent_type`, `account` | — |
 | `HarnessLoginFailed` | host → UI | `agent_type`, `account`, `error` | — |
+| `HarnessLoginLink` | host → UI | `pane_id`, `url` | — |
+| `CheckHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStatus` |
+| `HarnessLoginStatus` | host → UI | `agent_type`, `account`, `status` | — |
+| `RenameAccount` | UI → host | `account`, `new_account` | `Accounts`, or `AccountError` |
+| `DeleteAccount` | UI → host | `account` | `Accounts`, or `AccountError` |
+| `DeleteHarnessLogin` | UI → host | `agent_type`, `account` | `Accounts`, or `AccountError` |
+| `AccountError` | host → UI | `error` | — |
 
 **References only, never material.** `AccountInfo` is an id and the harness ids it has a captured
 login for. No credential and no path cross this family — that is the domain rule about accounts
@@ -695,6 +702,28 @@ having done nothing.
 **Creating an account is logging one in.** There is no `AddAccount`. `BeginHarnessLogin` with an
 unknown id creates that identity if and only if the login captures something, so a half-finished
 flow leaves nothing behind to clean up.
+
+**An account is a home, so renaming and deleting are account-wide.** Several harnesses log in to
+one account by writing into one directory, which is why `logged_in` is a list. `RenameAccount`
+renames that home and every login inside it keeps working under the new name; `DeleteAccount`
+removes them all. Signing a single harness out is the narrower operation — `DeleteHarnessLogin`
+deletes only the files that harness itself declared, and leaves the rest of the home untouched.
+
+**Signing out is not the same as deleting.** An account with an empty `logged_in` still exists — it
+is a name with no login, and the next `BeginHarnessLogin` naming it fills it back in.
+`DeleteAccount` is the one that leaves nothing.
+
+**Validity is what the credential says about itself.** `HarnessLoginStatus`'s `status` is read out
+of the stored credential's own expiry field; nothing calls the provider. So `Valid` means "not
+expired", not "will work" — a token the provider revoked early still reads as `Valid` here.
+
+**A link is an affordance, not a filter.** The host forwards a URL it saw in the login's output; it
+does not remove it from the stream. The pane still shows the harness's real output, and the
+`HarnessLoginLink` button only saves the user selecting text in a terminal.
+
+**Re-authentication is an ordinary login.** There is no separate message: `BeginHarnessLogin`
+naming an account that already exists re-runs the harness's flow, and the mtime rule that decides
+capture (above) already distinguishes a fresh credential from the old one.
 
 ## Framing
 

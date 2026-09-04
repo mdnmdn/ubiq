@@ -25,6 +25,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, anyhow, bail};
 
 use crate::Result;
+use crate::credentials::{CredentialBlob, Validity, credential_validity};
+use crate::harness::Harness;
 use crate::source::Source;
 
 /// A named credential *reference* for a harness run.
@@ -130,6 +132,63 @@ pub trait AccountStore {
     fn capture_login(&self, _id: &str, _from: &Path, _files: &[PathBuf]) -> Result<()> {
         bail!("this account store does not support login capture")
     }
+
+    /// Rename an account: move its home directory and its on-disk record so
+    /// future lookups address it as `to`. An account is a home shared by
+    /// every harness logged in there, so every captured login moves with it
+    /// in one step — there is no per-harness rename. Default: a read-only
+    /// error.
+    fn rename_account(&self, _from: &str, _to: &str) -> Result<()> {
+        bail!("this account store does not support renaming accounts")
+    }
+
+    /// Delete an account entirely: its home directory (every harness's
+    /// captured login) and its on-disk record. Default: a read-only error.
+    fn delete_account(&self, _id: &str) -> Result<()> {
+        bail!("this account store does not support deleting accounts")
+    }
+
+    /// Sign one harness out of an account: remove the credential `files`
+    /// (paths relative to the account home, the same shape
+    /// [`capture_login`](Self::capture_login) already takes — the harness
+    /// names its own files, so the store never needs to know a harness's
+    /// layout). The account and every other harness's login under the same
+    /// home survive. Default: a read-only error.
+    fn sign_out(&self, _id: &str, _files: &[PathBuf]) -> Result<()> {
+        bail!("this account store does not support signing out")
+    }
+}
+
+/// The validity of `harness`'s stored login inside an account home, computed
+/// from whatever expiry the credential names about itself.
+///
+/// Reads the files the harness itself declares in
+/// [`crate::harness::ConfigAnchor::login_seed`] — the caller names no path,
+/// which is what keeps an embedder from having to know where a harness keeps
+/// its credential. A file that is absent contributes nothing, so an account
+/// with no login for this harness reads as [`Validity::Empty`].
+///
+/// Local and offline: this is what the credential claims, not what the
+/// provider would say. A token revoked early still reads as valid.
+pub fn login_validity(harness: &dyn Harness, home: &Path, now_ms: i64) -> Validity {
+    let mut blobs = Vec::new();
+    for seed in &harness.config_anchor().login_seed {
+        let path = home.join(&seed.src);
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let name = seed
+            .src
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| seed.src.to_string_lossy().into_owned());
+        blobs.push(CredentialBlob {
+            name,
+            rel_path: seed.src.clone(),
+            bytes,
+        });
+    }
+    credential_validity(&blobs, now_ms)
 }
 
 /// An [`AccountStore`] with no accounts — the default for lib-mode embedders
@@ -274,6 +333,124 @@ impl AccountStore for FsAccountStore {
         self.save(&acct)?;
         Ok(())
     }
+
+    fn rename_account(&self, from: &str, to: &str) -> Result<()> {
+        validate_account_name(to)?;
+
+        let acct = self
+            .account(from)?
+            .ok_or_else(|| anyhow!("no account named '{from}'"))?;
+
+        let from_record = self.root.join(format!("{from}.toml"));
+        if !from_record.is_file() {
+            bail!(
+                "account '{from}' is declared inline in accounts.toml; edit it there \
+                 directly instead of renaming"
+            );
+        }
+
+        let to_home = self.root.join(to);
+        let to_record = self.root.join(format!("{to}.toml"));
+        if to_home.exists() || to_record.exists() || self.account(to)?.is_some() {
+            bail!("an account named '{to}' already exists");
+        }
+
+        let from_home = self.root.join(from);
+        let home_moved = if from_home.is_dir() {
+            std::fs::rename(&from_home, &to_home).with_context(|| {
+                format!("renaming {} -> {}", from_home.display(), to_home.display())
+            })?;
+            true
+        } else {
+            false
+        };
+
+        let mut new_acct = acct;
+        new_acct.id = to.to_string();
+        if home_moved {
+            new_acct.home = Some(to_home);
+        }
+        self.save(&new_acct)?;
+        std::fs::remove_file(&from_record)
+            .with_context(|| format!("removing {}", from_record.display()))?;
+        Ok(())
+    }
+
+    fn delete_account(&self, id: &str) -> Result<()> {
+        self.account(id)?
+            .ok_or_else(|| anyhow!("no account named '{id}'"))?;
+
+        let record = self.root.join(format!("{id}.toml"));
+        if !record.is_file() {
+            bail!(
+                "account '{id}' is declared inline in accounts.toml; edit it there \
+                 directly instead of deleting"
+            );
+        }
+
+        let home = self.root.join(id);
+        if home.is_dir() {
+            std::fs::remove_dir_all(&home)
+                .with_context(|| format!("removing {}", home.display()))?;
+        }
+        std::fs::remove_file(&record).with_context(|| format!("removing {}", record.display()))?;
+        Ok(())
+    }
+
+    fn sign_out(&self, id: &str, files: &[PathBuf]) -> Result<()> {
+        self.account(id)?
+            .ok_or_else(|| anyhow!("no account named '{id}'"))?;
+
+        let home = self.root.join(id);
+        for rel in files {
+            let path = home.join(rel);
+            if path.is_file() {
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("removing {}", path.display()))?;
+            }
+            prune_empty_ancestors(path.parent(), &home)?;
+        }
+        Ok(())
+    }
+}
+
+/// Reject a name unfit to become a filesystem entry under the accounts root:
+/// empty/whitespace-only, `.`/`..`, or containing a path separator or a nul
+/// byte. A trust boundary — a name arriving from an embedder's UI must not be
+/// able to escape the accounts root.
+fn validate_account_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        bail!("account name cannot be empty or whitespace-only");
+    }
+    if name == "." || name == ".." {
+        bail!("account name cannot be '{name}'");
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        bail!("account name cannot contain a path separator or a null byte, got '{name}'");
+    }
+    Ok(())
+}
+
+/// Remove `dir` and walk up removing each now-empty ancestor, stopping at
+/// (never removing) `home` itself — so a harness's directory left holding
+/// nothing after [`AccountStore::sign_out`] does not read as a login, while
+/// the account home always survives.
+fn prune_empty_ancestors(dir: Option<&Path>, home: &Path) -> Result<()> {
+    let mut dir = dir;
+    while let Some(d) = dir {
+        if d == home || !d.starts_with(home) {
+            break;
+        }
+        let is_empty = std::fs::read_dir(d)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false);
+        if !is_empty {
+            break;
+        }
+        std::fs::remove_dir(d).with_context(|| format!("removing {}", d.display()))?;
+        dir = d.parent();
+    }
+    Ok(())
 }
 
 /// The default accounts root: `~/.config/agent-manager/accounts` on all
@@ -626,6 +803,185 @@ api_key_env = "WORK_KEY"
 
         temp.close()?;
         Ok(())
+    }
+
+    #[test]
+    fn rename_account_moves_home_and_record_and_reloads_under_new_id() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path();
+        let store = FsAccountStore::new(root);
+
+        let home = store.login_home("work")?;
+        fs::write(home.join("token.json"), "secret")?;
+        store.capture_login("work", &home, &[])?;
+
+        store.rename_account("work", "personal")?;
+
+        assert!(store.account("work")?.is_none());
+        let renamed = store
+            .account("personal")?
+            .expect("renamed account should be found");
+        assert_eq!(renamed.id, "personal");
+        let new_home = root.join("personal");
+        assert_eq!(renamed.home, Some(new_home.clone()));
+        assert!(new_home.join("token.json").is_file());
+        assert!(!root.join("work").exists());
+        assert!(!root.join("work.toml").exists());
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn rename_account_to_existing_name_errors() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let store = FsAccountStore::new(temp.path());
+        store.save(&acct_with_id("work"))?;
+        store.save(&acct_with_id("personal"))?;
+
+        let err = store
+            .rename_account("work", "personal")
+            .expect_err("should error renaming onto an existing account");
+        assert!(err.to_string().contains("already exists"), "{err}");
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn rename_account_rejects_separator_or_dotdot_and_touches_nothing() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path();
+        let store = FsAccountStore::new(root);
+        let home = store.login_home("work")?;
+        fs::write(home.join("token.json"), "secret")?;
+        store.capture_login("work", &home, &[])?;
+
+        assert!(store.rename_account("work", "../escaped").is_err());
+        assert!(store.rename_account("work", "sub/dir").is_err());
+        assert!(store.rename_account("work", "..").is_err());
+        assert!(store.rename_account("work", "  ").is_err());
+
+        // Nothing was touched: the original account is unchanged.
+        assert!(root.join("work").is_dir());
+        assert!(root.join("work.toml").is_file());
+        assert!(store.account("work")?.is_some());
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn rename_account_of_missing_errors() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let store = FsAccountStore::new(temp.path());
+        assert!(store.rename_account("ghost", "new-name").is_err());
+    }
+
+    #[test]
+    fn delete_account_removes_home_and_record() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path();
+        let store = FsAccountStore::new(root);
+        let home = store.login_home("work")?;
+        fs::write(home.join("token.json"), "secret")?;
+        store.capture_login("work", &home, &[])?;
+
+        store.delete_account("work")?;
+
+        assert!(!root.join("work").exists());
+        assert!(!root.join("work.toml").exists());
+        assert!(store.account("work")?.is_none());
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn delete_account_of_missing_errors() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let store = FsAccountStore::new(temp.path());
+        assert!(store.delete_account("ghost").is_err());
+    }
+
+    #[test]
+    fn sign_out_removes_only_named_files_and_leaves_home_and_sibling_intact() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path();
+        let store = FsAccountStore::new(root);
+        let home = store.login_home("work")?;
+        fs::create_dir_all(home.join(".claude"))?;
+        fs::write(home.join(".claude/.credentials.json"), "claude-secret")?;
+        fs::create_dir_all(home.join(".codex"))?;
+        fs::write(home.join(".codex/auth.json"), "codex-secret")?;
+        store.capture_login("work", &home, &[])?;
+
+        store.sign_out("work", &[PathBuf::from(".claude/.credentials.json")])?;
+
+        assert!(!home.join(".claude/.credentials.json").exists());
+        // The now-empty harness dir was pruned...
+        assert!(!home.join(".claude").exists());
+        // ...but the sibling harness's login and the home itself survive.
+        assert!(home.join(".codex/auth.json").is_file());
+        assert!(home.is_dir());
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn login_validity_empty_for_home_with_no_credential() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let harness = crate::harness::Claude::new();
+        let v = login_validity(&harness, temp.path(), 1_000);
+        assert_eq!(v, Validity::Empty);
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn login_validity_valid_and_expired_for_planted_credential() -> Result<()> {
+        // Write the credential file directly (not via
+        // `materialize_claude_login_home`, which also copies a real
+        // `~/.claude.json` companion file when one exists on the running
+        // machine — this test wants only the one planted blob under test).
+        let temp = tempfile::TempDir::new()?;
+        let home = temp.path();
+        let harness = crate::harness::Claude::new();
+        let cred_path = home.join(".claude").join(".credentials.json");
+        fs::create_dir_all(cred_path.parent().unwrap())?;
+
+        let future = 5_000_000_000_000i64;
+        let creds =
+            format!("{{\"claudeAiOauth\":{{\"accessToken\":\"a\",\"expiresAt\":{future}}}}}");
+        fs::write(&cred_path, &creds)?;
+        assert_eq!(
+            login_validity(&harness, home, 1_000_000_000_000),
+            Validity::Valid {
+                expires_at_ms: Some(future)
+            }
+        );
+
+        let past = 1_000_000_000_000i64;
+        let expired =
+            format!("{{\"claudeAiOauth\":{{\"accessToken\":\"a\",\"expiresAt\":{past}}}}}");
+        fs::write(&cred_path, &expired)?;
+        assert_eq!(
+            login_validity(&harness, home, 2_000_000_000_000),
+            Validity::Expired {
+                expires_at_ms: past
+            }
+        );
+
+        temp.close()?;
+        Ok(())
+    }
+
+    fn acct_with_id(id: &str) -> Account {
+        Account {
+            id: id.to_string(),
+            ..Default::default()
+        }
     }
 
     #[test]

@@ -923,6 +923,16 @@ impl AppState {
     fn receive_account(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
         match message {
             Message::Accounts { accounts } => {
+                // Prune whatever `statuses` and `dialog` named that this answer no longer
+                // carries, so a renamed or deleted account cannot leak an entry forever.
+                self.workbench
+                    .settings
+                    .statuses
+                    .retain(|(agent_type, account), _| {
+                        accounts.iter().any(|info| {
+                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
+                        })
+                    });
                 self.workbench.settings.accounts = accounts;
                 cx.notify();
             }
@@ -948,6 +958,24 @@ impl AppState {
             } => {
                 tracing::info!("login for {account} on {agent_type} captured nothing: {error}");
                 self.login_ended(false, error, cx);
+            }
+            Message::HarnessLoginLink { pane_id, url } => {
+                self.login_link(pane_id, url, cx);
+            }
+            Message::HarnessLoginStatus {
+                agent_type,
+                account,
+                status,
+            } => {
+                self.workbench
+                    .settings
+                    .statuses
+                    .insert((agent_type, account), status);
+                cx.notify();
+            }
+            Message::AccountError { error } => {
+                self.workbench.settings.error = Some(error);
+                cx.notify();
             }
 
             other => return Some(other),

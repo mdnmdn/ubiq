@@ -28,11 +28,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
 
     div()
         .h(px(theme::TITLEBAR_HEIGHT))
-        .px_3()
+        .pr_1()
         .flex()
         .flex_none()
         .items_center()
-        .gap_2()
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
@@ -53,7 +52,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     app.workbench.project_settings.is_some(),
                     cx.listener(|this, _, _, cx| this.open_edit_project(cx)),
                 )
-                .h_full()
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(label).build(window, cx)
                 }),
@@ -68,7 +66,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap_1()
+                .gap(px(1.))
                 // The side regions are IDE furniture: in any other rail mode they are disabled, so
                 // their switches are not offered. The bottom region stays openable in every mode.
                 .when(app.workbench.is_ide(), |this| {
@@ -111,7 +109,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .child(
                     div()
                         .w(px(1.))
-                        .h_full()
+                        .h(px(18.))
                         .mx_1()
                         .flex_none()
                         .bg(theme::border()),

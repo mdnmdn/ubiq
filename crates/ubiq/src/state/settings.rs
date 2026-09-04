@@ -4,12 +4,19 @@
 //! schema and versions it**. A blob that fails to parse, or that carries a schema this build does
 //! not know, is discarded and the window opens on defaults.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::AccountInfo;
+use ubiq_proto::messages::{AccountInfo, LoginStatus};
 use ubiq_proto::settings::HostSettings;
 
 use crate::state::editor::ViewLayout;
+
+/// A running login's own output has offered this many links without one being clicked or
+/// copied yet. Capped so a misbehaving host cannot grow this state without bound — the host
+/// already dedupes, this is the belt to its braces.
+pub const MAX_LOGIN_LINKS: usize = 8;
 
 /// The shape this build writes and understands. Bump it and older blobs are discarded.
 pub const SCHEMA: u32 = 1;
@@ -109,6 +116,11 @@ pub enum LoginStep {
         /// The harness id picked, or none while the user has not chosen.
         agent_type: Option<String>,
     },
+    /// `BeginHarnessLogin` is on its way to the host and nothing has answered yet — a first
+    /// login past the picker, or a re-authentication that skips the picker entirely. Without
+    /// this step the picker (or nothing at all) sat on screen until `HarnessLoginStarted`
+    /// arrived, which read as the button having done nothing.
+    Starting { agent_type: String },
     /// The harness's own login is running in this pane. Leaving abandons it, which is what
     /// the abort button does and is always safe — an unfinished login writes no credential.
     Running { pane: PaneId },
@@ -124,6 +136,24 @@ pub struct LoginState {
     /// afterwards so the outcome can name it.
     pub account: String,
     pub step: LoginStep,
+    /// URLs the running login's own output has printed, oldest first and capped at
+    /// [`MAX_LOGIN_LINKS`]. Offered as buttons below the terminal, because a terminal is a
+    /// poor place to click text — the bytes themselves are untouched.
+    pub links: Vec<String>,
+}
+
+/// A question asked about one account, over the harnesses section. Only one is up at a time —
+/// opening another replaces it, the same rule the login modal follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AccountDialog {
+    /// Seeded with the current id; confirming sends `RenameAccount`.
+    Rename { account: String },
+    /// Deletes the account and every harness logged in under it. Confirming sends
+    /// `DeleteAccount`.
+    Delete { account: String },
+    /// Signs one harness out, leaving the account and its other harnesses alone. Confirming
+    /// sends `DeleteHarnessLogin`.
+    SignOut { agent_type: String, account: String },
 }
 
 /// The settings overlay, and the values it is showing.
@@ -140,6 +170,16 @@ pub struct SettingsState {
     pub accounts: Vec<AccountInfo>,
     /// The login modal, while one is up.
     pub login: Option<LoginState>,
+    /// The rename, delete or sign-out question over one account, while one is up.
+    pub dialog: Option<AccountDialog>,
+    /// What `CheckHarnessLogin` last answered for a harness on an account, keyed
+    /// `(agent_type, account)`. An absent entry means never checked, not `Missing` — those
+    /// read differently. Pruned whenever `Accounts` arrives, so a renamed or deleted pair
+    /// cannot linger here.
+    pub statuses: HashMap<(String, String), LoginStatus>,
+    /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
+    /// user acts: opens a dialog, starts a login, or dismisses it.
+    pub error: Option<String>,
 }
 
 impl SettingsState {
@@ -162,7 +202,49 @@ impl Default for SettingsState {
             host: HostSettings::default(),
             accounts: Vec::new(),
             login: None,
+            dialog: None,
+            statuses: HashMap::new(),
+            error: None,
         }
+    }
+}
+
+/// Whole days, hours or minutes between two timestamps, worded singular or plural: `3 days`,
+/// `1 hour`, `12 minutes`. Kept to whole units — a fractional one nobody reads precisely.
+///
+/// Private because the only caller is [`describe_status`]; a second use is what promotes this
+/// to a shared helper.
+fn magnitude(diff_ms: i64) -> String {
+    let diff_ms = diff_ms.abs();
+    let minutes = diff_ms / 60_000;
+    let hours = minutes / 60;
+    let days = hours / 24;
+
+    if days >= 1 {
+        format!("{days} day{}", if days == 1 { "" } else { "s" })
+    } else if hours >= 1 {
+        format!("{hours} hour{}", if hours == 1 { "" } else { "s" })
+    } else if minutes >= 1 {
+        format!("{minutes} minute{}", if minutes == 1 { "" } else { "s" })
+    } else {
+        "a moment".to_string()
+    }
+}
+
+/// How a [`LoginStatus`] reads in the accounts section, at `now_ms`.
+pub fn describe_status(status: &LoginStatus, now_ms: i64) -> String {
+    match status {
+        LoginStatus::Valid { expires_at_ms } => {
+            format!(
+                "valid \u{b7} expires in {}",
+                magnitude(expires_at_ms - now_ms)
+            )
+        }
+        LoginStatus::Expired { expires_at_ms } => {
+            format!("expired {} ago", magnitude(now_ms - expires_at_ms))
+        }
+        LoginStatus::Unknown => "signed in \u{b7} no expiry recorded".to_string(),
+        LoginStatus::Missing => "no credential stored".to_string(),
     }
 }
 
@@ -197,4 +279,79 @@ pub fn decode(blob: &str) -> Option<UiSettings> {
 /// decodes to nothing and opens on defaults.
 pub fn encode(value: &UiSettings) -> String {
     serde_json::to_string(value).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOUR: i64 = 3_600_000;
+    const DAY: i64 = 24 * HOUR;
+    const MINUTE: i64 = 60_000;
+
+    #[test]
+    fn magnitude_days_plural_and_singular() {
+        assert_eq!(magnitude(3 * DAY), "3 days");
+        assert_eq!(magnitude(DAY), "1 day");
+    }
+
+    #[test]
+    fn magnitude_hours_plural_and_singular() {
+        assert_eq!(magnitude(4 * HOUR), "4 hours");
+        assert_eq!(magnitude(HOUR), "1 hour");
+    }
+
+    #[test]
+    fn magnitude_minutes_plural_and_singular() {
+        assert_eq!(magnitude(12 * MINUTE), "12 minutes");
+        assert_eq!(magnitude(MINUTE), "1 minute");
+    }
+
+    #[test]
+    fn magnitude_ignores_sign() {
+        assert_eq!(magnitude(-2 * DAY), "2 days");
+    }
+
+    #[test]
+    fn magnitude_under_a_minute() {
+        assert_eq!(magnitude(0), "a moment");
+    }
+
+    #[test]
+    fn describe_status_valid_future() {
+        assert_eq!(
+            describe_status(
+                &LoginStatus::Valid {
+                    expires_at_ms: 3 * DAY
+                },
+                0
+            ),
+            "valid \u{b7} expires in 3 days"
+        );
+    }
+
+    #[test]
+    fn describe_status_expired_past() {
+        assert_eq!(
+            describe_status(
+                &LoginStatus::Expired {
+                    expires_at_ms: -2 * DAY
+                },
+                0
+            ),
+            "expired 2 days ago"
+        );
+    }
+
+    #[test]
+    fn describe_status_unknown_and_missing() {
+        assert_eq!(
+            describe_status(&LoginStatus::Unknown, 0),
+            "signed in \u{b7} no expiry recorded"
+        );
+        assert_eq!(
+            describe_status(&LoginStatus::Missing, 0),
+            "no credential stored"
+        );
+    }
 }

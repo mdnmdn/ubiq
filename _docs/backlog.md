@@ -123,6 +123,8 @@ change what Ubiq does (here), or where a document lives (there)?
 | G112 | A reloaded tab flickers through its loading state and loses its undo history, because `OpenFile::reload()` drops the buffer entity rather than splicing the new bytes into the live one | [`features/workbench.md`](./features/workbench.md) |
 | G113 | There is no `CloseProject` on the wire, so a watch is stopped by the same window opening a different project or by the window going away. A window that closes a project without opening another keeps a watch on a folder nothing in it shows | [`tech/transport-contract.md`](./tech/transport-contract.md), [`tech/architecture.md`](./tech/architecture.md) |
 | G114 | Phase 1 of [`inbox/indexing-fswatch-proposal.md`](./inbox/indexing-fswatch-proposal.md) has shipped and the proposal is still in `inbox/`. Its watcher design is documented state under `tech/` and `features/`, and what is left of the document is phases 2 to 4 — the filename, symbol and full-text indexes. A librarian pass owes it a promotion, a split or a filing | [`inbox/indexing-fswatch-proposal.md`](./inbox/indexing-fswatch-proposal.md) |
+| G115 | `AppState`'s diagram and viewport caches (`diagrams`, `viewports` in `crates/ubiq/src/app/mod.rs`, filled by `crates/ubiq/src/app/chat.rs`) are insert-only: nothing ever removes an entry. A window accumulates one per diagram rendered and one per theme switch for as long as it stays open | [`features/chat.md`](./features/chat.md) |
+| G116 | A conversation's transcript (`Conversation::blocks` in `crates/ubiq/src/state/conversation.rs`) grows without bound for the life of the chat — it can hold full diff bodies, and nothing ever trims or pages it out | [`features/chat.md`](./features/chat.md) |
 
 
 

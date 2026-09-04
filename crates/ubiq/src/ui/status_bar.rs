@@ -118,10 +118,10 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     if app.project(cx).is_none() {
         return strip
             .child(mono("no project", theme::text_faint()))
-            .child(div().flex_1().min_w(px(0.)))
-            .child(version_label())
+            .child(div().flex_1().min_w(px(0.)))         
+            .children(config_root(app))
             .child(made_with_love())
-            .children(config_root(app));
+            .child(version_label());
     }
 
     // The agents screen is a screen about columns, so the strip counts columns: how many there are,

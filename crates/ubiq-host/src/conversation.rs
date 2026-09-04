@@ -28,6 +28,7 @@
 //! every message — the same role a `sessionId` plays in ACP, one layer up.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use agent_manager::io::{
@@ -52,6 +53,11 @@ pub struct Conversation {
     id: AgentId,
     input: Option<Arc<dyn AgentInputSink>>,
     pump: Option<thread::JoinHandle<()>>,
+    /// Set by the pump, just before it returns, whether the harness ended on its own or the
+    /// window went first. The coordinator polls this — the same shape it already polls
+    /// `active_searches`'s own "is this over" flag — to reap a conversation whose harness quit
+    /// without anybody asking it to.
+    ended: Arc<AtomicBool>,
 }
 
 impl Conversation {
@@ -62,12 +68,27 @@ impl Conversation {
     /// `ConversationUpdate` — and the harness's own first frame are one unbroken sequence.
     pub fn start(id: AgentId, bridge: Box<dyn IoBridge>, out: Mailbox, start_seq: u64) -> Self {
         let input = bridge.input();
+        let ended = Arc::new(AtomicBool::new(false));
+        let pump_ended = ended.clone();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
-            .spawn(move || pump(id, bridge, out, start_seq))
+            .spawn(move || pump(id, bridge, out, start_seq, pump_ended))
             .ok();
 
-        Self { id, input, pump }
+        Self {
+            id,
+            input,
+            pump,
+            ended,
+        }
+    }
+
+    /// Whether the harness behind this conversation has ended by itself — its pump thread has
+    /// returned, or is on its way out. Checked by the coordinator's own reap, which then does
+    /// exactly what an explicit `EndConversation` does; that removal is idempotent, so this is
+    /// safe to check even while a request to end the same conversation is racing it.
+    pub fn ended(&self) -> bool {
+        self.ended.load(Ordering::Relaxed)
     }
 
     /// Whether this harness accepts anything after its first turn. A composer
@@ -131,7 +152,13 @@ impl Conversation {
 
 /// The pump thread: read the bridge until it ends, and put everything it says
 /// on the bus.
-fn pump(id: AgentId, mut bridge: Box<dyn IoBridge>, out: Mailbox, start_seq: u64) {
+fn pump(
+    id: AgentId,
+    mut bridge: Box<dyn IoBridge>,
+    out: Mailbox,
+    start_seq: u64,
+    ended: Arc<AtomicBool>,
+) {
     let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
 
@@ -169,10 +196,15 @@ fn pump(id: AgentId, mut bridge: Box<dyn IoBridge>, out: Mailbox, start_seq: u64
         }) {
             // The window this agent belongs to has gone. Nothing left to say.
             tracing::debug!(agent = %id, "conversation has no listener; pump ending");
+            ended.store(true, Ordering::Relaxed);
             return;
         }
     }
 
+    // Set before the last send: the coordinator's reap and this send race harmlessly (removal
+    // is idempotent), but there must be no window where the pump has already returned — the
+    // thread `Conversation::stop` would join — while the flag still reads false.
+    ended.store(true, Ordering::Relaxed);
     out.send(Message::ConversationEnded {
         agent_id: id,
         stop_reason,

@@ -14,7 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_manager::account::{AccountStore, FsAccountStore};
+use agent_manager::Validity;
+use agent_manager::account::{AccountStore, FsAccountStore, login_validity};
 use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
@@ -26,7 +27,7 @@ use agent_manager::settings::Settings;
 use agent_manager::spec::{ConfigStrategy, IoModes, Isolation};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::{AccountInfo, AgentTypeInfo};
+use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus};
 use ubiq_proto::work::AgentId;
 
 /// The agent types this machine can run, and the composer behind them.
@@ -232,6 +233,61 @@ impl Agents {
                 })
             })
             .collect()
+    }
+
+    /// Whether `account` has a usable, current credential for `agent_type`, as the credential
+    /// itself claims. An unknown harness or an account with no home for it is
+    /// [`LoginStatus::Missing`], not an error — a check that finds nothing is an answer.
+    pub fn check_login(&self, agent_type: &str, account: &str, now_ms: i64) -> LoginStatus {
+        let Some(harness) = harness::resolve(agent_type) else {
+            return LoginStatus::Missing;
+        };
+        let home = self
+            .account_store()
+            .account(account)
+            .ok()
+            .flatten()
+            .and_then(|account| account.home);
+        let Some(home) = home else {
+            return LoginStatus::Missing;
+        };
+        match login_validity(harness.as_ref(), &home, now_ms) {
+            Validity::Empty => LoginStatus::Missing,
+            Validity::Valid {
+                expires_at_ms: Some(expires_at_ms),
+            } => LoginStatus::Valid { expires_at_ms },
+            Validity::Valid {
+                expires_at_ms: None,
+            }
+            | Validity::Unknown => LoginStatus::Unknown,
+            Validity::Expired { expires_at_ms } => LoginStatus::Expired { expires_at_ms },
+        }
+    }
+
+    /// Rename an account, and every harness's login inside it. The store validates the new
+    /// name; this only forwards what it decides.
+    pub fn rename_account(&self, from: &str, to: &str) -> Result<()> {
+        self.account_store().rename_account(from, to)
+    }
+
+    /// Delete an account and every harness login inside it.
+    pub fn delete_account(&self, id: &str) -> Result<()> {
+        self.account_store().delete_account(id)
+    }
+
+    /// Sign one harness out of `account`, leaving the account and its other harnesses'
+    /// logins alone. The harness names its own credential files — the store never learns a
+    /// harness's layout, and Ubiq never hard-codes one.
+    pub fn delete_harness_login(&self, agent_type: &str, account: &str) -> Result<()> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        let files: Vec<PathBuf> = harness
+            .config_anchor()
+            .login_seed
+            .iter()
+            .map(|seed| seed.src.clone())
+            .collect();
+        self.account_store().sign_out(account, &files)
     }
 
     /// Rewrite `launch`'s program to an absolute path, when `shells::locate` can find it.

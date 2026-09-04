@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, or the status bar
 updated: 2026-09-04
 verified: 2026-09-04
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -614,26 +614,60 @@ source), and **Harnesses** (whether an agent is confined to its project, over th
 registered here and an Add button that signs a new one in). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 
-**An account row is a name and the harnesses it can start.** That is the whole of what the
-interface knows about an identity: no credential and no path reaches it, because neither crosses
-the bus. A row with nothing beside it says "not signed in" rather than nothing at all — an account
-can reference an environment variable instead of a captured session, and the two are different
-answers. The list is asked for on every open, so an account signed in from elsewhere appears
-without a restart.
+**An account is a home, drawn as one block per identity, with a harness line under it for each
+one it can start.** That is the whole of what the interface knows about an identity: no
+credential and no path reaches it, because neither crosses the bus. A block with an empty
+harness list says "not signed in" rather than nothing at all — an account can reference an
+environment variable instead of a captured session, and the two are different answers. The list
+is asked for on every open, so an account signed in from elsewhere appears without a restart.
+
+A block's header carries the account id and two icon actions — **Rename** and **Delete** — that
+act on the identity as a whole, because renaming or deleting an account renames or deletes every
+harness signed in there with it: an account is a home, not a per-harness reference. Each harness
+line under it carries the harness's own display name (resolved through what the host offers for
+that harness, falling back to the raw id when it no longer lists one), its last-checked status,
+and three actions that act on that one login alone: **Check** asks the host whether the stored
+credential still works and updates the status line in place, with no modal; **Re-authenticate**
+runs an ordinary login against the harness's own flow, exactly as a first sign-in does, and does
+not pre-empt what the harness says — it may well answer that the identity is already signed in,
+and the user reads that in the terminal and decides; **Sign out** removes just that harness's
+credential, leaving the account and its other harnesses untouched. Deleting the account is the one
+action with nothing left behind afterward, which is why the confirmation says so and why the word
+is "Delete" rather than "Forget".
+
+A status line reads `valid · expires in 3 days`, `expired 2 days ago`, `signed in · no expiry
+recorded` for a credential with no embedded expiry, or `no credential stored` for one the host
+found nothing for — an expired credential's line is drawn in the danger colour, everything else
+muted. No entry is drawn until a check has answered, rather than guessing. A refusal from any of
+these actions — a rename to a name already taken, a delete or sign-out the host would not do — is
+not a dialog of its own: it surfaces as a dismissible banner over the harnesses section, in the
+same warning shape a project's own row confirmations use, and clears itself the next time the user
+opens a dialog, starts a login, or dismisses it by hand.
 
 **Signing in is a modal with a real terminal in it, because the harness runs its own login.** Add
 harness asks two things — which harness, and what to call the identity — and then the harness's own
-flow runs in a pane inside the modal, browser round-trip included. A modal rather than a tab on
-purpose: an OAuth flow wants the whole of the user's attention for the half-minute it takes, and a
-login that scrolled away behind a pane is a login nobody finishes. Abort is always available and
-always safe — a flow that wrote no credential captured nothing, and the host says so rather than
-recording a half-made account, so starting again is free.
+flow runs in a pane inside the modal, browser round-trip included. Between asking and the harness
+actually answering, the modal shows a **Signing in** step with nothing to interact with but Cancel
+— the same step a re-authentication starts on directly, skipping the picker because both the
+harness and the identity are already known. A modal rather than a tab on purpose: an OAuth flow
+wants the whole of the user's attention for the half-minute it takes, and a login that scrolled
+away behind a pane is a login nobody finishes. Abort is always available and always safe — a flow
+that wrote no credential captured nothing, and the host says so rather than recording a half-made
+account, so starting again is free.
+
+The host scans the login pane's own output for a URL and offers each one as a row below the
+terminal — a button carrying the URL itself (truncated so a long one cannot widen the modal, the
+full string still on hover) that opens it in the system browser, and a small icon beside it that
+copies it instead. The terminal's bytes are never touched by this: the harness's real output is
+still what is drawn, the links are only ever an offer to click what a terminal cannot make
+clickable.
 
 The login modal is painted from the window root rather than from the settings page that raised it,
 for the reason every overlay there is: a login outlives the page. Closing settings mid-flow must
 not take the harness's sign-in with it. Its pane belongs to no project and gets no dock panel — the
 modal is the only thing that draws it, which is also what keeps one emulator from being rendered in
-two places at once.
+two places at once. The rename, delete and sign-out questions are painted the same way, over
+whatever raised them, for the same reason.
 
 **The isolation toggle is the one setting the host acts on**, so it is the only row that writes the
 Host layer rather than the interface's own — an agent runs under a policy, and the half that spawns

@@ -4,9 +4,11 @@
 //! results arrive in batches grouped by file, with the total count and a truncation
 //! indicator at the bottom.
 
+use std::ops::Range;
+
 use gpui::{
-    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, Focusable, HighlightStyle, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, StyledText, Window, div, px,
 };
 use gpui_component::input::Input;
 use ubiq_proto::search::SearchError;
@@ -14,7 +16,7 @@ use ubiq_proto::search::SearchError;
 use crate::app::AppState;
 use crate::theme;
 use crate::ui::empty::empty_panel;
-use crate::ui::kit::{filter_bar, mono, panel};
+use crate::ui::kit::{filter_bar, mono, panel, row_height};
 
 pub fn render(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let query_input = Input::new(&app.search.query).appearance(false);
@@ -61,13 +63,7 @@ pub fn render(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> A
 
     panel()
         // No header: the dock's tab already says "Search" and the field already carries the icon.
-        // The pad is what that header used to give the field between it and the tab strip.
-        .child(
-            div()
-                .flex_none()
-                .pt_1p5()
-                .child(filter_bar(query_input, options, focused)),
-        )
+        .child(filter_bar(query_input, options, focused))
         .child(results_body)
         .child(status_bar(app))
         .into_any_element()
@@ -100,10 +96,22 @@ fn glyph_toggle(
         .on_click(on_click)
 }
 
+/// How many hit rows a panel draws. Past it the list stops and the status line says so: a query
+/// like `e` matches tens of thousands of lines, and drawing them all is a stall, not a result.
+pub const SHOWN_HITS: usize = 500;
+
 fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let mut rows: Vec<AnyElement> = Vec::new();
+    let mut drawn = 0usize;
+    // The results read against the tree and the editor, so they follow the same project font size,
+    // and a row is as tall as that size asks for.
+    let font = app.ui_font_size_or_default(cx) - 0.5;
+    let row = row_height(font);
 
     for file in &app.search.results {
+        if drawn >= SHOWN_HITS {
+            break;
+        }
         let path = file.rel_path.clone();
         rows.push(
             div()
@@ -111,27 +119,55 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::hover()))
                 .on_click(cx.listener(move |this, _, _, cx| this.select_file(path.clone(), cx)))
-                .h(px(22.))
+                .h(px(row + 2.))
                 .px_3()
                 .flex()
                 .flex_none()
                 .items_center()
+                .gap_2()
                 .child(
                     mono(file.rel_path.clone(), theme::accent())
-                        .text_size(px(11.))
-                        .overflow_hidden(),
+                        .text_size(px(font))
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate(),
                 )
-                .child(div().flex_1().min_w(px(0.)))
                 .child(
                     mono(format!("{}", file.hits.len()), theme::text_faint())
-                        .text_size(px(10.))
+                        .text_size(px(font - 1.))
                         .flex_none(),
                 )
                 .into_any_element(),
         );
 
         for hit in &file.hits {
-            let line = format!("{}", hit.line);
+            if drawn >= SHOWN_HITS {
+                break;
+            }
+            drawn += 1;
+            // The number and the line are one text element, not two boxes: a row is one line, and
+            // the gutter lines up because the font is monospaced.
+            let (body, marks) = hit_line(hit);
+            let gutter = format!("{:>5}  ", hit.line);
+            let shift = gutter.len();
+            let text = format!("{gutter}{body}");
+            let highlights = std::iter::once((
+                0..shift,
+                HighlightStyle {
+                    color: Some(theme::text_faint().into()),
+                    ..Default::default()
+                },
+            ))
+            .chain(marks.into_iter().map(move |range| {
+                (
+                    range.start + shift..range.end + shift,
+                    HighlightStyle {
+                        color: Some(theme::text().into()),
+                        background_color: Some(theme::accent_soft().into()),
+                        ..Default::default()
+                    },
+                )
+            }));
             // §9's destination is the file: there is no open-at-line yet, so a hit row opens the
             // file and the caret stays where the editor puts it.
             let path = file.rel_path.clone();
@@ -143,23 +179,27 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .cursor_pointer()
                     .hover(|this| this.bg(theme::hover()))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_file(path.clone(), cx)))
-                    .h(px(20.))
-                    .pl_6()
-                    .pr_3()
+                    .h(px(row))
+                    .px_3()
                     .flex()
                     .flex_none()
                     .items_center()
-                    .gap_2()
                     .child(
-                        mono(line, theme::text_faint())
-                            .text_size(px(10.))
-                            .flex_none()
-                            .w(px(36.)),
-                    )
-                    .child(
-                        mono(hit.text.clone(), theme::text())
-                            .text_size(px(11.))
-                            .overflow_hidden(),
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .font_family(theme::MONO_FONT)
+                            .text_size(px(font))
+                            // The line is the row: a shorter line box would draw a match's
+                            // highlight offset from the glyphs it marks, and a taller one grows
+                            // the row, since a flex item's content is its minimum size.
+                            .line_height(px(row))
+                            .text_color(theme::text_muted())
+                            // `truncate` rather than `whitespace_nowrap`: the ellipsis is what
+                            // makes the measure cut the line to the row's width. Nowrap alone
+                            // still lets the text lay out over two lines and doubles the row.
+                            .truncate()
+                            .child(StyledText::new(text).with_highlights(highlights)),
                     )
                     .into_any_element(),
             );
@@ -168,26 +208,75 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         if file.truncated {
             rows.push(
                 div()
-                    .h(px(20.))
-                    .pl_6()
-                    .pr_3()
+                    .h(px(row))
+                    .px_3()
                     .flex()
                     .flex_none()
                     .items_center()
-                    .child(mono("+ more hits truncated", theme::text_faint()).text_size(px(10.)))
+                    .child(
+                        mono("+ more hits truncated", theme::text_faint())
+                            .text_size(px(font - 1.)),
+                    )
                     .into_any_element(),
             );
         }
     }
 
     div()
+        .id("search-results")
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .overflow_hidden()
+        .overflow_y_scroll()
         .children(rows)
         .into_any_element()
+}
+
+/// How much of a hit line sits ahead of its first match. Only the head is windowed: a long tail is
+/// left for the row to clip, so a wide panel shows as much of the line as it has room for instead
+/// of stopping at a fixed column.
+const HEAD_ROOM: usize = 24;
+
+/// The hit line as it is drawn — indent trimmed, head windowed — and the byte ranges inside that
+/// text which matched.
+fn hit_line(hit: &ubiq_proto::search::LineHit) -> (String, Vec<Range<usize>>) {
+    let trimmed = hit.text.trim_start();
+    let indent = hit.text.len() - trimmed.len();
+    let rebase = |at: u32, cut: usize, pad: usize| {
+        (at as usize)
+            .saturating_sub(indent)
+            .saturating_sub(cut)
+            .saturating_add(pad)
+            .min(trimmed.len() - cut + pad)
+    };
+
+    let first = hit
+        .ranges
+        .first()
+        .map_or(0, |(start, _)| (*start as usize).saturating_sub(indent));
+    if first <= HEAD_ROOM {
+        let marks = hit
+            .ranges
+            .iter()
+            .map(|(start, end)| rebase(*start, 0, 0)..rebase(*end, 0, 0))
+            .collect();
+        return (trimmed.to_string(), marks);
+    }
+
+    // The cut lands on a character boundary, HEAD_ROOM bytes of context before the match.
+    let mut cut = first - HEAD_ROOM;
+    while !trimmed.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let lead = '\u{2026}';
+    let pad = lead.len_utf8();
+    let marks = hit
+        .ranges
+        .iter()
+        .map(|(start, end)| rebase(*start, cut, pad)..rebase(*end, cut, pad))
+        .collect();
+    (format!("{lead}{}", &trimmed[cut..]), marks)
 }
 
 fn loading() -> AnyElement {
@@ -233,7 +322,17 @@ fn status_bar(app: &AppState) -> AnyElement {
         ""
     };
 
-    status_line(mono(format!("{status}{truncation}"), theme::text_faint()))
+    // What the panel drew, when it drew less than the search found.
+    let shown = if app.search.total_hits > SHOWN_HITS {
+        format!(" \u{b7} shown first {SHOWN_HITS}")
+    } else {
+        String::new()
+    };
+
+    status_line(mono(
+        format!("{status}{truncation}{shown}"),
+        theme::text_faint(),
+    ))
 }
 
 fn status_line(text: impl IntoElement) -> AnyElement {
@@ -247,4 +346,35 @@ fn status_line(text: impl IntoElement) -> AnyElement {
         .border_color(theme::border())
         .child(div().text_size(px(10.)).child(text))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ubiq_proto::search::LineHit;
+
+    fn hit(text: &str, at: u32) -> LineHit {
+        LineHit {
+            line: 1,
+            text: text.to_string(),
+            ranges: vec![(at, at + 4)],
+        }
+    }
+
+    #[test]
+    fn short_lines_only_lose_their_indent() {
+        let (text, marks) = hit_line(&hit("    term here", 4));
+        assert_eq!(text, "term here");
+        assert_eq!(&text[marks[0].clone()], "term");
+    }
+
+    #[test]
+    fn a_late_match_keeps_its_mark_and_its_tail() {
+        let line = format!("{}term{}", "x".repeat(200), "y".repeat(200));
+        let (text, marks) = hit_line(&hit(&line, 200));
+        assert!(text.starts_with('\u{2026}'));
+        assert_eq!(&text[marks[0].clone()], "term");
+        // The tail is the row's to clip, not this function's to cut.
+        assert!(text.ends_with("yyy"));
+    }
 }

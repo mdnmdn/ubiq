@@ -58,18 +58,13 @@ pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .flex_none()
         .items_center()
         .justify_center()
-        .bg(theme::pane_bg())
+        .bg(tint)
         .border_r_1()
+        // The bottom edge is the titlebar's own line carried across, so the swatch ends where the
+        // project chip beside it ends.
+        .border_b_1()
         .border_color(theme::border())
-        .child(
-            div()
-                .size(px(44.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(tint)
-                .child(img(ImageSource::Image(logo)).size_full()),
-        )
+        .child(img(ImageSource::Image(logo)).size(px(theme::TITLEBAR_HEIGHT - 10.)))
 }
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {

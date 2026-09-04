@@ -252,8 +252,16 @@ engine = "files"      # "files" (default) | "keychain" | "os"
     file) are compiled drafts, to be refined on those platforms. On Linux the
     secret service is a daemon, so there is no config-dir file there.
 
-These subcommands manage the store (all take `--harness <h>`; the harness scopes
-the `(harness, name)` key):
+These subcommands manage the `SecretStore` — **not** the `<accounts-root>/<id>/`
+home an `am account login` capture writes to (see the next section). The two
+are physically separate trees, so a `dump`/`check`/`rename`/`delete` here is
+blind to an account that only exists as a login-captured home; only `(harness,
+name)` pairs actually present in the configured `SecretStore` engine show up.
+(The `account::AccountStore` trait — the login-flow tier — does have its own
+`rename_account`/`delete_account`/`sign_out`/`login_validity` as library API;
+see `_docs/am-as-library.md` §5. No CLI surface for them yet — this crate adds
+library API only for now; see `_docs/open-points.md` §2.) All take `--harness
+<h>`; the harness scopes the `(harness, name)` key:
 
 ```bash
 am account dump <name> --harness <h>            # show a credential (redacted; --show-secrets for raw, TTY-gated)

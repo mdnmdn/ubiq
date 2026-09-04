@@ -155,6 +155,61 @@ pub enum Message {
         account: String,
         error: String,
     },
+    /// A URL the running login printed. The host scans the login pane's own output for
+    /// one and forwards it so the interface can offer it as a button; the bytes still
+    /// reach the pane unchanged, so the user reads the harness's real output either way.
+    ///
+    /// Sent zero or more times between [`Message::HarnessLoginStarted`] and the login's
+    /// end, and never for an ordinary pane. A URL already sent for this login is not
+    /// sent again.
+    HarnessLoginLink {
+        pane_id: PaneId,
+        url: String,
+    },
+    /// Whether `account` has a stored, usable credential for `agent_type`. Answered with
+    /// [`Message::HarnessLoginStatus`], always — a credential that is absent is an answer,
+    /// not an error.
+    CheckHarnessLogin {
+        agent_type: String,
+        account: String,
+    },
+    /// The answer to [`Message::CheckHarnessLogin`].
+    HarnessLoginStatus {
+        agent_type: String,
+        account: String,
+        status: LoginStatus,
+    },
+    /// Rename an account — the identity, and so every harness logged in there.
+    /// An account is a home, and this renames the home: the harnesses inside it
+    /// keep their logins and answer to the new name afterwards. Answered with
+    /// [`Message::Accounts`], or [`Message::AccountError`] when the new name is
+    /// taken, empty, or not a name a directory can carry.
+    RenameAccount {
+        account: String,
+        new_account: String,
+    },
+    /// Delete an account and every harness login inside it. The credential is
+    /// gone from disk afterwards, which is why the word in the interface is
+    /// "Delete" and not "Forget" — unlike a project, there is nothing left
+    /// behind to come back to. Answered with [`Message::Accounts`], or
+    /// [`Message::AccountError`].
+    DeleteAccount {
+        account: String,
+    },
+    /// Sign one harness out of an account, leaving the identity and its other
+    /// harnesses alone: only the credential files that harness itself named are
+    /// removed. The account survives with a shorter `logged_in`, and an empty
+    /// one is an account that is still a name but no longer a login. Answered
+    /// with [`Message::Accounts`], or [`Message::AccountError`].
+    DeleteHarnessLogin {
+        agent_type: String,
+        account: String,
+    },
+    /// A stored credential could not be checked, renamed or deleted. A human-readable
+    /// sentence, never a credential and never a path.
+    AccountError {
+        error: String,
+    },
 
     // ── Project family: UI → host ───────────────────────────────────
     /// Every project in the catalogue, probed. Answered with [`Message::ProjectList`].
@@ -794,6 +849,26 @@ pub struct AccountInfo {
     /// present — so one account can serve several harnesses, and an empty list means the
     /// account is a reference to an environment variable rather than a captured session.
     pub logged_in: Vec<String>,
+}
+
+/// What a stored credential says about its own validity, as the host computed it from
+/// the credential's embedded expiry field. This is a claim the credential makes about
+/// itself, not a round trip to the provider — a token the provider revoked early still
+/// reads as `Valid` here.
+///
+/// No credential material, and no path: the expiry is a timestamp, which is why it is
+/// the one thing about a credential that may cross this bus.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LoginStatus {
+    /// An expiry was found and has not passed.
+    Valid { expires_at_ms: i64 },
+    /// An expiry was found and has passed. A re-authentication is what fixes it.
+    Expired { expires_at_ms: i64 },
+    /// A credential is stored but names no expiry, so nothing here can say whether it
+    /// still works. An API-key credential looks like this and is usually fine.
+    Unknown,
+    /// Nothing is stored for this account and harness.
+    Missing,
 }
 
 /// One running workspace, as the UI is told about it. It carries no process, no writer and no

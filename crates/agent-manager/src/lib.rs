@@ -72,5 +72,6 @@ pub mod spec;
 pub mod tui;
 
 pub use anyhow::Result;
+pub use credentials::{Validity, credential_validity};
 pub use source::{LinkMode, Source};
 pub use spec::RunSpec;

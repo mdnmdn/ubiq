@@ -70,6 +70,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .id("project-picker")
         .relative()
         .h_full()
+        // A floor rather than a size: a short project name still gives the chip a shape.
+        .min_w(px(120.))
         .px_2()
         .flex()
         .flex_none()

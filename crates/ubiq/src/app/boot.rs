@@ -155,6 +155,11 @@ impl AppState {
         let new_agent_name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Name this conversation\u{2026}"));
 
+        // Seeded fresh with the account's current id whenever the rename dialog opens, so this
+        // construction-time placeholder is only ever seen ahead of that.
+        let account_rename_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
+
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
         let sink_harness_name = cx.new(|cx| {
@@ -579,6 +584,7 @@ impl AppState {
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
             new_agent_name_input.read(cx).focus_handle(cx),
+            account_rename_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -708,6 +714,7 @@ impl AppState {
             sink_modal_input,
             login_account_input,
             new_agent_name_input,
+            account_rename_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,

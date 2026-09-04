@@ -100,7 +100,7 @@ agent-manager/
     │   ├── mod.rs         #   Registry trait, entries, OverlayRegistry, root resolution
     │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/)
     │   └── import.rs      #   read-only ingest of ~/.claude, ~/.agent, project dirs
-    ├── account.rs         # AccountStore trait (login_source/login_home/capture_login) + FsAccountStore (core, P2)
+    ├── account.rs         # AccountStore trait (login_source/login_home/capture_login/rename_account/delete_account/sign_out) + FsAccountStore + login_validity (core, P2)
     ├── credentials/       # harness-scoped credential storage (core)
     │   ├── mod.rs         #   SecretStore trait + CredentialId/Blob/Meta, blobs<->Source helpers, build_secret_store, SecretBackedAccountStore
     │   ├── memory.rs      #   MemorySecretStore (tests + embedders)

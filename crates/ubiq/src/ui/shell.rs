@@ -86,6 +86,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::login(app, window, cx)),
         )
+        // The accounts section's rename, delete or sign-out question — painted after the login
+        // modal for the same reason that one is painted after the settings page: each can be up
+        // over what raised it and has to be on top.
+        .children(
+            app.workbench
+                .settings
+                .dialog
+                .as_ref()
+                .map(|_| settings::account_dialog(app, window, cx)),
+        )
         // The file-tab context menu, named a file and a point by a right-click in the dock. It
         // lives at the window root rather than in a panel, so it stays on screen whether a file
         // closes or a panel moves.

@@ -30,7 +30,7 @@ pub const EDITOR_FONT_MIN: f32 = 8.0;
 pub const EDITOR_FONT_MAX: f32 = 36.0;
 
 /// Fixed chrome heights, in pixels.
-pub const TITLEBAR_HEIGHT: f32 = 44.0;
+pub const TITLEBAR_HEIGHT: f32 = 34.0;
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 pub const RAIL_WIDTH: f32 = 56.0;
 

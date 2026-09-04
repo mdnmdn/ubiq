@@ -165,6 +165,9 @@ fn account(&self, id: &str) -> Result<Option<Account>>;                     // d
 fn login_source(&self, id: &str) -> Result<Option<Source>>;                 // default: Source::Dir(account.home)
 fn login_home(&self, id: &str) -> Result<PathBuf>;                          // default: read-only error
 fn capture_login(&self, id: &str, from: &Path, files: &[PathBuf]) -> Result<()>; // default: read-only error
+fn rename_account(&self, from: &str, to: &str) -> Result<()>;               // default: read-only error
+fn delete_account(&self, id: &str) -> Result<()>;                           // default: read-only error
+fn sign_out(&self, id: &str, files: &[PathBuf]) -> Result<()>;              // default: read-only error
 ```
 
 `Account` never holds a secret value, only references (env-var names, a base
@@ -175,12 +178,30 @@ bytes. `login_home`/`capture_login` are the interactive-login write seam
 (`am account login`): a login is a real subprocess that must write to a real
 dir, so `login_home` returns one (`FsAccountStore` returns the persistent
 per-account home; a DB store would return a scratch dir it reads back), and
-`capture_login` persists what got written there. Both default to a
-read-only error, so a read-only store implements neither.
+`capture_login` persists what got written there. `rename_account`/
+`delete_account`/`sign_out` are that seam's missing counterparts — rename and
+delete act on the whole account home (every harness's login moves or goes
+together, since an account is a home shared by every harness logged in
+there); `sign_out` removes only the credential `files` one harness declared,
+the same relative-path shape `capture_login` already takes. All five default
+to a read-only error, so a read-only store implements none of them.
 
 FS impl: `account::FsAccountStore` (`accounts.toml` + per-file `<id>.toml`,
 rooted at `AM_ACCOUNTS`); `account::EmptyAccountStore` is the zero-accounts
-default.
+default. `FsAccountStore::rename_account` refuses a `to` name that's empty,
+whitespace-only, `.`/`..`, contains a path separator or a nul byte, or that
+already names an existing account/home; it also refuses (for both rename and
+delete) an account declared as an inline `[[account]]` entry in
+`accounts.toml`, since that layer isn't rewritable via `save()`.
+
+`account::login_validity(harness: &dyn Harness, home: &Path, now_ms: i64) ->
+Validity` answers "is `harness`'s stored login inside this account home still
+good?" by reading the files the harness's own
+`harness::ConfigAnchor::login_seed` names (so the caller never hardcodes a
+harness's credential path) and delegating to `credentials::credential_validity`.
+`Validity` and `credential_validity` (moved here from the CLI's `account
+check`, which was their only caller before this) are re-exported from the
+crate root.
 
 **`credentials::SecretStore`** — harness-scoped credential *bodies*:
 

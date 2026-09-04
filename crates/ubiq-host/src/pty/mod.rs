@@ -150,7 +150,12 @@ fn command_for(program: &str, args: &[String]) -> CommandBuilder {
 
 impl Pty {
     /// Forward this pane's output onto the bus until the harness closes the stream.
-    pub fn forward_output(&self, pane_id: PaneId, out: Mailbox) -> Result<()> {
+    ///
+    /// `scan_links` is on only for a login pane: its output is also fed to a
+    /// [`crate::links::LinkScanner`], and a `Message::HarnessLoginLink` is sent for each new URL
+    /// it finds — always *after* the `TerminalOutput` carrying those same bytes, and never in
+    /// place of it. An ordinary pane is scanned for nothing.
+    pub fn forward_output(&self, pane_id: PaneId, out: Mailbox, scan_links: bool) -> Result<()> {
         let mut reader = self
             .master
             .try_clone_reader()
@@ -158,6 +163,7 @@ impl Pty {
 
         thread::spawn(move || {
             let mut buffer = vec![0u8; READ_CHUNK];
+            let mut scanner = scan_links.then(crate::links::LinkScanner::new);
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) | Err(_) => {
@@ -176,6 +182,11 @@ impl Pty {
                                 "pane {pane_id}: nobody is listening; the reader stops"
                             );
                             break;
+                        }
+                        if let Some(scanner) = scanner.as_mut() {
+                            for url in scanner.feed(&buffer[..n]) {
+                                out.send(Message::HarnessLoginLink { pane_id, url });
+                            }
                         }
                     }
                 }
