@@ -3,7 +3,7 @@ id: wip-refactor-plan
 title: Pre-editions refactoring plan
 kind: wip
 status: current
-summary: Phases 0-3 are done — app.rs, state/explorer.rs and cli/account.rs are split, the harness boilerplate is deduplicated, and the colour picker exists once. Of phase 4, the editions-proposal groundwork, the composition root and the preference round-trip landed; three items remain, each blocked or deferred for a recorded reason.
+summary: Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check now passes but docs-lint — whose open question is what that lint should apply to, since 156 of its 161 failures are inbox documents.
 read_when: you are picking up refactoring work ahead of the editions split
 updated: 2026-09-04
 depends_on: [inbox-editions]
@@ -104,6 +104,59 @@ In the proposal's own order (`inbox-editions` §14).
 4. **`RailMode`/`PanelKind` `Extension` variants** — blocked on the same `inbox-routing` phase 1.
    ~4 touch points for `RailMode`, ~10 for `PanelKind`. Fix the `Copy` claim above before promising
    it.
+
+## Next steps — where this was left on 2026-09-04
+
+### `just verify` is one check away from green
+
+`check`, `clippy`, `test`, `host`, `ui` and `core` all pass. `docs-lint` is the only red one, and
+`just verify` has been red on `main` for long enough that the count is a backlog rather than a
+regression.
+
+**`cargo test --workspace` is green as of `1c322c2`, and the `codex_bridge` "flake" was never a
+flake.** Cargo unifies features across workspace members; Zed's `gpui`/`http_client` crates, which
+`crates/ubiq` needs, enable `serde_json/preserve_order`, which serialises map keys in insertion
+order instead of alphabetically. So the same JSON-RPC request is `{"id":1,"jsonrpc":…}` under
+`cargo test -p agent-manager` and `{"jsonrpc":"2.0","id":1,…}` under `--workspace`, and
+`tests/fake-codex-appserver.sh` extracted `id` with a `sed` anchored to `^{"id":`. Deterministic per
+build configuration, not timing. **Nothing in this workspace may assume serde_json key order.**
+
+### The open decision: what docs-lint should apply to
+
+161 failures across 47 documents, and **156 of them are in `_docs/inbox/`**:
+
+| Location | Failures | |
+|---|---|---|
+| `inbox/completed/` | 51 | shipped proposals citing symbols and files as they were when written |
+| `inbox/` | 40 | live proposals citing code that partly does not exist yet, by design |
+| `inbox/backlog/` | 29 | shelved designs, the same |
+| `tech/`, `wip/`, `backlog.md`, `features/` | 16 | genuinely stale, worth fixing |
+
+By check: L2 "referenced file/symbol/document not found" 123, L7 "orphan, not linked from INDEX" 23,
+L4 length ceiling 13, L1 frontmatter 5, L9 repeated link 1.
+
+The question to settle before anyone spends a day here: **should L2 and L7 apply to
+`inbox/completed/` at all?** A shipped proposal saying `app.rs:4360` was true when it was written;
+rewriting it to `app/explorer.rs` arguably falsifies the record and goes stale at the next refactor.
+Three ways out, and this is a policy call, not a cleanup:
+
+1. Scope the lint in `_tools/docs.py` — L2 and L7 skip `inbox/completed/` and `inbox/backlog/` —
+   then fix the ~16 real failures in the live documents. Probably reaches green.
+2. Rewrite all 156 citations, add the missing frontmatter, link the orphans, split the over-length
+   documents. Large, and it rewrites records of moments into claims about today.
+3. Drop `docs-lint` from `just verify` and run it separately. Green immediately; removes the
+   pressure that keeps the live documents honest.
+
+Sub-questions worth answering with it: whether `inbox/` (unbuilt proposals) should be treated
+differently from `inbox/completed/`; whether the 23 orphans are a signal worth keeping, since a
+proposal nobody linked may genuinely be lost; and whether `just verify` should gate on documents at
+all, or whether that belongs in a pre-merge check.
+
+### After that
+
+Phase 4's items 2–4 above, in the order their blockers clear: `inbox-routing` phase 1 first (it
+unblocks 3 and 4), then the second repository (`inbox-editions` §14 phase 3), which is what makes
+item 2 worth landing.
 
 ## What is confirmed healthy — leave alone
 

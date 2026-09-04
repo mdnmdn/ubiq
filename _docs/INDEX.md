@@ -112,7 +112,7 @@ states the boundary once.
 |---|---|---|
 | [agent-login-note.md](./wip/agent-login-note.md) | — | — |
 | [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver. | 2026-09-04 |
-| [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done — app.rs, state/explorer.rs and cli/account.rs are split, the harness boilerplate is deduplicated, and the colour picker exists once. Of phase 4, the editions-proposal groundwork, the composition root and the preference round-trip landed; three items remain, each blocked or deferred for a recorded reason. | — |
+| [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check now passes but docs-lint — whose open question is what that lint should apply to, since 156 of its 161 failures are inbox documents. | — |
 
 <!-- generated:end catalogue -->
 
