@@ -501,6 +501,7 @@ fn a_right_click_prepares_the_actions_the_row_can_grow_into() {
             ExplorerAction::CopyPath,
             ExplorerAction::CopyFullPath,
             ExplorerAction::OpenInSystem,
+            ExplorerAction::OpenInWeb,
             ExplorerAction::Rename,
             ExplorerAction::Delete,
         ]
