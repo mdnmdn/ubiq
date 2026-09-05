@@ -9,12 +9,13 @@
 //! what keeps both halves testable without a frame, and it is the same shape `GraphView`'s readers
 //! have.
 //!
-//! **Two of the screen's five sidebar sections and the whole history are fixtures**, because the
-//! git family carries no log and no refs list — `G70`. They are [`RefRow`] and [`CommitRow`],
-//! seeded from `state/sample.rs`, and they go the way the chat's fixtures go when the family grows
-//! the two messages. Everything else on the screen is the host's answer: the branch, the ahead and
-//! behind counts, the in-progress operation, the working-tree totals, the staged and unstaged
-//! lists, and the diff under them.
+//! [`RefRow`] and [`CommitRow`] are the sidebar's and the history's own rows, built from the
+//! host's [`ubiq_proto::git::GitRef`]/[`ubiq_proto::git::GitSubmodule`] and
+//! [`ubiq_proto::git::GitCommit`] answers by [`ref_rows`] and [`commit_rows`]. The lane a commit
+//! draws in is not one of the facts the wire carries — the host answers a parent *count*, and a
+//! lane allocator over that is a backlog row, not this screen's job. Everything else on the
+//! screen is the host's answer too: the branch, the ahead and behind counts, the in-progress
+//! operation, the working-tree totals, the staged and unstaged lists, and the diff under them.
 //!
 //! **Nothing here writes.** Version control is read-only in this version, so the commit box and
 //! the toolbar's fetch, pull, push, branch, stash and undo are drawn as the shape the screen will
@@ -25,8 +26,11 @@
 
 use std::collections::HashSet;
 
+use chrono::{DateTime, Utc};
 use ubiq_proto::files::{DiffBase, FileDiff};
-use ubiq_proto::git::{GitEntry, GitPathChange};
+use ubiq_proto::git::{GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule};
+
+use crate::state::when;
 
 /// The width of the ref sidebar, and of the uncommitted-changes panel on the other side.
 pub const SIDEBAR_WIDTH: f32 = 280.0;
@@ -71,9 +75,6 @@ impl RefSection {
 }
 
 /// One row in the sidebar: a branch, a remote-tracking branch, a tag, a stash or a submodule.
-///
-/// A fixture today. The fields are the ones a refs reply would carry, so the row survives the
-/// transport arriving.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefRow {
     pub section: RefSection,
@@ -108,7 +109,44 @@ impl RefRow {
     }
 }
 
-/// One commit in the history. A fixture today, on the same reasoning as [`RefRow`].
+/// The sidebar's rows: Local, Remotes, Tags and Stashes from the refs reply, Submodules from the
+/// overview — a submodule is a repository and not a ref, so it never rides on [`GitRef`].
+pub fn ref_rows(refs: &[GitRef], submodules: &[GitSubmodule]) -> Vec<RefRow> {
+    let mut rows: Vec<RefRow> = refs
+        .iter()
+        .map(|r| RefRow {
+            section: match r.kind {
+                GitRefKind::Local => RefSection::Local,
+                GitRefKind::Remote => RefSection::Remotes,
+                GitRefKind::Tag => RefSection::Tags,
+                GitRefKind::Stash => RefSection::Stashes,
+            },
+            name: r.name.clone(),
+            ahead: r.ahead,
+            behind: r.behind,
+            current: r.current,
+        })
+        .collect();
+    rows.extend(submodule_rows(submodules));
+    rows
+}
+
+/// The Submodules section on its own, for the overview's refresh — see [`ref_rows`], which builds
+/// the same rows for the initial reply.
+pub fn submodule_rows(submodules: &[GitSubmodule]) -> Vec<RefRow> {
+    submodules
+        .iter()
+        .map(|sm| RefRow {
+            section: RefSection::Submodules,
+            name: sm.rel_path.clone(),
+            ahead: None,
+            behind: None,
+            current: false,
+        })
+        .collect()
+}
+
+/// One commit in the history.
 ///
 /// `lane` is which column of the graph the commit's dot sits in, and `merges` are the lanes that
 /// join it from the right — enough to draw the connectors without the interface computing a
@@ -129,13 +167,29 @@ pub struct CommitRow {
     pub mine: bool,
 }
 
-impl CommitRow {
-    /// The branch and tag names pointing at this commit. A builder step, so a fixture reads as a
-    /// list of commits rather than a list of structs.
-    pub fn decorated(mut self, refs: &[&str]) -> Self {
-        self.refs = refs.iter().map(|name| name.to_string()).collect();
-        self
-    }
+/// The history's rows, newest first. Lane assignment is topology the interface would have to
+/// compute for itself — the wire carries a parent *count*, which is enough to draw a merge as a
+/// hollow dot without a second request. Lane 0 for every commit and one merge line when there is
+/// more than one parent is the minimal honest rendering of that count.
+// ponytail: no lane allocator — a real one is a backlog row, add it if commits from different
+// branches ever need to be told apart visually rather than just by their merge dot.
+pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
+    let now = Utc::now();
+    commits
+        .iter()
+        .map(|c| CommitRow {
+            short_id: c.short_id.clone(),
+            summary: c.summary.clone(),
+            author: c.author.name.clone(),
+            when: DateTime::<Utc>::from_timestamp(c.author.time, 0)
+                .map(|then| when::relative(then, now))
+                .unwrap_or_default(),
+            lane: 0,
+            merges: if c.parents > 1 { vec![1] } else { Vec::new() },
+            refs: c.refs.clone(),
+            mine: c.mine,
+        })
+        .collect()
 }
 
 /// Which of the three change lists a row is in.
@@ -241,10 +295,16 @@ pub struct GitView {
     pub message: String,
     pub amend: bool,
 
-    /// The sidebar's rows. A fixture — see this module's header.
+    /// The sidebar's rows, from the host's refs and the overview's submodules.
     pub refs: Vec<RefRow>,
-    /// The history. A fixture, on the same terms.
+    /// The history, oldest page first, newest commit first within it.
     pub commits: Vec<CommitRow>,
+    /// The commit after the last one in `commits` — what the next page's request would start
+    /// from. `None` before the first page has landed, which is also what tells a `GitLogPage`
+    /// reply that it is the first page rather than one to append.
+    pub log_cursor: Option<String>,
+    /// Whether the last page had no `next_cursor`: the history has nothing more to page in.
+    pub log_done: bool,
 }
 
 impl GitView {
@@ -266,6 +326,8 @@ impl GitView {
             amend: false,
             refs,
             commits,
+            log_cursor: None,
+            log_done: false,
         }
     }
 

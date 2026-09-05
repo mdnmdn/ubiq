@@ -10,7 +10,8 @@
 //! stacked divs rather than a painted layer, because a lane is a straight line and a straight line
 //! is not worth a canvas.
 //!
-//! The commits are a fixture until the git family carries a log — `G70`.
+//! The commits are the host's: `state::git::commit_rows` turns a `GitLogPage` reply into what
+//! this module draws.
 
 use gpui::{
     AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,

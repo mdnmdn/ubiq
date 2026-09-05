@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::conversation::{ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
-use crate::git::{self, GitEntry, GitRollup, RepoOverview};
+use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
 use crate::search::{self, Batch, Query, Source};
@@ -484,6 +484,29 @@ pub enum Message {
         project_id: ProjectId,
         full: bool,
     },
+    /// A page of history. **Cursor-paged, not offset-paged**: a page is a bounded walk from a
+    /// starting commit and the next cursor is the commit after the last returned. An offset would
+    /// re-walk from HEAD every page and be wrong the moment the tree moved underneath.
+    ///
+    /// Answered with [`Message::GitLogPage`], or [`Message::GitError`].
+    ProjectGitLog {
+        project_id: ProjectId,
+        /// Where the walk starts. Absent is HEAD.
+        cursor: Option<String>,
+        /// How many commits, clamped to [`git::MAX_LOG_PAGE`].
+        count: u32,
+        /// The history of one path, project-relative. Absent is the whole repository.
+        rel_path: Option<String>,
+        first_parent: bool,
+    },
+    /// Branches, remote-tracking branches, tags and stashes. `with_tracking` adds ahead and behind
+    /// per branch, which is one merge-base walk each — the branch picker asks without it.
+    ///
+    /// Answered with [`Message::GitRefs`], or [`Message::GitError`].
+    ProjectGitRefs {
+        project_id: ProjectId,
+        with_tracking: bool,
+    },
 
     // ── Git family: host → UI ───────────────────────────────────────
     /// `overview` absent means the project is not in a repository. That is an ordinary answer.
@@ -504,6 +527,17 @@ pub enum Message {
     GitError {
         project_id: ProjectId,
         error: git::GitError,
+    },
+    /// One page of history. `next_cursor` absent is the end.
+    GitLogPage {
+        project_id: ProjectId,
+        commits: Vec<GitCommit>,
+        next_cursor: Option<String>,
+    },
+    /// Every ref the sidebar draws, in one reply — five sections would otherwise be five walks.
+    GitRefs {
+        project_id: ProjectId,
+        refs: Vec<GitRef>,
     },
 
     // ── Work family: UI → host ──────────────────────────────────────
@@ -849,9 +883,13 @@ impl Message {
             | Message::ProjectFilesChanged { project_id, .. }
             | Message::ProjectGit { project_id, .. }
             | Message::RefreshProjectGit { project_id, .. }
+            | Message::ProjectGitLog { project_id, .. }
+            | Message::ProjectGitRefs { project_id, .. }
             | Message::GitOverview { project_id, .. }
             | Message::GitWorkingTree { project_id, .. }
             | Message::GitError { project_id, .. }
+            | Message::GitLogPage { project_id, .. }
+            | Message::GitRefs { project_id, .. }
             | Message::ListWork { project_id, .. }
             | Message::CreateTask { project_id, .. }
             | Message::UpdateTask { project_id, .. }

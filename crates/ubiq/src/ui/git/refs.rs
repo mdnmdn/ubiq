@@ -6,8 +6,8 @@
 //! different is what the row carries at each end: a dot saying whether this is what HEAD points
 //! at, and the tracking counts at the far end.
 //!
-//! Every row here is a fixture until the git family carries a refs list — `G70`. The one fact on
-//! this side that is the host's is which branch is current, and the toolbar draws that.
+//! Every row here is the host's: `state::git::ref_rows` turns a `GitRefs` reply, plus the
+//! overview's submodules, into what this module draws.
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement,

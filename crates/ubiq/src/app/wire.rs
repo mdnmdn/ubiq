@@ -610,7 +610,25 @@ impl AppState {
                         if next.counts.is_none() {
                             next.counts = counts;
                         }
+                        let submodules = next.submodules.clone();
                         open.git = Some(next);
+                        // The Submodules section is built from the overview, not the refs reply,
+                        // so a refresh that changes it would otherwise lag one refs answer behind.
+                        // Submodule rows always sort last (`RefSection::all()`'s own order), so
+                        // dropping and re-appending them leaves every other row's index alone.
+                        if !open.git_view.refs.is_empty() {
+                            open.git_view
+                                .refs
+                                .retain(|row| row.section != RefSection::Submodules);
+                            open.git_view.refs.extend(submodule_rows(&submodules));
+                            if open
+                                .git_view
+                                .selected_ref
+                                .is_some_and(|i| i >= open.git_view.refs.len())
+                            {
+                                open.git_view.selected_ref = None;
+                            }
+                        }
                     }
                 }
                 cx.notify();
@@ -649,6 +667,35 @@ impl AppState {
                     GitFailure::Interrupted => {}
                     GitFailure::Denied | GitFailure::Failed(_) => {}
                 }
+                cx.notify();
+            }
+
+            Message::GitRefs { project_id, refs } => {
+                let open = self.projects.get_mut(&project_id)?;
+                let submodules = open
+                    .git
+                    .as_ref()
+                    .map(|overview| overview.submodules.as_slice())
+                    .unwrap_or(&[]);
+                open.git_view.refs = ref_rows(&refs, submodules);
+                open.git_view.selected_ref = open.git_view.refs.iter().position(|row| row.current);
+                cx.notify();
+            }
+
+            Message::GitLogPage {
+                project_id,
+                commits,
+                next_cursor,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                let rows = commit_rows(&commits);
+                if open.git_view.log_cursor.is_none() {
+                    open.git_view.commits = rows;
+                } else {
+                    open.git_view.commits.extend(rows);
+                }
+                open.git_view.log_done = next_cursor.is_none();
+                open.git_view.log_cursor = next_cursor;
                 cx.notify();
             }
 

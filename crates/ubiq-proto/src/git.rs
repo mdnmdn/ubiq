@@ -56,8 +56,6 @@ pub struct GitCounts {
 /// files in the git directory, except `counts`, which arrive with the working-tree walk.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoOverview {
-    /// The repository root relative to the project. Empty when the repository is at or above it.
-    pub repo_root: String,
     /// The project's prefix inside the repository. Empty when the project *is* the root.
     pub scoped_to: String,
     pub head: GitHead,
@@ -77,6 +75,41 @@ pub struct RepoOverview {
     pub is_bare: bool,
     /// Bumped when a refresh starts. The interface discards a reply older than what it holds.
     pub generation: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remotes: Vec<GitRemote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub submodules: Vec<GitSubmodule>,
+}
+
+/// A named URL on the repository. **Not a submodule**: a submodule is a different repository,
+/// pinned at a commit, with remotes of its own. The overview carries both lists and flattens
+/// neither into the other.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitRemote {
+    pub name: String,
+    pub url: String,
+    /// The one a fetch would use when none is named.
+    pub is_default: bool,
+}
+
+/// How much of a submodule is actually here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GitSubmoduleState {
+    /// Named in `.gitmodules`, never checked out. Not walked into.
+    Uninitialised,
+    Clean,
+    Dirty,
+}
+
+/// A repository below the project, pinned by the outer one. Listed, never merged: it contributes
+/// nothing to the outer project's counts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitSubmodule {
+    pub name: String,
+    /// Project-relative, forward-slashed. A submodule outside the project's scope is omitted.
+    pub rel_path: String,
+    pub url: String,
+    pub state: GitSubmoduleState,
 }
 
 /// How one side of a path differs: the index against HEAD, or the worktree against the index.
@@ -168,6 +201,68 @@ impl GitMark {
 pub struct GitRollup {
     pub rel_path: String,
     pub mark: GitMark,
+}
+
+/// How many commits one page may carry. A request for more is clamped, not refused.
+pub const MAX_LOG_PAGE: u32 = 200;
+
+/// Who and when. The committer is carried beside the author because they differ after a rebase,
+/// and the difference is the point.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitWho {
+    pub name: String,
+    pub email: String,
+    /// Seconds since the epoch.
+    pub time: i64,
+    /// Minutes east of UTC. The interface prints the commit's own clock, not the reader's.
+    pub offset: i32,
+}
+
+/// One commit in a page of history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitCommit {
+    pub id: String,
+    /// The abbreviation the repository's own config would use.
+    pub short_id: String,
+    /// The first line of the message. The body is fetched per commit, never per page.
+    pub summary: String,
+    pub author: GitWho,
+    pub committer: GitWho,
+    /// How many parents. Two or more is a merge, drawn as one without a second request.
+    pub parents: u32,
+    /// Branch and tag names pointing at this commit, for the decorations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<String>,
+    /// The author is the repository's configured identity. The host answers it because it is the
+    /// host that can read `user.email`; the interface reads no config.
+    pub mine: bool,
+}
+
+/// Which sidebar section a ref belongs in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GitRefKind {
+    Local,
+    Remote,
+    Tag,
+    Stash,
+}
+
+/// One row of the ref list. Submodules are not here — they are on [`RepoOverview`], because a
+/// submodule is a repository and not a ref.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitRef {
+    /// Shorthand: `main`, `origin/main`, `v0.3.0`, `stash@{0}`.
+    pub name: String,
+    pub kind: GitRefKind,
+    /// The commit it points at, abbreviated.
+    pub target: String,
+    /// This is what HEAD points at. At most one row answers true.
+    pub current: bool,
+    /// Only when the request asked for tracking. Absent, never zero, when there is no upstream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ahead: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behind: Option<u32>,
 }
 
 /// What went wrong reading a repository that exists.

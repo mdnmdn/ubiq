@@ -70,6 +70,7 @@ crates/ubiq-host/src/
 ├── reply.rs
 ├── git/
 │   ├── mod.rs
+│   ├── history.rs
 │   └── observe.rs
 ├── settings.rs
 ├── shells.rs
@@ -90,7 +91,6 @@ crates/ubiq/src/
 │   ├── mod.rs
 │   ├── chat.rs
 │   ├── editor.rs
-│   ├── sample.rs
 │   ├── workbench.rs
 │   ├── windows.rs
 │   ├── logs.rs
@@ -270,6 +270,7 @@ the documents in its row.
 | `crates/ubiq-host/src/files/diff.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/files/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/mod.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/git/history.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/observe.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/links.rs` | [`architecture.md`](./architecture.md) |
@@ -320,7 +321,6 @@ the documents in its row.
 | `crates/ubiq/src/state/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/orchestration.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/prefs.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/state/sample.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/scene.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/sink.rs` | [`features/workbench.md`](../features/workbench.md) |

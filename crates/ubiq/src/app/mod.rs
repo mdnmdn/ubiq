@@ -30,7 +30,9 @@ use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
 use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
-use crate::state::git::{GitView, RefSection, Side as GitSide};
+use crate::state::git::{
+    GitView, RefSection, Side as GitSide, commit_rows, ref_rows, submodule_rows,
+};
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
     self as ui_settings, AccountDialog, CliShortcut, LoginState, LoginStep, MAX_LOGIN_LINKS,
@@ -46,7 +48,7 @@ use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
     ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, HarnessChoice,
     LogState, MenuId, NewPaneRow, OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode,
-    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
+    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -290,7 +292,7 @@ impl OpenProject {
             git: None,
             git_truncated: false,
             git_entries: Vec::new(),
-            git_view: GitView::new(sample::git_refs(), sample::git_history()),
+            git_view: GitView::default(),
             just_saved: HashSet::new(),
         }
     }

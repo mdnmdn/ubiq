@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 
 use git2::{
     BranchType, ErrorClass, ErrorCode, Oid, Repository, RepositoryState, Status, StatusOptions,
+    SubmoduleIgnore, SubmoduleStatus,
 };
 use ubiq_proto::files::LIST_HIDE;
 use ubiq_proto::git::{
     AHEAD_BEHIND_CAP, GitCounts, GitEntry, GitError, GitHead, GitMark, GitOperation, GitPathChange,
-    GitRollup, MAX_WORKING_TREE, RepoOverview,
+    GitRemote, GitRollup, GitSubmodule, GitSubmoduleState, MAX_WORKING_TREE, RepoOverview,
 };
 
 /// What one look at a project found.
@@ -70,8 +71,7 @@ pub(crate) fn observe_repo(
     };
 
     let overview = RepoOverview {
-        repo_root: String::new(),
-        scoped_to,
+        scoped_to: scoped_to.clone(),
         head,
         upstream,
         ahead,
@@ -80,6 +80,8 @@ pub(crate) fn observe_repo(
         counts,
         is_bare,
         generation,
+        remotes: remotes(repo),
+        submodules: submodules(repo, &scoped_to),
     };
 
     Ok(Observation {
@@ -89,7 +91,7 @@ pub(crate) fn observe_repo(
 }
 
 /// The project's prefix inside the repository's working tree. Empty when they are the same folder.
-fn scope(root: &Path, repo: &Repository) -> Result<String, GitError> {
+pub(crate) fn scope(root: &Path, repo: &Repository) -> Result<String, GitError> {
     let Some(workdir) = repo.workdir() else {
         return Ok(String::new());
     };
@@ -103,6 +105,72 @@ fn scope(root: &Path, repo: &Repository) -> Result<String, GitError> {
         Err(_) => Err(GitError::Failed(
             "the project is not inside the repository's working tree".to_string(),
         )),
+    }
+}
+
+/// The repository's named URLs. `origin` is the default when it exists, else the first named.
+fn remotes(repo: &Repository) -> Vec<GitRemote> {
+    let Ok(names) = repo.remotes() else {
+        return Vec::new();
+    };
+    let mut remotes: Vec<GitRemote> = names
+        .iter()
+        .filter_map(|found| found.ok().flatten())
+        .filter_map(|name| {
+            let url = repo.find_remote(name).ok()?.url().ok()?.to_string();
+            Some(GitRemote {
+                name: name.to_string(),
+                url,
+                is_default: false,
+            })
+        })
+        .collect();
+    let default_index = remotes
+        .iter()
+        .position(|remote| remote.name == "origin")
+        .or(if remotes.is_empty() { None } else { Some(0) });
+    if let Some(index) = default_index {
+        remotes[index].is_default = true;
+    }
+    remotes
+}
+
+/// The submodules whose path falls inside the project's scope.
+fn submodules(repo: &Repository, scoped_to: &str) -> Vec<GitSubmodule> {
+    let Ok(subs) = repo.submodules() else {
+        return Vec::new();
+    };
+    subs.iter()
+        .filter_map(|sm| {
+            let name = sm.name().ok()?.to_string();
+            let url = sm.url().ok().flatten()?.to_string();
+            let rel_path = project_rel(&to_rel(sm.path()), scoped_to)?;
+            let state = submodule_state(repo, &name);
+            Some(GitSubmodule {
+                name,
+                rel_path,
+                url,
+                state,
+            })
+        })
+        .collect()
+}
+
+fn submodule_state(repo: &Repository, name: &str) -> GitSubmoduleState {
+    let Ok(status) = repo.submodule_status(name, SubmoduleIgnore::None) else {
+        return GitSubmoduleState::Clean;
+    };
+    if status.intersects(SubmoduleStatus::WD_UNINITIALIZED) {
+        GitSubmoduleState::Uninitialised
+    } else if status.intersects(
+        SubmoduleStatus::WD_INDEX_MODIFIED
+            | SubmoduleStatus::WD_WD_MODIFIED
+            | SubmoduleStatus::WD_UNTRACKED
+            | SubmoduleStatus::WD_MODIFIED,
+    ) {
+        GitSubmoduleState::Dirty
+    } else {
+        GitSubmoduleState::Clean
     }
 }
 
@@ -129,7 +197,10 @@ fn head_and_tracking(repo: &Repository) -> Result<(GitHead, Tracking), GitError>
     }
 }
 
-fn tracking(repo: &Repository, name: &str) -> (Option<String>, Option<u32>, Option<u32>) {
+pub(crate) fn tracking(
+    repo: &Repository,
+    name: &str,
+) -> (Option<String>, Option<u32>, Option<u32>) {
     let Ok(branch) = repo.find_branch(name, BranchType::Local) else {
         return (None, None, None);
     };
@@ -166,7 +237,7 @@ fn unborn_name(repo: &Repository) -> String {
         .to_string()
 }
 
-fn short_id(repo: &Repository, oid: Oid) -> String {
+pub(crate) fn short_id(repo: &Repository, oid: Oid) -> String {
     repo.find_object(oid, None)
         .ok()
         .and_then(|object| object.short_id().ok())
@@ -198,7 +269,11 @@ fn working_tree(repo: &Repository, scoped_to: &str) -> Result<WorkingTree, GitEr
         .recurse_untracked_dirs(false)
         .exclude_submodules(true)
         .update_index(false)
-        .include_ignored(false);
+        // An ignored tree is unbounded — `target/`, `node_modules/`, `.venv/`. libgit2 yields it
+        // as one entry when it is told not to recurse, which is what keeps the map proportional
+        // to the change set. `project_rel` already strips the trailing slash.
+        .include_ignored(true)
+        .recurse_ignored_dirs(false);
     if !scoped_to.is_empty() {
         opts.pathspec(scoped_to);
     }
@@ -287,7 +362,7 @@ fn rename_from(delta: Option<git2::DiffDelta<'_>>) -> Option<String> {
     delta.and_then(|delta| delta.old_file().path().map(to_rel))
 }
 
-fn project_rel(git_path: &str, scoped_to: &str) -> Option<String> {
+pub(crate) fn project_rel(git_path: &str, scoped_to: &str) -> Option<String> {
     // libgit2 names an untracked directory with a trailing slash. The file family never does,
     // and a row whose path is `fresh` would miss a mark named `fresh/`.
     let git_path = git_path.replace('\\', "/");
@@ -379,7 +454,7 @@ fn io_error(error: std::io::Error) -> GitError {
     }
 }
 
-fn map_error(error: git2::Error) -> GitError {
+pub(crate) fn map_error(error: git2::Error) -> GitError {
     if error.code() == ErrorCode::NotFound {
         return GitError::NotFound;
     }

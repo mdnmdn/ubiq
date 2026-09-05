@@ -2,7 +2,7 @@
 //!
 //! Nothing in here renders and nothing in here names a process, a path on disk or a file
 //! descriptor. The UI reads these types. Projects and the work arrive from the host as
-//! projections; the Git screen's own fixtures are the last thing still seeded from `sample.rs`.
+//! projections, and so does the Git screen's refs and history.
 //!
 //! The work's own records are not re-exported through here. They are `ubiq_proto::work`'s, and
 //! naming them at each use site is what keeps the dependency direction visible: a re-export would
@@ -22,7 +22,6 @@ pub mod layout;
 pub mod logs;
 pub mod orchestration;
 pub mod prefs;
-pub mod sample;
 pub mod scene;
 pub mod search;
 pub mod settings;

@@ -19,8 +19,8 @@ impl AppState {
         open.git.as_ref().map(|_| open.git_entries.as_slice())
     }
 
-    /// Ask for the repository again, overview and working tree together. What the readout in the
-    /// status bar does, from the screen that is about it.
+    /// Ask for the repository again: the overview, the working tree, the refs and the first page
+    /// of history. What the readout in the status bar does, from the screen that is about it.
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
@@ -29,6 +29,22 @@ impl AppState {
         self.bus.send(Message::RefreshProjectGit {
             project_id,
             full: true,
+        });
+        self.bus.send(Message::ProjectGitRefs {
+            project_id,
+            with_tracking: true,
+        });
+        if let Some(git) = self.git_view_mut(cx) {
+            // A fresh first page, not a page appended to whatever the last project on screen left
+            // behind — `receive_git` tells the two apart by whether a cursor is already held.
+            git.log_cursor = None;
+        }
+        self.bus.send(Message::ProjectGitLog {
+            project_id,
+            cursor: None,
+            count: 100,
+            rel_path: None,
+            first_parent: false,
         });
         cx.notify();
     }

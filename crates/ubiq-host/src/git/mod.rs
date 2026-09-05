@@ -14,6 +14,7 @@
 //! stuck behind badges. A second full refresh for a project still walking replaces the queued one
 //! rather than lining up behind it.
 
+pub mod history;
 pub mod observe;
 
 pub use observe::{Observation, WorkingTree, observe};
@@ -38,6 +39,15 @@ pub enum Request {
     Full,
     /// Drop the cached repository. The project's folder moved, or the record is gone.
     Forget,
+    /// Branches, tags and stashes. Cheap: refs only, no tree walk.
+    Refs { with_tracking: bool },
+    /// One page of history.
+    Log {
+        cursor: Option<String>,
+        count: u32,
+        rel_path: Option<String>,
+        first_parent: bool,
+    },
 }
 
 /// One request, addressed.
@@ -85,23 +95,23 @@ struct State {
 }
 
 fn run(queue: flume::Receiver<Job>) {
-    let mut overviews = VecDeque::new();
+    let mut cheap = VecDeque::new();
     let mut full_order = VecDeque::new();
     let mut fulls: HashMap<ProjectId, Job> = HashMap::new();
     let mut state = State::default();
 
     loop {
-        if overviews.is_empty() && fulls.is_empty() {
+        if cheap.is_empty() && fulls.is_empty() {
             match queue.recv() {
-                Ok(job) => enqueue(&mut overviews, &mut full_order, &mut fulls, job),
+                Ok(job) => enqueue(&mut cheap, &mut full_order, &mut fulls, job),
                 Err(_) => break,
             }
         }
         while let Ok(job) = queue.try_recv() {
-            enqueue(&mut overviews, &mut full_order, &mut fulls, job);
+            enqueue(&mut cheap, &mut full_order, &mut fulls, job);
         }
 
-        if let Some(job) = overviews.pop_front() {
+        if let Some(job) = cheap.pop_front() {
             answer(&mut state, job);
             continue;
         }
@@ -115,13 +125,15 @@ fn run(queue: flume::Receiver<Job>) {
 }
 
 fn enqueue(
-    overviews: &mut VecDeque<Job>,
+    cheap: &mut VecDeque<Job>,
     full_order: &mut VecDeque<ProjectId>,
     fulls: &mut HashMap<ProjectId, Job>,
     job: Job,
 ) {
     match job.request {
-        Request::Overview | Request::Forget => overviews.push_back(job),
+        Request::Overview | Request::Forget | Request::Refs { .. } | Request::Log { .. } => {
+            cheap.push_back(job)
+        }
         Request::Full => {
             let project_id = job.project_id;
             if fulls.insert(project_id, job).is_none() {
@@ -174,6 +186,74 @@ fn answer(state: &mut State, job: Job) {
                     job.reply_to.send(git_error(job.project_id, error));
                 }
             }
+        }
+        Request::Refs { with_tracking } => {
+            let message = match ensure_repo(state, job.project_id, &job.root) {
+                Ok(false) => Message::GitRefs {
+                    project_id: job.project_id,
+                    refs: Vec::new(),
+                },
+                Ok(true) => {
+                    let repo = &state
+                        .repos
+                        .get(&job.project_id)
+                        .expect("just inserted or confirmed")
+                        .repo;
+                    match history::refs(repo, with_tracking) {
+                        Ok(refs) => Message::GitRefs {
+                            project_id: job.project_id,
+                            refs,
+                        },
+                        Err(error) => git_error(job.project_id, error),
+                    }
+                }
+                Err(error) => git_error(job.project_id, error),
+            };
+            job.reply_to.send(message);
+        }
+        Request::Log {
+            cursor,
+            count,
+            rel_path,
+            first_parent,
+        } => {
+            let message = match ensure_repo(state, job.project_id, &job.root) {
+                Ok(false) => Message::GitLogPage {
+                    project_id: job.project_id,
+                    commits: Vec::new(),
+                    next_cursor: None,
+                },
+                Ok(true) => {
+                    let cached = state
+                        .repos
+                        .get(&job.project_id)
+                        .expect("just inserted or confirmed");
+                    let scoped_to = match observe::scope(&job.root, &cached.repo) {
+                        Ok(scoped_to) => scoped_to,
+                        Err(error) => {
+                            job.reply_to.send(git_error(job.project_id, error));
+                            return;
+                        }
+                    };
+                    match history::log(
+                        &cached.repo,
+                        &scoped_to,
+                        cursor.as_deref(),
+                        count,
+                        rel_path.as_deref(),
+                        first_parent,
+                    ) {
+                        Ok((commits, next_cursor)) => Message::GitLogPage {
+                            project_id: job.project_id,
+                            commits,
+                            next_cursor,
+                        },
+                        Err(error) => git_error(job.project_id, error),
+                    }
+                }
+                Err(error) => git_error(job.project_id, error),
+            };
+            job.reply_to.send(message);
         }
     }
 }

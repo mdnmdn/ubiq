@@ -324,9 +324,13 @@ is a relative string.
 |---|---|---|---|
 | `ProjectGit` | UI → host | `project_id` | `GitOverview` or `GitError` |
 | `RefreshProjectGit` | UI → host | `project_id`, `full` | `GitOverview`, and `GitWorkingTree` when `full`; or `GitError` |
+| `ProjectGitLog` | UI → host | `project_id`, `cursor?`, `count`, `rel_path?`, `first_parent` | `GitLogPage` or `GitError` |
+| `ProjectGitRefs` | UI → host | `project_id`, `with_tracking` | `GitRefs` or `GitError` |
 | `GitOverview` | host → UI | `project_id`, `overview?` | — |
 | `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `truncated` | — |
 | `GitError` | host → UI | `project_id`, `error` | — |
+| `GitLogPage` | host → UI | `project_id`, `commits[]`, `next_cursor?` | — |
+| `GitRefs` | host → UI | `project_id`, `refs[]` | — |
 
 **`overview` absent is an ordinary answer**, not a failure: the project is not in a repository, and
 the interface draws no branch and no badges. `GitError` is for a repository that exists and could
@@ -334,9 +338,14 @@ not be read — `NotFound`, `Corrupt`, `Denied`, `Interrupted` or `Failed`.
 
 **The overview is cheap.** It is refs and a handful of files in the git directory: `HEAD` as a
 branch name, a detached short id or an unborn name; the upstream and ahead/behind when there is
-one, capped at 99; an in-progress operation; whether the repository is bare. Working-tree counts
-ride with a full refresh, and are absent rather than zero on a bare or unborn repository, and
-absent until a walk has run.
+one, capped at 99; an in-progress operation; whether the repository is bare; its remotes, and any
+submodule below the project's scope. Working-tree counts ride with a full refresh, and are absent
+rather than zero on a bare or unborn repository, and absent until a walk has run.
+
+**A remote is not a submodule.** `GitRemote` is a name and a URL the overview's own repository
+fetches from; `GitSubmodule` is a different repository, pinned at a commit, with remotes of its
+own. The overview carries both lists and flattens neither into the other, and a submodule outside
+the project's scope is omitted the way a file outside it never appears in a listing.
 
 **The working-tree map carries only paths that have something to say.** A row not in the map is
 clean, once a map has arrived. An entry is a pair — how the index differs from HEAD, how the
@@ -351,6 +360,19 @@ derive a folder's badge from children it has not asked for. Past the entry ceili
 **A reply carries a generation**, bumped when a full refresh starts. The interface discards an older
 one. A second full refresh for a project still walking replaces the queued one rather than lining
 up behind it.
+
+**The log is cursor-paged, not offset-paged.** A page is a bounded walk from a starting commit —
+`cursor` absent starts at `HEAD` — and `next_cursor` is the commit after the last one the page
+carried, absent at the end. An offset would re-walk from `HEAD` every page and be wrong the moment
+the tree moved underneath. `count` is clamped to `MAX_LOG_PAGE`; `rel_path` narrows the walk to one
+path's history; `first_parent` skips the merged side of a merge commit. An unborn `HEAD` answers
+with an empty page, not a `GitError`.
+
+**Refs are one reply for four sections.** Local branches, remote-tracking branches, tags and
+stashes come back together in one `GitRefs`, because a sidebar with five sections has no use for
+five walks when the host has already opened the repository. `with_tracking` adds ahead/behind per
+local branch, one merge-base walk each, so a caller that only wants names — a branch picker —
+skips the cost.
 
 ## The work family
 

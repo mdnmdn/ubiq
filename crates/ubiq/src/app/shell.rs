@@ -55,6 +55,17 @@ impl AppState {
                 project_id: id,
                 full: true,
             });
+            self.bus.send(Message::ProjectGitRefs {
+                project_id: id,
+                with_tracking: true,
+            });
+            self.bus.send(Message::ProjectGitLog {
+                project_id: id,
+                cursor: None,
+                count: 100,
+                rel_path: None,
+                first_parent: false,
+            });
             if let Some(view) = restore {
                 self.restore_files(id, &view, cx);
             }

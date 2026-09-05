@@ -952,6 +952,30 @@ impl Coordinator {
                 };
                 self.git_job(client, project_id, request);
             }
+            Message::ProjectGitRefs {
+                project_id,
+                with_tracking,
+            } => {
+                self.git_job(client, project_id, git::Request::Refs { with_tracking });
+            }
+            Message::ProjectGitLog {
+                project_id,
+                cursor,
+                count,
+                rel_path,
+                first_parent,
+            } => {
+                self.git_job(
+                    client,
+                    project_id,
+                    git::Request::Log {
+                        cursor,
+                        count,
+                        rel_path,
+                        first_parent,
+                    },
+                );
+            }
 
             // ── the work family ─────────────────────────────────────
             // Thirteen arms and one helper. Every one names a project, and none of them touches a

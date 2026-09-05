@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, vim mode, or the status bar
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -426,11 +426,13 @@ An unstaged row is compared against the index and a staged or conflicted row aga
 the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
 shrinking, and switches between unified and side by side.
 
-**The history and the refs are fixtures.** The branch list, the remotes, the tags, the stashes, the
-submodules and every commit on the screen are invented, because the git family carries no refs list
-and no log — `G70`. Everything else on it is answered: the branch, the tracking counts, the
-in-progress operation, the totals, the changed paths and the diff. The search over the history and
-its `my commits` filter are real controls over the fixture, and both clear together.
+**The history and the refs are real.** The branch list, the tags and the stashes come from one
+`ProjectGitRefs` reply; the remotes and the submodules ride with the overview. The commit log pages
+in from `ProjectGitLog`, oldest page first and newest commit within it, and reaching the bottom
+asks for the next page with the cursor the last one returned. The search over the history and its
+`my commits` filter are real controls over real rows, and both clear together. A commit's lane is
+always `0` — the wire carries a parent count, not a topology, so a merge draws as one hollow dot
+rather than a second column, which is `G123`.
 
 **A project is a colour.** Each project owns one of the theme's swatches, and wears it in four
 places at once: its dot in the picker, the fill behind its name in the titlebar, the mark above the
@@ -1354,10 +1356,10 @@ records — which column an agent's conversation is drawn in, and where a card s
 is a delta rather than a record, so the transcript is a fold the window keeps and the host never
 re-sends; the family's payloads and its ordering rule belong to the transport contract.
 
-One fixture is left. `crates/ubiq/src/state/sample.rs` holds the Git screen's branch list, tags,
-stashes, submodules and commit log — the one set of rows with no transport family behind them. Every
-chat tab speaks the conversation family above, the same as a column does, which is
-[`chat.md`](./chat.md)'s. The terminals have a family of their own, in
+The git family above is what the Git screen speaks: `ProjectGit` and `RefreshProjectGit` for the
+overview and the working tree, `ProjectGitRefs` for the sidebar and `ProjectGitLog` for the
+history, page by page. Every chat tab speaks the conversation family above, the same as a column
+does, which is [`chat.md`](./chat.md)'s. The terminals have a family of their own, in
 [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## The window's areas
@@ -1505,9 +1507,10 @@ what it is compared against. It holds no working-tree records — `staged()`, `u
 `conflicted()` take the `GitEntry` pairs the host sent, which `OpenProject::git_entries` keeps whole
 beside the projection the explorer got — and `settle()` drops a selection whose path has gone
 clean.
-`Side::base()` is where a list's comparison base is decided, and `RefRow` and `CommitRow` are the
-fixtures `state/sample.rs` seeds, which is the whole of what the screen invents. Its four widths and
-the graph's lane pitch are constants there, the way the board's and the columns' are theirs.
+`Side::base()` is where a list's comparison base is decided, and `RefRow` and `CommitRow` are
+built from the host's answers by `ref_rows()` and `commit_rows()` in `state/git.rs`. Its four
+widths and the graph's lane pitch are constants there, the way the board's and the columns' are
+theirs.
 
 `ui/git/` draws it, one file per area: `mod.rs` is the frame and the toolbar, `refs.rs` the
 sections and their rows — the file list's own row chrome, so a ref reads the way a path does —
@@ -1843,16 +1846,14 @@ the two fields that open, `pills()` is priority and shape, `session()` is the pi
 list, `delete()` is the two-click question, and `refusal()` is where `WorkbenchState::work_error` is
 said.
 
-`state/sample.rs` is down to the Git screen's own fixtures — `git_refs()` and `git_history()`.
-Projects, the file tree, a file's bytes, the panes, the work and the chat's conversations all come
-from the host, and the constructors that invented them are gone.
+Projects, the file tree, a file's bytes, the panes, the work, the chat's conversations and the
+Git screen's refs and history all come from the host now; `state/sample.rs` and the constructors
+that invented them are gone.
 
-`state/sink.rs` is the kitchen sink's fixtures and the small state its pages carry, and it is the one
-other place a constant stands in for what the host would send — deliberately, and for the opposite
-reason `sample.rs` does. The Git screen's fixture is a screen waiting for a transport family; the
-sink's is a screen that will never have one, because a test bench with a project behind it would be
-testing the
-project. It holds four documents as `&'static str`, each under the name that picks its viewer,
+`state/sink.rs` is the kitchen sink's fixtures and the small state its pages carry, and it is the
+one place a constant still stands in for what the host would send — deliberately: a test bench
+with a project behind it would be testing the project rather than the bench. It holds four
+documents as `&'static str`, each under the name that picks its viewer,
 `SinkSection` for the page strip, `SinkState` for the layouts and the style reference's controls,
 `SinkModal` for which of the three shapes is up, `SettingsDemo` for the application settings page
 and `ProjectDemo` for the project settings dialog — its swatch, its custom `0xRRGGBB`, and the

@@ -10,7 +10,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 use ubiq_host::git::observe;
-use ubiq_proto::git::{GitHead, GitMark, GitPathChange};
+use ubiq_proto::git::{GitHead, GitMark, GitPathChange, GitSubmoduleState};
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
 fn git(dir: &Path, args: &[&str]) {
@@ -278,4 +278,119 @@ fn a_changed_file_rolls_up_its_parent() {
         .find(|r| r.rel_path == "src")
         .expect("src should roll up");
     assert_eq!(rollup.mark, GitMark::Modified);
+}
+
+#[test]
+fn a_remote_is_named_in_the_overview() {
+    let dir = repository();
+    git(
+        dir.path(),
+        &["remote", "add", "origin", "https://example/x"],
+    );
+    let overview = observe(dir.path(), 0, false)
+        .unwrap()
+        .overview
+        .expect("a repository");
+    assert_eq!(overview.remotes.len(), 1);
+    assert_eq!(overview.remotes[0].name, "origin");
+    assert_eq!(overview.remotes[0].url, "https://example/x");
+    assert!(overview.remotes[0].is_default);
+}
+
+#[test]
+fn an_uninitialised_submodule_is_listed_not_walked() {
+    let sub_origin = repository();
+    let dir = repository();
+    let sub_url = format!("file://{}", sub_origin.path().display());
+    git(
+        dir.path(),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            &sub_url,
+            "sub",
+        ],
+    );
+    git(dir.path(), &["commit", "-q", "-m", "add submodule"]);
+    // A fresh clone that never ran `submodule update --init` has the gitlink and `.gitmodules`
+    // but nothing checked out. `deinit` reproduces exactly that, without a second clone.
+    git(dir.path(), &["submodule", "deinit", "-f", "sub"]);
+
+    let found = observe(dir.path(), 1, true).unwrap();
+    let overview = found.overview.expect("a repository");
+    assert_eq!(overview.submodules.len(), 1);
+    assert_eq!(overview.submodules[0].rel_path, "sub");
+    assert_eq!(
+        overview.submodules[0].state,
+        GitSubmoduleState::Uninitialised
+    );
+
+    let tree = found.tree.expect("a working tree");
+    assert!(
+        tree.entries.iter().all(|e| !e.rel_path.starts_with("sub")),
+        "an uninitialised submodule leaked into the working tree: {:?}",
+        tree.entries
+    );
+}
+
+#[test]
+fn an_ignored_directory_is_one_entry() {
+    let dir = repository();
+    fs::write(dir.path().join(".gitignore"), b"target/\n").unwrap();
+    git(dir.path(), &["add", ".gitignore"]);
+    git(dir.path(), &["commit", "-q", "-m", "ignore target"]);
+    fs::create_dir(dir.path().join("target")).unwrap();
+    fs::write(dir.path().join("target/a"), b"a\n").unwrap();
+    fs::write(dir.path().join("target/b"), b"b\n").unwrap();
+
+    let tree = observe(dir.path(), 1, true)
+        .unwrap()
+        .tree
+        .expect("a working tree");
+    let matches: Vec<_> = tree
+        .entries
+        .iter()
+        .filter(|e| e.rel_path.starts_with("target"))
+        .collect();
+    assert_eq!(
+        matches.len(),
+        1,
+        "an ignored directory should collapse to one entry: {:?}",
+        tree.entries
+    );
+    assert_eq!(matches[0].rel_path, "target");
+    assert!(matches[0].ignored);
+}
+
+#[test]
+fn an_ignored_directory_does_not_outrank_a_modified_sibling() {
+    let dir = repository();
+    fs::create_dir(dir.path().join("area")).unwrap();
+    fs::write(dir.path().join("area/file.txt"), b"first\n").unwrap();
+    git(dir.path(), &["add", "area/file.txt"]);
+    git(dir.path(), &["commit", "-q", "-m", "area"]);
+    fs::write(dir.path().join(".gitignore"), b"area/target/\n").unwrap();
+    git(dir.path(), &["add", ".gitignore"]);
+    git(dir.path(), &["commit", "-q", "-m", "ignore area/target"]);
+
+    fs::create_dir(dir.path().join("area/target")).unwrap();
+    fs::write(dir.path().join("area/target/a"), b"a\n").unwrap();
+    fs::write(dir.path().join("area/file.txt"), b"changed\n").unwrap();
+
+    let tree = observe(dir.path(), 1, true)
+        .unwrap()
+        .tree
+        .expect("a working tree");
+    let rollup = tree
+        .rollups
+        .iter()
+        .find(|r| r.rel_path == "area")
+        .expect("area should roll up");
+    assert_eq!(
+        rollup.mark,
+        GitMark::Modified,
+        "the ignored sibling outranked the modified file"
+    );
 }

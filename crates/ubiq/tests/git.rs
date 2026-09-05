@@ -6,17 +6,87 @@
 //! arithmetic over plain data, so it is tested the way the graph's and the explorer's are: on the
 //! state alone, seeded the way the host would have filled it.
 //!
-//! The refs and the commits are the fixtures the screen ships with, because the git family carries
-//! no refs list and no log. The working-tree entries are `ubiq_proto::git`'s own records, which is
-//! what a `GitWorkingTree` puts on the project.
+//! The working-tree entries are `ubiq_proto::git`'s own records, which is what a `GitWorkingTree`
+//! puts on the project. The refs and the commits below are seeded directly as `RefRow`/`CommitRow`
+//! — what a `GitRefs`/`GitLogPage` reply would already have been turned into by `ref_rows` and
+//! `commit_rows`, which have their own tests further down.
 
-use ubiq::state::git::{GitView, RefRow, RefSection, Side, conflicted, staged, unstaged};
-use ubiq::state::sample;
+use ubiq::state::git::{
+    CommitRow, GitView, RefRow, RefSection, Side, commit_rows, conflicted, ref_rows, staged,
+    unstaged,
+};
 use ubiq_proto::files::DiffBase;
-use ubiq_proto::git::{GitEntry, GitPathChange};
+use ubiq_proto::git::{
+    GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule, GitSubmoduleState, GitWho,
+};
 
+/// A sidebar and a history with one row of every kind the fixtures used to seed, so the
+/// behavioural tests below (sections, search, lanes, tracking) exercise the same shapes.
 fn view() -> GitView {
-    GitView::new(sample::git_refs(), sample::git_history())
+    use RefSection::{Local, Remotes, Stashes, Submodules, Tags};
+    let refs = vec![
+        RefRow::new(Local, "main").tracking(2, 1).current(),
+        RefRow::new(Local, "fix/terminal-refit").tracking(5, 0),
+        RefRow::new(Remotes, "origin/main"),
+        RefRow::new(Tags, "v0.3.0"),
+        RefRow::new(Stashes, "WIP on main: 9f3a10c panel resize"),
+        RefRow::new(Submodules, "vendor/gpui-component"),
+    ];
+    let commits = vec![
+        row(
+            "9f3a10c",
+            "Refit the terminal",
+            "Marco De Nittis",
+            0,
+            Vec::new(),
+            true,
+        ),
+        row(
+            "4c8b221",
+            "Merge branch 'feat/session-store'",
+            "Marco De Nittis",
+            0,
+            vec![1],
+            true,
+        ),
+        row(
+            "b1c9f30",
+            "Register the migration",
+            "Sara Villa",
+            1,
+            Vec::new(),
+            false,
+        ),
+        row(
+            "1aa5c62",
+            "Cut 0.3.0",
+            "Marco De Nittis",
+            0,
+            Vec::new(),
+            true,
+        ),
+    ];
+    GitView::new(refs, commits)
+}
+
+fn row(
+    short_id: &str,
+    summary: &str,
+    author: &str,
+    lane: usize,
+    merges: Vec<usize>,
+    mine: bool,
+) -> CommitRow {
+    CommitRow {
+        short_id: short_id.to_string(),
+        summary: summary.to_string(),
+        author: author.to_string(),
+        when: "2 h ago".to_string(),
+        lane,
+        merges,
+        refs: Vec::new(),
+        mine,
+    }
 }
 
 fn entry(path: &str, index: Option<GitPathChange>, worktree: Option<GitPathChange>) -> GitEntry {
@@ -243,4 +313,93 @@ fn a_ref_row_carries_tracking_only_where_there_is_some() {
     assert_eq!(row.behind, None, "zero behind is drawn as nothing, not 0");
     assert!(!row.current);
     assert!(RefRow::new(RefSection::Local, "main").current().current);
+}
+
+fn git_ref(name: &str, kind: GitRefKind, current: bool) -> GitRef {
+    GitRef {
+        name: name.to_string(),
+        kind,
+        target: "abc1234".to_string(),
+        current,
+        ahead: None,
+        behind: None,
+    }
+}
+
+#[test]
+fn ref_rows_sorts_into_sections_and_marks_the_current_row() {
+    let refs = vec![
+        git_ref("main", GitRefKind::Local, true),
+        git_ref("origin/main", GitRefKind::Remote, false),
+        git_ref("v0.3.0", GitRefKind::Tag, false),
+        git_ref("stash@{0}", GitRefKind::Stash, false),
+    ];
+    let submodules = vec![GitSubmodule {
+        name: "gpui-component".to_string(),
+        rel_path: "vendor/gpui-component".to_string(),
+        url: "https://example/gpui-component".to_string(),
+        state: GitSubmoduleState::Clean,
+    }];
+
+    let rows = ref_rows(&refs, &submodules);
+
+    assert_eq!(
+        rows.iter().map(|r| r.section).collect::<Vec<_>>(),
+        vec![
+            RefSection::Local,
+            RefSection::Remotes,
+            RefSection::Tags,
+            RefSection::Stashes,
+            RefSection::Submodules,
+        ]
+    );
+    assert_eq!(rows.iter().filter(|r| r.current).count(), 1);
+    assert!(rows.iter().find(|r| r.name == "main").unwrap().current);
+    assert_eq!(
+        rows.last().unwrap().name,
+        "vendor/gpui-component",
+        "a submodule's row is its project-relative path"
+    );
+}
+
+fn who(time: i64) -> GitWho {
+    GitWho {
+        name: "Marco De Nittis".to_string(),
+        email: "marco@example.test".to_string(),
+        time,
+        offset: 0,
+    }
+}
+
+#[test]
+fn commit_rows_marks_a_two_parent_commit_as_a_merge() {
+    let commits = vec![
+        GitCommit {
+            id: "9f3a10cabc".to_string(),
+            short_id: "9f3a10c".to_string(),
+            summary: "Refit the terminal".to_string(),
+            author: who(1_700_000_000),
+            committer: who(1_700_000_000),
+            parents: 1,
+            refs: vec!["main".to_string()],
+            mine: true,
+        },
+        GitCommit {
+            id: "4c8b221abc".to_string(),
+            short_id: "4c8b221".to_string(),
+            summary: "Merge branch 'feat/session-store'".to_string(),
+            author: who(1_699_000_000),
+            committer: who(1_699_000_000),
+            parents: 2,
+            refs: Vec::new(),
+            mine: false,
+        },
+    ];
+
+    let rows = commit_rows(&commits);
+
+    assert!(rows[0].merges.is_empty(), "one parent is not a merge");
+    assert!(!rows[1].merges.is_empty(), "two parents draws a hollow dot");
+    assert_eq!(rows[0].refs, vec!["main".to_string()]);
+    assert!(!rows[1].mine);
 }
