@@ -106,6 +106,7 @@ pub fn menu_entries(
             vec![
                 entry(ExplorerAction::CopyPath),
                 entry(ExplorerAction::CopyFullPath),
+                entry(ExplorerAction::CopyLink),
                 entry(ExplorerAction::OpenInSystem),
                 entry(ExplorerAction::OpenInWeb),
             ],

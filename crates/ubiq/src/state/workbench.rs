@@ -303,6 +303,8 @@ pub struct WorkbenchState {
     ///
     /// [`Message::ListShells`]: ubiq_proto::messages::Message::ListShells
     pub agent_types: Vec<AgentTypeInfo>,
+    /// Whether the explorer's bookmarks section is open. Furniture, so it is not written down.
+    pub bookmarks_open: bool,
 }
 
 impl Default for WorkbenchState {
@@ -331,6 +333,7 @@ impl Default for WorkbenchState {
             confirm_end_conversation: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
+            bookmarks_open: false,
         }
     }
 }

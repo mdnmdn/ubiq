@@ -76,26 +76,27 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
-| [The chat panel](./features/chat.md) | Editor-like chat tabs, movable to any dockable region, each a view onto a host-owned conversation or onto none, with an attach picker and the shared transcript, tool blocks and composer every live-agent surface draws. | 2026-09-05 |
-| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-04 |
-| [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-04 |
-| [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-03 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-04 |
+| [The chat panel](./features/chat.md) | Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares. | 2026-09-05 |
+| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-05 |
+| [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-05 |
+| [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-05 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-05 |
 
 ### Tech
 
 | Document | What it is | Verified |
 |---|---|---|
-| [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-04 |
+| [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-05 |
 | [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-03 |
-| [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-04 |
+| [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-05 |
 | [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-04 |
-| [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-04 |
+| [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-05 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-09-04 |
-| [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-04 |
-| [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account and command-line families, the framing rules, and the procedure for adding a variant. | 2026-09-04 |
-| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-04 |
+| [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-05 |
+| [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account and command-line families, the framing rules, and the procedure for adding a variant. | 2026-09-05 |
+| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-05 |
+| [Version control](./tech/version-control.md) | How the host reads a project's repository — the read-only rule, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-05 |
 
 ### Meta
 
@@ -111,8 +112,8 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [agent-login-note.md](./wip/agent-login-note.md) | — | — |
+| [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver. | 2026-09-05 |
 | [The conversation vocabulary, the chat surface and the login sandbox](./wip/agent-vocabulary.md) | What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests. | 2026-09-05 |
-| [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver. | 2026-09-04 |
 | [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check now passes but docs-lint — whose open question is what that lint should apply to, since 156 of its 161 failures are inbox documents. | — |
 
 <!-- generated:end catalogue -->
@@ -140,6 +141,7 @@ a link.
 | Rail modes, panel visibility, projects, what a window owns | `features/workbench.md` |
 | The agents screen: its columns, what a tab drag means, and the bench | `features/workbench.md` |
 | The Git screen: its refs, history, change lists and diff | `features/workbench.md` |
+| How a repository is read: discovery, the worker, the log and refs, the lane engine | `tech/version-control.md` |
 | The orchestration screen: the graph, its selection model, the inspector and the tasks drawer | `features/workbench.md` |
 | The tasks board: its columns, its cards, what a drag means and the task panel | `features/workbench.md` |
 | Commands, prerequisites, environment variables | `tech/operations.md` |
@@ -173,6 +175,7 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Building or restyling a screen, adding a colour or a size | `tech/ui-and-design.md` |
 | Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the Git screen — its refs, history, change lists or diff | `features/workbench.md`, then `tech/ui-and-design.md` |
+| Extending version control, or adding the write family | `tech/version-control.md`, then `tech/transport-contract.md` |
 | Changing the agents screen — its columns, its sidebar or what a tab drag does | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the orchestration screen — its graph, inspector or tasks drawer | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the tasks board — its columns, cards or task panel | `features/workbench.md`, then `tech/ui-and-design.md` |

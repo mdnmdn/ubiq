@@ -342,6 +342,7 @@ fn transcript(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let id = conversation.id;
+    let root = cx.entity();
     let blocks: Vec<AnyElement> = conversation
         .blocks
         .iter()
@@ -352,6 +353,7 @@ fn transcript(
                 view.eid(&format!("md-{ix}")),
                 SharedString::from(body.clone()),
             )
+            .on_link_click(crate::ui::on_link(root.clone(), None))
             .into_any_element(),
             ConvBlock::Thought(body) => thought(body),
             ConvBlock::Tool { call, open } => tool_block(id, ix, call, *open, view, cx),

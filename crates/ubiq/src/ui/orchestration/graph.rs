@@ -288,6 +288,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .min_w(px(0.))
         .min_h(px(0.))
         .overflow_scroll()
+        .track_scroll(&app.graph_scroll)
         .bg(theme::app_bg())
         .child(content)
         .into_any_element()

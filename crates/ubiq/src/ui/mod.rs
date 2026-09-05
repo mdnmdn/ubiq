@@ -20,6 +20,7 @@ pub mod file_tab_menu;
 pub mod git;
 pub mod kit;
 pub mod logs;
+pub mod navigator;
 pub mod new_pane_menu;
 pub mod orchestration;
 pub mod project_menu;
@@ -35,7 +36,7 @@ pub mod titlebar;
 pub mod viewer;
 pub mod work;
 
-use gpui::{App, Context, ElementId, Entity, Window};
+use gpui::{App, ClickEvent, Context, ElementId, Entity, SharedString, Window};
 
 use crate::app::AppState;
 
@@ -73,4 +74,36 @@ pub fn eid(prefix: &str, id: impl std::fmt::Display) -> ElementId {
 /// The same for a row two ids deep — a step, which is one id inside another.
 pub fn eid2(prefix: &str, a: impl std::fmt::Display, b: impl std::fmt::Display) -> ElementId {
     ElementId::Name(format!("{prefix}-{a}-{b}").into())
+}
+
+/// Follow a link written inside a rendered document.
+///
+/// `base` is the document's own path, which a relative target is resolved against; `None` is the
+/// project root, which is where a chat message and a task description are written from. A target
+/// that names a place is navigated to, the web and mail are handed to the operating system, and
+/// anything else is nothing at all — without this, a clicked `../src/app.rs` is handed to the
+/// operating system as a URL.
+pub fn on_link(
+    app: Entity<AppState>,
+    base: Option<SharedString>,
+) -> impl Fn(&SharedString, &ClickEvent, &mut Window, &mut App) + Send + Sync + 'static {
+    move |target, _, _, cx| {
+        let base = base.clone().unwrap_or_default();
+        let dest = app
+            .read(cx)
+            .project(cx)
+            .and_then(|project| crate::state::nav::resolve_relative(project, &base, target));
+        match dest {
+            Some(dest) => app.update(cx, |this, cx| this.navigate(dest, cx)),
+            None => {
+                let lower = target.to_ascii_lowercase();
+                if ["http:", "https:", "mailto:"]
+                    .iter()
+                    .any(|scheme| lower.starts_with(scheme))
+                {
+                    cx.open_url(target);
+                }
+            }
+        }
+    }
 }

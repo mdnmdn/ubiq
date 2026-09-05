@@ -71,7 +71,11 @@ empty region opens onto.
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer
 every surface that hosts a live agent shares — the run pill, the context ring, the token cost, the
 launch-time model and thinking pickers. A tab unattached to anything shows a page naming what fixes
-it, the same way the agents screen's empty page does.
+it, the same way the agents screen's empty page does. **A link in a rendered reply goes where it
+points**: the transcript hands `ui::on_link` to its `TextView`, so a relative path resolved from the
+project root or a full `ubiq://` opens that place in the window, `http`, `https` and `mailto` reach
+the operating system, and anything else does nothing — see
+[`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
 
 **The status glyph and the three-dots lifecycle menu are the one exception: the tab's own header
 draws them, not the shared view.** `ConversationView::header` tells the shared view whether to draw

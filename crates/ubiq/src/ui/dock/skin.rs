@@ -393,6 +393,19 @@ impl TabGroupRenderer for Skin {
 
                 tab = tab.child(info.label.clone());
 
+                if info.bookmarks > 0 {
+                    tab = tab.child(
+                        crate::ui::kit::mono(
+                            format!("\u{2691}{}", info.bookmarks),
+                            theme::accent(),
+                        )
+                        .flex_none()
+                        .text_size(px(10.5))
+                        .px_1()
+                        .bg(theme::accent_soft()),
+                    );
+                }
+
                 if let Some(colour) = info.dot_colour {
                     tab = tab.child(div().size(px(7.)).flex_none().rounded_full().bg(colour));
                 }

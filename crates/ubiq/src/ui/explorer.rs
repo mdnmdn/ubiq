@@ -21,8 +21,8 @@ use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
 use crate::ui::kit::{
-    ContextItem, badge, context_menu, elided, elided_with, file_row, filter_bar, icon_button,
-    kind_icon, mono, panel, panel_header, twisty, view_switch,
+    ContextItem, badge, context_menu, disclosure, elided, elided_with, file_row, filter_bar,
+    icon_button, kind_icon, mono, panel, panel_header, twisty, view_switch,
 };
 
 /// The colour a row's name and dot take from its git state. Status is never shown by wording alone.
@@ -289,6 +289,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                     cx.listener(|this, _, _, cx| this.collapse_explorer(cx)),
                 )),
         ))
+        .children(bookmarks_section(app, cx))
         .child(filter_bar(
             // Under the three-character floor nothing is being searched for yet, and the query
             // says so by drawing faint rather than by a message the user has to read.
@@ -559,4 +560,77 @@ fn follow_button(state: Follow, cx: &mut Context<AppState>) -> impl IntoElement 
         })
         .child(mark)
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.cycle_explorer_follow(cx)))
+}
+
+/// The project's written-down places, above the filter and outside the tree's focus so neither
+/// the tree's keymap nor its cursor knows this is here.
+///
+/// Plain rows, not a second tree: there is no twisty, no indent and no key handling — a bookmark
+/// is a destination with a name, and the only thing to do with one is go there.
+fn bookmarks_section(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let marks: Vec<(usize, String, crate::state::Destination, bool)> = app
+        .bookmarks(cx)
+        .iter()
+        .enumerate()
+        .map(|(ix, mark)| (ix, mark.name.clone(), mark.dest.clone(), mark.adrift))
+        .collect();
+    if marks.is_empty() {
+        return None;
+    }
+    let open = app.workbench.bookmarks_open;
+    let count = marks.len().to_string();
+    let font = app.ui_font_size_or_default(cx) - 0.5;
+
+    let rows: Vec<AnyElement> = marks
+        .into_iter()
+        .map(|(ix, name, dest, adrift)| {
+            let colour = if adrift {
+                // A bookmark that lost its line says so; it is not quietly repaired.
+                theme::warning()
+            } else {
+                theme::text_muted()
+            };
+            div()
+                .id(("bookmark", ix))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py(px(2.))
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::hover()))
+                .child(elided(("bookmark-name", ix), name, colour, font))
+                .when(adrift, |this| this.child(badge("adrift", theme::warning())))
+                .on_click(cx.listener(move |this, _, _, cx| this.navigate(dest.clone(), cx)))
+                .into_any_element()
+        })
+        .collect();
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .child(disclosure(
+                "explorer-bookmarks",
+                "Bookmarks",
+                badge(&count, theme::text_faint()),
+                open,
+                cx.listener(|this, _, _, cx| this.toggle_bookmarks_section(cx)),
+            ))
+            .when(open, |this| {
+                this.child(
+                    div()
+                        .id("explorer-bookmark-rows")
+                        .flex()
+                        .flex_col()
+                        .flex_none()
+                        .max_h(px(180.))
+                        .overflow_y_scroll()
+                        .children(rows),
+                )
+            })
+            .into_any_element(),
+    )
 }

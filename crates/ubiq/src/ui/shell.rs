@@ -26,6 +26,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::new_untitled_file))
         .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
+        .on_action(cx.listener(AppState::back))
+        .on_action(cx.listener(AppState::forward))
+        .on_action(cx.listener(AppState::toggle_bookmark))
+        .on_action(cx.listener(AppState::open_navigator))
         .on_action(cx.listener(|this, _: &FocusFileFilter, window, cx| {
             this.reveal_explorer_filter(window, cx)
         }))

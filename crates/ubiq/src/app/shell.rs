@@ -647,6 +647,8 @@ impl Render for AppState {
         self.fill_project_form(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
+        // Where the window is drawing, remembered once the screens above have settled on it.
+        self.settle_nav(cx);
         self.settle_tab_drag(cx);
         // The filter field is one per window; the project on screen's filter is the window's habit
         // from the frame after the project swings in. Cheap when nothing changed, and it never

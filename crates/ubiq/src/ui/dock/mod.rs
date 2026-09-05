@@ -231,6 +231,7 @@ impl WorkbenchPanel {
                         dot_colour: did_save_or_dirty(file).then(|| editor::dirty_colour(file)),
                         temporary: file.temporary,
                         tooltip: None,
+                        bookmarks: app.bookmark_count(key, cx),
                     }
                 }
                 // The tab of a file this window no longer holds. It is hidden rather than drawn,
@@ -310,6 +311,9 @@ pub struct TabInfo {
     pub temporary: bool,
     /// The untruncated title, shown on hover when [`Self::label`] is a trimmed version of it.
     pub tooltip: Option<SharedString>,
+    /// How many bookmarks the file holds, so a tab says so while their lines are off screen.
+    /// Zero everywhere else, and zero is drawn as nothing.
+    pub bookmarks: usize,
 }
 
 impl Default for TabInfo {
@@ -320,6 +324,7 @@ impl Default for TabInfo {
             dot_colour: None,
             temporary: false,
             tooltip: None,
+            bookmarks: 0,
         }
     }
 }

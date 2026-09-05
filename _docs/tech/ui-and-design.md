@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -221,7 +221,11 @@ and no margin of its own: it touches the row's top and bottom borders, and the f
 its ends. Side by side they are separated by a hairline rather than a gap, and where a group needs
 telling from the next one it is a 1px rule, not whitespace. An icon button keeps its 30px width, so
 what fills the height reads as a square in a short row — which is why `TITLEBAR_HEIGHT` is short
-enough for that to be true. Content pads; chrome does not.
+enough for that to be true. Content pads; chrome does not. The titlebar's back and forward controls
+are that rule plus the one thing `icon_button` has no room for — a control with nowhere to go: they
+keep the 30px square and the full row height, and at the history's end they draw in `text_faint()`
+and answer neither pointer nor click, which is why they have their own helper in `ui/titlebar.rs`
+and a 1px rule rather than a gap between them and the `⌘K` field.
 
 Circles survive in exactly one place: state dots, which are dots.
 
@@ -281,6 +285,26 @@ change the panel's size. They keep the modal's scrim, coloured left edge, outsid
 `deferred` priority, and they are painted from the shell over the window rather than from
 `kit::modal`. The furniture — `heading`, `setting_row`, `nav_item` — lives in `ui/kit/settings.rs`
 so the kitchen sink draws the same rows.
+
+**A list that hangs off a control is not a modal, and does not get the modal's device.** The ⌘K
+navigator — `ui/navigator.rs` — is drawn the way the kit's dropdown in `ui/kit/menu.rs` is: an
+`anchored()` with **no `.position()`**, made a child of the element it belongs to, so it is placed
+against that element rather than against the window's origin. Offset by `TITLEBAR_HEIGHT` to fall
+under the titlebar's field, snapped into the window with an 8px margin, at `deferred` priority 2 —
+above the dropdowns at 1, because it is raised over the whole chrome. No scrim and no outside-click
+dismiss: the list belongs to a field the user is still typing in. Its key context and every handler
+go on the **field**, not on the panel, because the keyboard is in the input inside the field and a
+deferred panel is nowhere on the focus path — which is why each of its keys is bound twice, for
+`Navigator` and for `Navigator > Input`, by the rule below.
+
+**Two marks say a file has bookmarks, and neither is a new colour.** A bookmarked line is a
+`TextDecoration` over the line's byte range with `accent_soft()` behind it, set through the open
+file's `EditorState`: the component library's only public decoration surface is that collection over
+byte ranges, so the mark sits on the line rather than in the gutter. A file's tab wears a small mono
+count chip in `accent()` on `accent_soft()` while those lines are off screen; the explorer's
+bookmarks section is a `kit::disclosure` over plain rows; and a bookmark that has lost its line
+draws in `warning()`. **No token was added for any of this** — `accent_soft()` is the fill behind a
+selected row and `warning()` is what a thing that went wrong but still works is drawn in.
 
 **A dialog is worked from the keyboard, and a binding against a field has to be registered late.**
 The component library's input binds `up`, `down`, `left`, `right`, `enter` and `escape` for itself, in

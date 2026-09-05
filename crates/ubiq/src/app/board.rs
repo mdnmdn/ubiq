@@ -461,27 +461,38 @@ impl AppState {
     }
 
     /// Take a task to the orchestration screen: the graph, pointed at whoever is doing it.
+    ///
+    /// A task nobody is doing and no session holds names nothing, and a destination that names
+    /// nothing is not a place — so the screen stays where it is rather than switching to a graph
+    /// with nothing selected.
     pub fn show_task_in_graph(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
         let selection = self.work(cx).and_then(|work| {
             let task = work.task(task)?;
             work.now(task)
                 .map(|agent| Selection::Agent(agent.id))
                 .or_else(|| task.session.map(Selection::Session))
         });
-        if let Some(selection) = selection
-            && let Some(graph) = self.graph_mut(cx)
-        {
-            graph.selection = Some(selection);
-        }
-        self.set_rail_mode(RailMode::Orchestration, cx);
+        let Some(selection) = selection else {
+            return;
+        };
+        let tab = self.graph(cx).map_or(InspectorTab::Chat, |graph| graph.tab);
+        self.navigate(
+            Destination::new(project, View::Graph { selection, tab }),
+            cx,
+        );
     }
 
     /// The way from a card to the conversation with the agent holding it: the **agents** screen,
     /// that agent in a column of its own. The conversation is what was asked for, and the columns
     /// are where a conversation is had — the graph is the map, not the transcript.
     pub fn open_task_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        self.reveal_agent(agent, cx);
-        self.set_rail_mode(RailMode::Agents, cx);
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        self.navigate(Destination::new(project, View::Agents { agent }), cx);
     }
 
     /// A drag that ended anywhere but a column never reaches a drop handler, so a carry with no

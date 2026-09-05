@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, vim mode, or the status bar
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -544,15 +544,83 @@ click to bring that window to the front — which is how the user moves between 
 to open it in a new window. Closing a project that still has terminals running turns the row into a
 question rather than taking the click.
 
-**The middle of the titlebar is one field, marked `⌘K`**, though nothing binds the chord yet — the
-mark is a placeholder for the fast file/command navigator [`omni-search-proposal.md`](../inbox/omni-search-proposal.md)
-still designs. What the field does today: Enter switches the window to the IDE, hands its text to
+**The middle of the titlebar is one field, marked `⌘K`.** The chord raises the navigator over the
+field and puts the caret in it, and Enter then goes to the row under the cursor. With the navigator
+shut, Enter is the project content search: it switches the window to the IDE, hands its text to
 the search panel's own query field, reveals the panel (`reveal_search`) and runs a project content
 search — then clears itself, the way a command palette clears once its command has fired. A no-op
 with no project open. The field draws itself with the kit's shared text-entry container — a surface
 with a coloured left edge, and a bottom underline while it holds the keyboard. There is no
 breadcrumb: the titlebar says which project, the tab strip says which file, and repeating it in the
 middle bought nothing.
+
+**Every place the window can show is one value, and one call goes there.** A destination names a
+project, a view — a file by its tab key, a folder, a pane, the graph with its selection and its
+inspector tab, an agent, a task, a chat, or one of Control, Knowledge, Git and Logs — and
+optionally a spot inside that view: a line, a span, a heading slug, a viewport or a graph node.
+**The locus is not part of the place**, so arriving at a file already open moves the caret and
+nothing else. A link, a card's button, a bookmark, a navigator row and a back press all end in the
+same `navigate` call, which is what keeps one record of where the user has been. A screen pointed
+at nothing — the graph with no selection, the board with no task — is not a place, and the kitchen
+sink is not addressable at all: it is the test bench and has no project behind it. **A destination
+names a project, never a window**: one whose project another window holds sends *that* window there
+and raises it, so nothing moves between windows and the follower's own place is untouched.
+
+**Back and forward are one stack per window, spanning every project it has shown.** `⌃-` and
+`⌃⇧-`, and two controls immediately left of the `⌘K` field — each drawn faint and taking neither
+pointer nor click when its end of the stack is empty, and each carrying the name of where it would
+go, with the project's name in front of it when that is not the project on screen. An arrival is
+recorded once a frame from what the window is actually drawing, so there is no call site to keep in
+step: a rail switch, a file opened, a tab brought forward and a project change are new places and
+push; a caret move, a pan and a zoom are the same place at a new locus and refresh the entry where
+it stands; a filter, a panel toggle and a palette change are not places. Going back and then
+scrolling means coming forward lands where the user left rather than where the link pointed. The
+stack holds 64, drops its oldest, and is not persisted. An entry whose project another window now
+holds is stepped over and kept; one whose project has been forgotten is dropped.
+
+**A destination survives being written down, as `ubiq://<project-id>/<view>[/<item>][#<locus>]`.**
+The view slug decides how much follows it rather than the number of segments, so a file path needs
+no escaping: `ide` and `explorer` take everything up to the fragment, `terminal`, `tasks`, `chat`
+and `agents` take exactly one id, `graph` takes `s:<session-id>` or `a:<agent-id>` — the prefix is
+forced, because both are 26-character ULIDs and the text alone cannot tell them apart — followed
+optionally by `chat` or `tasks`, and `control`, `kb`, `git` and `logs` take nothing, a trailing
+segment on one of them being a different string rather than a refinement. The fragment is `L42`,
+`L42-58`, `v=x,y,scale`, `n=key` or a heading slug. `%`, `#`, space and the control bytes are
+escaped and UTF-8 passes through raw, so a link stays readable. **The project is written as its id
+and drawn as its name**: a name is not stable and a bookmark from three weeks ago needs one that
+is. **Parsing is total** — a string that does not parse is not a link, and nothing at all happens.
+`Copy link` is on the explorer's row menu and on a file tab's menu.
+
+**A bookmark is a destination the user wrote down, with a name.** `⌘⌥K` writes down where the user
+is, and takes it away again if it is already down. Bookmarks ride the project's own preference
+blob, so forgetting a project forgets them, and a chat is never offered one because its id is
+minted by this window and means nothing tomorrow. **A line number rots, so a bookmark on a line
+keeps that line's own text**, trimmed and capped at 120 characters. When the file is read again the
+number is trusted first — so a line that appears twice does not have its bookmark stolen by the
+other copy — and then the text is looked for outward, 200 lines either way: found elsewhere, the
+bookmark re-stamps its number; found nowhere, it is **adrift**, drawn in the warning colour and
+never quietly repaired. A bookmarked line is lit by a highlight over the line itself, and a file's
+tab wears the count of the bookmarks it holds so it says so while their lines are off screen. The
+project's bookmarks are a collapsible section at the head of the explorer, above the filter and
+outside the tree's focus, so neither the tree's keymap nor its cursor knows it is there; the rows
+are plain, and the only thing to do with one is go where it points.
+
+**The navigator is the list the `⌘K` field offers.** Flat and single-select — up and down walk it,
+Enter goes, Escape takes the list away and leaves the typing alone. Five groups, drawn in this
+order: Recent, Bookmarks, Files, Tasks and Agents, eight rows each, matched by subsequence over
+what the row itself says. An empty query is Recent then Bookmarks and **no files**: a file list
+with nothing typed is the explorer. Files are the explorer's own filtered rows, under the same
+three-character floor and deepening as its background walk lands. A pasted `ubiq://` is an answer
+rather than a filter and collapses the list to one row naming where it goes; one naming a project
+this catalogue does not hold says so and takes no click. There are no commands in it: a command is
+not a place.
+
+**A link in rendered content is a destination.** A Markdown document's own relative links resolve
+against the document, so `../src/app.rs#L200` opens that file at that line, and a target that pops
+past the project root is not a link. `http`, `https` and `mailto` are handed to the operating
+system; anything else does nothing at all. The same handler is on the chat transcript's rendered
+replies and on a task's rendered description, both resolved from the project root. **Terminal
+output is never scanned for links** — reading a harness's screen is the thing Ubiq does not do.
 
 **The window's body is a dock, and the user arranges it.** Everything between the chrome is a tree
 of tabbed groups: dropping a tab in the middle of a group tabs it there, dropping it on a group's
@@ -873,9 +941,10 @@ reveal opens the way to one file, it does not tidy the rest of the tree away. It
 down, so a window opens with it off.
 
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
-path, Copy full path, Open in Finder, Open in Web, New file, New folder, Copy, Paste, Duplicate,
-Rename and Delete; a folder offers Expand or Collapse, New file, New folder, Copy path, Copy full
-path, Open in Finder, Open in Web, Refresh, Copy, Paste, Duplicate, Rename and Delete; a click on the
+path, Copy full path, Copy link, Open in Finder, Open in Web, New file, New folder, Copy, Paste,
+Duplicate, Rename and Delete; a folder offers Expand or Collapse, New file, New folder, Copy path,
+Copy full path, Copy link, Open in Finder, Open in Web, Refresh, Copy, Paste, Duplicate, Rename and
+Delete; a click on the
 empty panel offers New file, New folder, Paste and Collapse all, because that is where the actions
 that need no row live. **New file, New folder and Paste land in the folder the row is in**, which is
 the row itself when it is a folder and the one holding it when it is a file — so a file row offers
@@ -1999,10 +2068,41 @@ selection change, a project switch and a `TaskChanged` for the open task each le
 next frame to drain. Its guard is what stops it writing over what is being typed on every frame, and
 it fills from the record the host confirmed rather than from what was typed — never while a field is
 open. `install_key_bindings()` binds `⌘S`, `cmd-w`/`ctrl-w` (`close_active_editor()`, the keyboard
-equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in) and `cmd--` (zoom out)
-in the `Workbench` key context, then the file picker's and
+equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in), `cmd--` (zoom out), and
+`ctrl--`, `ctrl-shift--`, `cmd-alt-k` and `cmd-k` for navigation
+in the `Workbench` key context, then the file picker's, the navigator's and
 the explorer's keys — each bound for the surface and for the field inside it, after the component
 library's own so they win — and the binary calls it beside its own quit binding.
+
+`state/nav.rs` is the value and everything pure about it: `Destination`, `View`, `Locus`,
+`same_place()` which compares everything but the locus, `persistable()` which is false only for a
+chat, `label()`, the `History` stack with `record()`, `back()`, `forward()` and `peek()` over a
+`Fate` predicate the caller supplies, the `Bookmark` record — serialised with its destination as
+text, so what keeps an old bookmark readable is the parser rather than a set of serde variant names,
+and one that no longer parses is dropped alone rather than costing the blob — and `resolve_anchor()`.
+`state/nav/text.rs` is the `ubiq://` form: `Display`, `FromStr`, and `resolve_relative()` for a link
+written inside a document, where `..` pops because a document holds paths a human wrote while the
+host only ever holds paths it handed out. `app/nav.rs` is the router. `current_destination()` matches
+the rail mode, reads the screen's own selection and asks `where_locus()`; `navigate()` resolves the
+project — handing the whole destination to another window's `AppState` and raising that window when
+it is the one holding the project — sets the rail mode, calls one `reveal_*`, and keeps the
+project's recents, which is why they are kept in exactly one place. `settle_nav()` runs once a frame
+from `Render` beside `settle_board()` and is the single push site, with no `cx.notify()` of its own
+or the frame spins. `reveal_ide()` brings a tab forward and drives the buffer's
+`set_selected_range` — the same call every vim motion scrolls its caret in with — stashing
+`pending_goto` for a file whose bytes have not landed, which `app/editor.rs` drains through
+`OpenFile::set_restore()` as the contents arrive. `mark_bookmarks()` runs on the same arrival,
+re-stamps what moved and lights what it found through one `TextDecorationCollection` per buffer.
+`show_task_in_graph()` and `open_task_chat()` in `app/board.rs` are two `navigate()` calls.
+`ViewPrefs` carries `bookmarks` and `recents`, both defaulted and written through `store_prefs()`;
+`graph_scroll` on `AppState` is the tracked handle a `Viewport` locus reads and writes.
+`state/navigator.rs` builds the rows in a free `rows()` naming neither `AppState` nor a window, and
+`ui/navigator.rs` draws them `deferred` and `anchored` off the titlebar's field, with the key
+context and every handler on the **field**, because the keyboard is in the input inside it and a
+deferred panel is nowhere on the focus path. `ui::on_link()` is the one handler
+`ui/viewer/markdown.rs`, `ui/conversation/mod.rs` and `ui/board/form.rs` each hand to their
+`TextView`. `crates/ubiq/tests/nav.rs`, `tests/nav_text.rs`, `tests/bookmarks.rs` and
+`tests/navigator.rs` assert all of it without a frame.
 
 ## Failure
 

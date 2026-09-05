@@ -477,6 +477,15 @@ impl AppState {
                 }
                 cx.notify();
             }
+            ExplorerAction::CopyLink => {
+                if let Some(path) = path
+                    && let Some(project) = self.project(cx)
+                {
+                    let dest = Destination::new(project, View::Explorer { path });
+                    self.copy_link(&dest, cx);
+                }
+                cx.notify();
+            }
             ExplorerAction::CopyFullPath => {
                 if let Some(rel) = path
                     && let Some(snap) = self.project_snapshot(cx)

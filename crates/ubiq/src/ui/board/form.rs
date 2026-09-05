@@ -326,6 +326,7 @@ fn rendered(task: &TaskRecord, source: String, cx: &mut Context<AppState>) -> An
         .cursor_text()
         .child(
             TextView::markdown(eid("task-md", task.id), source)
+                .on_link_click(crate::ui::on_link(cx.entity(), None))
                 .text_size(px(theme::EDITOR_FONT_SIZE)),
         )
         .on_click(

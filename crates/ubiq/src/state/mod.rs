@@ -20,6 +20,8 @@ pub mod file_picker;
 pub mod git;
 pub mod layout;
 pub mod logs;
+pub mod nav;
+pub mod navigator;
 pub mod orchestration;
 pub mod prefs;
 pub mod scene;
@@ -51,6 +53,7 @@ pub use file_picker::{
 pub use git::{CommitRow, GitView, RefRow, RefSection, Side};
 pub use layout::Layout;
 pub use logs::LogState;
+pub use nav::{Destination, Locus, View};
 pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
 pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
 pub use search::{ActiveSearch, SearchState};

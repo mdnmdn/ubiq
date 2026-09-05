@@ -496,5 +496,5 @@ document does not.
 - [`../tech/project-structure.md`](../tech/project-structure.md) — the workspace §3 and §10 reshape
 - [`../tech/agent-manager.md`](../tech/agent-manager.md) — the boundary owning accounts, credentials and the skill catalogue, and therefore §7's third row
 - [`../features/workbench.md`](../features/workbench.md) — the rail modes and panels §4 registers
-- [`./ui-routing-proposal.md`](./ui-routing-proposal.md) — the `where`/`reveal` pair that is the screen contract, and why its phase 1 comes first
+- [`./completed/ui-routing-proposal.md`](./completed/ui-routing-proposal.md) — the `where`/`reveal` pair that is the screen contract, and why its phase 1 comes first
 - [`../backlog.md`](../backlog.md) — where §16's open rows go

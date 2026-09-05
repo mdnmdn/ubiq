@@ -258,6 +258,8 @@ pub enum ExplorerAction {
     OpenDiff,
     CopyPath,
     CopyFullPath,
+    /// The row as a `ubiq://` destination, which is what a link in a document wants.
+    CopyLink,
     OpenInSystem,
     OpenInWeb,
     Refresh,
@@ -285,6 +287,7 @@ impl ExplorerAction {
             ExplorerAction::OpenDiff => "Open diff vs HEAD",
             ExplorerAction::CopyPath => "Copy path",
             ExplorerAction::CopyFullPath => "Copy full path",
+            ExplorerAction::CopyLink => "Copy link",
             ExplorerAction::OpenInSystem => open_in_system_label(),
             ExplorerAction::OpenInWeb => "Open in Web",
             ExplorerAction::Refresh => "Refresh",

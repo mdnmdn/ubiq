@@ -33,6 +33,11 @@ use crate::state::file_picker::{
 use crate::state::git::{
     GitView, RefSection, Side as GitSide, commit_rows, ref_rows, submodule_rows,
 };
+use crate::state::nav::{
+    Anchored, Bookmark, Destination, Fate, History, Locus, View, range_for, resolve_anchor,
+    toggle_mark,
+};
+use crate::state::navigator::NavigatorState;
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
     self as ui_settings, AccountDialog, CliShortcut, LoginState, LoginStep, MAX_LOGIN_LINKS,
@@ -59,7 +64,9 @@ use gpui::{
     WeakEntity, Window, WindowBounds, WindowId, WindowOptions, point, prelude::*, px, size,
 };
 use gpui_component::dock::{DockArea, DockEvent, PanelId};
-use gpui_component::input::{EditorState, InputEvent, InputState, TabSize, TextareaState};
+use gpui_component::input::{
+    EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
+};
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
@@ -105,7 +112,11 @@ gpui::actions!(
         ZoomOut,
         DialogConfirm,
         DialogCancel,
-        FocusFileFilter
+        FocusFileFilter,
+        NavBack,
+        NavForward,
+        ToggleBookmark,
+        OpenNavigator
     ]
 );
 
@@ -376,6 +387,9 @@ pub struct AppState {
     /// the focus needs a `Window`, and the buffer may still be arriving, so it waits for the frame
     /// that can do both. See [`Self::take_editor_focus`].
     pending_editor_focus: Option<String>,
+    /// A tab key and the spot in it a destination asked for, waiting on the file's bytes. Taken
+    /// when they land, so a link into a file that was not open still arrives at its line.
+    pub(super) pending_goto: Option<(String, Locus)>,
 
     /// The window's whole arrangement: a tree of tabbed groups the user rearranges by dragging.
     /// Every area of the workbench is a panel in it, and nothing outside it decides where anything
@@ -401,6 +415,15 @@ pub struct AppState {
     /// auto-hide this drives. See the `DockEvent::LayoutChanged` subscription in [`Self::new`].
     region_had_content: (bool, bool, bool),
 
+    /// Every place this window has drawn, and where in that list it is standing.
+    pub nav: History,
+    /// Set by a back or forward press, taken by the next [`Self::settle_nav`]: the arrival it
+    /// causes is a return, not a new place, so it refreshes the entry rather than pushing one.
+    nav_settling: bool,
+    /// One decoration collection per open file's buffer, keyed by tab key: the library hands a
+    /// collection out once and it lives as long as the buffer, so it is kept rather than remade.
+    bookmark_marks: HashMap<gpui::EntityId, gpui_component::input::TextDecorationCollection>,
+
     pub workbench: WorkbenchState,
     /// Which chat tab's own *New chat* is waiting on [`Message::StartConversation`]'s round trip,
     /// so [`Self::pick_new_agent_menu`] knows which tab to attach the freshly minted conversation
@@ -418,6 +441,10 @@ pub struct AppState {
     /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
     /// who is owed the answer.
     pub file_picker: Option<FilePickerState>,
+    /// The ⌘K navigator, when it is up. Beside the picker rather than inside it: the two are
+    /// siblings — flat and single-select against a forest with a picked set — and either may be
+    /// raised without the other.
+    pub navigator: Option<NavigatorState>,
 
     /// Whether this window should take a project from the first catalogue that arrives. True only
     /// for the window the binary opened.
@@ -547,6 +574,8 @@ pub struct AppState {
     pub picker_scroll: ScrollHandle,
     /// The explorer's rows, for the same reason.
     pub explorer_scroll: ScrollHandle,
+    /// The orchestration canvas, so a destination can name where on it the user was.
+    pub graph_scroll: ScrollHandle,
     /// Where the keyboard rests when it is on the tree rather than in the filter above it. The two
     /// are separate focuses on purpose: the field owns every key a field owns — Backspace first of
     /// all — and the tree's own keys, removal included, are only live once the tree holds focus.
@@ -593,6 +622,7 @@ pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 mod git;
 mod graph;
+mod nav;
 mod panels;
 mod picker;
 mod projects;
@@ -685,6 +715,10 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-p", FocusFileFilter, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl--", NavBack, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-shift--", NavForward, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Workbench")),
         // Enter answers whichever file question is up; Escape takes it away. Both are handed back
         // when no dialog is up — `AppState::confirm_dialog` says why that matters.
         gpui::KeyBinding::new("enter", DialogConfirm, Some("Workbench")),
@@ -703,6 +737,14 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Input")),
         // ⌘P means "go to file" wherever the caret is, for the same reason and by the same device.
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Input")),
+        // ⌃- and ⌃⇧- mean back and forward with the caret in a buffer too, by the same device.
+        gpui::KeyBinding::new("ctrl--", NavBack, Some("Input")),
+        gpui::KeyBinding::new("ctrl-shift--", NavForward, Some("Input")),
+        // ⌘⌥K writes down the line the caret is on, so it has to be live from inside the buffer.
+        gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Input")),
+        // ⌘K raises the navigator from inside a field too, by the same device. **Not** ⌃K: the
+        // component library owns that one inside an input.
+        gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Input")),
         gpui::KeyBinding::new("cmd-alt-f", gpui_component::input::Replace, Some("Input")),
         // The prompt dialogs put the keyboard in a field, and the component library binds keys at
         // the field's own depth — so Escape is bound there too, or it never reaches the window.
@@ -714,6 +756,7 @@ pub fn install_key_bindings(cx: &mut App) {
     // have to be registered after the component library's own — `ui::file_picker::key_bindings`
     // says why.
     cx.bind_keys(crate::ui::file_picker::key_bindings());
+    cx.bind_keys(crate::ui::navigator::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());
     gpui_terminal::install_key_bindings(cx);
 }

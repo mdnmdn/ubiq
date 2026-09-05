@@ -20,6 +20,7 @@ const ITEMS: &[&str] = &[
     "Close Right",
     "Close All",
     "Copy Full Path",
+    "Copy link",
     "Open in Finder",
     "Save",
     "Word Wrap",

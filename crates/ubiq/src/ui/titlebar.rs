@@ -2,15 +2,16 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, Context, Focusable, IntoElement, ParentElement, StatefulInteractiveElement as _, Styled,
-    Window, div, px,
+    App, ClickEvent, Context, Focusable, InteractiveElement as _, IntoElement, ParentElement,
+    StatefulInteractiveElement as _, Styled, Window, div, px,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use crate::app::AppState;
+use crate::app::{AppState, NavBack, NavForward};
 use crate::theme;
 use crate::ui::kit::{field, icon_button, mono};
+use crate::ui::navigator;
 use crate::ui::project_menu;
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -58,6 +59,26 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
             )
         })
         .child(div().flex_1().min_w(px(0.)))
+        .child(nav_control(
+            "nav-back",
+            IconName::ChevronLeft,
+            nav_label(app, true, cx),
+            cx.listener(|this, _, window, cx| this.back(&NavBack, window, cx)),
+        ))
+        .child(nav_control(
+            "nav-forward",
+            IconName::ChevronRight,
+            nav_label(app, false, cx),
+            cx.listener(|this, _, window, cx| this.forward(&NavForward, window, cx)),
+        ))
+        .child(
+            div()
+                .w(px(1.))
+                .h(px(18.))
+                .mr_1()
+                .flex_none()
+                .bg(theme::border()),
+        )
         .child(command_field(app, window, cx))
         .child(div().flex_1().min_w(px(0.)))
         .child(
@@ -168,13 +189,13 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
 }
 
 /// The middle of the titlebar: one field for finding a file and for running a command.
-fn command_field(app: &AppState, window: &Window, cx: &App) -> impl IntoElement {
+fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let focused = app
         .command_input
         .read(cx)
         .focus_handle(cx)
         .is_focused(window);
-    field(theme::border(), focused)
+    let bar = field(theme::border(), focused)
         .w(px(420.))
         .h_full()
         .px_2()
@@ -192,5 +213,56 @@ fn command_field(app: &AppState, window: &Window, cx: &App) -> impl IntoElement 
                 .text_size(px(12.5))
                 .child(Input::new(&app.command_input).appearance(false)),
         )
-        .child(mono("\u{2318}K", theme::text_faint()).text_size(px(10.5)))
+        .child(mono("\u{2318}K", theme::text_faint()).text_size(px(10.5)));
+    // The navigator hangs off the field it is typed into: its key context and its handlers go on
+    // this div, because the keyboard is in the input inside it.
+    navigator::attach(bar, app, cx)
+}
+
+/// What the press in one direction would land on, named the way the user reads places: a path
+/// where there is one, and the project's name in front of it when it is not the one on screen.
+fn nav_label(app: &AppState, back: bool, cx: &App) -> Option<String> {
+    let dest = app.nav.peek(back)?;
+    let label = dest.label();
+    if Some(dest.project) == app.project(cx) {
+        return Some(label);
+    }
+    let name = crate::state::WindowRegistry::read(cx)
+        .project(dest.project)
+        .map(|snapshot| snapshot.record.name.clone())?;
+    Some(format!("{name} · {label}"))
+}
+
+/// Back and forward, flush in the row like every other piece of chrome.
+///
+/// Its own helper rather than [`icon_button`] because these two are the only controls with
+/// nowhere to go: with no target they are drawn faint and answer neither the pointer nor a click.
+fn nav_control(
+    id: &'static str,
+    icon: IconName,
+    target: Option<String>,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let live = target.is_some();
+    div()
+        .id(id)
+        .w(px(30.))
+        .h_full()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(Icon::new(icon).with_size(Size::Small).text_color(if live {
+            theme::text_muted()
+        } else {
+            theme::text_faint()
+        }))
+        .when_some(target, |this, label| {
+            this.cursor_pointer()
+                .hover(|this| this.bg(theme::hover()))
+                .on_click(on_click)
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+                })
+        })
 }

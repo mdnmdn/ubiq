@@ -144,6 +144,15 @@ pub struct ViewPrefs {
     /// default.
     #[serde(default)]
     pub editor_wrap: Option<bool>,
+    /// The places written down in this project. Each destination is stored as its `ubiq://` text,
+    /// and one that no longer parses is dropped rather than costing the blob — see
+    /// [`crate::state::nav::kept_bookmarks`].
+    #[serde(default, deserialize_with = "crate::state::nav::kept_bookmarks")]
+    pub bookmarks: Vec<crate::state::nav::Bookmark>,
+    /// The places most recently arrived at, newest first, as `ubiq://` text. Only destinations
+    /// that survive a restart are in it.
+    #[serde(default)]
+    pub recents: Vec<String>,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -167,6 +176,8 @@ impl Default for ViewPrefs {
             file_filter: String::new(),
             ui_font_size: None,
             editor_wrap: None,
+            bookmarks: Vec::new(),
+            recents: Vec::new(),
             rest: Default::default(),
         }
     }

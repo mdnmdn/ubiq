@@ -410,9 +410,10 @@ impl AppState {
             3 => self.close_editor_tabs_right(&key, cx),
             4 => self.close_all_editor_tabs(cx),
             5 => self.copy_full_path_for_tab(&key, cx),
-            6 => self.open_in_finder_for_tab(&key, cx),
-            7 => self.save_file(&key, cx),
-            8 => self.toggle_editor_wrap(window, cx),
+            6 => self.copy_link_for_tab(&key, cx),
+            7 => self.open_in_finder_for_tab(&key, cx),
+            8 => self.save_file(&key, cx),
+            9 => self.toggle_editor_wrap(window, cx),
             _ => {}
         }
         cx.notify();
@@ -431,6 +432,21 @@ impl AppState {
                 .to_string();
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
         }
+    }
+
+    /// Copy the tab's `ubiq://` link: the file itself, no line — a tab is not a spot in one.
+    fn copy_link_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let dest = Destination {
+            project,
+            view: View::Ide {
+                key: key.to_string(),
+            },
+            locus: None,
+        };
+        self.copy_link(&dest, cx);
     }
 
     /// Reveal the file a tab names in the system file manager.
@@ -841,12 +857,23 @@ impl AppState {
             },
         );
 
+        // A destination that named a spot in this file arrived before its bytes did. It outranks
+        // a reload's saved caret: the reload is where the tab was, the goto is where the user
+        // asked to be.
+        let goto = self
+            .pending_goto
+            .take_if(|(key, _)| *key == tab_key(&path, Subject::File))
+            .and_then(|(_, locus)| range_for(&text, &locus));
+
         if let Some(open) = self.projects.get_mut(&project)
             && let Some(file) = open.editor.find_mut(&path)
         {
             // A reload's cursor and scroll were saved off the buffer this one replaces; put them
             // back now so a background tab's refresh lands where the user left it rather than at
             // the top. Nothing to restore for a tab that was never reloaded.
+            if let Some(range) = goto {
+                file.set_restore(range, gpui::Point::default());
+            }
             let restore = file.take_restore();
             file.attach(
                 buffer.clone(),
@@ -862,6 +889,8 @@ impl AppState {
                 });
             }
         }
+        // The bytes are here, so what this file's bookmarks now point at can be answered.
+        self.mark_bookmarks(&tab_key(&path, Subject::File), cx);
         cx.notify();
     }
 

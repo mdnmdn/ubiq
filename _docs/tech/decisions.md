@@ -1082,6 +1082,24 @@ because a level belongs to a model and never to a harness.
 **Cost:** the preference is per harness, not per account or per project — two accounts on the same
 harness share one remembered model.
 
+### D64 — Navigation is the interface's own: no transport family, no new message
+
+Where the user is, how they got there and where they have written down are questions about one
+window's screens. The router in `crates/ubiq/src/app/nav.rs` answers them with the intents that
+exist — activating a project through the registry, reading a file through the file family —
+and adds no message to `crates/ubiq-proto/src/messages.rs`. A destination names a project, never a
+window, so nothing about it is the host's to arbitrate; history is per window and not persisted at
+all. Bookmarks and recents ride the project's **existing opaque preference blob** through
+`SetPreferences` under `Scope::Project`, beside the furniture `ViewPrefs` carries, and the
+host neither parses nor validates them — which keeps the schema the interface's, exactly as the
+transport contract has it. Each destination is stored as its `ubiq://` text rather than as a serde
+shape, so compatibility belongs to one parser and a record this build no longer understands is one
+lost bookmark instead of a lost blob.
+
+**Cost:** two windows do not share a history or a back stack, and there is nowhere for a
+cross-project bookmark to live while the store is project-scoped. A place whose id is minted by the
+window — a chat tab — cannot be written down at all.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

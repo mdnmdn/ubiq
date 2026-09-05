@@ -458,10 +458,23 @@ impl AppState {
         subscriptions.push(cx.subscribe_in(
             &command_input,
             window,
-            |this, _input, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    this.submit_header_search(window, cx);
+            |this, input, event: &InputEvent, window, cx| match event {
+                // Two ways out of one field. With the navigator up, Enter is the row under the
+                // cursor; with it shut, Enter is the project content search it has always been.
+                InputEvent::PressEnter { .. } => match this.navigator.as_ref() {
+                    Some(nav) => {
+                        let at = nav.cursor;
+                        this.press_navigator(at, window, cx);
+                    }
+                    None => this.submit_header_search(window, cx),
+                },
+                // The query is the navigator's, not the field's: a keystroke is new answers and
+                // the cursor back to the top.
+                InputEvent::Change => {
+                    let typed = input.read(cx).value().to_string();
+                    this.retype_navigator(typed, cx);
                 }
+                _ => {}
             },
         ));
 
@@ -677,6 +690,7 @@ impl AppState {
             geometry,
             pending_focus: None,
             pending_editor_focus: None,
+            pending_goto: None,
             dock,
             panels,
             pending_panels: Vec::new(),
@@ -688,6 +702,7 @@ impl AppState {
             pending_chat_attach: None,
             sink: SinkState::default(),
             file_picker: None,
+            navigator: None,
             logs: LogState::default(),
             search: SearchState::new(search_query.clone()),
             adopt_on_list: false,
@@ -737,6 +752,10 @@ impl AppState {
             sink_project_hex,
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
+            graph_scroll: ScrollHandle::new(),
+            nav: History::default(),
+            nav_settling: false,
+            bookmark_marks: HashMap::new(),
             explorer_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,

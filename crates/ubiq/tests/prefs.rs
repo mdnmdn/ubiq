@@ -2,9 +2,11 @@
 
 use ubiq::state::RailMode;
 use ubiq::state::editor::{Subject, from_tab_key, tab_key};
+use ubiq::state::nav::{Bookmark, Destination, Locus, View};
 use ubiq::state::prefs::{self, InterfacePrefs, ModeLayout, ViewPrefs};
 use ubiq::theme::ThemeId;
 use ubiq_proto::files::DiffBase;
+use ubiq_proto::ids::ProjectId;
 
 #[test]
 fn a_blob_survives_the_round_trip() {
@@ -30,6 +32,8 @@ fn a_blob_survives_the_round_trip() {
         file_filter: "main".to_string(),
         ui_font_size: Some(16.0),
         editor_wrap: Some(false),
+        bookmarks: Vec::new(),
+        recents: Vec::new(),
         rest: Default::default(),
     };
 
@@ -252,4 +256,72 @@ fn a_project_blob_keeps_a_key_it_does_not_know() {
 
     let again: ViewPrefs = prefs::decode(&prefs::encode(&read)).expect("decodes");
     assert_eq!(again.rest, read.rest);
+}
+
+/// Bookmarks and recents ride the same blob, and the destinations in them come back as they went
+/// in — which is the phase-3 text form's round trip, one layer up.
+#[test]
+fn a_blob_carries_the_places_written_down() {
+    let project = ProjectId::generate();
+    let dest = Destination {
+        project,
+        view: View::Ide {
+            key: "crates/ubiq/src/app/nav.rs".to_string(),
+        },
+        locus: Some(Locus::Line { line: 42 }),
+    };
+    let view = ViewPrefs {
+        bookmarks: vec![Bookmark {
+            name: "the router".to_string(),
+            dest: dest.clone(),
+            note: "where every link ends".to_string(),
+            anchor: Some("pub fn navigate(".to_string()),
+            adrift: false,
+        }],
+        recents: vec![dest.to_string()],
+        ..ViewPrefs::default()
+    };
+
+    let back: ViewPrefs = prefs::decode(&prefs::encode(&view)).expect("decodes");
+    assert_eq!(back, view);
+}
+
+/// **The schema does not move for them.** Both fields default, so a blob written before they
+/// existed opens with them empty rather than being discarded.
+#[test]
+fn the_schema_stays_where_it_was() {
+    assert_eq!(prefs::SCHEMA, 3);
+
+    let older = serde_json::json!({
+        "schema": 3,
+        "rail_mode": "Ide",
+        "open_files": ["README.md"],
+    })
+    .to_string();
+
+    let back: ViewPrefs = prefs::decode(&older).expect("decodes");
+    assert_eq!(back.open_files, vec!["README.md".to_string()]);
+    assert!(back.bookmarks.is_empty());
+    assert!(back.recents.is_empty());
+}
+
+/// A destination this build can no longer read costs one bookmark, not the preferences blob. That
+/// is the whole reason the destination is stored as its text.
+#[test]
+fn a_bookmark_that_no_longer_parses_is_dropped() {
+    let project = ProjectId::generate();
+    let good = Destination::new(project, View::Control).to_string();
+    let blob = serde_json::json!({
+        "schema": 3,
+        "rail_mode": "Ide",
+        "bookmarks": [
+            { "name": "gone", "dest": "ubiq://not-an-id/telepathy" },
+            { "name": "kept", "dest": good },
+        ],
+    })
+    .to_string();
+
+    let back: ViewPrefs = prefs::decode(&blob).expect("decodes");
+    assert_eq!(back.bookmarks.len(), 1);
+    assert_eq!(back.bookmarks[0].name, "kept");
 }

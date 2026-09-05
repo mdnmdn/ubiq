@@ -5,7 +5,7 @@ kind: proposal
 status: proposal
 summary: One addressable value for every place the user can be — a destination naming a project, a view, an item and a locus the view alone reads — so a link opens it, a back stack returns from it, and a bookmark keeps it.
 read_when: you are deciding how one part of the interface sends the user to another, what a link is, or where back, forward and bookmarks live
-updated: 2026-09-01
+updated: 2026-09-05
 depends_on: [feat-workbench, tech-ui, tech-architecture, inbox-panels, inbox-viewers]
 ---
 
@@ -43,7 +43,7 @@ mode to decide which facts it has — reads each one separately.
 
 **Nothing remembers.** No back stack, no visited list, no bookmarks; the picker's history group is
 "projects no window is holding", which is a different word. There is deliberately no breadcrumb, and
-[`../features/workbench.md`](../features/workbench.md) says why.
+[`../../features/workbench.md`](../../features/workbench.md) says why.
 
 **The `⌘K` field is a stub.** `command_input` is rendered by `ui/titlebar.rs` as a 420px field with
 a search icon and a decorative hint, wired to nothing. That is `G16`.
@@ -54,8 +54,9 @@ and which was active, the expanded folders and the selected row. It carries no c
 graph or board selection, and no dock tab. The caret is not state at all: `cursor_line_column()`
 reads it live out of the buffer for the status bar and nothing keeps it.
 
-Two absences matter, and §9 comes back to them: a file's identity is a project-relative path, which
-is right; a task's, an agent's and a graph session's is a `u32` in a fixture, which is not.
+One asymmetry matters, and §9 comes back to it: every contract id — a project's, a pane's, a
+session's, a task's, an agent's — is a ULID that outlives the process, and a chat tab's is a `u64`
+this window minted, which does not.
 
 ## 2. The destination
 
@@ -73,14 +74,25 @@ The view arm carries the item, because the two are never useful apart:
 
 | Arm | Key | Reaches |
 |---|---|---|
-| `Ide { path }` | A project-relative path | The editor, that file in front |
+| `Ide { key }` | An editor tab key | The editor, that file in front |
 | `Explorer { path }` | A project-relative path | The tree, that row revealed and selected |
 | `Terminal { pane }` | A `PaneId` | The dock, that pane focused |
 | `Logs` | — | The dock's log console |
-| `Agents { selection, tab }` | A session or an agent | The graph, that thing selected, the inspector on that tab |
+| `Graph { selection, tab }` | A session or an agent | The orchestration graph, that thing selected, the inspector on that tab |
+| `Agents { agent }` | An agent | The agents columns, that agent's transcript |
 | `Tasks { task }` | A task | The board, that card's panel open |
 | `Chat { chat }` | A conversation | The chat panel, that conversation |
+| `Git` | — | The Git screen |
 | `Control` / `Kb` | — | The two modes that are still an empty page |
+
+**A file's identity is a tab key, not a path.** A file and its diff are two tabs over one path
+(`tab_key(path, Subject)` in `crates/ubiq/src/state/editor.rs`), so the arm carries the key; for a
+plain file the key *is* the path, which is why §5's text form is unaffected by the difference.
+
+**The graph and the agents columns are two arms, not one.** The graph is the map and the columns
+are the transcript, and a link that says "show me this agent" means a different screen from one
+that says "show me this agent on the graph". **The kitchen sink has no arm at all**: it is the test
+bench, it has no project behind it, and a screen with no project is not a place.
 
 Three rules hold over the whole set.
 
@@ -95,7 +107,7 @@ function pair, and it is the price of a rail mode.
 
 **No absolute path is in a destination, ever.** For the same reason no file descriptor crosses into
 the interface: the folder is the host's, and the two need not be on one machine. This is
-[`../tech/architecture.md`](../tech/architecture.md)'s second rule, and navigation does not get an
+[`../../tech/architecture.md`](../../tech/architecture.md)'s second rule, and navigation does not get an
 exemption from it.
 
 ## 3. The locus, and why the router never reads one
@@ -128,8 +140,9 @@ a dialog or a refusal. The view opens at its best guess and the user is somewher
 navigation must never do is leave them where they were with nothing said — that is indistinguishable
 from a dead click.
 
-**Two prerequisites are real and small.** The graph's pan is not tracked state — `ui/agents/graph.rs`
-uses a bare scrolling container — so a `Viewport` locus on the graph needs a handle before it can be
+**Two prerequisites are real and small.** The graph's pan is not tracked state —
+`ui/orchestration/graph.rs` uses a bare scrolling container — so a `Viewport` locus on the graph
+needs a handle before it can be
 read or written. And nothing in Ubiq sets a caret; revealing a line means driving the open file's
 `EditorState`, which is the one thing navigation needs from the component library that
 `crates/ubiq/src/ui/editor.rs` does not use yet.
@@ -150,7 +163,6 @@ What can emit one, once this exists:
 | The explorer, and the editor's tabs | Themselves — which is what makes them bookmarkable |
 | A log record | The pane, project or file it names |
 | A rendered Markdown document | Its own relative links, and its headings |
-| A chat message | The files, tasks and agents the transcript names |
 
 **One exclusion, and it is not negotiable: Ubiq does not scan terminal output for links.** Terminal
 bytes are opaque — no VT parsing, no pattern matching over a harness's screen, no clickable path in a
@@ -177,7 +189,15 @@ ubiq://<project-id>/<view>[/<item>][#<locus>]
 | A range | `ubiq://01J7…/ide/README.md#L10-24` |
 | A heading in a rendered document | `ubiq://01J7…/ide/_docs/INDEX.md#catalogue` |
 | A task | `ubiq://01J7…/tasks/<task-id>` |
-| An agent's conversation | `ubiq://01J7…/agents/<agent-id>/chat` |
+| An agent's transcript | `ubiq://01J7…/agents/<agent-id>` |
+| An agent on the graph, inspector on chat | `ubiq://01J7…/graph/a:<agent-id>/chat` |
+
+**The view slug decides the arity, not the number of segments**, which is what lets a multi-segment
+file path go unescaped. `ide` and `explorer` take everything up to the fragment; `terminal`,
+`tasks`, `chat` and `agents` take exactly one bare id; `graph` takes `s:<session-id>` or
+`a:<agent-id>` — the prefix is forced, because both are 26-character ULIDs and the text alone
+cannot tell them apart — and then optionally `chat` or `tasks`; `control`, `kb`, `git` and `logs`
+take none, and a trailing segment on one of them is a different string rather than a refinement.
 
 **The project is written as its id and shown as its name.** A ULID is unreadable and a name is not
 stable: a project renamed, recoloured or moved on disk keeps its id, which is exactly what a bookmark
@@ -212,9 +232,15 @@ of those, and three stacks cannot agree on which was last.
 Three refinements make that table behave the way an editor does.
 
 **The current entry's locus is kept current, so back returns to where the user left rather than where
-they entered.** The router asks the outgoing screen `where` and writes the answer into the entry it
-is leaving. Without it, coming back to a file lands at the line the link named however far the user
-then scrolled, which is the most annoying thing a back button can do.
+they entered.** Without it, coming back to a file lands at the line the link named however far the
+user then scrolled, which is the most annoying thing a back button can do.
+
+**One push site, and it is not the router.** Most departures never reach the router at all — the
+rail calls `set_rail_mode`, the explorer calls `select_file`, the dock calls `activate_file` — so
+asking the outgoing screen on the way out would cover only the arrivals the router already sees.
+Instead `settle_nav` runs once a frame from `Render`, reads what the window is *drawing*, and either
+records a new place or refreshes the standing entry's locus. That is the table above with no call
+sites to keep in step, and it subsumes the outgoing-locus refresh as the same act.
 
 **A movement inside one view is not an entry until it is a jump.** Typing and scrolling are not
 navigation: a move within one view pushes only when it came through the router — a link, a search
@@ -245,7 +271,7 @@ editable.
 **Bookmarks belong to the project their destination names.** They ride the project's opaque view blob
 through `SetPreferences` under `Scope::Project`, beside the furniture `ViewPrefs` already stores, and
 the host neither parses nor validates them — the schema stays the interface's, exactly as
-[`../tech/transport-contract.md`](../tech/transport-contract.md) has it. Forgetting a project forgets
+[`../../tech/transport-contract.md`](../../tech/transport-contract.md) has it. Forgetting a project forgets
 its bookmarks, which is what "Forget" promises.
 
 **A line number rots, so a file bookmark is anchored as well as numbered.** It keeps the trimmed
@@ -264,7 +290,13 @@ to — a viewport, a node, a task — carry no anchor and none is invented for t
 
 **The list is drawn where the project's other content is.** A collapsible section at the head of the
 explorer panel, project-scoped, each row its name and its destination's label, with the adrift mark
-where it applies, and a gutter mark on bookmarked lines in an open file. Under
+where it applies.
+
+**A bookmarked line is marked on the line, not in the gutter.** The component library's only public
+decoration surface is `TextDecorationCollection` over byte ranges; its gutter is a private element
+hard-coded to line numbers and fold icons. So the mark is a highlight over the line itself, and the
+thing that says a file holds bookmarks while their lines are off screen is a count chip on the
+file's tab. Under
 [`./movable-panels-proposal.md`](./movable-panels-proposal.md) it becomes a panel of its own, and can
 be dragged beside the file it points into; nothing above changes when it does.
 
@@ -292,26 +324,28 @@ A pasted `ubiq://` URI resolves to a single row naming where it goes, which is h
 a commit message or another machine gets followed. One naming a project this catalogue does not have
 says so and offers nothing — it cannot know the path of a folder it has never seen.
 
-## 9. What this makes visible: the ids that do not exist
+## 9. Which places can be written down
 
-Navigation does not create the identity problem; it is the first thing that cannot work around it.
+**A destination can be written down when every id in it outlives the process that minted it.** That
+is a property of the arm, and it is checked in one place: `Destination::persistable`.
 
-**A file is fine.** Its identity is its project-relative path, which is what the file family carries,
-what `ViewPrefs` stores, and what `ExplorerState` selects on. A destination writes the same string.
+**A file is fine.** Its identity is a tab key over its project-relative path, which is what the file
+family carries, what `ViewPrefs` stores, and what `ExplorerState` selects on. A destination writes
+the same string.
 
-**A task, an agent and a graph session are not.** They are `u32` handed out by the fixture in
-`crates/ubiq/src/state/sample.rs`, and they mean nothing after a restart. A link between two screens
-in one session works — that is what the two existing jumps do — but a bookmark to a task written to
-disk is a number naming a different task next week, or nothing. `G43` in
-[`../backlog.md`](../backlog.md) is the blocker, and until it clears, **only file, explorer and
-rail-mode destinations are persisted**; task, agent and chat destinations live in the session and in
-the history, and the bookmark control is not offered on them.
+**A task, an agent, a session and a pane are fine too.** Every contract id in
+`crates/ubiq-proto/src/ids.rs` is a ULID newtype with `Display` and `FromStr` — `ProjectId`,
+`PaneId`, `SessionId`, `TaskId` and `WorkspaceId`, which is what an agent id is. They mean the same
+thing after a restart, so a bookmark to a task is a bookmark to that task, and the whole of
+`ubiq://` is printable and parseable for them.
 
-**A chat is an index**, and a step inside a task is an index into a `Vec`. A destination stops at
-the task, and a chat destination waits on the same transport family the chat itself waits on.
+**A chat is the one that is not.** `ChatId` is a `u64` minted by the window in
+`crates/ubiq/src/state/dock.rs`, and it means nothing tomorrow. A chat destination is followed and
+put in the history, and it is never written into a bookmark or a recents list.
 
-Stating the limit is the point: the alternative is a bookmark list that rots the first time the
-fixture changes order.
+Stating the limit is the point, and stating it once: **an arm with no printable id is never offered
+a bookmark by construction**, because the serialised form of a destination is its `ubiq://` text and
+nothing else.
 
 ## 10. Where it lives
 
@@ -374,7 +408,7 @@ Every row is a place navigation still arrives, or a place it declines to start �
 3. **The text form.** Parse, print, `Copy link` wherever a destination exists, and relative
    resolution inside a document.
 4. **Bookmarks.** The record, the store in the project blob, the toggle, the explorer section, the
-   line anchor and the adrift mark. File destinations only until `G43` clears.
+   line anchor and the adrift mark. Every arm but a chat can be written down.
 5. **The navigator.** `⌘K` over recents, bookmarks, files, tasks and agents, and the URI paste.
 6. **Links in content.** The rendered document's links and the chat transcript's mentions become
    destinations. Waits on the viewers, and on the chat's transport family.
@@ -396,8 +430,9 @@ Seven decision rows:
   it never moves a project between windows.
 - A bookmark rides the project's opaque view blob, and a file bookmark keeps the text of its line so
   it can say when it has come adrift rather than pointing quietly at the wrong place.
-- Destinations to tasks, agents and chats are session-scoped until those things have ids that outlive
-  a process; nothing writes a fixture `u32` to disk.
+- A destination is written down only when every id in it outlives the process that minted it, which
+  is every arm but a chat; a destination is stored as its `ubiq://` text, so compatibility belongs to
+  one parser rather than to a set of serde variant names.
 
 Backlog rows this leaves open: a tracked pan handle for the graph, without which a graph viewport
 cannot be read or written; caret and scroll restoration on a tab switch, which the same `reveal`
@@ -408,10 +443,10 @@ project-scoped; and the `⌘K` field's other half, the commands, which are not p
 
 ## Related docs
 
-- [`../features/workbench.md`](../features/workbench.md) — the screens, the rail modes and the `⌘K` field this gives a job to
-- [`../tech/architecture.md`](../tech/architecture.md) — the rules §2 and §10 obey
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — where the controls and marks §6 and §7 add are drawn
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the preferences scope §7 stores bookmarks in
+- [`../../features/workbench.md`](../../features/workbench.md) — the screens, the rail modes and the `⌘K` field this gives a job to
+- [`../../tech/architecture.md`](../../tech/architecture.md) — the rules §2 and §10 obey
+- [`../../tech/ui-and-design.md`](../../tech/ui-and-design.md) — where the controls and marks §6 and §7 add are drawn
+- [`../../tech/transport-contract.md`](../../tech/transport-contract.md) — the preferences scope §7 stores bookmarks in
 - [`./movable-panels-proposal.md`](./movable-panels-proposal.md) — the dock a `reveal` resolves against
 - [`./file-viewers-proposal.md`](./file-viewers-proposal.md) — the viewers that read §3's loci
-- [`../backlog.md`](../backlog.md) — `G16`, and `G43` which gates phase 4
+- [`../../backlog.md`](../../backlog.md) — `G16`, and what this leaves open

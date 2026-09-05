@@ -630,6 +630,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
             A::Separator,
             A::CopyPath,
             A::CopyFullPath,
+            A::CopyLink,
             A::OpenInSystem,
             A::OpenInWeb,
             A::Separator,
@@ -659,6 +660,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
             A::Separator,
             A::CopyPath,
             A::CopyFullPath,
+            A::CopyLink,
             A::OpenInSystem,
             A::OpenInWeb,
             A::Separator,
@@ -680,7 +682,13 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
     let unreadable = menu_entries(Some("elsewhere"), false, false, true);
     assert_eq!(
         unreadable.iter().map(|e| e.action).collect::<Vec<_>>(),
-        [A::CopyPath, A::CopyFullPath, A::OpenInSystem, A::OpenInWeb]
+        [
+            A::CopyPath,
+            A::CopyFullPath,
+            A::CopyLink,
+            A::OpenInSystem,
+            A::OpenInWeb
+        ]
     );
 
     let empty = menu_entries(None, false, true, false);
