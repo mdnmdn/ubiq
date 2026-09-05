@@ -66,6 +66,11 @@ impl AppState {
                 rel_path: None,
                 first_parent: false,
             });
+            // `log_inflight` is what tells this reply apart from a stale one still in flight —
+            // see `GitView::log_inflight` and `receive_git`.
+            if let Some(open) = self.projects.get_mut(&id) {
+                open.git_view.log_inflight = Some(None);
+            }
             if let Some(view) = restore {
                 self.restore_files(id, &view, cx);
             }

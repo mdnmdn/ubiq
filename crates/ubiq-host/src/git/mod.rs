@@ -14,6 +14,7 @@
 //! stuck behind badges. A second full refresh for a project still walking replaces the queued one
 //! rather than lining up behind it.
 
+pub mod graph;
 pub mod history;
 pub mod observe;
 
@@ -88,10 +89,50 @@ struct Cached {
     root: PathBuf,
 }
 
+/// Commit-graph lane state for one project's most recent log walk, carried across pages.
+///
+/// Keyed by the cursor and filters the *next* page must arrive with; a fresh walk (`cursor:
+/// None`), or a request that does not match, starts over with empty lanes rather than reusing
+/// stale ones.
+// ponytail: one cached walk per project, not one per cursor — a second concurrent walk on the
+// same project just relays out from lane zero instead of growing this map.
+struct LaneCache {
+    rel_path: Option<String>,
+    first_parent: bool,
+    expect_cursor: Option<String>,
+    lanes: graph::Lanes,
+}
+
 #[derive(Default)]
 struct State {
     repos: HashMap<ProjectId, Cached>,
     generation: HashMap<ProjectId, u64>,
+    lane_cache: HashMap<ProjectId, LaneCache>,
+}
+
+/// The lane table to hand `history::log` for this request: the cached one if this request
+/// continues the walk it belongs to, otherwise a fresh, empty table.
+fn lanes_for(
+    state: &mut State,
+    project_id: ProjectId,
+    cursor: &Option<String>,
+    rel_path: &Option<String>,
+    first_parent: bool,
+) -> graph::Lanes {
+    // A fresh walk always starts over, cache hit or not.
+    if cursor.is_none() {
+        return Vec::new();
+    }
+    match state.lane_cache.get(&project_id) {
+        Some(cached)
+            if &cached.expect_cursor == cursor
+                && &cached.rel_path == rel_path
+                && cached.first_parent == first_parent =>
+        {
+            state.lane_cache.remove(&project_id).unwrap().lanes
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn run(queue: flume::Receiver<Job>) {
@@ -148,6 +189,7 @@ fn answer(state: &mut State, job: Job) {
         Request::Forget => {
             state.repos.remove(&job.project_id);
             state.generation.remove(&job.project_id);
+            state.lane_cache.remove(&job.project_id);
         }
         Request::Overview => {
             let generation = state.generation.get(&job.project_id).copied().unwrap_or(0);
@@ -220,10 +262,13 @@ fn answer(state: &mut State, job: Job) {
             let message = match ensure_repo(state, job.project_id, &job.root) {
                 Ok(false) => Message::GitLogPage {
                     project_id: job.project_id,
+                    cursor,
                     commits: Vec::new(),
                     next_cursor: None,
                 },
                 Ok(true) => {
+                    let mut lanes =
+                        lanes_for(state, job.project_id, &cursor, &rel_path, first_parent);
                     let cached = state
                         .repos
                         .get(&job.project_id)
@@ -242,12 +287,25 @@ fn answer(state: &mut State, job: Job) {
                         count,
                         rel_path.as_deref(),
                         first_parent,
+                        &mut lanes,
                     ) {
-                        Ok((commits, next_cursor)) => Message::GitLogPage {
-                            project_id: job.project_id,
-                            commits,
-                            next_cursor,
-                        },
+                        Ok((commits, next_cursor)) => {
+                            state.lane_cache.insert(
+                                job.project_id,
+                                LaneCache {
+                                    rel_path: rel_path.clone(),
+                                    first_parent,
+                                    expect_cursor: next_cursor.clone(),
+                                    lanes,
+                                },
+                            );
+                            Message::GitLogPage {
+                                project_id: job.project_id,
+                                cursor,
+                                commits,
+                                next_cursor,
+                            }
+                        }
                         Err(error) => git_error(job.project_id, error),
                     }
                 }

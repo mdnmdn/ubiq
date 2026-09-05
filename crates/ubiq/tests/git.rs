@@ -11,14 +11,27 @@
 //! — what a `GitRefs`/`GitLogPage` reply would already have been turned into by `ref_rows` and
 //! `commit_rows`, which have their own tests further down.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::Duration;
+
+use chrono::Utc;
+use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
+use gpui_component::Root;
+use ubiq::app::{AppState, BusHub};
+use ubiq::state::WindowRegistry;
 use ubiq::state::git::{
     CommitRow, GitView, RefRow, RefSection, Side, commit_rows, conflicted, ref_rows, staged,
     unstaged,
 };
+use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::DiffBase;
 use ubiq_proto::git::{
     GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule, GitSubmoduleState, GitWho,
 };
+use ubiq_proto::ids::ProjectId;
+use ubiq_proto::messages::Message;
+use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 
 /// A sidebar and a history with one row of every kind the fixtures used to seed, so the
 /// behavioural tests below (sections, search, lanes, tracking) exercise the same shapes.
@@ -371,8 +384,12 @@ fn who(time: i64) -> GitWho {
     }
 }
 
+/// `commit_rows` no longer derives a lane or a merge marker from anything — the host's lane
+/// allocator already worked out the topology, so this is a straight carry-through, not
+/// arithmetic. The two rows below use different lanes and a real `merges` list precisely so a
+/// regression back to "everything is lane 0" would fail here.
 #[test]
-fn commit_rows_marks_a_two_parent_commit_as_a_merge() {
+fn commit_rows_carries_the_hosts_lane_and_merges_through() {
     let commits = vec![
         GitCommit {
             id: "9f3a10cabc".to_string(),
@@ -380,7 +397,9 @@ fn commit_rows_marks_a_two_parent_commit_as_a_merge() {
             summary: "Refit the terminal".to_string(),
             author: who(1_700_000_000),
             committer: who(1_700_000_000),
-            parents: 1,
+            parents: vec!["parent0".to_string()],
+            lane: 0,
+            merges: Vec::new(),
             refs: vec!["main".to_string()],
             mine: true,
         },
@@ -390,7 +409,9 @@ fn commit_rows_marks_a_two_parent_commit_as_a_merge() {
             summary: "Merge branch 'feat/session-store'".to_string(),
             author: who(1_699_000_000),
             committer: who(1_699_000_000),
-            parents: 2,
+            parents: vec!["p1".to_string(), "p2".to_string()],
+            lane: 2,
+            merges: vec![0, 1],
             refs: Vec::new(),
             mine: false,
         },
@@ -398,8 +419,185 @@ fn commit_rows_marks_a_two_parent_commit_as_a_merge() {
 
     let rows = commit_rows(&commits);
 
-    assert!(rows[0].merges.is_empty(), "one parent is not a merge");
-    assert!(!rows[1].merges.is_empty(), "two parents draws a hollow dot");
+    assert_eq!(rows[0].lane, 0);
+    assert!(
+        rows[0].merges.is_empty(),
+        "a single-parent commit merges from nothing"
+    );
+    assert_eq!(
+        rows[1].lane, 2,
+        "the host's lane is carried through unchanged"
+    );
+    assert_eq!(
+        rows[1].merges,
+        vec![0, 1],
+        "the host's merges are carried through unchanged, not synthesised from a parent count"
+    );
     assert_eq!(rows[0].refs, vec!["main".to_string()]);
     assert!(!rows[1].mine);
+}
+
+/// The wire-level staleness rule from `receive_git`'s `GitLogPage` arm, exercised through a real
+/// window and bus rather than on `commit_rows` alone, because the bug it fixes is about which
+/// reply a second in-flight request discards — state `commit_rows` cannot see.
+const PATIENCE: Duration = Duration::from_millis(500);
+
+struct Fixture {
+    state: Entity<AppState>,
+    window: WindowHandle<Root>,
+    host: bus::HostEnd,
+    project: ProjectId,
+}
+
+impl Fixture {
+    fn open(cx: &mut TestAppContext) -> Self {
+        let snapshot = a_project();
+        let project = snapshot.record.id;
+        let (hub, host) = bus::hub();
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+            BusHub::install(hub, cx);
+            WindowRegistry::install(cx);
+            cx.global_mut::<WindowRegistry>().apply(snapshot);
+        });
+
+        let held: Rc<RefCell<Option<Entity<AppState>>>> = Rc::default();
+        let taken = held.clone();
+        let window = cx.add_window(move |window, cx| {
+            let state = cx.new(|cx| AppState::for_project(Some(project), 'A', window, cx));
+            *taken.borrow_mut() = Some(state.clone());
+            Root::new(state, window, cx)
+        });
+        cx.run_until_parked();
+
+        let state = held
+            .borrow_mut()
+            .take()
+            .expect("the window built its state");
+        Self {
+            state,
+            window,
+            host,
+            project,
+        }
+    }
+
+    /// Everything the window has said so far, in order. Draining it is how a test gets past the
+    /// burst of requests a fresh project fires on open.
+    fn said(&self) -> Vec<Message> {
+        let mut said = Vec::new();
+        while let Ok(event) = self.host.recv_timeout(PATIENCE) {
+            if let FromClient::Said { message, .. } = event {
+                said.push(message);
+            }
+        }
+        said
+    }
+
+    fn deliver(&self, message: Message, cx: &mut TestAppContext) {
+        self.host.send(To::Everyone, message);
+        cx.run_until_parked();
+    }
+
+    fn refresh_git(&self, cx: &mut TestAppContext) {
+        self.window
+            .update(cx, |_, _window, cx| {
+                self.state.update(cx, |state, cx| state.refresh_git(cx));
+            })
+            .expect("the window is open");
+    }
+
+    fn commits(&self, cx: &mut TestAppContext) -> Vec<String> {
+        self.window
+            .update(cx, |_, _window, cx| {
+                self.state.read(cx).git_view(cx).map_or(Vec::new(), |git| {
+                    git.commits.iter().map(|c| c.short_id.clone()).collect()
+                })
+            })
+            .expect("the window is open")
+    }
+}
+
+fn a_project() -> ProjectSnapshot {
+    ProjectSnapshot {
+        record: ProjectRecord {
+            id: ProjectId::generate(),
+            name: "ubiq".to_string(),
+            path: "/tmp/ubiq".to_string(),
+            colour: 0,
+            custom_colour: None,
+            temporary: false,
+            created_at: Utc::now(),
+            last_opened_at: None,
+            search_excludes: Vec::new(),
+            no_local_index: false,
+        },
+        health: ProjectHealth::Ok,
+        open_panes: 0,
+        workarea: "/tmp/ubiq-workarea".to_string(),
+    }
+}
+
+fn commit(short_id: &str) -> GitCommit {
+    GitCommit {
+        id: format!("{short_id}full"),
+        short_id: short_id.to_string(),
+        summary: "a commit".to_string(),
+        author: who(1_700_000_000),
+        committer: who(1_700_000_000),
+        parents: Vec::new(),
+        lane: 0,
+        merges: Vec::new(),
+        refs: Vec::new(),
+        mine: false,
+    }
+}
+
+/// `G128`: two first-page requests can be in flight together — the ordinary way is a refresh
+/// fired while the project's own opening request has not answered yet. If the later request's
+/// reply lands first, the earlier one's reply must be discarded when it finally arrives, not
+/// appended onto what the later reply already replaced it with — that append is the doubling bug.
+#[gpui::test]
+fn a_stale_first_page_reply_is_discarded_not_appended(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    // Drain the burst of requests a fresh project fires on open, which includes the first
+    // `ProjectGitLog` — the "earlier" request this test's stale reply answers.
+    let _ = fixture.said();
+
+    // A refresh fires a second, later `ProjectGitLog` before the first one has answered.
+    fixture.refresh_git(cx);
+    let _ = fixture.said();
+
+    // The later request's reply lands first and replaces.
+    fixture.deliver(
+        Message::GitLogPage {
+            project_id: fixture.project,
+            cursor: None,
+            commits: vec![commit("later")],
+            next_cursor: Some("later-cursor".to_string()),
+        },
+        cx,
+    );
+    assert_eq!(fixture.commits(cx), vec!["later".to_string()]);
+
+    // The earlier request's reply lands after. Its own cursor (`None`) is identical to the
+    // later reply's — the doubling bug's whole premise — so only the view's own bookkeeping of
+    // which request is still outstanding can tell them apart.
+    fixture.deliver(
+        Message::GitLogPage {
+            project_id: fixture.project,
+            cursor: None,
+            commits: vec![commit("earlier")],
+            next_cursor: Some("earlier-cursor".to_string()),
+        },
+        cx,
+    );
+
+    assert_eq!(
+        fixture.commits(cx),
+        vec!["later".to_string()],
+        "the stale reply is discarded, not appended onto the reply that already superseded it"
+    );
 }

@@ -3,8 +3,8 @@ id: wip-git-assumptions
 title: Version control — assumptions and considerations
 kind: wip
 status: current
-summary: What the landed read-only git work assumes rather than verifies, and where it sits in the rest of Ubiq — three independent libgit2 readers, three independent ignore-rule readers, a staleness guard the log and refs families do not have, four untested ceilings, and a commit graph with no lane engine. The lane engine survey closes it — nothing embeddable exists, and the fix is ~80 lines behind one wire change.
-read_when: you are extending version control, adding the write family, or wondering why the commit graph draws one lane
+summary: What the landed read-only git work assumes rather than verifies, and where it sits in the rest of Ubiq — three independent libgit2 readers, three independent ignore-rule readers, a staleness guard refs still does not have, four untested ceilings, and the commit graph's lane engine, hand-rolled because nothing embeddable exists.
+read_when: you are extending version control, adding the write family, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
 updated: 2026-09-05
 depends_on: [wip-git-integration, tech-architecture, tech-decisions, feat-workbench]
 ---
@@ -30,15 +30,20 @@ the git-directory watch fires on `HEAD`/`MERGE_HEAD`/`index`/`refs/**` (`watch/m
 refreshes coalesce (`git/mod.rs:127`) behind one per-project generation counter (`git/mod.rs:94`),
 and the interface discards an older reply (`app/wire.rs:598`).
 
-**What that machinery does not cover, and this is the sharpest finding in this document:**
-`Request::Refs` and `Request::Log` carry **no generation and no staleness guard**. `git/mod.rs:190`
-answers them unconditionally and `app/wire.rs:673` writes the reply straight in. Worse,
-`app/wire.rs:692` decides replace-versus-append from `log_cursor.is_none()` alone, so a first-page
-reply that lands *after* a later request already advanced the cursor is appended instead of
-replacing — the history list silently doubles. A `refresh_git()` racing an in-flight page is the
-ordinary way to hit this, and nothing on the wire carries the request identity that would detect it.
-The generation the overview and the working tree already have is the fix; refs and log were built
-without it because phase C predated phase D.
+**What that machinery does not cover:** `Request::Refs` and `Request::Log` carry **no generation
+field**. `git/mod.rs:190` answers them unconditionally, and a `GitRefs` reply has nothing on the
+wire that says which request it answers, so a stale one still lands on top of a fresher one
+(`G127`) — refs were built without the generation the overview and the working tree already have,
+because phase C predated phase D.
+
+The log's own version of this is fixed on a narrower mechanism than generation: `GitLogPage` now
+echoes the `cursor` its request carried, and `app/wire.rs` accepts a reply only when that echoed
+cursor matches `log_inflight`, the request the view is currently waiting on (`app/wire.rs:699`). A
+first-page reply that lands after a later request already advanced the cursor is discarded instead
+of being appended, which is what used to double the history list. A cursor is the log's own request
+identity — two requests sharing the same cursor value (two first-page asks, both `None`) are still
+told apart because `log_inflight` is overwritten on every send, so it always names the most recent
+one.
 
 Two smaller holes in the same area. `should_interrupt` mid-walk is not built — a superseded status
 runs to completion. And `GitError::Interrupted` is constructed nowhere (`G126`): a wire variant with
@@ -130,49 +135,41 @@ client awareness, so if the invariant is ever violated even transiently during t
 clients share one repository handle and one generation counter and nothing in `git/mod.rs` would
 notice. Untested seam, not a known bug.
 
-## 7. The commit graph has no lane engine
+## 7. The commit graph has a lane engine
 
-`state/git.rs:174` puts every commit at lane 0 and synthesises `merges: vec![1]` for a merge — a
-placeholder with a `ponytail:` comment on it, tracked as `G123`. This was surveyed properly:
+`GitCommit.parents` is `Vec<String>` — real parent ids, not a count — and carries a host-computed
+`lane: usize` and `merges: Vec<usize>` alongside them. The allocator itself is `assign_lanes` in
+`git/graph.rs`: a pure function over one page of commits plus the lanes carried in from the page
+before it, no repository access and no ancestor walk. A commit claims the lane waiting for its id or
+opens the lowest free one; that lane then waits for the commit's first parent, and each additional
+parent claims or opens a lane of its own — those are the commit's `merges`, the columns the merge
+lines behind it draw from. `state/git.rs::commit_rows` reads `lane`/`merges` straight through rather
+than computing a topology of its own, and `ui/git/history.rs` gained a shared `gutter_width(lanes)`
+so the uncommitted row lines up with a wide graph.
 
-**No embeddable crate exists.** Everything crates.io offers for commit-graph layout — `git-graph`,
-`serie`, `git-igitt`, `gitloom-tui`, `keifu` — is an end-user binary, not a library: none exposes a
-lane-layout API over bare ids and parents, all bind a full git read internally, none pages. (Note
-that `gix-chunk` and friends read git's own on-disk `commit-graph` *file*, which is a pack-level
-ancestry index and an unrelated concept.) Adopting any of them means taking a dependency and still
-writing the ~100 lines.
+Page continuity is a per-project `lane_cache` in `git/mod.rs`, keyed by the cursor and filters the
+*next* page must arrive with. A request whose cursor, `rel_path` and `first_parent` all match the
+cached entry resumes its lanes; anything else — a fresh walk (`cursor: None`), a filter change, a
+`Request::Forget` — starts over empty rather than reusing stale ones. This is host-side, on the same
+reasoning as the working-tree rollups: two windows must not lay out the same history differently.
 
-**The sibling project's engine does not solve our hard part.** `refs/rgitui/crates/rgitui_git/src/graph.rs`
-is a working single-pass lane allocator with a "keep main on lane 0" heuristic and a bounded
-ancestor cache — but it takes the *entire loaded commit slice* and recomputes from scratch on every
-call. It has no cursor and no resumable lane state. It works because rgitui loads a growing window;
-Ubiq's log is deliberately cursor-paged, which is precisely the case it does not handle.
+**Why hand-rolled, not a dependency — this survey still stands.** No embeddable crate exists.
+Everything crates.io offers for commit-graph layout — `git-graph`, `serie`, `git-igitt`,
+`gitloom-tui`, `keifu` — is an end-user binary, not a library: none exposes a lane-layout API over
+bare ids and parents, all bind a full git read internally, none pages. (`gix-chunk` and friends read
+git's own on-disk `commit-graph` *file*, which is a pack-level ancestry index and an unrelated
+concept.) The sibling project's engine doesn't solve the hard part either:
+`refs/rgitui/crates/rgitui_git/src/graph.rs` is a working single-pass allocator with a "keep main on
+lane 0" heuristic, but it takes the entire loaded commit slice and recomputes from scratch on every
+call — no cursor, no resumable lane state. It works because rgitui loads a growing window; Ubiq's
+log is deliberately cursor-paged, which is exactly the case it does not handle. `assign_lanes` is
+~58 lines because it skips that heuristic and the ancestor cache it needs; page continuity is the
+`lane_cache` above instead.
 
-**The algorithm is small.** Keep a `Vec<Option<CommitId>>` of lanes, each holding the parent id it
-is waiting for. Per commit: claim the lane waiting for this id, or open one; replace that lane's
-waiting id with the first parent; match or open a lane for each additional parent; free a lane when
-nothing waits on it. That is the whole thing — 60 to 100 lines. rgitui's ancestor cache exists only
-for the cosmetic main-branch heuristic, which is polish, not correctness.
-
-**The blocker is on the wire, and it is one field.** `GitCommit.parents` is a `u32` *count*. No lane
-algorithm can run on a count — matching a child to the lane its parent occupies needs parent
-identity. `ubiq-proto/src/git.rs` has to carry `parents: Vec<String>`, which
-`git2::Commit::parent_ids()` gives for free in `history.rs`.
-
-**Recommendation:** write it ourselves — a pure function in a new `git/graph.rs`, sibling to
-`history.rs`, taking a page of commits and returning per-row lane and edges. Host-side, because the
-host computes and the interface renders, and because two windows must not lay out the same history
-differently. Page continuity is an in-process lane table threaded through consecutive `log()` calls
-for one walk, keyed by cursor and filters — nothing further on the wire.
-
-Order of work: the wire field, then the function, then the renderer. Roughly 80 lines plus the
-per-walk cache, and it retires `G123`.
+`G123`, `G128` and `G134` are retired by this — the placeholder lane, the log-page replace/append
+bug, and the parents-as-count wire shape all landed together.
 
 ## 8. Also true, and smaller
-
-`workbench.md:431` says reaching the bottom of the history asks for the next page. **It does not** —
-`log_cursor` and `log_done` are stored, but no call site in `ui/git/history.rs` ever requests page
-two. Either the document or the code is wrong; the document is the one that is currently lying.
 
 `G124` (a log with no `rel_path` walks the whole repository rather than the project's prefix) and
 `G125` (linked worktrees and nested repositories are not accounted for — `Repository::discover`
@@ -184,4 +181,4 @@ finds the nearest `.git` and stops) are filed and unchanged by anything here.
 - [`../tech/decisions.md`](../tech/decisions.md) — `D9`, `D30`, `D43`
 - [`../tech/architecture.md`](../tech/architecture.md) — the two halves these rules serve
 - [`../features/workbench.md`](../features/workbench.md) — the Git screen, the explorer, the status bar
-- [`../backlog.md`](../backlog.md) — `G84`, `G110`, `G123`–`G126`
+- [`../backlog.md`](../backlog.md) — `G84`, `G110`, `G124`–`G127`

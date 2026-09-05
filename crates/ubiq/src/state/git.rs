@@ -12,9 +12,10 @@
 //! [`RefRow`] and [`CommitRow`] are the sidebar's and the history's own rows, built from the
 //! host's [`ubiq_proto::git::GitRef`]/[`ubiq_proto::git::GitSubmodule`] and
 //! [`ubiq_proto::git::GitCommit`] answers by [`ref_rows`] and [`commit_rows`]. The lane a commit
-//! draws in is not one of the facts the wire carries — the host answers a parent *count*, and a
-//! lane allocator over that is a backlog row, not this screen's job. Everything else on the
-//! screen is the host's answer too: the branch, the ahead and behind counts, the in-progress
+//! draws in and the lanes it merges from are the host's own answer, computed there by its lane
+//! allocator over real parent ids — this screen carries them through rather than computing a
+//! topology it was not given. Everything else on the screen is the host's answer too: the
+//! branch, the ahead and behind counts, the in-progress
 //! operation, the working-tree totals, the staged and unstaged lists, and the diff under them.
 //!
 //! **Nothing here writes.** Version control is read-only in this version, so the commit box and
@@ -167,12 +168,9 @@ pub struct CommitRow {
     pub mine: bool,
 }
 
-/// The history's rows, newest first. Lane assignment is topology the interface would have to
-/// compute for itself — the wire carries a parent *count*, which is enough to draw a merge as a
-/// hollow dot without a second request. Lane 0 for every commit and one merge line when there is
-/// more than one parent is the minimal honest rendering of that count.
-// ponytail: no lane allocator — a real one is a backlog row, add it if commits from different
-// branches ever need to be told apart visually rather than just by their merge dot.
+/// The history's rows, newest first. `lane` and `merges` are carried straight through from the
+/// host's [`GitCommit`] — the host's lane allocator computed the real topology, so this is a
+/// projection, not a computation.
 pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
     let now = Utc::now();
     commits
@@ -184,8 +182,8 @@ pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
             when: DateTime::<Utc>::from_timestamp(c.author.time, 0)
                 .map(|then| when::relative(then, now))
                 .unwrap_or_default(),
-            lane: 0,
-            merges: if c.parents > 1 { vec![1] } else { Vec::new() },
+            lane: c.lane,
+            merges: c.merges.clone(),
             refs: c.refs.clone(),
             mine: c.mine,
         })
@@ -300,11 +298,20 @@ pub struct GitView {
     /// The history, oldest page first, newest commit first within it.
     pub commits: Vec<CommitRow>,
     /// The commit after the last one in `commits` — what the next page's request would start
-    /// from. `None` before the first page has landed, which is also what tells a `GitLogPage`
-    /// reply that it is the first page rather than one to append.
+    /// from. `None` before the first page has landed.
     pub log_cursor: Option<String>,
     /// Whether the last page had no `next_cursor`: the history has nothing more to page in.
     pub log_done: bool,
+    /// The cursor of the `ProjectGitLog` request currently in flight, i.e. the one whose
+    /// `GitLogPage` reply the view is waiting on. `None` means no reply is outstanding.
+    ///
+    /// This is what tells a stale reply from the current one: two requests can carry the same
+    /// `cursor` (two first-page requests both ask with `None`, for instance a refresh racing the
+    /// project's initial load), so the echoed `cursor` field alone cannot tell them apart. Sending
+    /// a new request overwrites this unconditionally, so only the most recently sent request's
+    /// reply matches — every other reply, whenever it lands, is stale and is discarded rather than
+    /// applied.
+    pub log_inflight: Option<Option<String>>,
 }
 
 impl GitView {
@@ -328,6 +335,7 @@ impl GitView {
             commits,
             log_cursor: None,
             log_done: false,
+            log_inflight: None,
         }
     }
 

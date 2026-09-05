@@ -329,7 +329,7 @@ is a relative string.
 | `GitOverview` | host → UI | `project_id`, `overview?` | — |
 | `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `truncated` | — |
 | `GitError` | host → UI | `project_id`, `error` | — |
-| `GitLogPage` | host → UI | `project_id`, `commits[]`, `next_cursor?` | — |
+| `GitLogPage` | host → UI | `project_id`, `cursor?`, `commits[]`, `next_cursor?` | — |
 | `GitRefs` | host → UI | `project_id`, `refs[]` | — |
 
 **`overview` absent is an ordinary answer**, not a failure: the project is not in a repository, and
@@ -366,7 +366,15 @@ up behind it.
 carried, absent at the end. An offset would re-walk from `HEAD` every page and be wrong the moment
 the tree moved underneath. `count` is clamped to `MAX_LOG_PAGE`; `rel_path` narrows the walk to one
 path's history; `first_parent` skips the merged side of a merge commit. An unborn `HEAD` answers
-with an empty page, not a `GitError`.
+with an empty page, not a `GitError`. `GitLogPage` echoes the `cursor` its request carried, so a
+reply that lands after a later request already advanced the cursor is told apart from the current
+one rather than guessed at from whether the interface already holds a cursor.
+
+**A commit's `parents` are ids, not a count**, because a lane algorithm matches a child to the lane
+its parent occupies and a count cannot say which lane that is. `lane` and `merges` are computed
+host-side over those ids — which column the commit's dot sits in, and which lanes its extra parents
+draw from for the merge lines — so two windows cannot lay out the same history differently; the
+interface carries them through rather than computing a topology of its own.
 
 **Refs are one reply for four sections.** Local branches, remote-tracking branches, tags and
 stashes come back together in one `GitRefs`, because a sidebar with five sections has no use for

@@ -39,7 +39,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .flex_1()
         .min_h(px(0.))
         .overflow_scroll()
-        .child(uncommitted_row(app, cx));
+        .child(uncommitted_row(app, git.lanes(), cx));
 
     for (index, commit) in visible.iter() {
         list = list.child(commit_row(
@@ -102,8 +102,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
 }
 
 /// The working tree, at the top of the log. Selected is what the panel beside the history is
-/// about, so this row and a commit row are the same choice.
-fn uncommitted_row(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+/// about, so this row and a commit row are the same choice. `lanes` is the graph's width, the same
+/// count every commit row below it draws with, so a wide graph does not misalign this row's own
+/// columns against theirs.
+fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> AnyElement {
     let selected = app
         .git_view(cx)
         .map(|git| git.selected_commit.is_none())
@@ -114,7 +116,7 @@ fn uncommitted_row(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .unwrap_or(0);
 
     row_base("git-commit-uncommitted", selected)
-        .child(div().w(px(LANE_GUTTER)).flex_none())
+        .child(div().w(px(gutter_width(lanes))).flex_none())
         .child(
             div()
                 .flex_1()
@@ -220,10 +222,8 @@ fn row_base(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gp
 /// so the dot is laid out rather than overflowing what it sits in. A commit that something merges
 /// into is drawn hollow, which is the one thing a lane says about a topology it did not compute.
 fn lane_gutter(commit: &CommitRow, lanes: usize) -> AnyElement {
-    let width = (lanes as f32 * LANE_PITCH).max(LANE_PITCH);
-
     div()
-        .w(px(LANE_GUTTER.max(width)))
+        .w(px(gutter_width(lanes)))
         .h_full()
         .flex()
         .flex_none()
@@ -261,6 +261,13 @@ fn lane_gutter(commit: &CommitRow, lanes: usize) -> AnyElement {
             cell
         }))
         .into_any_element()
+}
+
+/// How wide the graph's gutter draws for a given lane count — the minimum a real, multi-lane
+/// history needs, never narrower than one lane's pitch. Shared by every row so the uncommitted
+/// row's own placeholder gutter lines up with the commit rows below it.
+fn gutter_width(lanes: usize) -> f32 {
+    LANE_GUTTER.max(lanes as f32 * LANE_PITCH)
 }
 
 /// The colour a lane draws in. Four tokens, cycled — a lane is not a state, so it borrows the

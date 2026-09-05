@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use git2::{BranchType, DiffOptions, Oid, Sort};
 use ubiq_proto::git::{GitCommit, GitError, GitRef, GitRefKind, GitWho};
 
+use super::graph::{self, Lanes};
 use super::observe::{map_error, short_id, tracking};
 
 /// A path with no history would walk to the root. The scan is bounded at this many commits and
@@ -100,7 +101,9 @@ pub fn refs(repo: &git2::Repository, with_tracking: bool) -> Result<Vec<GitRef>,
 
 /// One page of history, newest first.
 ///
-/// Returns the page and the id of the commit after it, which is the next cursor.
+/// Returns the page and the id of the commit after it, which is the next cursor. `lanes` carries
+/// the commit-graph column state in from the page before this one — pass an empty [`Lanes`] for a
+/// fresh walk (`cursor: None`) and the same one back in for the next page of the same walk.
 pub fn log(
     repo: &git2::Repository,
     scoped_to: &str,
@@ -108,6 +111,7 @@ pub fn log(
     count: u32,
     rel_path: Option<&str>,
     first_parent: bool,
+    lanes: &mut Lanes,
 ) -> Result<(Vec<GitCommit>, Option<String>), GitError> {
     let mut walk = repo.revwalk().map_err(map_error)?;
     walk.set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
@@ -165,6 +169,8 @@ pub fn log(
 
         commits.push(to_git_commit(repo, &commit, &decorations));
     }
+
+    graph::assign_lanes(&mut commits, lanes);
 
     Ok((commits, next_cursor))
 }
@@ -247,7 +253,10 @@ fn to_git_commit(
             .to_string(),
         author: who_of(&commit.author()),
         committer: who_of(&commit.committer()),
-        parents: commit.parent_count() as u32,
+        parents: commit.parent_ids().map(|id| id.to_string()).collect(),
+        // Lane layout runs once per page, over the whole page, in `log`.
+        lane: 0,
+        merges: Vec::new(),
         refs: decorations.get(&commit.id()).cloned().unwrap_or_default(),
         mine,
     }

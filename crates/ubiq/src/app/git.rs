@@ -36,8 +36,10 @@ impl AppState {
         });
         if let Some(git) = self.git_view_mut(cx) {
             // A fresh first page, not a page appended to whatever the last project on screen left
-            // behind — `receive_git` tells the two apart by whether a cursor is already held.
+            // behind. `log_inflight` is what tells `receive_git` this request's reply apart from
+            // a stale one still in flight from before.
             git.log_cursor = None;
+            git.log_inflight = Some(None);
         }
         self.bus.send(Message::ProjectGitLog {
             project_id,

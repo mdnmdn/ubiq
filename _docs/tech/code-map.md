@@ -70,6 +70,7 @@ crates/ubiq-host/src/
 ├── reply.rs
 ├── git/
 │   ├── mod.rs
+│   ├── graph.rs
 │   ├── history.rs
 │   └── observe.rs
 ├── settings.rs
@@ -270,6 +271,7 @@ the documents in its row.
 | `crates/ubiq-host/src/files/diff.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/files/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/mod.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/git/graph.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/history.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/observe.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md) |

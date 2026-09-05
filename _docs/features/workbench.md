@@ -432,8 +432,10 @@ in from `ProjectGitLog`, oldest page first and newest commit within it, but only
 stores `log_cursor` and `log_done` (`state/git.rs`) and nothing in `ui/git/history.rs` ever sends a
 second request with that cursor, so reaching the bottom asks for nothing (`G129`). The search over the history and its
 `my commits` filter are real controls over real rows, and both clear together. A commit's lane is
-always `0` — the wire carries a parent count, not a topology, so a merge draws as one hollow dot
-rather than a second column, which is `G123`.
+real: the host allocates it from actual parent ids, and a merge's extra parents claim their own
+lanes for the lines drawn behind it, rather than the one hollow dot a parent count could offer.
+Lane state carries across pages, keyed by the cursor and filters the next one arrives with, so a
+branch does not visually collapse and reopen at a page boundary.
 
 **A project is a colour.** Each project owns one of the theme's swatches, and wears it in four
 places at once: its dot in the picker, the fill behind its name in the titlebar, the mark above the

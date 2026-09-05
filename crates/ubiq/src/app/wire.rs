@@ -684,12 +684,24 @@ impl AppState {
 
             Message::GitLogPage {
                 project_id,
+                cursor,
                 commits,
                 next_cursor,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
+                // Staleness rule: this reply is answered only if its echoed `cursor` matches the
+                // request the view is currently waiting on (`log_inflight`). Two requests can
+                // share the same cursor value — most commonly two first-page requests, both
+                // `None` — so the *value* alone cannot tell a stale reply from the current one;
+                // `log_inflight` is overwritten on every send, so it always names the most
+                // recently sent request, and every other reply is discarded here rather than
+                // replacing or appending.
+                if open.git_view.log_inflight != Some(cursor.clone()) {
+                    return None;
+                }
+                open.git_view.log_inflight = None;
                 let rows = commit_rows(&commits);
-                if open.git_view.log_cursor.is_none() {
+                if cursor.is_none() {
                     open.git_view.commits = rows;
                 } else {
                     open.git_view.commits.extend(rows);

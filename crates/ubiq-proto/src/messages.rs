@@ -528,9 +528,15 @@ pub enum Message {
         project_id: ProjectId,
         error: git::GitError,
     },
-    /// One page of history. `next_cursor` absent is the end.
+    /// One page of history. `cursor` echoes the request's own, so a reply that lands after a
+    /// later request already advanced the cursor is told apart from a fresh one instead of
+    /// guessed at from whether the interface already holds a cursor. `next_cursor` absent is the
+    /// end.
     GitLogPage {
         project_id: ProjectId,
+        /// The cursor [`Message::ProjectGitLog`] was asked with. `None` was a request for the
+        /// first page.
+        cursor: Option<String>,
         commits: Vec<GitCommit>,
         next_cursor: Option<String>,
     },

@@ -228,8 +228,18 @@ pub struct GitCommit {
     pub summary: String,
     pub author: GitWho,
     pub committer: GitWho,
-    /// How many parents. Two or more is a merge, drawn as one without a second request.
-    pub parents: u32,
+    /// Parent commit ids, full form. Empty only for a root commit; two or more is a merge.
+    /// Identity rather than a count, because a lane algorithm matches a child to the lane its
+    /// parent occupies, and a count cannot say which lane that is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<String>,
+    /// Which lane this commit draws in. Computed host-side, on the same reasoning as the
+    /// working-tree rollups: two windows must not lay out the same history differently.
+    pub lane: usize,
+    /// Lanes this commit merges from, for the merge lines drawn behind it. Empty for a
+    /// single-parent commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merges: Vec<usize>,
     /// Branch and tag names pointing at this commit, for the decorations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refs: Vec<String>,
