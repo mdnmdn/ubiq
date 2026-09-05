@@ -974,7 +974,7 @@ something the host can promise on every filesystem it might be pointed at.
 ### D58 — A conversation's name is derived from the harness's command, not typed by the user
 
 A conversation used to be named at creation, typed into a prompt between picking a harness and the
-first turn. That prompt is gone: picking a harness now sends `StartConversation` at once, and the
+first turn. That prompt is gone: picking a harness sends `StartConversation` at once, and the
 host names the conversation itself, from the harness's **command** — `claude`, `codex`, `opencode`,
 not the display label a menu shows — with a counter from the second occurrence onward, per project:
 `claude`, `claude 2`, `claude 3`. The first free name is picked, so a closed `claude 2` is reused
@@ -989,13 +989,13 @@ wire yet — that is a backlog gap, not a design decision.
 — the moment one account logged in, its bare row vanished, and the New agent menu offered nothing
 but named identities. That was an accident of the fold, not a decision: the library's own answer to
 "what does a bare pick run as" — a profile, or the user's own home — never stopped existing, only
-the menu's way to reach it did. The menu now offers both, grouped as `Default` (every available
+the menu's way to reach it did. The menu offers both, grouped as `Default` (every available
 harness bare) and `Configured` (one row per signed-in `(harness, account)` pair), with the second
 group — heading and separator included — omitted entirely when nothing is signed in.
 
 **Cost:** the menu is one row longer per harness once an account exists, and a reader of
-`HarnessChoice` now has to skip two decoration variants, `Label` and `Separator`, that carry no
-pick — the same cost `NewPaneRow::Separator` already pays for the same reason.
+`HarnessChoice` must skip two decoration variants, `Label` and `Separator`, that carry no pick —
+the same cost `NewPaneRow::Separator` pays for the same reason.
 
 ### D60 — The model/thinking catalogue is a disk cache keyed on the harness binary's version
 
@@ -1016,13 +1016,13 @@ judged cheaper than a wrong catalogue silently served from a stale entry.
 ### D61 — A chat tab is a view onto a host-owned conversation, exclusive per IDE surface only
 
 The chat panel used to be one instance per window, holding a selection over the project's
-conversations. It is now editor-like tabs: `PanelKind::Chat(ChatId)` carries an id the way
+conversations. It is editor-like tabs instead: `PanelKind::Chat(ChatId)` carries an id the way
 `PanelKind::File`'s carries a tab key, so many may be open at once, each free to move to any
 dockable region. A tab's attachment — which conversation it is looking at, or none — lives on
 `state::chat::ChatTab`, in `OpenProject::chats`, not on the conversation itself: the conversation is
 the host's, a tab is Ubiq's own arrangement over it, and closing a tab ends nothing.
 
-A conversation already attached to a chat tab draws disabled in every other chat tab's attach
+A conversation attached to one chat tab draws disabled in every other chat tab's attach
 picker and cannot be picked there, so the same conversation is never shown as two tabs on this one
 surface. The rule stops at the surface's edge: the agents workbench may show the same conversation
 in a column at the same time a chat tab is attached to it, and the host is never told either way,
@@ -1030,22 +1030,62 @@ because a view was never the workspace.
 
 A `ChatId` is minted the way `AgentId::generate` mints one, but locally — it is UI arrangement the
 host never hears about, not a fact worth a wire type. It is also not meant to survive a restart: a
-saved dock leaf naming one this window did not already mint is dropped, the same as a saved
-terminal leaf naming a pane that has gone. What does survive a restart is the tab, if the incoming
-project already holds one — `OpenProject::new` seeds a fresh unattached tab exactly once per
-project a window ever takes, and `AppState::sync_chat_panels` is what squares the dock's own tree
-with it on every entry.
+saved dock leaf naming one this window never minted is dropped, the same as a saved terminal leaf
+naming a pane that has gone. What does survive a restart is the tab, when the incoming project
+holds one — `OpenProject::new` seeds a fresh unattached tab exactly once per project a window
+takes, and `AppState::sync_chat_panels` squares the dock's own tree with it on every entry.
 
 **Cost:** an arrangement of several chat tabs, each attached to a particular conversation, does not
 survive a window restart — the project comes back with one fresh, unattached tab, the same loss a
-multi-pane terminal arrangement already accepts. And the composer pool is now `COLUMNS_MAX +
-CHATS_MAX` fields built before the first frame rather than `COLUMNS_MAX + 1`, so a ninth chat tab
-finds no slot the same way a ninth column already does not.
+multi-pane terminal arrangement accepts. And the composer pool is `COLUMNS_MAX + CHATS_MAX` fields
+built before the first frame rather than `COLUMNS_MAX + 1`, so a ninth chat tab finds no slot the
+same way a ninth column does not.
+
+### D62 — A desktop-launched host repairs its own `PATH` from the login shell, once, at startup
+
+`agent-manager` finds every harness by bare command name (`Command::new("claude")`, and the same in
+the other harnesses' `discover_models`/`discover_thinking`/`version()`), which only resolves against
+whatever `PATH` the process holds. Run from a terminal that is the user's own, full `PATH`;
+launched from Finder or the dock it is a thin one that finds none of these binaries — `shells.rs`
+computed the fix long ago (`login_path()`, sourced from `$SHELL -lic 'printf %s "$PATH"'`) to find
+a pane's own shell, but nothing used it to repair the process's own environment.
+`ubiq_host::shells::repair_path` composes `PATH` (the current one, then the login shell's, then the
+same `EXTRA_DIRS` homes) and writes it back with `std::env::set_var`, called exactly once, from
+`ubiq_app::run`, before any other thread exists — the one window in which mutating the process
+environment is sound. That single repair fixes every bare-name spawn at once, in `agent-manager` and
+anywhere else in the process, rather than threading a resolved-program override through five
+harnesses.
+
+**Cost:** one login-shell invocation — paid once lazily by `shells::login_path()` — moves to boot
+instead of first use, and a process a desktop launcher starts runs briefly with a `PATH` its
+OS-reported environment does not show, until this line runs.
+
+### D63 — A pending agent's model/thinking `current` is the harness's own last launch, not its default
+
+`build_config_options` used to preselect `default_model_id` — the model a harness itself flags
+default — every time, so switching to "opus" today meant re-picking it on every new conversation.
+`FileHarnessCache` (the disk home D60 gave the catalogue) gained a second, small table:
+`(harness) -> (model, thinking)`, written by `Coordinator::launch` only after a launch actually
+reaches the harness — a pick opened and abandoned in the picker is not a preference, so
+`SetAgentConfig` on a pending agent never writes it. `build_config_options` reads it back as
+`current`, falling back to the harness default when nothing is remembered, the remembered model has
+left the catalogue, or the remembered thinking level does not belong to the resolved model.
+
+What the picker shows is what the launch uses. Only `SetAgentConfig` fills `chosen_model`, so a
+session that simply accepted the proposal would otherwise send no flag and run the harness's true
+default rather than the id `current` displayed. `Coordinator::launch` resolves the remembered value
+itself when nothing was picked (`launch_picks`), under the same two rules the option builders
+follow: a remembered model absent from the discovered catalogue falls back to no flag rather than
+naming a model that is gone, and a remembered level the resolved model does not accept is dropped,
+because a level belongs to a model and never to a harness.
+
+**Cost:** the preference is per harness, not per account or per project — two accounts on the same
+harness share one remembered model.
 
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
 - [`agent-manager.md`](./agent-manager.md) — the boundary D8 and D9 create
-- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, and D58
-  the naming rule it now states
+- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, and the
+  naming rule D58 states
 - [`../backlog.md`](../backlog.md) — the choices still open

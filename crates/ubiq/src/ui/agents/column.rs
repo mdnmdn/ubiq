@@ -121,6 +121,7 @@ pub fn render(
                     slot,
                     footer: true,
                     composer: true,
+                    header: true,
                 },
                 window,
                 cx,

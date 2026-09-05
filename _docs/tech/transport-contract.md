@@ -498,6 +498,22 @@ carrying whatever `SetAgentConfig` last chose for each of the three — they rea
 launch flags, so changing a pick before that first prompt costs nothing. See
 `_docs/wip/agent-setup.md`'s P3 and P6.
 
+**`model`'s `current` on that first send is the harness's own last launch, not its default (D63).**
+`FileHarnessCache` remembers, per harness, the model and thinking level `Coordinator::launch` last
+actually used, and `build_config_options` preselects those as `current` — falling back to the
+harness's flagged default when nothing is remembered, the remembered model has left the discovered
+catalogue, or the remembered thinking level does not belong to the resolved model. The preference
+is written only at launch, never at a pick alone, so a pick opened and abandoned in the picker
+never becomes "the last one used."
+
+**And what it shows is what it launches.** Only `SetAgentConfig` fills `chosen_model`, so a session
+that simply accepted the proposal would otherwise send no flag at all and run the harness's true
+default rather than the id `current` was showing. `Coordinator::launch` resolves the remembered
+value itself when nothing was picked (`launch_picks`), under the same two validity rules the option
+builders follow: a remembered model absent from the discovered catalogue falls back to no flag
+rather than naming a model that is gone, and a remembered level the resolved model does not accept
+is dropped, because a level belongs to a model and never to a harness.
+
 **`WorkAgent.name` is derived host-side, not typed by the user.** The host names a conversation
 from its harness's command — `claude`, `codex`, `opencode`, not the display label a menu shows —
 with a counter from the second occurrence onward, per project: `claude`, `claude 2`, `claude 3`.

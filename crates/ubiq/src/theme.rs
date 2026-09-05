@@ -140,6 +140,11 @@ pub struct StatusColors {
     pub warning_soft: Rgba,
     pub info: Rgba,
     pub info_soft: Rgba,
+    /// The build-channel ribbon in the window's bottom-left corner: its two bands, and the ink
+    /// its word is written in. Fixed in both palettes — the ribbon marks the build, not the mood.
+    pub ribbon_alpha: Rgba,
+    pub ribbon_beta: Rgba,
+    pub ribbon_ink: Rgba,
 }
 
 /// Colours the terminal emulator paints that are not ANSI — selection and links.
@@ -336,6 +341,18 @@ pub fn info_soft() -> Rgba {
     Theme::current().palette.status.info_soft
 }
 
+pub fn ribbon_alpha() -> Rgba {
+    Theme::current().palette.status.ribbon_alpha
+}
+
+pub fn ribbon_beta() -> Rgba {
+    Theme::current().palette.status.ribbon_beta
+}
+
+pub fn ribbon_ink() -> Rgba {
+    Theme::current().palette.status.ribbon_ink
+}
+
 /// The swatch a project is identified by. Wraps, so any number of projects is colourable.
 pub fn project_colour(index: usize) -> Rgba {
     let swatches = Theme::current().palette.project.swatches;
@@ -440,6 +457,9 @@ pub fn dark() -> Theme {
                 warning_soft: rgba_hex_a(0xef9f2a, 0.16),
                 info: rgba_hex(0x4a9eff),
                 info_soft: rgba_hex_a(0x4a9eff, 0.16),
+                ribbon_alpha: rgba_hex(0xf5c518),
+                ribbon_beta: rgba_hex(0xf5a04a),
+                ribbon_ink: rgba_hex(0x1b1b1b),
             },
             project: ProjectColors {
                 swatches: [
@@ -511,6 +531,9 @@ pub fn light() -> Theme {
                 warning_soft: rgba_hex_a(0xd48a1e, 0.14),
                 info: rgba_hex(0x0066ff),
                 info_soft: rgba_hex_a(0x0066ff, 0.10),
+                ribbon_alpha: rgba_hex(0xf5c518),
+                ribbon_beta: rgba_hex(0xf5a04a),
+                ribbon_ink: rgba_hex(0x1b1b1b),
             },
             project: ProjectColors {
                 swatches: [

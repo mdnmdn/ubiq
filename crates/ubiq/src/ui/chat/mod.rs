@@ -12,11 +12,12 @@
 
 pub mod sidebar;
 
-use gpui::{Context, IntoElement, ParentElement, SharedString, Styled, Window, div, px};
+use gpui::{App, Context, IntoElement, ParentElement, SharedString, Styled, Window, div, px};
 use gpui_component::IconName;
 
 use crate::app::AppState;
 use crate::state::ChatId;
+use crate::state::conversation::Conversation;
 use crate::theme;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::empty;
@@ -28,14 +29,27 @@ pub fn render(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
+    let attached = attached(app, id, cx);
     panel()
         .border_l_1()
         .border_color(theme::border())
-        .child(sidebar::header(app, id, window, cx))
+        .child(sidebar::header(app, id, attached, window, cx))
         // No status strip: the run pill, the context ring and the cost are the shared view's
         // footer, computed from what the harness actually reported. A second strip over it was a
         // fixture, and two answers about one conversation is one answer too many.
-        .child(body(app, id, window, cx))
+        .child(body(app, id, attached, window, cx))
+}
+
+/// The conversation one chat tab is attached to, and the composer slot it types into — or `None`
+/// if it is attached to nothing. Read once by [`render`] and handed to both the toolbar and the
+/// body, so the two never disagree about which conversation (and which glyph, which menu) the tab
+/// is showing.
+fn attached<'a>(app: &'a AppState, id: ChatId, cx: &App) -> Option<(&'a Conversation, usize)> {
+    let tab = app
+        .open_project(cx)
+        .and_then(|open| open.chats.iter().find(|tab| tab.id == id).copied())?;
+    let agent = tab.attached?;
+    app.conversation(agent, cx).map(|conv| (conv, tab.slot))
 }
 
 /// The attached conversation, or a note saying there is nothing to draw.
@@ -45,17 +59,10 @@ pub fn render(
 fn body(
     app: &AppState,
     id: ChatId,
+    attached: Option<(&Conversation, usize)>,
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
-    let tab = app
-        .open_project(cx)
-        .and_then(|open| open.chats.iter().find(|tab| tab.id == id).copied());
-    let attached = tab.and_then(|tab| {
-        tab.attached
-            .and_then(|agent| app.conversation(agent, cx).map(|conv| (conv, tab.slot)))
-    });
-
     match attached {
         Some((conversation, slot)) => conversation::render(
             app,
@@ -65,6 +72,7 @@ fn body(
                 slot,
                 footer: true,
                 composer: true,
+                header: false,
             },
             window,
             cx,

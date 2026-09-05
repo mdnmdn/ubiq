@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -69,6 +69,7 @@ a palette swap changes every surface consistently.
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
+| Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink` | The build-channel ribbon in the window's bottom-left corner — the same value in both palettes, because it marks the build rather than the mood |
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(...)`, `mark_dark(...)` | The identity of one project, wherever it appears |
 
 The `_soft` variants are declared with their own alpha in `theme.rs` rather than computed at a call
@@ -346,6 +347,24 @@ the conversation's own fields (Starting, Ready, Working carrying an `Activity`, 
 Ended); the glyph colours a `status_dot` from it — `activity_colour` while a turn runs, the same
 tokens the bucket colours use otherwise — and says the word in a tooltip, one or two of them, never a
 sentence.
+
+**Whether the shared conversation view draws that glyph and menu itself is per surface, not fixed.**
+`ConversationView` carries `header: bool` beside its existing `footer` and `composer` — the agents
+column keeps it `true` and gets the strip unchanged; the chat panel sets it `false` and draws the
+identical fragment, `ui::conversation::lifecycle_controls`, inline in its own toolbar row instead,
+beside its `New chat` and `New tab`. The glyph's state and the menu's enable rule — `lifecycle` and
+`lifecycle_menu_enabled` — are read in exactly one place regardless of which surface calls them, so
+a second surface adopting the shared view is a `ConversationView` field, never a forked copy of
+either rule.
+
+**A row that gathers several controls this way drops their labels for tooltips, not for a second
+icon set.** The chat panel's toolbar is icon-only: the lifecycle menu, `New chat` and `New tab` each
+keep `icon_button`'s icon and lose `ghost_button`'s inline label, the label reappearing as the same
+hover tooltip every other icon-only control in the window already uses — the titlebar's panel
+toggles, the agents column tab's `×` (`Put on the bench`). Two controls that both add something
+must still read as different actions at a glance, so a row is never given the same icon twice with
+only the tooltip to tell them apart — `New chat` and `New tab` keep their own icons for exactly that
+reason.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two

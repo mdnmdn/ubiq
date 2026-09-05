@@ -27,6 +27,8 @@ use ubiq_host::work::Work;
 use ubiq_proto::bus;
 use ubiq_proto::log;
 
+pub mod handoff;
+
 actions!(ubiq, [Quit]);
 
 /// Where the four subsystems keep what they own.
@@ -78,6 +80,14 @@ pub fn run(boot: Boot) {
     // console with everything else.
     log::install();
 
+    // Before any thread exists — the coordinator's, the GPUI event loop's, anything else this
+    // process spawns — because mutating the environment is only sound while nothing else might
+    // read it concurrently. This is the earliest point in the whole boot, which is exactly why it
+    // lives here rather than in the host itself: `coordinator::start` below already spawns a
+    // thread. See `ubiq_host::shells::repair_path` for what this actually fixes (a desktop
+    // launcher's thin `PATH` breaking every bare-name harness spawn) and why it is safe here.
+    ubiq_host::shells::repair_path();
+
     let root = match resolve_root() {
         Ok(root) => root,
         // A broken bootstrap must not fall back to the user's real catalogue and credentials, so
@@ -102,6 +112,20 @@ pub fn run(boot: Boot) {
         tracing::error!("could not create {}: {error}", root.path.display());
     }
 
+    // The three ways a path reaches Ubiq from outside its own window — `ubiq <path>` on the
+    // command line, a Finder or dock-icon open, a drop on the app icon while it is running — all
+    // funnel through one channel, so whichever window answers sees exactly the same thing.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let paths = argv_paths(std::env::args().skip(1), &cwd);
+
+    // Before anything is opened or started: a second `ubiq` under the same config root is a second
+    // *process*, not a second application. It gives its paths to the one already running and is
+    // done here — the shell it was typed in gets its prompt straight back.
+    let listener = match handoff::claim(&root.path, &paths) {
+        handoff::Handoff::Delivered => return,
+        handoff::Handoff::Owner(listener) => listener,
+    };
+
     let stores = (boot.stores)(&root.path);
 
     let (projects, pending) =
@@ -118,13 +142,12 @@ pub fn run(boot: Boot) {
     let (hub, host) = bus::hub();
     coordinator::start(host, root, projects, work, settings, pending);
 
-    // The three ways a path reaches Ubiq from outside its own window — `ubiq <path>` on the
-    // command line, a Finder or dock-icon open, a drop on the app icon while it is running — all
-    // funnel through here, so whichever window answers sees exactly the same thing.
-    let (path_tx, path_rx) = flume::unbounded::<PathBuf>();
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    for path in argv_paths(std::env::args().skip(1), &cwd) {
-        path_tx.send(path).ok();
+    // One batch per arrival, because an arrival with no path in it is a bare `ubiq` asking for the
+    // window's attention and has to reach the loop below all the same.
+    let (path_tx, path_rx) = flume::unbounded::<Vec<PathBuf>>();
+    path_tx.send(paths).ok();
+    if let Some(listener) = listener {
+        handoff::serve(listener, path_tx.clone());
     }
 
     // `on_open_urls` and `on_reopen` are `Application`'s, not `App`'s, so they have to go on
@@ -133,11 +156,13 @@ pub fn run(boot: Boot) {
     let app = application().with_assets(gpui_component_assets::Assets);
 
     app.on_open_urls(move |urls| {
-        for url in &urls {
-            if let Some(path) = path_from_file_url(url) {
-                path_tx.send(path).ok();
-            }
-        }
+        path_tx
+            .send(
+                urls.iter()
+                    .filter_map(|url| path_from_file_url(url))
+                    .collect(),
+            )
+            .ok();
     });
 
     // The dock icon, clicked with no window open: the same door a cold launch walks through.
@@ -179,12 +204,13 @@ pub fn run(boot: Boot) {
         // the window to existing — is drained here, and every later arrival takes the same path.
         // `deliver_paths_to_a_window` owns what happens to them; this just says when.
         cx.spawn(async move |cx| {
-            while let Ok(first) = path_rx.recv_async().await {
-                let mut batch = vec![first];
-                while let Ok(next) = path_rx.try_recv() {
-                    batch.push(next);
-                }
-                cx.update(|cx| app::deliver_paths_to_a_window(batch, cx));
+            while let Ok(batch) = path_rx.recv_async().await {
+                cx.update(|cx| {
+                    // Whoever asked is in another process, or in Finder: the window they meant has
+                    // to come forward, whether or not a path came with the ask.
+                    cx.activate(true);
+                    app::deliver_paths_to_a_window(batch, cx)
+                });
             }
         })
         .detach();

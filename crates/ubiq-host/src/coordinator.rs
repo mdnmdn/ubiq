@@ -272,7 +272,12 @@ fn default_model_id(models: &[CachedModel]) -> String {
 /// `_docs/wip/agent-setup.md`'s P3: "one that cannot answer must offer 'whatever it defaults to'
 /// rather than an empty picker." An empty `current`/`value` is what tells `launch_pending` to pass
 /// no `--model` flag at all.
-fn model_config_option(models: &[CachedModel]) -> ConfigOption {
+///
+/// `chosen` is preselected as `current` when it names one of `models` — the caller's job is to
+/// resolve that to the harness default (or the newly picked model) beforehand; a `chosen` that
+/// matches nothing here (never remembered, or a model the harness dropped) falls back to
+/// [`default_model_id`].
+fn model_config_option(models: &[CachedModel], chosen: &str) -> ConfigOption {
     if models.is_empty() {
         return ConfigOption {
             id: "model".to_string(),
@@ -294,13 +299,18 @@ fn model_config_option(models: &[CachedModel]) -> ConfigOption {
         };
     }
 
+    let current = if models.iter().any(|model| model.id == chosen) {
+        chosen.to_string()
+    } else {
+        default_model_id(models)
+    };
     ConfigOption {
         id: "model".to_string(),
         name: "Model".to_string(),
         description: None,
         category: Some(ConfigCategory::Model),
         value: ConfigValue::Select {
-            current: default_model_id(models),
+            current,
             choices: models
                 .iter()
                 .map(|model| ConfigChoice {
@@ -314,23 +324,39 @@ fn model_config_option(models: &[CachedModel]) -> ConfigOption {
     }
 }
 
-/// The `thinking` [`ConfigOption`] for whichever model `chosen` names (falling back to the
-/// default model, then the first, when `chosen` doesn't match one) — `None` when there is no
+/// The `thinking` [`ConfigOption`] for whichever model `chosen_model` names (falling back to the
+/// default model, then the first, when `chosen_model` doesn't match one) — `None` when there is no
 /// matching model or it has no reasoning levels at all, an absent picker rather than an empty
 /// one, because a lone "Default" choice would claim a knob the harness does not have.
-fn thinking_config_option(models: &[CachedModel], chosen: &str) -> Option<ConfigOption> {
+///
+/// `chosen_thinking` is preselected as `current` only when the resolved model actually accepts
+/// it — offering a level a model does not have is exactly what this design forbids — otherwise
+/// `current` falls back to the model's own default (or first) level.
+fn thinking_config_option(
+    models: &[CachedModel],
+    chosen_model: &str,
+    chosen_thinking: &str,
+) -> Option<ConfigOption> {
     let model = models
         .iter()
-        .find(|model| model.id == chosen)
+        .find(|model| model.id == chosen_model)
         .or_else(|| models.iter().find(|model| model.default))
         .or_else(|| models.first())?;
     if model.levels.is_empty() {
         return None;
     }
-    let current = model
-        .default_level
-        .clone()
-        .unwrap_or_else(|| model.levels[0].value.clone());
+    let current = if model
+        .levels
+        .iter()
+        .any(|level| level.value == chosen_thinking)
+    {
+        chosen_thinking.to_string()
+    } else {
+        model
+            .default_level
+            .clone()
+            .unwrap_or_else(|| model.levels[0].value.clone())
+    };
     Some(ConfigOption {
         id: "thinking".to_string(),
         name: "Thinking".to_string(),
@@ -382,18 +408,71 @@ fn mode_config_option(agent_type: &str) -> Option<ConfigOption> {
     })
 }
 
-/// The full set of `ConfigOption`s a pending agent's picker gets, for `chosen_model` (the default
-/// model id on the first send, the newly picked one on a `SetAgentConfig{"model", ..}` re-send):
-/// always `model`, plus `mode`/`thinking` whenever the harness/model actually offers one.
+/// The full set of `ConfigOption`s a pending agent's picker gets, for `chosen_model` (the
+/// remembered-or-default model id on the first send, the newly picked one on a
+/// `SetAgentConfig{"model", ..}` re-send) and `chosen_thinking` (the remembered level on the
+/// first send, empty on a re-send — a model change resets thinking to that model's own default,
+/// see the call site): always `model`, plus `mode`/`thinking` whenever the harness/model actually
+/// offers one.
 fn build_config_options(
     agent_type: &str,
     models: &[CachedModel],
     chosen_model: &str,
+    chosen_thinking: &str,
 ) -> Vec<ConfigOption> {
-    let mut options = vec![model_config_option(models)];
+    let mut options = vec![model_config_option(models, chosen_model)];
     options.extend(mode_config_option(agent_type));
-    options.extend(thinking_config_option(models, chosen_model));
+    options.extend(thinking_config_option(
+        models,
+        chosen_model,
+        chosen_thinking,
+    ));
     options
+}
+
+/// What model and thinking level a launch actually passes, given what the user picked and what
+/// this harness was last launched with.
+///
+/// **A picker nobody touched still means something.** The option the window drew carried the
+/// last-launched model as its `current`, so launching with no flag would run a different model
+/// from the one on screen — and only `SetAgentConfig` ever fills `chosen_model`, so a session that
+/// simply accepted the proposal would otherwise send nothing at all. The remembered value is
+/// resolved here instead, which is what keeps the picker and the launch telling one story.
+///
+/// Both are validated rather than trusted: a remembered model that has since left the catalogue
+/// falls back to no flag — the harness's own default — rather than naming a model that is gone;
+/// and a level belongs to a *model*, never to a harness, so one the resolved model does not accept
+/// is dropped, the same rule [`thinking_config_option`] follows when it offers them.
+fn launch_picks(
+    chosen_model: Option<&str>,
+    chosen_thinking: Option<&str>,
+    catalogue: &[CachedModel],
+    last_model: &str,
+    last_thinking: &str,
+) -> (Option<String>, Option<String>) {
+    let model = chosen_model
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            catalogue
+                .iter()
+                .any(|model| model.id == last_model)
+                .then(|| last_model.to_string())
+        });
+    let thinking = chosen_thinking
+        .filter(|level| !level.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            let resolved = model.as_deref()?;
+            catalogue
+                .iter()
+                .find(|entry| entry.id == resolved)?
+                .levels
+                .iter()
+                .any(|level| level.value == last_thinking)
+                .then(|| last_thinking.to_string())
+        });
+    (model, thinking)
 }
 
 impl Coordinator {
@@ -1052,9 +1131,15 @@ impl Coordinator {
                                 .unwrap_or_default();
                         // A level is per model: offering one the newly chosen model does not
                         // accept is exactly the lie this design exists to prevent, so the
-                        // thinking picker is recomputed for `value`, not the previous model.
-                        let options =
-                            build_config_options(&pending.agent_type, &pending.catalogue, &value);
+                        // thinking picker is recomputed for `value`, not the previous model —
+                        // and reset to that model's own default rather than carrying over
+                        // whatever level was showing before (empty `chosen_thinking`).
+                        let options = build_config_options(
+                            &pending.agent_type,
+                            &pending.catalogue,
+                            &value,
+                            "",
+                        );
                         // Pre-increment, mirroring the pump's own `seq += 1` before it sends: the
                         // discovery thread's message already claimed seq 1, so the first pick's
                         // resend is seq 2, and `next_seq` still names "the last seq used" when
@@ -1259,15 +1344,26 @@ impl Coordinator {
             .spawn(move || {
                 let models =
                     probe_catalogue(&agent_type, &account_key, &cache).unwrap_or_else(|error| {
+                        // `error:#` is anyhow's full chain — the spawn's own `with_context` names
+                        // the binary and asks "is it on PATH?" — plus the resolved `PATH` itself,
+                        // so a discovery failure reads as a cause (this binary, this PATH) rather
+                        // than the "Default"-only symptom it degrades to below.
                         tracing::warn!(
                             agent = %agent_id,
                             harness = %agent_type,
+                            path = %std::env::var("PATH").unwrap_or_default(),
                             "model discovery failed: {error:#}"
                         );
                         Vec::new()
                     });
-                let chosen = default_model_id(&models);
-                let options = build_config_options(&agent_type, &models, &chosen);
+                let (last_model, last_thinking) = cache.last_used(&agent_type).unwrap_or_default();
+                let chosen_model = if models.iter().any(|m| m.id == last_model) {
+                    last_model
+                } else {
+                    default_model_id(&models)
+                };
+                let options =
+                    build_config_options(&agent_type, &models, &chosen_model, &last_thinking);
                 discovery_mailbox.send(Message::ConversationUpdate {
                     agent_id,
                     seq: 1,
@@ -1293,16 +1389,25 @@ impl Coordinator {
         agent_id: AgentId,
         pending: PendingConversation,
     ) -> bool {
-        let model = pending.chosen_model.filter(|model| !model.is_empty());
-        let thinking = pending.chosen_thinking.filter(|v| !v.is_empty());
+        let (last_model, last_thinking) = self
+            .catalogue
+            .last_used(&pending.agent_type)
+            .unwrap_or_default();
+        let (model, thinking) = launch_picks(
+            pending.chosen_model.as_deref(),
+            pending.chosen_thinking.as_deref(),
+            &pending.catalogue,
+            &last_model,
+            &last_thinking,
+        );
         let mode = pending.chosen_mode.filter(|v| !v.is_empty());
         let (composed, bridge) = match self.agents.converse(
             agent_id,
             &pending.agent_type,
             &pending.cwd,
             pending.account.clone(),
-            model,
-            thinking,
+            model.clone(),
+            thinking.clone(),
             mode,
         ) {
             Ok(started) => started,
@@ -1325,6 +1430,14 @@ impl Coordinator {
             harness = %pending.agent_type,
             dir = %composed.dir.display(),
             "conversation started"
+        );
+
+        // What actually reached the harness, not what the picker merely showed — a pick the user
+        // opened and then abandoned never got here, so it never overwrites what launched.
+        self.catalogue.set_last_used(
+            &pending.agent_type,
+            model.as_deref().unwrap_or(""),
+            thinking.as_deref().unwrap_or(""),
         );
 
         let mailbox = self.host.mailbox(To::Client(client));
@@ -2121,6 +2234,25 @@ mod tests {
         }
     }
 
+    /// A model offering exactly the levels named — the existing `model_with_levels` fixes one
+    /// level and a default flag, which the launch-pick rules need to vary independently.
+    fn model_offering(id: &str, levels: &[&str]) -> CachedModel {
+        CachedModel {
+            id: id.to_string(),
+            description: None,
+            default: false,
+            levels: levels
+                .iter()
+                .map(|value| CachedLevel {
+                    value: (*value).to_string(),
+                    label: (*value).to_string(),
+                    description: None,
+                })
+                .collect(),
+            default_level: None,
+        }
+    }
+
     fn model_without_levels(id: &str) -> CachedModel {
         CachedModel {
             id: id.to_string(),
@@ -2133,7 +2265,7 @@ mod tests {
 
     #[test]
     fn model_config_option_with_no_models_offers_a_default_fallback() {
-        let option = model_config_option(&[]);
+        let option = model_config_option(&[], "");
         assert_eq!(option.id, "model");
         let ConfigValue::Select { current, choices } = option.value else {
             panic!("expected a Select value");
@@ -2144,14 +2276,41 @@ mod tests {
     }
 
     #[test]
+    fn model_config_option_preselects_a_remembered_model() {
+        let models = [
+            model_with_levels("sonnet", true),
+            model_without_levels("haiku"),
+        ];
+        let option = model_config_option(&models, "haiku");
+        let ConfigValue::Select { current, .. } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(current, "haiku");
+    }
+
+    #[test]
+    fn model_config_option_falls_back_to_the_default_when_the_remembered_model_is_gone() {
+        let models = [
+            model_with_levels("sonnet", true),
+            model_without_levels("haiku"),
+        ];
+        // "opus" was remembered but this catalogue no longer offers it.
+        let option = model_config_option(&models, "opus");
+        let ConfigValue::Select { current, .. } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(current, "sonnet", "falls back to the harness default");
+    }
+
+    #[test]
     fn thinking_config_option_is_none_for_a_model_with_no_levels() {
         let models = [model_without_levels("gpt-5-chat-latest")];
-        assert!(thinking_config_option(&models, "gpt-5-chat-latest").is_none());
+        assert!(thinking_config_option(&models, "gpt-5-chat-latest", "").is_none());
     }
 
     #[test]
     fn thinking_config_option_is_none_when_there_are_no_models_at_all() {
-        assert!(thinking_config_option(&[], "anything").is_none());
+        assert!(thinking_config_option(&[], "anything", "").is_none());
     }
 
     #[test]
@@ -2160,7 +2319,7 @@ mod tests {
             model_with_levels("sonnet", true),
             model_without_levels("haiku"),
         ];
-        let option = thinking_config_option(&models, "sonnet").expect("sonnet has levels");
+        let option = thinking_config_option(&models, "sonnet", "").expect("sonnet has levels");
         assert_eq!(option.id, "thinking");
         assert_eq!(option.category, Some(ConfigCategory::ThoughtLevel));
         let ConfigValue::Select { choices, .. } = option.value else {
@@ -2170,7 +2329,32 @@ mod tests {
         assert_eq!(choices[0].value, "high");
 
         // The other model in the same catalogue has no levels: choosing it produces none.
-        assert!(thinking_config_option(&models, "haiku").is_none());
+        assert!(thinking_config_option(&models, "haiku", "").is_none());
+    }
+
+    #[test]
+    fn thinking_config_option_preselects_a_remembered_level_the_model_accepts() {
+        let models = [model_with_levels("sonnet", true)];
+        let option = thinking_config_option(&models, "sonnet", "high").expect("sonnet has levels");
+        let ConfigValue::Select { current, .. } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(current, "high");
+    }
+
+    #[test]
+    fn thinking_config_option_drops_a_remembered_level_the_model_does_not_accept() {
+        let models = [model_with_levels("sonnet", true)];
+        // "sonnet" here only accepts "high" (see `model_with_levels`) — a remembered "low" from
+        // some other model must not be offered.
+        let option = thinking_config_option(&models, "sonnet", "low").expect("sonnet has levels");
+        let ConfigValue::Select { current, .. } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(
+            current, "high",
+            "falls back to the model's own default level"
+        );
     }
 
     #[test]
@@ -2193,7 +2377,7 @@ mod tests {
     #[test]
     fn build_config_options_includes_mode_and_thinking_when_the_harness_and_model_offer_them() {
         let models = [model_with_levels("sonnet", true)];
-        let options = build_config_options("claude-code", &models, "sonnet");
+        let options = build_config_options("claude-code", &models, "sonnet", "");
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert!(ids.contains(&"model"));
         assert!(ids.contains(&"mode"));
@@ -2203,7 +2387,7 @@ mod tests {
     #[test]
     fn build_config_options_omits_thinking_for_a_model_with_no_levels() {
         let models = [model_without_levels("gpt-5-chat-latest")];
-        let options = build_config_options("codex", &models, "gpt-5-chat-latest");
+        let options = build_config_options("codex", &models, "gpt-5-chat-latest", "");
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert!(ids.contains(&"model"));
         assert!(ids.contains(&"mode"));
@@ -2213,7 +2397,7 @@ mod tests {
     #[test]
     fn build_config_options_omits_mode_for_a_harness_with_none() {
         let models = [model_without_levels("some-model")];
-        let options = build_config_options("opencode", &models, "some-model");
+        let options = build_config_options("opencode", &models, "some-model", "");
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert!(ids.contains(&"model"));
         assert!(!ids.contains(&"mode"));
@@ -2428,6 +2612,96 @@ mod tests {
         assert!(
             !coordinator.pending_conversations.contains_key(&agent_id),
             "a failed relaunch retracts the recipe, the same as a failed first launch"
+        );
+    }
+
+    /// A picker nobody touched must still launch what it was showing. The option carried the
+    /// remembered model as `current`, so sending no flag would run something else — the gap this
+    /// closes, and the one the picker cannot report because nothing looks wrong on screen.
+    #[test]
+    fn an_untouched_picker_launches_the_model_it_was_proposing() {
+        let catalogue = vec![model_offering("opus", &["low", "high"])];
+        let (model, thinking) = launch_picks(None, None, &catalogue, "opus", "high");
+        assert_eq!(model.as_deref(), Some("opus"));
+        assert_eq!(thinking.as_deref(), Some("high"));
+    }
+
+    /// An explicit pick always wins over the remembered one — otherwise choosing a model would
+    /// silently do nothing when it happened to differ from last time.
+    #[test]
+    fn an_explicit_pick_beats_the_remembered_one() {
+        let catalogue = vec![
+            model_offering("opus", &["low", "high"]),
+            model_offering("haiku", &["low"]),
+        ];
+        let (model, _) = launch_picks(Some("haiku"), None, &catalogue, "opus", "high");
+        assert_eq!(model.as_deref(), Some("haiku"));
+    }
+
+    /// A remembered model the harness no longer offers must fall back to no flag at all — naming
+    /// a model that is gone is a refused spawn, and the harness's own default is the honest answer.
+    #[test]
+    fn a_remembered_model_missing_from_the_catalogue_falls_back_to_no_flag() {
+        let catalogue = vec![model_offering("opus", &["low"])];
+        let (model, thinking) = launch_picks(None, None, &catalogue, "retired-model", "low");
+        assert_eq!(model, None);
+        assert_eq!(
+            thinking, None,
+            "no model resolved means no level to validate against"
+        );
+    }
+
+    /// A level belongs to a model, never to a harness: one the resolved model does not accept is
+    /// dropped rather than passed, matching what `thinking_config_option` refuses to offer.
+    #[test]
+    fn a_remembered_level_the_model_does_not_accept_is_dropped() {
+        let catalogue = vec![model_offering("haiku", &["low"])];
+        let (model, thinking) = launch_picks(None, None, &catalogue, "haiku", "xhigh");
+        assert_eq!(model.as_deref(), Some("haiku"));
+        assert_eq!(thinking, None);
+    }
+
+    /// A pick made and then abandoned — never launched — must not be remembered: `SetAgentConfig`
+    /// on a pending agent only ever touches `pending_conversations`, and a launch attempt that
+    /// fails before `Conversation::start` never reaches the `set_last_used` call, so the harness
+    /// cache stays untouched either way.
+    #[test]
+    fn nothing_is_remembered_until_a_launch_actually_happens() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        coordinator.unload_conversation(client.id(), agent_id);
+        drain_all(&client);
+
+        // A pick on the now-pending agent — recorded only in `pending_conversations`.
+        coordinator.dispatch(
+            client.id(),
+            Message::SetAgentConfig {
+                agent_id,
+                config_id: "model".to_string(),
+                value: "some-model".to_string(),
+            },
+        );
+        drain_all(&client);
+        assert_eq!(
+            coordinator.catalogue.last_used("not-a-real-harness"),
+            None,
+            "a pick alone must not reach the cache"
+        );
+
+        // The relaunch this triggers fails at once (`not-a-real-harness` resolves to nothing),
+        // so the pick is never recorded as a launch either.
+        coordinator.dispatch(
+            client.id(),
+            Message::PromptAgent {
+                agent_id,
+                text: "hi".to_string(),
+            },
+        );
+        drain_all(&client);
+        assert_eq!(
+            coordinator.catalogue.last_used("not-a-real-harness"),
+            None,
+            "a failed launch attempt must not be remembered as a preference"
         );
     }
 

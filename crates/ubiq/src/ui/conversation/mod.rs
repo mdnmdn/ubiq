@@ -47,6 +47,11 @@ pub struct ConversationView {
     pub slot: usize,
     pub footer: bool,
     pub composer: bool,
+    /// Whether this surface draws the lifecycle strip — the status glyph and the three-dots menu
+    /// — itself. The agents column keeps it; the chat panel draws the same two controls (via
+    /// [`lifecycle_controls`]) inline in its own toolbar row instead, so it sets this to `false`
+    /// rather than showing the strip twice.
+    pub header: bool,
 }
 
 impl ConversationView {
@@ -64,13 +69,11 @@ pub fn render(
 ) -> AnyElement {
     let id = conversation.id;
 
-    let mut root = div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .child(lifecycle_header(app, conversation, &view, cx))
-        .child(transcript(conversation, &view, cx));
+    let mut root = div().flex().flex_col().flex_1().min_h(px(0.));
+    if view.header {
+        root = root.child(lifecycle_header(app, conversation, &view, cx));
+    }
+    root = root.child(transcript(conversation, &view, cx));
 
     if let Some(pending) = &conversation.pending {
         root = root.child(permission(id, pending, &view, cx));
@@ -204,10 +207,38 @@ pub fn lifecycle_menu_enabled(conversation: &Conversation) -> [bool; 4] {
     ]
 }
 
-/// The three-dots lifecycle menu — Stop, Unload, Resume, Delete — first element of the view's
-/// header row, top left. Each item disables rather than hides, so the menu's shape never changes
-/// under the cursor.
+/// The bordered strip the agents column draws above its transcript: [`lifecycle_controls`] inside
+/// a header row of its own. The chat panel draws the same controls (see
+/// [`crate::ui::chat::sidebar::header`]) inline in its own toolbar instead of this strip, which is
+/// why `view.header` gates whether [`render`] calls this at all.
 fn lifecycle_header(
+    app: &AppState,
+    conversation: &Conversation,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    div()
+        .h(px(28.))
+        .px_1p5()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .border_b_1()
+        .border_color(theme::border())
+        .debug_selector(|| "lifecycle-strip".into())
+        .child(lifecycle_controls(app, conversation, view, cx))
+        .into_any_element()
+}
+
+/// The status glyph and the three-dots lifecycle menu — Stop, Unload, Resume, Delete — together,
+/// as a fragment with no strip of its own around them. [`lifecycle_header`] wraps this in the
+/// agents column's bordered row; the chat panel's toolbar drops it straight into its one row of
+/// controls instead, beside New chat and New tab. One function either way, so the two surfaces can
+/// never disagree about which lifecycle state is shown or which menu row is enabled.
+///
+/// Each menu item disables rather than hides, so the menu's shape never changes under the cursor.
+pub fn lifecycle_controls(
     app: &AppState,
     conversation: &Conversation,
     view: &ConversationView,
@@ -244,17 +275,16 @@ fn lifecycle_header(
         .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
             let at = event.position();
             this.open_conversation_menu(id, (at.x.into(), at.y.into()), cx);
-        }));
+        }))
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new("Conversation actions").build(window, cx)
+        });
 
     let mut row = div()
-        .h(px(28.))
-        .px_1p5()
         .flex()
         .flex_none()
         .items_center()
         .gap_1p5()
-        .border_b_1()
-        .border_color(theme::border())
         .child(lifecycle_glyph(conversation, view))
         .child(button);
 

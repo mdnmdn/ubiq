@@ -12,7 +12,7 @@ use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Wind
 use crate::app::{AppState, FocusFileFilter, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
-use crate::ui::{rail, settings, status_bar, titlebar};
+use crate::ui::{rail, ribbon, settings, status_bar, titlebar};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -20,6 +20,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .flex()
         .flex_col()
         .size_full()
+        .relative()
         .key_context("Workbench")
         .on_action(cx.listener(AppState::save_active_file))
         .on_action(cx.listener(AppState::new_untitled_file))
@@ -135,4 +136,6 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .is_some()
                 .then(|| crate::ui::agents::new_agent_menu(app, cx)),
         )
+        // The build-channel ribbon, over everything: the window always says which build it is.
+        .child(ribbon::render())
 }

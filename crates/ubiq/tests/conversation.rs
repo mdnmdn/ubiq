@@ -15,11 +15,15 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use chrono::Utc;
-use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
+use gpui::{
+    AppContext as _, Context, Entity, IntoElement, Render, SharedString, TestAppContext,
+    VisualTestContext, Window, WindowHandle,
+};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::conversation::Run;
+use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate, StopReason,
@@ -970,4 +974,66 @@ fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
     let mut c = fresh();
     c.accepts_input = false;
     assert_eq!(lifecycle(&c), Lifecycle::Ended);
+}
+
+/// A window whose only content is one conversation, drawn with whichever `header` the test wants —
+/// standing in for the agents column (`header: true`) and the chat panel (`header: false`) without
+/// dragging in either surface's own dock plumbing.
+struct ConversationHarness {
+    state: Entity<AppState>,
+    agent: AgentId,
+    header: bool,
+}
+
+impl Render for ConversationHarness {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let agent = self.agent;
+        let view = ConversationView {
+            id: SharedString::from("conversation-harness"),
+            slot: 0,
+            footer: false,
+            composer: false,
+            header: self.header,
+        };
+        self.state
+            .update(cx, |state, cx| match state.conversation(agent, cx) {
+                Some(live) => conversation::render(state, live, view, window, cx),
+                None => gpui::div().into_any_element(),
+            })
+    }
+}
+
+/// The lifecycle strip — the status glyph and the three-dots menu — is the shared conversation
+/// view's own to draw or withhold. `header: true` is the agents column, unchanged; `header: false`
+/// is the chat panel, which draws the same two controls itself, inline in its own toolbar, so the
+/// shared view must not draw them a second time.
+#[gpui::test]
+fn header_true_draws_the_lifecycle_strip_and_false_does_not(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    let with_header = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: true,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(with_header.into(), cx);
+    assert!(
+        vcx.debug_bounds("lifecycle-strip").is_some(),
+        "header: true should draw the strip, as the agents column always has"
+    );
+
+    let without_header = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: false,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(without_header.into(), cx);
+    assert!(
+        vcx.debug_bounds("lifecycle-strip").is_none(),
+        "header: false must not draw the strip — the chat panel draws it inline instead"
+    );
 }

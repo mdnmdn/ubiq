@@ -8,7 +8,7 @@
 //! machine: a menu of three or four shells is a bounded surface, and an open one would be a
 //! configuration feature nobody asked for.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -160,6 +160,46 @@ pub(crate) fn locate(name: &str) -> Option<PathBuf> {
         .find(|candidate| is_executable(candidate))
 }
 
+/// The `PATH` this process should really be running with: what it already has, then the login
+/// shell's own `PATH`, then the usual homes ([`EXTRA_DIRS`]) — de-duplicated, order preserved.
+///
+/// Pure and side-effect-free so it can be tested without a login shell; [`repair_path`] is the
+/// only caller that feeds it the real environment and writes the result back.
+fn effective_path(current: &OsStr, login: &[PathBuf], extra: &[&str]) -> OsString {
+    let mut seen = std::collections::HashSet::new();
+    let dirs: Vec<PathBuf> = std::env::split_paths(current)
+        .chain(login.iter().cloned())
+        .chain(extra.iter().map(PathBuf::from))
+        .filter(|dir| seen.insert(dir.clone()))
+        .collect();
+    std::env::join_paths(dirs).unwrap_or_else(|_| current.to_os_string())
+}
+
+/// Repair this process's own `PATH` from the login shell, once, at startup.
+///
+/// A desktop launcher (Finder, the dock) hands Ubiq a thin `PATH` — see the module doc — and
+/// nothing before this point has done anything about it, so every bare-name spawn inside
+/// `agent-manager` (`Command::new("claude")` and its siblings: `discover_models`,
+/// `discover_thinking`, `version()`, every harness launch) fails under exactly that launch even
+/// though the same binaries are found fine from a terminal.
+///
+/// # Safety / soundness
+/// Must be called exactly once, before any other thread is spawned in this process. Mutating the
+/// environment ([`std::env::set_var`] is `unsafe` since Rust 2024) races any concurrent reader —
+/// the only window in which it is sound is before a second thread exists to read it. The sole
+/// call site is the very start of `ubiq_app::run`, ahead of the coordinator thread, ahead of the
+/// GPUI event loop, ahead of anything else this process spawns.
+pub fn repair_path() {
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let composed = effective_path(&current, login_path(), EXTRA_DIRS);
+    if composed == current {
+        return;
+    }
+    // SAFETY: see above — this runs once, at process startup, before any other thread exists.
+    unsafe { std::env::set_var("PATH", &composed) };
+    tracing::debug!(path = %composed.to_string_lossy(), "repaired process PATH");
+}
+
 #[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt as _;
@@ -217,5 +257,63 @@ mod tests {
     fn a_program_that_is_not_a_shell_is_not_started_as_one() {
         assert!(!is_shell("/usr/local/bin/claude"));
         assert!(!is_shell("codex"));
+    }
+
+    #[cfg(unix)]
+    fn path(dirs: &[&str]) -> OsString {
+        std::env::join_paths(dirs.iter().map(PathBuf::from)).unwrap()
+    }
+
+    #[cfg(unix)]
+    fn paths(dirs: &[&str]) -> Vec<PathBuf> {
+        dirs.iter().map(PathBuf::from).collect()
+    }
+
+    /// A directory the login shell adds that `PATH` doesn't have yet is appended, after what was
+    /// already there.
+    #[test]
+    #[cfg(unix)]
+    fn effective_path_appends_new_login_directories_after_the_existing_ones() {
+        let current = path(&["/usr/bin", "/bin"]);
+        let login = paths(&["/usr/bin", "/opt/homebrew/bin"]);
+        let composed = effective_path(&current, &login, &[]);
+        assert_eq!(
+            std::env::split_paths(&composed).collect::<Vec<_>>(),
+            paths(&["/usr/bin", "/bin", "/opt/homebrew/bin"])
+        );
+    }
+
+    /// A login shell that names nothing new, and no extra dirs either, leaves `PATH` untouched —
+    /// not merely equal, but the very same value, so [`repair_path`] can skip the write.
+    #[test]
+    #[cfg(unix)]
+    fn effective_path_is_a_no_op_when_the_login_shell_adds_nothing_new() {
+        let current = path(&["/usr/bin", "/bin"]);
+        let login = paths(&["/bin", "/usr/bin"]);
+        let composed = effective_path(&current, &login, &[]);
+        assert_eq!(composed, current);
+    }
+
+    /// Existing entries always come first, whatever order the login shell and the extra homes
+    /// name their own duplicates in.
+    #[test]
+    #[cfg(unix)]
+    fn effective_path_keeps_existing_entries_first_and_drops_duplicates() {
+        let current = path(&["/opt/homebrew/bin", "/bin"]);
+        let login = paths(&["/bin", "/opt/homebrew/bin", "/usr/local/bin"]);
+        let composed = effective_path(
+            &current,
+            &login,
+            &["/usr/local/bin", "/run/current-system/sw/bin"],
+        );
+        assert_eq!(
+            std::env::split_paths(&composed).collect::<Vec<_>>(),
+            paths(&[
+                "/opt/homebrew/bin",
+                "/bin",
+                "/usr/local/bin",
+                "/run/current-system/sw/bin",
+            ])
+        );
     }
 }

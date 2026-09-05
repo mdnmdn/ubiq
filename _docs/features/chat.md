@@ -51,7 +51,14 @@ workspace.
 header, opens the window's new-agent menu — the same one the agents screen's `New agent` raises —
 and attaches *that* tab to whatever conversation the pick starts, the moment its id is minted.
 `New tab`, beside it, opens another chat tab, attached to nothing, and starts no harness at all: one
-adds a conversation to have a view on, the other only adds the view.
+adds a conversation to have a view on, the other only adds the view. Both are icon-only — a `+` for
+New chat, a duplicate-page glyph for New tab, never the same icon twice — with the former label now
+a hover tooltip, the same as every other control on this row.
+
+**The header is one toolbar row, not two strips.** The attach picker sits on the left; on the right,
+in order, sit the attached conversation's status glyph, its three-dots lifecycle menu, New chat and
+New tab — all four icon-only, tooltip on hover. Nothing attached draws only the picker and the two
+New controls; there is no glyph or menu with no conversation to read.
 
 **Closing the last chat tab is allowed.** There is no last-tab guard anywhere in this tree, and a
 chat tab is no exception: closing the only open one leaves nothing behind but a tab strip with
@@ -63,10 +70,18 @@ empty region opens onto.
 **Every chat tab draws from the same shared conversation view.** What a tab shows for its attachment
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer
 every surface that hosts a live agent shares — the run pill, the context ring, the token cost, the
-launch-time model and thinking pickers, the three-dots lifecycle menu. A tab unattached to anything
-shows a page naming what fixes it, the same way the agents screen's empty page does.
+launch-time model and thinking pickers. A tab unattached to anything shows a page naming what fixes
+it, the same way the agents screen's empty page does.
 
-**A glyph beside the three-dots menu says the conversation's state; the word lives in its tooltip.**
+**The status glyph and the three-dots lifecycle menu are the one exception: the tab's own header
+draws them, not the shared view.** `ConversationView::header` tells the shared view whether to draw
+its own bordered strip for them — `true` on the agents column, unchanged; `false` here, because the
+chat panel's toolbar draws the identical fragment, `ui::conversation::lifecycle_controls`, inline
+instead, beside New chat and New tab. One function either way: the glyph's state and the menu's
+enable rule are read once, in `crates/ubiq/src/ui/conversation/mod.rs`, and both surfaces call it
+rather than each keeping an answer of its own.
+
+**The glyph says the conversation's state; the word lives in its tooltip.**
 `ui::conversation::lifecycle` reads `launched`, `run`, `blocks`, `accepts_input` and `config` into one
 `Lifecycle` — Starting, Ready, Working (carrying which `Activity`), Idle, Unloaded, or Ended — derived
 rather than stored, so nothing new sits on `Conversation` for it. `Unloaded` and `Starting` are both
@@ -127,10 +142,12 @@ restore that dropped an unfamiliar id is squared with the truth immediately. `to
 fresh tab when the user reopens an emptied right region.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
-and hands it to the shared conversation renderer, or draws the empty page; `sidebar.rs` draws a
-tab's header — the attach picker and the two `New` controls. The picker itself is
-`crates/ubiq/src/ui/kit/menu.rs`'s `Picker`, which grew a `disabled` row set for this: a row drawn
-but not clickable, never a row removed from the list.
+once — `attached`, read by both children below rather than asked twice — and hands it to the shared
+conversation renderer (`header: false`), or draws the empty page; `sidebar.rs` draws the one toolbar
+row: the attach picker, then, when something is attached, `conversation::lifecycle_controls`, then
+the two `New` controls, `icon_button` plus a hover tooltip rather than `ghost_button`'s inline label.
+The picker itself is `crates/ubiq/src/ui/kit/menu.rs`'s `Picker`, which grew a `disabled` row set for
+this: a row drawn but not clickable, never a row removed from the list.
 
 ## Failure
 

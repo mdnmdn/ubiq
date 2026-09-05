@@ -1,26 +1,85 @@
-//! The chat tab's own head: what it is attached to, and the two controls that start something
-//! new.
+//! The chat tab's own head: what it is attached to, the conversation's own status glyph and
+//! three-dots menu, and the two controls that start something new.
 //!
 //! *New chat* starts a conversation, through the same menu the agents screen uses, and attaches
 //! this tab to it. *New tab* starts nothing — it opens another view, attached to nothing, beside
 //! this one. One adds a harness to have a view on; the other adds the view.
+//!
+//! The glyph and the menu are [`conversation::lifecycle_controls`] — the same fragment the agents
+//! column draws in its own bordered strip — dropped inline into this row instead, since
+//! [`crate::ui::conversation::ConversationView::header`] tells the shared view not to draw that
+//! strip itself here.
 
-use gpui::{Context, ElementId, Focusable, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{
+    Context, ElementId, Focusable, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement as _, Styled, Window, div, px,
+};
 use gpui_component::IconName;
 
 use crate::app::AppState;
+use crate::state::conversation::Conversation;
 use crate::state::{ChatId, attach_choices};
-use crate::ui::kit::{Picker, ghost_button};
+use crate::ui::conversation::{self, ConversationView};
+use crate::ui::kit::{Picker, icon_button};
 use crate::ui::{handler, indexed};
 
-/// The row of controls above a chat tab's transcript: what it is attached to, on the left, and
-/// the two ways to start something new, on the right.
+/// The row of controls above a chat tab's transcript: what it is attached to, on the left, and —
+/// on the right — the attached conversation's lifecycle glyph and menu (when there is one),
+/// followed by New chat and New tab. One toolbar row rather than the glyph/menu strip and the
+/// New-chat/New-tab strip stacked, and every control on it icon-only, its former label now a
+/// hover tooltip.
 pub fn header(
     app: &AppState,
     id: ChatId,
+    attached: Option<(&Conversation, usize)>,
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
+    let mut controls = div().flex().flex_none().items_center().gap_1();
+
+    if let Some((conversation, slot)) = attached {
+        let view = ConversationView {
+            id: SharedString::from(format!("chat-{id}")),
+            slot,
+            footer: true,
+            composer: true,
+            header: false,
+        };
+        controls = controls.child(conversation::lifecycle_controls(
+            app,
+            conversation,
+            &view,
+            cx,
+        ));
+    }
+
+    controls = controls
+        .child(
+            icon_button(
+                "chat-new",
+                IconName::Plus,
+                false,
+                cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                    let at = event.position();
+                    this.new_chat(id, (at.x.into(), at.y.into()), cx);
+                }),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("New chat").build(window, cx)
+            }),
+        )
+        .child(
+            icon_button(
+                "chat-new-tab",
+                IconName::Copy,
+                false,
+                cx.listener(|this, _, _, cx| this.new_chat_tab(cx)),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("New tab").build(window, cx)
+            }),
+        );
+
     div()
         .h(px(38.))
         .px_2()
@@ -30,28 +89,7 @@ pub fn header(
         .justify_between()
         .gap_2()
         .child(attach_picker(app, id, window, cx))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap_1()
-                .child(ghost_button(
-                    "chat-new",
-                    Some(IconName::Plus),
-                    "New chat",
-                    cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                        let at = event.position();
-                        this.new_chat(id, (at.x.into(), at.y.into()), cx);
-                    }),
-                ))
-                .child(ghost_button(
-                    "chat-new-tab",
-                    Some(IconName::Copy),
-                    "New tab",
-                    cx.listener(|this, _, _, cx| this.new_chat_tab(cx)),
-                )),
-        )
+        .child(controls)
 }
 
 /// What this tab is attached to, and the picker that changes it.
