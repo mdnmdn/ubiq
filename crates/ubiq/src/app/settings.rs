@@ -84,6 +84,9 @@ impl AppState {
             // restart, and the answer is cheap.
             self.bus.send(Message::ListAccounts);
             self.bus.send(Message::ListAgentTypes);
+            // Same reasoning, for the other half of the identities: a connection made in
+            // another window should be here without a restart.
+            self.bus.send(Message::ListConnections);
         }
         cx.notify();
     }
@@ -95,6 +98,11 @@ impl AppState {
 
     pub fn set_settings_nav(&mut self, nav: SettingsSection, cx: &mut Context<Self>) {
         self.workbench.settings.nav = nav;
+        if nav == SettingsSection::Connectors {
+            // Asked on arrival for the same reason the shortcut is: a flow that finished in
+            // another window has to show up, and the answer is a list the host already holds.
+            self.bus.send(Message::ListConnections);
+        }
         if nav == SettingsSection::CommandLine {
             // Asked on arrival for the same reason the accounts are: the shortcut can be moved,
             // deleted or left behind by another build while the window is open, and the answer
@@ -530,6 +538,319 @@ impl AppState {
     /// Dismiss the last refusal the host reported for an account action.
     pub fn dismiss_account_error(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    // ── Connectors ──────────────────────────────────────────────────
+
+    /// Raise the connect modal on its picker, with all three fields empty.
+    ///
+    /// The id is minted here and not before: it is what every stage of this flow is matched
+    /// against, so a second flow can never be answered by the first one's messages.
+    pub fn open_connect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_connect_inputs(window, cx);
+        self.workbench.settings.error = None;
+        self.workbench.settings.connect = Some(ConnectState {
+            connect_id: ConnectId::generate(),
+            label: String::new(),
+            provider: ProviderId::Github,
+            instance: None,
+            step: ConnectStep::Choosing {
+                provider: None,
+                auth: None,
+            },
+        });
+        cx.notify();
+    }
+
+    /// Pick a provider. The flow choice goes with it: which flows exist is a property of the
+    /// provider and the instance, so a kind picked for the last provider may not be on offer.
+    pub fn pick_connect_provider(&mut self, provider: ProviderId, cx: &mut Context<Self>) {
+        if let Some(connect) = &mut self.workbench.settings.connect {
+            connect.provider = provider;
+            connect.step = ConnectStep::Choosing {
+                provider: Some(provider),
+                auth: None,
+            };
+        }
+        cx.notify();
+    }
+
+    pub fn pick_connect_auth(&mut self, auth: AuthKind, cx: &mut Context<Self>) {
+        if let Some(connect) = &mut self.workbench.settings.connect
+            && let ConnectStep::Choosing { provider, .. } = connect.step
+        {
+            connect.step = ConnectStep::Choosing {
+                provider,
+                auth: Some(auth),
+            };
+        }
+        cx.notify();
+    }
+
+    /// Send `BeginConnect`. The three fields are read here rather than mirrored per keystroke,
+    /// the reasoning `begin_harness_login` sets out.
+    pub fn start_connect(&mut self, cx: &mut Context<Self>) {
+        let label = self.login_account_input.read(cx).value().trim().to_string();
+        let instance = self
+            .connect_instance_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let client_id = self
+            .connect_client_id_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let Some(connect) = &mut self.workbench.settings.connect else {
+            return;
+        };
+        let ConnectStep::Choosing {
+            provider: Some(provider),
+            auth: Some(auth),
+        } = connect.step
+        else {
+            return;
+        };
+        if label.is_empty() {
+            return;
+        }
+        let instance = (!instance.is_empty()).then_some(instance);
+        connect.label = label.clone();
+        connect.provider = provider;
+        connect.instance = instance.clone();
+        connect.step = ConnectStep::Starting;
+        self.bus.send(Message::BeginConnect {
+            connect_id: connect.connect_id,
+            provider,
+            instance,
+            label,
+            auth,
+            client_id: (!client_id.is_empty()).then_some(client_id),
+        });
+        cx.notify();
+    }
+
+    /// Answer a `NeedSecret` stage with what was pasted. The field is cleared straight away:
+    /// the value is on the bus, and there is no reason for it to stay on screen.
+    pub fn submit_connect_secret(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.connect_secret_input.read(cx).value().to_string();
+        let Some(connect) = &self.workbench.settings.connect else {
+            return;
+        };
+        if value.trim().is_empty() {
+            return;
+        }
+        self.bus.send(Message::SubmitConnectSecret {
+            connect_id: connect.connect_id,
+            secret: Secret::new(value),
+        });
+        self.connect_secret_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        cx.notify();
+    }
+
+    /// Abandon a flow. The certificate question goes with it — it belongs to this flow and
+    /// answering it after the flow is gone would resume nothing.
+    pub fn cancel_connect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(connect) = self.workbench.settings.connect.take() {
+            self.bus.send(Message::CancelConnect {
+                connect_id: connect.connect_id,
+            });
+        }
+        self.workbench.settings.cert = None;
+        self.clear_connect_inputs(window, cx);
+        cx.notify();
+    }
+
+    /// Back to the picker after a failure, with the fields as they were left: a wrong instance
+    /// URL is corrected by editing it, not by typing the whole form again.
+    pub fn retry_connect(&mut self, cx: &mut Context<Self>) {
+        if let Some(connect) = &mut self.workbench.settings.connect {
+            connect.step = ConnectStep::Choosing {
+                provider: Some(connect.provider),
+                auth: None,
+            };
+        }
+        cx.notify();
+    }
+
+    fn clear_connect_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for input in [
+            // The label field is the login modal's — the two modals occlude the settings page
+            // that raises them, so neither can be on screen while the other is.
+            &self.login_account_input,
+            &self.connect_instance_input,
+            &self.connect_client_id_input,
+            &self.connect_secret_input,
+        ] {
+            input.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+    }
+
+    /// Ask a connection's provider whether its token still works. `probe: true` is a live
+    /// handshake, which is why this is a button and not something a render does.
+    pub fn check_connection(&mut self, connection: ConnectionId, cx: &mut Context<Self>) {
+        self.workbench.settings.error = None;
+        self.bus.send(Message::CheckConnection {
+            connection,
+            probe: true,
+        });
+        cx.notify();
+    }
+
+    /// Raise the rename dialog, seeded with the connection's current label.
+    ///
+    /// The account dialog is dropped rather than left underneath: both draw
+    /// `account_rename_input`, and one field in two places is one field too many.
+    pub fn open_rename_connection(
+        &mut self,
+        connection: ConnectionId,
+        label: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.account_rename_input
+            .update(cx, |state, cx| state.set_value(&label, window, cx));
+        self.workbench.settings.dialog = None;
+        self.workbench.settings.connector = Some(ConnectorDialog::Rename { connection, label });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Send the rename. The dialog closes optimistically; a refusal comes back as
+    /// `ConnectorError` and reads as the banner in this section.
+    pub fn confirm_rename_connection(&mut self, cx: &mut Context<Self>) {
+        let label = self
+            .account_rename_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let Some(ConnectorDialog::Rename { connection, .. }) =
+            self.workbench.settings.connector.take()
+        else {
+            return;
+        };
+        if label.is_empty() {
+            return;
+        }
+        self.bus
+            .send(Message::RenameConnection { connection, label });
+        cx.notify();
+    }
+
+    pub fn open_disconnect(
+        &mut self,
+        connection: ConnectionId,
+        label: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.connector = Some(ConnectorDialog::Disconnect { connection, label });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn confirm_disconnect(&mut self, cx: &mut Context<Self>) {
+        let Some(ConnectorDialog::Disconnect { connection, .. }) =
+            self.workbench.settings.connector.take()
+        else {
+            return;
+        };
+        self.bus.send(Message::DeleteConnection { connection });
+        cx.notify();
+    }
+
+    /// Raise the forget-certificate question. `uses` is counted by the caller, which is where
+    /// the connection list is already in hand.
+    pub fn open_forget_cert(&mut self, origin: String, uses: usize, cx: &mut Context<Self>) {
+        self.workbench.settings.connector = Some(ConnectorDialog::ForgetCert { origin, uses });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn confirm_forget_cert(&mut self, cx: &mut Context<Self>) {
+        let Some(ConnectorDialog::ForgetCert { origin, .. }) =
+            self.workbench.settings.connector.take()
+        else {
+            return;
+        };
+        self.bus.send(Message::ForgetCertificate { origin });
+        cx.notify();
+    }
+
+    /// Vouch for the certificate the host offered, and resume the flow.
+    ///
+    /// The fingerprint sent back is the one out of the held prompt and never a recomputed
+    /// one — that is what makes the confirmation the user's answer rather than a formality.
+    pub fn trust_certificate(&mut self, cx: &mut Context<Self>) {
+        let Some(prompt) = self.workbench.settings.cert.take() else {
+            return;
+        };
+        self.bus.send(Message::TrustCertificate {
+            connect_id: prompt.connect_id,
+            origin: prompt.origin,
+            sha256: prompt.cert.sha256,
+        });
+        cx.notify();
+    }
+
+    /// Decline the certificate. The flow stays stopped until it times out or is cancelled —
+    /// nothing is sent, because there is no "no" on the wire and inventing one would be a lie
+    /// about what the host was told.
+    pub fn cancel_certificate(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.cert = None;
+        cx.notify();
+    }
+
+    /// Raise the client-secret prompt for one configured OAuth application.
+    pub fn open_app_secret(
+        &mut self,
+        provider: ProviderId,
+        origin: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.connect_secret_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.workbench.settings.connector = Some(ConnectorDialog::AppSecret { provider, origin });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn confirm_app_secret(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.connect_secret_input.read(cx).value().to_string();
+        let Some(ConnectorDialog::AppSecret { provider, origin }) =
+            self.workbench.settings.connector.take()
+        else {
+            return;
+        };
+        if !value.trim().is_empty() {
+            self.bus.send(Message::SetAppSecret {
+                provider,
+                origin,
+                secret: Secret::new(value),
+            });
+        }
+        self.connect_secret_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub fn clear_app_secret(
+        &mut self,
+        provider: ProviderId,
+        origin: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::ClearAppSecret { provider, origin });
+        cx.notify();
+    }
+
+    pub fn close_connector_dialog(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.connector = None;
         cx.notify();
     }
 

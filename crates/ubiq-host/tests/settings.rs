@@ -145,3 +145,72 @@ fn a_store_that_refuses_to_write_still_answers() {
     assert!(matches!(failed, Err(StoreError::NotDurable)));
     assert_eq!(store.get(SettingsLayer::Ui).unwrap(), None);
 }
+
+/// The connector fields are the host's, and a `SetSettings` must not carry them away.
+///
+/// The interface mirrors the whole host record and writes the whole of it back, so its copy of the
+/// connections is as old as the dialog it was opened with. A flow that completed in between wrote
+/// the real one. This is that race, and the toggle in the same blob proves the fix discards only
+/// the three fields rather than the whole write.
+#[test]
+fn a_ui_write_keeps_its_own_fields_and_leaves_the_hosts_alone() {
+    use ubiq_host::settings::Settings;
+    use ubiq_proto::connectors::{AuthKind, Connection, ProviderId};
+    use ubiq_proto::ids::ConnectionId;
+    use ubiq_proto::settings::SettingsLayer;
+
+    let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+    let id = ConnectionId::generate();
+
+    // A flow completes: the host writes a connection nobody has told the interface about yet.
+    settings
+        .update_host(|host| {
+            host.connections.push(Connection {
+                id,
+                provider: ProviderId::Gitlab,
+                label: "work".into(),
+                instance: Some("https://gitlab.example.com".into()),
+                auth: AuthKind::Token,
+                scopes: vec!["api".into()],
+                account: "mdn".into(),
+                client_id: None,
+            });
+        })
+        .unwrap();
+    assert!(
+        settings.host().isolate_agents,
+        "the toggle starts at its default, so flipping it below is a real change"
+    );
+
+    // The interface writes back the record it was holding: no connections, and a flipped toggle.
+    let stale = HostSettings {
+        isolate_agents: false,
+        ..HostSettings::default()
+    };
+    let replies = settings.set(SettingsLayer::Host, serde_json::to_string(&stale).unwrap());
+    assert!(replies.is_empty(), "a good blob answers nothing");
+
+    let after = settings.host();
+    assert_eq!(
+        after.connections.len(),
+        1,
+        "the interface's stale copy took the connection with it"
+    );
+    assert_eq!(after.connections[0].id, id);
+    assert!(
+        !after.isolate_agents,
+        "the toggle the interface actually owns was refused"
+    );
+}
+
+/// A record from a newer Ubiq is still refused, and the connector fields did not change that.
+#[test]
+fn a_newer_schema_is_still_refused() {
+    use ubiq_host::settings::Settings;
+    use ubiq_proto::settings::SettingsLayer;
+
+    let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+    let ahead = format!(r#"{{"schema":{}}}"#, HOST_SETTINGS_SCHEMA + 1);
+    let replies = settings.set(SettingsLayer::Host, ahead);
+    assert_eq!(replies.len(), 1, "a blob from the future must be reported");
+}

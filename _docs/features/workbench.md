@@ -23,7 +23,8 @@ seen through, and it is built against [`../design/ubiq-layout.png`](../design/ub
 
 ## Behaviour
 
-**The rail selects what the middle of the window is for.** Eight destinations in two groups:
+**The rail selects what the middle of the window is for.** Eight destinations in two groups, less
+whichever ones the project has hidden in project settings:
 `Control` and `Sink` under `APP`, and `IDE`, `Git`, `Agents`, `Orchestration`, `KB` and `Tasks`
 under `PROJECT`. Exactly one
 is active, and the active one is shown by the accent colour on both its icon and its label. The
@@ -522,6 +523,13 @@ untouched.
 **A 3-dot next to the title chip opens project settings for the project this window is showing.**
 The path stays as it is. Documentation and Integrations are drawn and disabled. Save writes the
 name and colour through `UpdateProject`.
+
+**General carries the project's rail modes, as the rail's own icons.** One tile per mode, lit when
+the mode is on screen and flat when it is not, flipped by a click — it takes effect at once and is
+written into the project's view blob (`ViewPrefs::hidden_modes`), not through `UpdateProject`, so
+it survives a restart with the rest of what the project remembers. **The last lit mode cannot be
+turned off**, and hiding the mode the window is in moves it to the first one still visible. A rail
+group whose every mode is hidden takes its heading with it.
 
 **A folder dropped on the editor centre or a file tab opens at once, as a temporary project.** The
 host mints an ordinary record with a `temporary` flag, never writes it to the catalogue, and keeps

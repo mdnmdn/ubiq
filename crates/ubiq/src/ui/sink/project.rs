@@ -12,20 +12,21 @@ use gpui::{
     ParentElement, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
     anchored, canvas, deferred, div, fill, point, px, relative, size,
 };
-use gpui_component::IconName;
 use gpui_component::input::{Input, InputState, Textarea, TextareaState};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
-use crate::state::WindowRegistry;
 use crate::state::sink::{
     ColourField, PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK,
     PROJECT_NAME, PROJECT_PATH, ProjectNav, hex_string, hsv_to_rgb,
 };
 use crate::state::workbench::ProjectSettingsMode;
+use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
 use crate::ui::kit::{
     elided, ghost_button, heading, icon_button, mono, nav_item, primary_button, setting_row,
 };
+use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
 
 /// Which copy of the dialog is being drawn. The sink is a fixture; Live is create or edit.
@@ -430,6 +431,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 ),
         )
         .child(colour_block)
+        .children((form == Form::Live).then(|| modes_block(app, cx)))
         .child(
             div()
                 .flex()
@@ -472,6 +474,66 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 .text_size(px(12.5))
                 .into_any_element(),
         ))
+        .into_any_element()
+}
+
+/// Which rail modes this project shows: every mode as its own icon, lit when it is on screen.
+/// The last one lit cannot be turned off, so the rail is never empty.
+fn modes_block(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let tiles: Vec<AnyElement> = RailMode::every()
+        .map(|mode| {
+            let on = app.mode_enabled(mode, cx);
+            let (fg, bg) = if on {
+                (theme::accent(), theme::accent_soft())
+            } else {
+                (theme::text_faint(), theme::surface())
+            };
+            div()
+                .id(ElementId::Name(
+                    format!("project-mode-{}", mode.label().to_lowercase()).into(),
+                ))
+                .w(px(64.))
+                .h(px(52.))
+                .flex()
+                .flex_none()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_1()
+                .bg(bg)
+                .border_1()
+                .border_color(if on { theme::accent() } else { theme::border() })
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::hover()))
+                .child(
+                    Icon::new(mode_icon(mode))
+                        .with_size(Size::Medium)
+                        .text_color(fg),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.5))
+                        .text_color(fg)
+                        .child(SharedString::from(mode.label())),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_mode(mode, cx)))
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .py_3()
+        .border_b_1()
+        .border_color(theme::border())
+        .child(label_line(
+            "Modes",
+            "Which destinations this project shows in the rail. The last one on cannot be \
+             turned off.",
+        ))
+        .child(div().flex().flex_wrap().gap_2().children(tiles))
         .into_any_element()
 }
 

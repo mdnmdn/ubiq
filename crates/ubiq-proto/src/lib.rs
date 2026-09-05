@@ -10,6 +10,7 @@
 //! forbidden.
 //!
 //! - `messages`: the message set, serialisable by construction
+//! - `connectors`: an authenticated identity at an external service, and the providers there are
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
 //! - `settings`: which half owns a settings blob, and the host's own record
@@ -21,6 +22,7 @@
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
 
 pub mod bus;
+pub mod connectors;
 pub mod conversation;
 pub mod files;
 pub mod git;

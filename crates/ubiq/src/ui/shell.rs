@@ -109,6 +109,34 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::account_dialog(app, window, cx)),
         )
+        // The connect flow, painted here rather than from the connectors section for the reason
+        // the login modal is: a flow outlives the page that started it, and closing settings
+        // mid-flow must not abandon a browser sign-in already under way.
+        .children(
+            app.workbench
+                .settings
+                .connect
+                .as_ref()
+                .map(|_| settings::connect(app, window, cx)),
+        )
+        // The connectors section's rename, disconnect or forget question — over the connect
+        // modal, since either can be up over what raised it.
+        .children(
+            app.workbench
+                .settings
+                .connector
+                .as_ref()
+                .map(|_| settings::connector_dialog(app, window, cx)),
+        )
+        // The certificate question, last of the three: it interrupts a running flow, so it has
+        // to sit on top of the modal that flow is drawn in.
+        .children(
+            app.workbench
+                .settings
+                .cert
+                .as_ref()
+                .map(|_| settings::certificate(app, window, cx)),
+        )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.
         .children(

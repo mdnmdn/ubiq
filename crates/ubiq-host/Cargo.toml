@@ -44,5 +44,34 @@ notify = "7"
 # talks to the desktop's own trash service and draws nothing, so `just host` stays green.
 trash = "5"
 
+# The connector family's HTTP: a blocking client, because every request it makes is already on a
+# flow's own thread and an async runtime would be a second scheduler for nobody. `default-features
+# = false` drops its gzip and cookie machinery; `tls` is the rustls backend the pin verifier below
+# plugs into. Draws nothing.
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+# TLS itself, named rather than inherited: the pin verifier is a `ServerCertVerifier`, and the
+# crypto provider is pinned to `ring` here so a crate elsewhere enabling `aws-lc-rs` cannot turn a
+# missing process default into a runtime panic. No window, no drawing.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# The machine's own trust store, so a company's internal CA works without anyone being asked to
+# vouch for a certificate. Reads the platform's roots and nothing else.
+rustls-native-certs = "0.8"
+# The floor under the platform roots, for a machine whose trust store cannot be read. A static
+# table of public CAs — no code runs, nothing draws.
+webpki-roots = "0.26"
+# Reading a leaf certificate so the user can be shown what they are vouching for: subject, SANs,
+# issuer, validity. A parser, no I/O, no UI.
+x509-parser = "0.18"
+# The fingerprint a pin is: SHA-256 over a certificate's DER. One hash, no drawing.
+sha2 = "0.10"
+# The PKCE verifier and the `state` nonce. A CSPRNG and nothing else.
+rand = "0.8"
+# The loopback listener an OAuth redirect lands on: one bound port, one request, then dropped. A
+# blocking HTTP server small enough to have no runtime and no view layer.
+tiny_http = "0.12"
+
 [dev-dependencies]
 tempfile = "3"
+# The pin verifier's own test drives it through `ServerCertVerifier`, which means naming rustls'
+# types. The same version the dependency above resolves to, so there is one rustls in the build.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

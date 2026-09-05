@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::connectors::{Connection, OauthApp, TrustedCert};
+
 /// Which half owns the schema of a settings blob.
 ///
 /// The Ui layer is opaque to the host: a string it writes down and hands back. The Host layer is
@@ -40,13 +42,32 @@ pub struct HostSettings {
     /// built-in walk could not answer. Empty means there is no fallback.
     #[serde(default = "search_fallbacks_default")]
     pub search_fallbacks: Vec<String>,
+
+    /// The authenticated identities at external services — see [`crate::connectors`].
+    ///
+    /// **The host owns this field and the two below, and that is unlike everything above them.**
+    /// They ride this record because it is already persisted, versioned and round-tripped, but the
+    /// interface writes the whole blob back on `SetSettings`, and a flow completing while a
+    /// settings dialog is open would otherwise be lost to that write. So the host discards whatever
+    /// the interface sent for these three and keeps what is on disk. The rule is "the half that
+    /// mutates a field owns it", and no other field here works that way.
+    #[serde(default)]
+    pub connections: Vec<Connection>,
+    /// OAuth applications Ubiq authenticates *as*, where one was configured rather than built in.
+    #[serde(default)]
+    pub oauth_apps: Vec<OauthApp>,
+    /// Certificates the user has vouched for, keyed by origin. A second list rather than a field on
+    /// a connection, which is what makes a pin instance-wide for free: two connections to one
+    /// server find the same row.
+    #[serde(default)]
+    pub trusted_certs: Vec<TrustedCert>,
 }
 
 /// The shape this host writes and understands.
 ///
 /// A record from an older schema still parses — every field added since carries a default — and
 /// only a *newer* one is refused, because that is the one this build cannot be trusted to read.
-pub const HOST_SETTINGS_SCHEMA: u32 = 2;
+pub const HOST_SETTINGS_SCHEMA: u32 = 3;
 
 fn isolate_agents_default() -> bool {
     true
@@ -85,6 +106,9 @@ impl Default for HostSettings {
             isolate_agents: isolate_agents_default(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
+            connections: Vec::new(),
+            oauth_apps: Vec::new(),
+            trusted_certs: Vec::new(),
         }
     }
 }

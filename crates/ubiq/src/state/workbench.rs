@@ -75,6 +75,13 @@ impl RailMode {
         }
     }
 
+    /// Every mode, in the order the rail draws them.
+    pub fn every() -> impl Iterator<Item = RailMode> {
+        Self::groups()
+            .iter()
+            .flat_map(|(_, modes)| modes.iter().copied())
+    }
+
     /// The rail groups, in the order they are drawn.
     pub fn groups() -> &'static [(&'static str, &'static [RailMode])] {
         &[

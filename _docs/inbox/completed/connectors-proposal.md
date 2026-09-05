@@ -571,9 +571,9 @@ self-hosted work, and a self-hosted instance behind a private CA is the case tha
 
 ## Related docs
 
-- [`tech/transport-contract.md`](../tech/transport-contract.md) — the ten existing families, the
+- [`tech/transport-contract.md`](../../tech/transport-contract.md) — the ten existing families, the
   account family this one is modelled on, and the procedure for adding a variant
-- [`tech/agent-manager.md`](../tech/agent-manager.md) — the boundary this leans on for storage
-- [`inbox/config-persistence-proposal.md`](./config-persistence-proposal.md) — the config root,
+- [`tech/agent-manager.md`](../../tech/agent-manager.md) — the boundary this leans on for storage
+- [`inbox/config-persistence-proposal.md`](../config-persistence-proposal.md) — the config root,
   the stores and the on-disk layout §9 writes into
-- [`features/workbench.md`](../features/workbench.md) — the settings dialog as a surface
+- [`features/workbench.md`](../../features/workbench.md) — the settings dialog as a surface

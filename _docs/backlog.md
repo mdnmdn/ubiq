@@ -148,6 +148,11 @@ change what Ubiq does (here), or where a document lives (there)?
 | G143 | A bookmarked line is marked on the line, not in the gutter. `gpui-component`'s only public decoration surface is `TextDecorationCollection` over byte ranges; the gutter is drawn in a private element hard-coded to line numbers and fold icons. A gutter mark needs an upstream change | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 
 
+| G144 | Connector tokens are never refreshed on use. A stored `refresh_token` and expiry are kept, and `credential_validity` reads the expiry, but nothing exchanges one — an expired OAuth connection reads `Expired` and is reconnected by hand | [`features/connectors.md`](./features/connectors.md) |
+| G145 | No connection is read by anything. The deliverable is a valid token and the identity it belongs to; no git remote, task source or document picker takes a connection id yet | [`features/connectors.md`](./features/connectors.md) |
+| G146 | A pinned certificate is the leaf's fingerprint, so a renewal re-prompts. Pinning the SPKI would survive one, and is the upgrade if re-confirming annoys anyone | [`features/connectors.md`](./features/connectors.md) |
+| G147 | The pasted-token field is not masked: `InputState` has no masked mode in the component kit, so a token is on screen until the connect modal closes | [`features/connectors.md`](./features/connectors.md) |
+| G148 | A corrupt `host-settings.toml` reads as defaults, so the next connector write starts from an empty list and the connections it held are gone. True of the other host settings too; it costs more here | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 
 ## Open questions — a decision nobody has made
 
@@ -162,7 +167,6 @@ change what Ubiq does (here), or where a document lives (there)?
 | Q8 | A detached coordinator cannot write into the window's log ring. Does it carry its records over the transport as a message, keep its own ring the console queries, or write to a file the console reads? | [`features/logs.md`](./features/logs.md) |
 | Q11 | Where does "allow always" live? A permission option carries the kind, and something has to remember the answer. Per conversation is the protocol's scope; per agent definition is what a user would expect to survive a restart | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | Q10 | The workarea is an absolute path on the host's machine, and the interface uses it directly. A detached host on another machine hands over a path the interface cannot open — does the interface fall back to a root of its own, does the host learn to serve the directory over the bus, or does a remote host simply mean no cached renders? | [`tech/architecture.md`](./tech/architecture.md) |
-| Q12 | May a transport variant carry secret material if its type says so? A pasted access token and a user-supplied OAuth client secret have to reach the host somehow, and every alternative — a temporary file, an env-var reference — is worse for a desktop application. [`inbox/connectors-proposal.md`](./inbox/connectors-proposal.md) §14 proposes a `Secret` newtype the log sink refuses, rather than a list of blessed variants | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 
 ## Deferred — decided to wait
 
@@ -173,7 +177,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | D3 | Windows support | The pseudo-terminal layer is cross-platform; nothing has been run there |
 | D4 | Packaging and distribution | The application is run from source |
 | D5 | Automated tests for the application's window | The pane path is covered end to end over the bus and the window registry is covered without a frame; driving `AppState` itself needs a headless window |
-| D6 | Registering `ubiq://` with the OS as an OAuth callback scheme | The scheme is already the interface's internal navigation URI, so registering it means one string meaning two things; loopback callbacks work without it — [`inbox/connectors-proposal.md`](./inbox/connectors-proposal.md) §5 |
+| D6 | Registering `ubiq://` with the OS as an OAuth callback scheme | The scheme is the interface's own internal navigation URI, so registering it means one string meaning two things; loopback callbacks work without it — [`features/connectors.md`](./features/connectors.md), [D68](./tech/decisions.md) |
 
 ## Related docs
 

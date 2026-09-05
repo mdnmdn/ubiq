@@ -522,6 +522,46 @@ impl AppState {
         cx.notify();
     }
 
+    /// Whether a rail mode is on screen for the active project. Unknown project: everything is,
+    /// since there is nothing to have hidden it.
+    pub fn mode_enabled(&self, mode: RailMode, cx: &App) -> bool {
+        let Some(id) = self.project(cx) else {
+            return true;
+        };
+        self.projects
+            .get(&id)
+            .is_none_or(|open| !open.prefs.hidden_modes.contains(&mode))
+    }
+
+    /// Show or hide one rail mode for the active project. The last visible mode cannot be hidden,
+    /// and hiding the mode the window is in moves it to the first one still visible.
+    pub fn toggle_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&id) else {
+            return;
+        };
+        match open.prefs.hidden_modes.iter().position(|m| *m == mode) {
+            Some(at) => {
+                open.prefs.hidden_modes.remove(at);
+            }
+            None => {
+                if open.prefs.hidden_modes.len() + 1 >= RailMode::every().count() {
+                    return;
+                }
+                open.prefs.hidden_modes.push(mode);
+            }
+        }
+        if self.workbench.rail_mode == mode
+            && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
+        {
+            self.set_rail_mode(next, cx);
+        }
+        self.remember(id, cx);
+        cx.notify();
+    }
+
     /// The colour the whole window is identified by.
     ///
     /// One place decides what a window with no project looks like, rather than four call sites

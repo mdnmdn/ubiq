@@ -1097,6 +1097,118 @@ impl AppState {
                 cx.notify();
             }
 
+            // The connector family rides here rather than in a family of its own: it answers the
+            // same section's questions and writes the same error field.
+            //
+            // Every flow message is matched against the id the modal holds and discarded
+            // otherwise — the search family's discipline, and the only thing that stops a stage
+            // still in flight from reopening a modal the user has closed.
+            Message::Connections { connections } => {
+                self.workbench.settings.connection_status = connections
+                    .iter()
+                    .map(|info| (info.connection.id, info.status.clone()))
+                    .collect();
+                self.workbench.settings.host.connections = connections
+                    .into_iter()
+                    .map(|info| info.connection)
+                    .collect();
+                cx.notify();
+            }
+            Message::ConnectPending { connect_id, stage } => {
+                if let Some(connect) = &mut self.workbench.settings.connect
+                    && connect.connect_id == connect_id
+                {
+                    connect.step = match stage {
+                        ConnectStage::Opening => ConnectStep::Opening,
+                        ConnectStage::DeviceCode {
+                            user_code,
+                            verification_url,
+                            expires_in,
+                        } => ConnectStep::DeviceCode {
+                            user_code,
+                            verification_url,
+                            expires_in,
+                        },
+                        ConnectStage::AwaitingCallback { port, url } => {
+                            ConnectStep::AwaitingCallback { port, url }
+                        }
+                        ConnectStage::Exchanging => ConnectStep::Exchanging,
+                        ConnectStage::NeedSecret { prompt } => ConnectStep::NeedSecret { prompt },
+                        ConnectStage::AwaitingCertificate => ConnectStep::AwaitingCertificate,
+                    };
+                    cx.notify();
+                }
+            }
+            Message::ConnectCaptured {
+                connect_id,
+                connection,
+            } => {
+                // The record is written whether or not the modal is still up — a flow the user
+                // walked away from still finished — and only the modal is conditional.
+                let connections = &mut self.workbench.settings.host.connections;
+                let id = connection.connection.id;
+                connections.retain(|existing| existing.id != id);
+                connections.push(connection.connection);
+                self.workbench
+                    .settings
+                    .connection_status
+                    .insert(id, connection.status);
+                if self
+                    .workbench
+                    .settings
+                    .connect
+                    .as_ref()
+                    .is_some_and(|connect| connect.connect_id == connect_id)
+                {
+                    self.workbench.settings.connect = None;
+                    self.workbench.settings.cert = None;
+                }
+                cx.notify();
+            }
+            Message::ConnectFailed { connect_id, error } => {
+                if let Some(connect) = &mut self.workbench.settings.connect
+                    && connect.connect_id == connect_id
+                {
+                    // The fields are left alone: "Try again" is a retry, not a re-type.
+                    connect.step = ConnectStep::Failed { error };
+                    self.workbench.settings.cert = None;
+                    cx.notify();
+                }
+            }
+            Message::ConfirmCertificate {
+                connect_id,
+                origin,
+                cert,
+            } => {
+                if self
+                    .workbench
+                    .settings
+                    .connect
+                    .as_ref()
+                    .is_some_and(|connect| connect.connect_id == connect_id)
+                {
+                    self.workbench.settings.cert = Some(CertPrompt {
+                        connect_id,
+                        origin,
+                        cert,
+                    });
+                    cx.notify();
+                }
+            }
+            Message::ConnectionStatus { connection, status } => {
+                // Patched in place: the answer is about one connection, and replacing the list
+                // would throw away everything the host has not just re-sent.
+                self.workbench
+                    .settings
+                    .connection_status
+                    .insert(connection, status);
+                cx.notify();
+            }
+            Message::ConnectorError { error } => {
+                self.workbench.settings.error = Some(error);
+                cx.notify();
+            }
+
             other => return Some(other),
         }
         None

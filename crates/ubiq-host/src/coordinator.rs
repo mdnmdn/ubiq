@@ -24,6 +24,7 @@ use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 use crate::agent::{Agents, PendingLogin};
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
+use crate::connectors::{Answer, Connectors};
 use crate::conversation::Conversation;
 use crate::files::{self, Files};
 use crate::git::{self, Git};
@@ -75,8 +76,14 @@ struct Coordinator {
     projects: Projects,
     /// Each project's tasks, and the sessions and agents the two screens over the work draw.
     work: Work,
-    /// Application settings: the Ui layer opaque, the Host layer parsed.
-    settings: Settings,
+    /// Application settings: the Ui layer opaque, the Host layer parsed. Shared, because a
+    /// connector flow on its own thread writes the same record — [`Settings::update_host`] is what
+    /// makes that safe.
+    settings: Arc<Settings>,
+    /// The identities Ubiq holds at external services. Answers what it can from the settings blob
+    /// on this thread; everything that touches a network runs as a flow of its own, for the same
+    /// reason a search and a git status do.
+    connectors: Connectors,
     /// Which agent types can run here, and the composer that turns one into a launch.
     agents: Agents,
     /// The on-disk cache of what each harness answered about its own models/reasoning levels,
@@ -488,6 +495,8 @@ impl Coordinator {
         // from a previous process is still running, so the sweep happens once here.
         let agents = Agents::new(root.path.clone(), settings.host().isolate_agents);
         agents.sweep();
+        let settings = Arc::new(settings);
+        let connectors = Connectors::new(settings.clone(), &root.path);
         let catalogue = Arc::new(FileHarnessCache::new(
             root.path.join("cache").join("harness-models.toml"),
         ));
@@ -498,6 +507,7 @@ impl Coordinator {
             projects,
             work,
             settings,
+            connectors,
             agents,
             catalogue,
             files: Files::start(),
@@ -572,6 +582,16 @@ impl Coordinator {
         }
     }
 
+    /// The two sinks a flow thread is given: the window that asked, and everybody. A flow reports
+    /// its own stages to the asker and a changed record to every window, and it must not have to
+    /// learn the routing table to do either.
+    fn sinks(&self, client: ClientId) -> (ubiq_proto::bus::Mailbox, ubiq_proto::bus::Mailbox) {
+        (
+            self.host.mailbox(To::Client(client)),
+            self.host.mailbox(To::Everyone),
+        )
+    }
+
     /// Say what the catalogue answered, to whoever it is for.
     fn answer(&self, client: ClientId, replies: Vec<Reply>) {
         for reply in replies {
@@ -623,6 +643,8 @@ impl Coordinator {
             tracing::info!("{client} has gone; stopping agent {agent_id}");
             self.end_conversation(agent_id, StopReason::Cancelled);
         }
+        // A flow whose window has gone has nobody left to answer its next question.
+        self.connectors.client_gone(client);
     }
 
     /// A pane has ended, however it ended: the project it belonged to has one fewer.
@@ -853,6 +875,74 @@ impl Coordinator {
                 account,
             } => {
                 self.delete_harness_login(client, agent_type, account);
+            }
+
+            // ── Connector family: the identities an external *service* runs as ──
+            // Everything a file can answer is answered here; everything that touches a network is
+            // a flow on its own thread, a probe included. Nothing in this block blocks.
+            Message::ListConnections => {
+                let replies = self.connectors.list();
+                self.answer(client, replies);
+            }
+            Message::BeginConnect {
+                connect_id,
+                provider,
+                instance,
+                label,
+                auth,
+                client_id,
+            } => {
+                let (asker, everyone) = self.sinks(client);
+                let replies = self.connectors.begin(
+                    client, connect_id, provider, instance, label, auth, client_id, asker, everyone,
+                );
+                self.answer(client, replies);
+            }
+            Message::CancelConnect { connect_id } => self.connectors.cancel(connect_id),
+            Message::SubmitConnectSecret { connect_id, secret } => {
+                let replies = self.connectors.answer(connect_id, Answer::Secret(secret));
+                self.answer(client, replies);
+            }
+            Message::TrustCertificate {
+                connect_id,
+                origin,
+                sha256,
+            } => {
+                let replies = self
+                    .connectors
+                    .answer(connect_id, Answer::Certificate { origin, sha256 });
+                self.answer(client, replies);
+            }
+            Message::RenameConnection { connection, label } => {
+                let replies = self.connectors.rename(connection, label);
+                self.answer(client, replies);
+            }
+            Message::DeleteConnection { connection } => {
+                let replies = self.connectors.delete(connection);
+                self.answer(client, replies);
+            }
+            Message::CheckConnection { connection, probe } => {
+                let (asker, everyone) = self.sinks(client);
+                let replies = self
+                    .connectors
+                    .check(client, connection, probe, asker, everyone);
+                self.answer(client, replies);
+            }
+            Message::ForgetCertificate { origin } => {
+                let replies = self.connectors.forget_cert(origin);
+                self.answer(client, replies);
+            }
+            Message::SetAppSecret {
+                provider,
+                origin,
+                secret,
+            } => {
+                let replies = self.connectors.set_app_secret(provider, origin, secret);
+                self.answer(client, replies);
+            }
+            Message::ClearAppSecret { provider, origin } => {
+                let replies = self.connectors.clear_app_secret(provider, origin);
+                self.answer(client, replies);
             }
 
             // The `ubiq` command on PATH. Every path in the exchange is the host's: the interface

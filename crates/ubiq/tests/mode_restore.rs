@@ -175,3 +175,34 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
         );
     }
 }
+
+/// Hiding a mode takes it off the rail; hiding the mode the window is in moves the window on, and
+/// the last visible mode cannot be hidden at all.
+#[gpui::test]
+fn hiding_modes_never_empties_the_rail(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let state = fixture.state.clone();
+
+    state.update(cx, |state, cx| {
+        assert!(state.mode_enabled(RailMode::Git, cx));
+        state.toggle_mode(RailMode::Git, cx);
+        assert!(!state.mode_enabled(RailMode::Git, cx));
+
+        // The window is in IDE: hiding it has to leave the window somewhere else.
+        state.toggle_mode(RailMode::Ide, cx);
+        assert!(!state.mode_enabled(RailMode::Ide, cx));
+        assert!(state.mode_enabled(state.workbench.rail_mode, cx));
+
+        // Everything but the last one goes; the last one stays whatever is asked.
+        for mode in RailMode::every() {
+            if state.mode_enabled(mode, cx) {
+                state.toggle_mode(mode, cx);
+            }
+        }
+        let left: Vec<_> = RailMode::every()
+            .filter(|mode| state.mode_enabled(*mode, cx))
+            .collect();
+        assert_eq!(left.len(), 1, "one mode always survives: {left:?}");
+    });
+    cx.run_until_parked();
+}

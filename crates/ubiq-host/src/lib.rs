@@ -8,6 +8,7 @@
 //! renders nothing and has no opinion about layout or colour.
 //!
 //! - `config`: where Ubiq's config root is, and how it is found
+//! - `connectors`: the identities Ubiq holds at external services, and the flows that obtain them
 //! - `atomic`: writing a file so a crash never leaves half of one
 //! - `store`: the catalogue, a project's tasks, the interface's view state and settings, behind four traits
 //! - `health`: what is actually at a project's path
@@ -29,6 +30,7 @@ pub mod agent;
 pub mod atomic;
 pub mod cli_shortcut;
 pub mod config;
+pub mod connectors;
 pub mod conversation;
 pub mod coordinator;
 pub mod files;

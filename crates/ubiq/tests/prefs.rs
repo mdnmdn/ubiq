@@ -28,6 +28,7 @@ fn a_blob_survives_the_round_trip() {
         open_files: Vec::new(),
         active_file: None,
         expanded: Vec::new(),
+        hidden_modes: Vec::new(),
         selected: None,
         file_filter: "main".to_string(),
         ui_font_size: Some(16.0),

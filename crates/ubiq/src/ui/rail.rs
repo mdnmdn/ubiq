@@ -93,7 +93,14 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     for (label, modes) in RailMode::groups() {
         let mut items = Vec::new();
         for mode in *modes {
+            if !app.mode_enabled(*mode, cx) {
+                continue;
+            }
             items.push(rail_item(*mode, *mode == active, cx));
+        }
+        // A group whose every mode is hidden takes its heading with it.
+        if items.is_empty() {
+            continue;
         }
         spent += GROUP_HEIGHT + ITEM_HEIGHT * items.len() as f32;
         groups.push(

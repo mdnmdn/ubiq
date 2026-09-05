@@ -12,18 +12,22 @@ use gpui::{
 };
 use gpui_component::IconName;
 use gpui_component::input::Input;
+use ubiq_proto::connectors::{
+    AuthKind, CertReason, Connection, InstanceNeed, OauthApp, ProviderId, TrustedCert, origin,
+};
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus};
 
 use crate::app::AppState;
 use crate::state::settings::{
-    AccountDialog, CliShortcut, LoginStep, MarkdownOpen, SettingsSection, describe_status,
+    AccountDialog, CliShortcut, ConnectStep, ConnectorDialog, LoginStep, MarkdownOpen,
+    SettingsSection, connect_error_note, describe_status,
 };
 use crate::theme;
 use crate::ui::kit::{
-    check_box, choice_pill, column, confirm_modal, elided, field, ghost_button, heading,
-    icon_button, label_block, modal, modal_note, modal_sized, nav_item, primary_button,
-    prompt_modal, setting_row,
+    badge, check_box, choice_pill, column, confirm_modal, elided, field, ghost_button, heading,
+    icon_button, label_block, modal, modal_note, modal_sized, mono, nav_item, primary_button,
+    prompt_modal, section_label, setting_row, slab, state_chip,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -147,6 +151,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
         SettingsSection::Editor => IconName::File,
         SettingsSection::Search => IconName::Search,
         SettingsSection::Harnesses => IconName::Asterisk,
+        SettingsSection::Connectors => IconName::Globe,
         SettingsSection::CommandLine => IconName::SquareTerminal,
     }
 }
@@ -158,6 +163,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Editor => editor(app, cx),
         SettingsSection::Search => search(app),
         SettingsSection::Harnesses => harnesses(app, cx),
+        SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::CommandLine => command_line(app, cx),
     };
 
@@ -1168,4 +1174,989 @@ fn login_link_row(index: usize, url: String, cx: &mut Context<AppState>) -> AnyE
             }),
         ))
         .into_any_element()
+}
+
+/// The identities Ubiq holds at external services.
+///
+/// Built like [`harnesses`] and reading the same three lists — connections, pinned certificates
+/// and configured OAuth applications — off `host`, which is where the host keeps them. Nothing
+/// here is mirrored into interface state, and nothing here calls the network: a row's status is
+/// whatever the host last said, never something a render asks for.
+fn connectors(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let mut rows = vec![heading(
+        "Connectors",
+        "Identities at GitHub, GitLab and the rest \u{2014} used to read issues and open pull \
+         requests. Several per provider is ordinary: a work account and a personal one are two \
+         connections, not a conflict.",
+    )];
+    if let Some(error) = app.workbench.settings.error.clone() {
+        rows.push(error_banner(&error, cx));
+    }
+    rows.push(
+        div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(primary_button(
+                "app-settings-connect",
+                Some(IconName::Plus),
+                "Connect\u{2026}",
+                cx.listener(|this, _, window, cx| this.open_connect(window, cx)),
+            ))
+            .into_any_element(),
+    );
+
+    let connections = &app.workbench.settings.host.connections;
+    if connections.is_empty() {
+        rows.push(
+            div()
+                .px_3()
+                .py_8()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(theme::text_muted())
+                        .child(SharedString::from("No connections.")),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::text_faint())
+                        .child(SharedString::from(
+                            "Connect one to let agents reach its issues and pull requests.",
+                        )),
+                )
+                .into_any_element(),
+        );
+    } else {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        rows.push(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .children(
+                    connections
+                        .iter()
+                        .map(|connection| connection_row(app, connection, now_ms, cx)),
+                )
+                .into_any_element(),
+        );
+    }
+
+    rows.push(trusted_certs(app, cx));
+    rows.push(oauth_apps(app, cx));
+    column(rows)
+}
+
+/// How many connections live at an origin — what a "forget this certificate" question has to
+/// say out loud, since a pin is instance-wide rather than per connection.
+fn certificate_uses(app: &AppState, at: &str) -> usize {
+    app.workbench
+        .settings
+        .host
+        .connections
+        .iter()
+        .filter(|connection| {
+            connection
+                .instance
+                .as_deref()
+                .and_then(origin)
+                .is_some_and(|from| from == at)
+        })
+        .count()
+}
+
+/// One connection: who it is, where, and what the host last said about its token.
+///
+/// The status is read out of what already arrived — never asked for here. A `CheckConnection`
+/// from a render would be a network call on every frame, which is exactly what the `probe` flag
+/// on that message exists to keep out of this path.
+fn connection_row(
+    app: &AppState,
+    connection: &Connection,
+    now_ms: i64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let id = connection.id;
+    let label = connection.label.clone();
+    let status = app.workbench.settings.connection_status.get(&id);
+    let pinned = connection
+        .instance
+        .as_deref()
+        .and_then(origin)
+        .is_some_and(|at| {
+            app.workbench
+                .settings
+                .host
+                .trusted_certs
+                .iter()
+                .any(|cert| cert.origin == at)
+        });
+
+    let chip = status.map(|status| {
+        let (colour, text) = match status {
+            LoginStatus::Valid { .. } => (theme::success(), "valid"),
+            LoginStatus::Expired { .. } => (theme::danger(), "expired"),
+            LoginStatus::Unknown => (theme::text_faint(), "unknown"),
+            LoginStatus::Missing => (theme::text_faint(), "missing"),
+        };
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .child(state_chip(text, colour, 1.0))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme::text_faint())
+                    .child(SharedString::from(describe_status(status, now_ms))),
+            )
+            .into_any_element()
+    });
+
+    let where_it_lives = connection
+        .instance
+        .clone()
+        .unwrap_or_else(|| "cloud".to_string());
+
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .py_1()
+        .border_b_1()
+        .border_color(theme::border())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .flex_1()
+                .min_w(px(0.))
+                .child(badge(connection.provider.glyph(), theme::accent()))
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .text_color(theme::text())
+                        .child(SharedString::from(label.clone())),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::text_muted())
+                        .child(SharedString::from(connection.account.clone())),
+                )
+                // A self-hosted base URL can be long enough to push everything else off the
+                // panel, so it is elided with the whole of it as the tooltip.
+                .child(elided(
+                    ElementId::Name(format!("app-settings-connection-{id}-instance").into()),
+                    where_it_lives,
+                    theme::text_faint(),
+                    11.,
+                ))
+                .children(chip)
+                .when(pinned, |row| row.child(badge("pinned", theme::warning()))),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(ghost_button(
+                    ElementId::Name(format!("app-settings-connection-{id}-check").into()),
+                    None,
+                    "Check",
+                    cx.listener(move |this, _, _, cx| this.check_connection(id, cx)),
+                ))
+                .child(icon_button(
+                    ElementId::Name(format!("app-settings-connection-{id}-rename").into()),
+                    IconName::Replace,
+                    false,
+                    cx.listener({
+                        let label = label.clone();
+                        move |this, _, window, cx| {
+                            this.open_rename_connection(id, label.clone(), window, cx)
+                        }
+                    }),
+                ))
+                .child(icon_button(
+                    ElementId::Name(format!("app-settings-connection-{id}-disconnect").into()),
+                    IconName::Delete,
+                    false,
+                    cx.listener(move |this, _, _, cx| this.open_disconnect(id, label.clone(), cx)),
+                )),
+        )
+        .into_any_element()
+}
+
+/// An epoch-second timestamp as a date. The host sends seconds and has no opinion about how a
+/// date is written; this is that opinion, in one place.
+fn on_day(epoch_seconds: i64) -> String {
+    chrono::DateTime::from_timestamp(epoch_seconds, 0)
+        .map(|at| at.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// A SHA-256 as `AB:CD:` groups, which is how every other tool prints one and therefore the only
+/// form a user can check against what their administrator told them.
+fn fingerprint(sha256: &str) -> String {
+    sha256
+        .to_uppercase()
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| String::from_utf8_lossy(pair).to_string())
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+/// The certificates the user has vouched for, one line each.
+///
+/// A pin is keyed by origin rather than by connection, so a line says how many connections stop
+/// trusting the server if it goes — the number the confirmation repeats.
+fn trusted_certs(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let certs = app.workbench.settings.host.trusted_certs.clone();
+    if certs.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_4()
+        .child(section_label("Trusted certificates"))
+        .children(certs.iter().map(|cert| cert_row(app, cert, cx)))
+        .into_any_element()
+}
+
+fn cert_row(app: &AppState, cert: &TrustedCert, cx: &mut Context<AppState>) -> AnyElement {
+    let uses = certificate_uses(app, &cert.origin);
+    let short: String = fingerprint(&cert.sha256).chars().take(23).collect();
+    let origin = cert.origin.clone();
+
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .py_1()
+        .child(
+            div()
+                .w(px(200.))
+                .text_size(px(11.))
+                .text_color(theme::text())
+                .child(SharedString::from(cert.origin.clone())),
+        )
+        .child(mono(short, theme::text_muted()).text_size(px(11.)))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(px(11.))
+                .text_color(theme::text_faint())
+                .child(SharedString::from(format!(
+                    "{} \u{b7} until {} \u{b7} {uses} connection{}",
+                    cert.issuer,
+                    on_day(cert.not_after),
+                    if uses == 1 { "" } else { "s" }
+                ))),
+        )
+        .child(ghost_button(
+            ElementId::Name(format!("app-settings-cert-{origin}-forget").into()),
+            None,
+            "Forget",
+            cx.listener(move |this, _, _, cx| this.open_forget_cert(origin.clone(), uses, cx)),
+        ))
+        .into_any_element()
+}
+
+/// The OAuth applications Ubiq authenticates *as*, where one was configured rather than built in.
+///
+/// The client id is public and rides the settings blob; only the secret is material, which is why
+/// the row says whether one is set rather than showing anything.
+fn oauth_apps(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let apps = app.workbench.settings.host.oauth_apps.clone();
+    if apps.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_4()
+        .child(section_label("OAuth applications"))
+        .children(apps.iter().map(|entry| oauth_row(entry, cx)))
+        .into_any_element()
+}
+
+fn oauth_row(entry: &OauthApp, cx: &mut Context<AppState>) -> AnyElement {
+    let where_it_is = entry.origin.clone().unwrap_or_else(|| "cloud".to_string());
+    let (provider, origin) = (entry.provider, entry.origin.clone());
+    let clear_origin = origin.clone();
+    let (chip, colour) = if entry.has_secret {
+        ("secret set", theme::success())
+    } else {
+        ("no secret", theme::text_faint())
+    };
+
+    setting_row(
+        &format!("{} \u{b7} {where_it_is}", entry.provider.label()),
+        &format!(
+            "Registered on this instance rather than built in, so {} is the id every \
+             authorization URL carries.",
+            entry.client_id
+        ),
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(badge(chip, colour))
+            .child(ghost_button(
+                ElementId::Name(
+                    format!("app-settings-oauth-{provider:?}-{where_it_is}-edit").into(),
+                ),
+                None,
+                "Edit",
+                cx.listener(move |this, _, window, cx| {
+                    this.open_app_secret(provider, origin.clone(), window, cx)
+                }),
+            ))
+            .child(ghost_button(
+                ElementId::Name(
+                    format!("app-settings-oauth-{provider:?}-{where_it_is}-clear").into(),
+                ),
+                None,
+                "Clear",
+                cx.listener(move |this, _, _, cx| {
+                    this.clear_app_secret(provider, clear_origin.clone(), cx)
+                }),
+            ))
+            .into_any_element(),
+    )
+}
+
+/// The connect modal: pick a provider and a flow, then watch it run.
+///
+/// A near-twin of [`login`], and a modal for the same reason: a browser flow wants the whole of
+/// the user's attention for the half-minute it takes. Every step is leavable, and leaving sends
+/// `CancelConnect` — a flow that stored no token left nothing behind.
+///
+/// Which flows a provider offers is read off the table in `ubiq_proto::connectors` rather than
+/// branched on here: an Azure DevOps Server connection is simply never shown a browser button.
+pub fn connect(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(connect) = &app.workbench.settings.connect else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+
+    let cancel = |id: &'static str, cx: &mut Context<AppState>| {
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(ghost_button(
+                id,
+                None,
+                "Cancel",
+                cx.listener(|this, _, window, cx| this.cancel_connect(window, cx)),
+            ))
+            .into_any_element()
+    };
+
+    let (title, body, footer) = match &connect.step {
+        ConnectStep::Choosing { provider, auth } => (
+            "Connect",
+            choosing_connector(app, *provider, *auth, window, cx),
+            connect_footer(app, provider.is_some() && auth.is_some(), cx),
+        ),
+        ConnectStep::Starting | ConnectStep::Opening => (
+            "Connecting",
+            div()
+                .pt_3()
+                .child(modal_note(&format!(
+                    "Starting a {} connection\u{2026}",
+                    connect.provider.label()
+                )))
+                .into_any_element(),
+            cancel("app-settings-connect-cancel-starting", cx),
+        ),
+        ConnectStep::DeviceCode {
+            user_code,
+            verification_url,
+            expires_in,
+        } => (
+            "Enter this code",
+            device_code(user_code, verification_url, *expires_in, cx),
+            cancel("app-settings-connect-cancel-device", cx),
+        ),
+        ConnectStep::AwaitingCallback { port, url } => (
+            "Waiting for the browser",
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .pt_3()
+                .child(modal_note(&format!(
+                    "Finish the sign-in in your browser. Ubiq is listening on port {port} for the \
+                     answer; the link is here in case the browser did not open."
+                )))
+                .child(login_link_row(0, url.clone(), cx))
+                .into_any_element(),
+            cancel("app-settings-connect-cancel-callback", cx),
+        ),
+        ConnectStep::Exchanging => (
+            "Connecting",
+            div()
+                .pt_3()
+                .child(modal_note("Trading that for an identity\u{2026}"))
+                .into_any_element(),
+            cancel("app-settings-connect-cancel-exchanging", cx),
+        ),
+        ConnectStep::NeedSecret { prompt } => (
+            "Paste a token",
+            need_secret(app, prompt, window, cx),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-settings-connect-cancel-secret",
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, window, cx| this.cancel_connect(window, cx)),
+                ))
+                .child(primary_button(
+                    "app-settings-connect-submit-secret",
+                    None,
+                    "Continue",
+                    cx.listener(|this, _, window, cx| this.submit_connect_secret(window, cx)),
+                ))
+                .into_any_element(),
+        ),
+        ConnectStep::AwaitingCertificate => (
+            "Waiting on a certificate",
+            div()
+                .pt_3()
+                .child(modal_note(
+                    "This server's certificate did not validate. The question is over this \
+                     modal; nothing continues until it is answered.",
+                ))
+                .into_any_element(),
+            cancel("app-settings-connect-cancel-cert", cx),
+        ),
+        ConnectStep::Failed { error } => (
+            "Not connected",
+            div()
+                .pt_3()
+                .child(modal_note(&connect_error_note(error)))
+                .into_any_element(),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-settings-connect-close",
+                    None,
+                    "Close",
+                    cx.listener(|this, _, window, cx| this.cancel_connect(window, cx)),
+                ))
+                // Back to the picker with the fields as they were left: a wrong URL is corrected
+                // by editing it, not by typing the whole form again.
+                .child(primary_button(
+                    "app-settings-connect-retry",
+                    None,
+                    "Try again",
+                    cx.listener(|this, _, _, cx| this.retry_connect(cx)),
+                ))
+                .into_any_element(),
+        ),
+    };
+
+    modal(
+        "app-settings-connect-modal",
+        theme::accent(),
+        title,
+        body,
+        footer,
+        crate::ui::handler(&view, |this, window, cx| this.cancel_connect(window, cx)),
+        window,
+    )
+}
+
+/// Step one: which provider, where it lives, and which flow.
+///
+/// The instance field asks for a **base URL**, not a host name: an on-premises install can live
+/// under a path, and `origin` refuses anything without a scheme rather than guessing one.
+fn choosing_connector(
+    app: &AppState,
+    chosen: Option<ProviderId>,
+    auth: Option<AuthKind>,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let typed = app.connect_instance_input.read(cx).value().to_string();
+    let self_hosted = !typed.trim().is_empty();
+    let focused = |input: &gpui::Entity<gpui_component::input::InputState>| {
+        input.read(cx).focus_handle(cx).is_focused(window)
+    };
+
+    let providers: Vec<AnyElement> = ProviderId::all()
+        .iter()
+        .copied()
+        .map(|provider| {
+            choice_pill(
+                ElementId::Name(format!("app-settings-connect-provider-{provider:?}").into()),
+                provider.label(),
+                chosen == Some(provider),
+                cx.listener(move |this, _, _, cx| this.pick_connect_provider(provider, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "Ubiq signs in on your behalf and keeps the token in the machine's credential \
+             store. Nothing is written to a file you could paste into an issue.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Provider",
+                    "Which service this identity is at.",
+                ))
+                .child(div().flex().flex_wrap().gap_2().children(providers)),
+        );
+
+    if let Some(provider) = chosen {
+        if provider.instance_need() != InstanceNeed::Never {
+            let note = match provider.instance_need() {
+                InstanceNeed::Required => {
+                    "The base URL of the install \u{2014} there is no hosted service for this one."
+                }
+                _ => "The base URL of a self-managed install. Empty is the provider's own cloud.",
+            };
+            body = body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(label_block("Instance", note))
+                    .child(
+                        field(theme::border(), focused(&app.connect_instance_input))
+                            .h(px(30.))
+                            .px_2()
+                            .child(Input::new(&app.connect_instance_input).appearance(false)),
+                    ),
+            );
+        }
+
+        // Read off the provider table rather than branched on here: a provider with no flow at
+        // this location offers nothing, and says so.
+        let flows = provider.flows(self_hosted);
+        let pills: Vec<AnyElement> = flows
+            .iter()
+            .copied()
+            .map(|kind| {
+                choice_pill(
+                    ElementId::Name(format!("app-settings-connect-auth-{kind:?}").into()),
+                    auth_label(kind),
+                    auth == Some(kind),
+                    cx.listener(move |this, _, _, cx| this.pick_connect_auth(kind, cx)),
+                )
+                .into_any_element()
+            })
+            .collect();
+
+        body = body.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "How",
+                    if flows.is_empty() {
+                        "No flow works here. Check the instance URL."
+                    } else {
+                        "A pasted token needs no registered application; a browser flow does."
+                    },
+                ))
+                .child(div().flex().flex_wrap().gap_2().children(pills)),
+        );
+
+        if let Some(kind) = auth
+            && provider.needs_client_id(kind, self_hosted)
+        {
+            body = body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(label_block(
+                        "Application id",
+                        "A browser flow on a self-managed install uses an application registered \
+                         on that install \u{2014} whoever administers it has the id.",
+                    ))
+                    .child(
+                        field(theme::border(), focused(&app.connect_client_id_input))
+                            .h(px(30.))
+                            .px_2()
+                            .child(Input::new(&app.connect_client_id_input).appearance(false)),
+                    ),
+            );
+        }
+    }
+
+    body.child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(label_block(
+                "Name",
+                "What to call this identity \u{2014} \"work\", \"personal\". Freely renamed later.",
+            ))
+            .child(
+                field(theme::border(), focused(&app.login_account_input))
+                    .h(px(30.))
+                    .px_2()
+                    .child(Input::new(&app.login_account_input).appearance(false)),
+            ),
+    )
+    .into_any_element()
+}
+
+/// How a flow reads in the picker. The wire's own names are about mechanism; these are about
+/// what the user is about to do.
+fn auth_label(kind: AuthKind) -> &'static str {
+    match kind {
+        AuthKind::Token => "Paste a token",
+        AuthKind::Device => "Enter a code",
+        AuthKind::Oauth => "Open a browser",
+        AuthKind::Probe => "Check",
+    }
+}
+
+/// Step one's footer. The confirm is dead until both pills are picked and the name is typed —
+/// the name is read out of the field here, since that is the only place with a `cx` to read it.
+fn connect_footer(app: &AppState, picked: bool, cx: &mut Context<AppState>) -> AnyElement {
+    let named = !app.login_account_input.read(cx).value().trim().is_empty();
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-connect-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, window, cx| this.cancel_connect(window, cx)),
+        ))
+        .child(
+            primary_button(
+                "app-settings-connect-start",
+                None,
+                "Connect",
+                cx.listener(|this, _, _, cx| this.start_connect(cx)),
+            )
+            .when(!(picked && named), |button| button.opacity(0.5)),
+        )
+        .into_any_element()
+}
+
+/// The device flow: a code to type somewhere else. Drawn large and monospaced because it is
+/// transcribed by hand, and offered to the clipboard beside it.
+fn device_code(
+    user_code: &str,
+    verification_url: &str,
+    expires_in: u64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let copy = user_code.to_string();
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(&format!(
+            "Open the link below and type this code. It is good for about {} minutes.",
+            expires_in / 60
+        )))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    slab(theme::accent())
+                        .px_3()
+                        .py_2()
+                        .child(mono(user_code.to_string(), theme::text()).text_size(px(22.))),
+                )
+                .child(icon_button(
+                    "app-settings-connect-code-copy",
+                    IconName::Copy,
+                    false,
+                    cx.listener(move |_, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                    }),
+                )),
+        )
+        .child(login_link_row(0, verification_url.to_string(), cx))
+        .into_any_element()
+}
+
+/// The token step. The field is plain: this kit has no masked input, so a pasted token is on
+/// screen until the modal closes.
+// ponytail: unmasked secret field. Masking belongs in `kit::field`, not here, and nothing else
+// needs it yet.
+fn need_secret(
+    app: &AppState,
+    prompt: &str,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let focused = app
+        .connect_secret_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(prompt))
+        .child(
+            field(theme::border(), focused)
+                .h(px(30.))
+                .px_2()
+                .child(Input::new(&app.connect_secret_input).appearance(false)),
+        )
+        .into_any_element()
+}
+
+/// The certificate a flow stopped on, as something to read rather than click through.
+///
+/// Every field here is public — a certificate is what a server hands anyone who connects — and
+/// all of it is on screen because the point is that the user checks it against what their
+/// administrator told them. Dismissing is declining: the flow stays stopped.
+pub fn certificate(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(prompt) = &app.workbench.settings.cert else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let cert = prompt.cert.clone();
+    let copy = fingerprint(&cert.sha256);
+
+    let reason = match cert.reason {
+        CertReason::UnknownIssuer if cert.self_signed => {
+            "This certificate signs for itself: nothing vouches for it but the server offering it."
+        }
+        CertReason::UnknownIssuer => "Nothing this machine trusts vouches for this certificate.",
+        CertReason::HostnameMismatch => {
+            "This certificate is for a different name than the one being connected to."
+        }
+        CertReason::Expired => "This certificate has expired.",
+        CertReason::NotYetValid => "This certificate is not valid yet.",
+    };
+
+    let detail = |label: &str, value: String| {
+        div()
+            .flex()
+            .gap_2()
+            .child(
+                div()
+                    .w(px(120.))
+                    .flex_none()
+                    .text_size(px(11.))
+                    .text_color(theme::text_faint())
+                    .child(SharedString::from(label.to_string())),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_size(px(11.))
+                    .text_color(theme::text())
+                    .child(SharedString::from(value)),
+            )
+    };
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(reason))
+        .child(modal_note(&format!(
+            "It belongs to {}. A pin is keyed by the server, so every connection to it \u{2014} \
+             now and later \u{2014} shares this answer.",
+            prompt.origin
+        )))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(detail("Subject", cert.subject.clone()))
+                .child(detail(
+                    "Alternative names",
+                    if cert.sans.is_empty() {
+                        "none".to_string()
+                    } else {
+                        cert.sans.join(", ")
+                    },
+                ))
+                .child(detail("Issuer", cert.issuer.clone()))
+                .child(detail("Valid from", on_day(cert.not_before)))
+                .child(detail("Valid to", on_day(cert.not_after))),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    slab(theme::warning())
+                        .flex_1()
+                        .min_w(px(0.))
+                        .px_2()
+                        .py_2()
+                        .child(mono(copy.clone(), theme::text()).text_size(px(11.))),
+                )
+                .child(icon_button(
+                    "app-settings-cert-copy",
+                    IconName::Copy,
+                    false,
+                    cx.listener(move |_, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                    }),
+                )),
+        )
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-cert-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, _, cx| this.cancel_certificate(cx)),
+        ))
+        .child(primary_button(
+            "app-settings-cert-trust",
+            None,
+            "Trust this certificate",
+            cx.listener(|this, _, _, cx| this.trust_certificate(cx)),
+        ))
+        .into_any_element();
+
+    modal(
+        "app-settings-cert",
+        theme::warning(),
+        "Check this certificate",
+        body,
+        footer,
+        crate::ui::handler(&view, |this, _, cx| this.cancel_certificate(cx)),
+        window,
+    )
+}
+
+/// The rename, disconnect or forget-certificate question over the connectors section, drawn
+/// from the same place the connect modal is so it layers above it.
+pub fn connector_dialog(
+    app: &AppState,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let view = cx.entity();
+    match app.workbench.settings.connector.clone() {
+        None => div().into_any_element(),
+        Some(ConnectorDialog::Rename { label, .. }) => {
+            let value = app.account_rename_input.read(cx).value().to_string();
+            let enabled = !value.trim().is_empty() && value.trim() != label;
+            prompt_modal(
+                "app-settings-connection-rename",
+                "Rename connection",
+                Some(
+                    "The name is yours; everything that references this connection keeps working.",
+                ),
+                "Name",
+                &app.account_rename_input,
+                "Rename",
+                enabled,
+                crate::ui::handler(&view, |this, _, cx| this.confirm_rename_connection(cx)),
+                crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
+                window,
+                cx,
+            )
+        }
+        Some(ConnectorDialog::Disconnect { label, .. }) => confirm_modal(
+            "app-settings-connection-disconnect",
+            "Disconnect",
+            &format!(
+                "Disconnect {label}? Its stored token goes with it. Any certificate you pinned \
+                 for that server stays \u{2014} it belongs to the server, and forgetting it is \
+                 its own action below."
+            ),
+            "Disconnect",
+            true,
+            crate::ui::handler(&view, |this, _, cx| this.confirm_disconnect(cx)),
+            crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
+            window,
+        ),
+        Some(ConnectorDialog::ForgetCert { origin, uses }) => confirm_modal(
+            "app-settings-cert-forget",
+            "Forget certificate",
+            &format!(
+                "Stop trusting the certificate at {origin}? {uses} connection{} live there, and \
+                 the next request to it validates normally \u{2014} which is what failed before \
+                 you vouched for it.",
+                if uses == 1 { "" } else { "s" }
+            ),
+            "Forget",
+            true,
+            crate::ui::handler(&view, |this, _, cx| this.confirm_forget_cert(cx)),
+            crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
+            window,
+        ),
+        Some(ConnectorDialog::AppSecret { .. }) => {
+            let enabled = !app.connect_secret_input.read(cx).value().trim().is_empty();
+            prompt_modal(
+                "app-settings-oauth-secret",
+                "Client secret",
+                Some(
+                    "The secret of the application Ubiq authenticates as \u{2014} not your own \
+                     credential. It is kept in the credential store, never in the settings file.",
+                ),
+                "Secret",
+                &app.connect_secret_input,
+                "Save",
+                enabled,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_app_secret(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
+                window,
+                cx,
+            )
+        }
+    }
 }

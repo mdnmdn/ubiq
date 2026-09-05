@@ -20,11 +20,17 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - uses: extractions/setup-just@v2
 
+      - id: version
+        run: echo "v=$(_devops/scripts/bundle-version.sh)" >> "$GITHUB_OUTPUT"
+
       - run: just bundle
 
       - run: ditto -c -k --keepParent target/Ubiq.app Ubiq-macos-arm64.zip
 
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ steps.version.outputs.v }}
+          name: ${{ steps.version.outputs.v }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          generate_release_notes: true
           files: Ubiq-macos-arm64.zip

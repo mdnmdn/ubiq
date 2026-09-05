@@ -342,8 +342,30 @@ struct Fields {
     rest: String,
 }
 
+/// Field names recorded as having existed, never as their value.
+///
+/// [`crate::messages::Secret`] is the first line of this and the stronger one: a `Secret` has no
+/// `Display`, so a value that travels the bus cannot be formatted into a log at all. This catches
+/// the other case — a plain `String` a caller happened to name `token` — at the one choke point
+/// every tracing field funnels through.
+const REDACT: &[&str] = &[
+    "secret",
+    "token",
+    "password",
+    "client_secret",
+    "code_verifier",
+    "access_token",
+    "refresh_token",
+];
+
 impl Fields {
     fn write(&mut self, name: &str, value: &str) {
+        let lowered = name.to_ascii_lowercase();
+        let value = if REDACT.iter().any(|key| lowered.contains(key)) {
+            "***"
+        } else {
+            value
+        };
         if name == "message" {
             self.message.push_str(value);
         } else {

@@ -137,3 +137,18 @@ ulid_id! {
     /// has moved on are discarded by id, the same discipline the generation counter buys for git.
     SearchId
 }
+
+ulid_id! {
+    /// One connect flow, from `BeginConnect` to the single `ConnectCaptured` or `ConnectFailed`
+    /// that ends it. Minted by the interface, on [`SearchId`]'s discipline: a stage naming an id
+    /// the interface no longer holds is discarded rather than drawn, which is what keeps a modal
+    /// the user closed from being reopened by an answer still in flight.
+    ConnectId
+}
+
+ulid_id! {
+    /// One authenticated identity at a provider. Minted by the host when a flow succeeds, because
+    /// a connection exists only once its token is stored — an abandoned flow leaves no id behind.
+    /// Stable across a rename: the label is the user's, this is what everything else references.
+    ConnectionId
+}

@@ -9,10 +9,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
-use crate::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
+use crate::ids::{ConnectId, ConnectionId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
 use crate::projects::{ProjectSnapshot, Scope};
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
@@ -212,6 +213,146 @@ pub enum Message {
     /// A stored credential could not be checked, renamed or deleted. A human-readable
     /// sentence, never a credential and never a path.
     AccountError {
+        error: String,
+    },
+
+    // ── Connector family: the identities an external *service* runs as ──
+    /// Which connections exist. Answered with [`Message::Connections`].
+    ///
+    /// The list also rides [`Message::Settings`], since the records live in the host settings
+    /// blob; this exists for the refresh-after-a-flow case rather than as the primary path.
+    ListConnections,
+    /// The connections the host holds. References only — no token, and nothing that could be
+    /// pasted into a terminal.
+    Connections {
+        connections: Vec<ConnectionInfo>,
+    },
+    /// Start authenticating against `provider`, in a flow of its own.
+    ///
+    /// `connect_id` is minted by the interface, so a stage arriving after the user has closed the
+    /// modal is discarded by id. `instance` is required for a self-hosted provider and absent for
+    /// a public cloud; `client_id` names an application registered on that instance, which is the
+    /// normal case for a browser flow anywhere but a provider's own cloud.
+    ///
+    /// This mints a flow, not a connection: a connection exists only once a token is stored, so an
+    /// abandoned flow leaves nothing behind. There is deliberately no `AddConnection`.
+    BeginConnect {
+        connect_id: ConnectId,
+        provider: ProviderId,
+        instance: Option<String>,
+        label: String,
+        auth: AuthKind,
+        client_id: Option<String>,
+    },
+    /// How far the flow named by `connect_id` has got. Any number of these, then exactly one of
+    /// [`Message::ConnectCaptured`] or [`Message::ConnectFailed`].
+    ConnectPending {
+        connect_id: ConnectId,
+        stage: ConnectStage,
+    },
+    /// The flow succeeded: the token is stored and the connection exists. [`Message::Connections`]
+    /// follows with the new list.
+    ConnectCaptured {
+        connect_id: ConnectId,
+        connection: ConnectionInfo,
+    },
+    /// The flow ended with nothing stored.
+    ConnectFailed {
+        connect_id: ConnectId,
+        error: ConnectError,
+    },
+    /// Abandon a flow. Drops the loopback listener or the poll; no record, no token.
+    CancelConnect {
+        connect_id: ConnectId,
+    },
+    /// Answer a [`ConnectStage::NeedSecret`] — a pasted access token.
+    ///
+    /// One of the two variants that carry material, and it carries it in a [`Secret`], which is the
+    /// rule rather than the exception: material crosses only in a `Secret`, and a `Secret` never
+    /// prints itself. Every alternative is worse for a desktop application — a temporary file is a
+    /// plaintext file, and an environment-variable reference asks the user to restart.
+    SubmitConnectSecret {
+        connect_id: ConnectId,
+        secret: Secret,
+    },
+    /// Rename a connection. The label is the user's; the id is what everything else references, so
+    /// nothing else changes. Answered with [`Message::Connections`] or [`Message::ConnectorError`].
+    RenameConnection {
+        connection: ConnectionId,
+        label: String,
+    },
+    /// Delete a connection and its token, together.
+    ///
+    /// It does not touch the pinned certificate, which belongs to the instance and may be why
+    /// another connection still works — [`Message::ForgetCertificate`] is that operation. There is
+    /// no "sign out but keep the name": unlike a harness account, which is a home directory that
+    /// survives its login, a connection with no token is nothing.
+    DeleteConnection {
+        connection: ConnectionId,
+    },
+    /// Ask what a connection's token says about itself.
+    ///
+    /// `probe: false` reads the stored expiry and calls nobody — the path that runs on every
+    /// render. `probe: true` is the "Check" button: a live handshake, run as a flow of its own
+    /// because a network call must never happen on the thread that carries keystrokes, and so the
+    /// one place an existing connection's certificate can be confirmed or replaced.
+    CheckConnection {
+        connection: ConnectionId,
+        probe: bool,
+    },
+    /// The answer to [`Message::CheckConnection`]. `Valid` means "not expired", not "will work":
+    /// a revoked token still reads `Valid` until something uses it.
+    ConnectionStatus {
+        connection: ConnectionId,
+        status: LoginStatus,
+    },
+    /// A flow stopped on a certificate that did not validate, and is waiting.
+    ///
+    /// The host never pins on its own, never pins a fingerprint the interface did not send back,
+    /// and never continues an unconfirmed handshake to see if it works.
+    ConfirmCertificate {
+        connect_id: ConnectId,
+        /// The server vouched for, and what the pin is keyed by.
+        origin: String,
+        cert: CertInfo,
+    },
+    /// Vouch for the certificate [`Message::ConfirmCertificate`] offered, and resume.
+    ///
+    /// `sha256` must be the fingerprint the host offered; anything else is a
+    /// [`Message::ConnectorError`] and the flow stays stopped. That is what makes the confirmation
+    /// meaningful rather than a formality the interface can click through on the user's behalf,
+    /// and why the payload is a fingerprint rather than a boolean.
+    ///
+    /// The pin is keyed by `origin` and so is instance-wide: two connections to one server find
+    /// the same row, and a pin outlives the flow that created it.
+    TrustCertificate {
+        connect_id: ConnectId,
+        origin: String,
+        sha256: String,
+    },
+    /// Drop a pinned certificate. After it, the next request to that origin validates normally.
+    /// Answered with [`Message::Settings`] or [`Message::ConnectorError`].
+    ForgetCertificate {
+        origin: String,
+    },
+    /// Store the client *secret* of a user-configured OAuth application.
+    ///
+    /// The second variant that carries material, under the same rule as
+    /// [`Message::SubmitConnectSecret`]. The client *id* is public and rides the settings blob like
+    /// any other setting, which is why there is no `SetOauthApp`.
+    SetAppSecret {
+        provider: ProviderId,
+        origin: Option<String>,
+        secret: Secret,
+    },
+    /// Forget a stored client secret. Its own variant rather than an empty [`Secret`], because
+    /// clearing a credential should not look like setting one.
+    ClearAppSecret {
+        provider: ProviderId,
+        origin: Option<String>,
+    },
+    /// Something in the connector family went wrong, outside any one flow.
+    ConnectorError {
         error: String,
     },
 
@@ -977,6 +1118,50 @@ pub struct AccountInfo {
     /// present — so one account can serve several harnesses, and an empty list means the
     /// account is a reference to an environment variable rather than a captured session.
     pub logged_in: Vec<String>,
+}
+
+/// Secret material as it crosses the bus.
+///
+/// Two variants carry material — [`Message::SubmitConnectSecret`] and [`Message::SetAppSecret`] —
+/// and the rule they encode is not "these two are blessed" but **material crosses only in a
+/// `Secret`, and a `Secret` is never printed**. The type is the enforcement rather than a
+/// convention: `Debug` writes `Secret(***)`, and there is deliberately no `Display`, no `Deref`
+/// and no `AsRef<str>`, so `tracing::info!(token = %secret)` does not compile and `?secret`
+/// redacts itself. [`Self::expose`] is the only way out, which makes every place material leaves
+/// this type one grep.
+///
+/// Serialisation is transparent: the host needs the value, and the log sink never reads the wire.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// The material itself. Named so that reading it is a deliberate act.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(***)")
+    }
+}
+
+/// One connection as the interface is told about it: the stored record, plus what the host read
+/// out of the token without calling anyone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionInfo {
+    pub connection: Connection,
+    pub status: LoginStatus,
+    /// Whether this connection's instance has a pinned certificate. Derived from the trusted list
+    /// rather than stored, so a row can say so where the user is already looking.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// The three things the interface can ask about the `ubiq` command.

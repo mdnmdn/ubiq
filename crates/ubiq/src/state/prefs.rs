@@ -144,6 +144,10 @@ pub struct ViewPrefs {
     /// default.
     #[serde(default)]
     pub editor_wrap: Option<bool>,
+    /// The rail modes this project hides. Empty is every mode on screen; the last enabled mode
+    /// cannot be turned off, so the rail is never empty.
+    #[serde(default)]
+    pub hidden_modes: Vec<RailMode>,
     /// The places written down in this project. Each destination is stored as its `ubiq://` text,
     /// and one that no longer parses is dropped rather than costing the blob — see
     /// [`crate::state::nav::kept_bookmarks`].
@@ -176,6 +180,7 @@ impl Default for ViewPrefs {
             file_filter: String::new(),
             ui_font_size: None,
             editor_wrap: None,
+            hidden_modes: Vec::new(),
             bookmarks: Vec::new(),
             recents: Vec::new(),
             rest: Default::default(),

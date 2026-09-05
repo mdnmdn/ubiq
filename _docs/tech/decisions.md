@@ -1100,10 +1100,112 @@ lost bookmark instead of a lost blob.
 cross-project bookmark to live while the store is project-scoped. A place whose id is minted by the
 window — a chat tab — cannot be written down at all.
 
+### D65 — Material crosses the bus only in a `Secret`, and a `Secret` is never printed
+
+A pasted access token and a user-supplied OAuth client secret have to reach the host, and every
+alternative is worse for a desktop application: a temporary file is a plaintext file, and an
+environment-variable reference asks the user to restart with a variable set. So
+`SubmitConnectSecret` and `SetAppSecret` carry material, and the rule that admits them is a type
+rather than a list of blessed variants. `Secret` in `crates/ubiq-proto/src/messages.rs` is a
+newtype whose `Debug` writes `Secret(***)` and which has no `Display`, no `Deref` and no
+`AsRef<str>` — so `tracing::info!(token = %secret)` does not compile, `?secret` redacts itself, and
+`expose` is the single named way out. The log sink adds a second, weaker guard for fields a caller
+merely *named* like a credential.
+
+**Cost:** the contract no longer says "no material on the bus" without qualification, and the
+guarantee rests on nobody adding a `Display` impl. A future variant carrying a bare `String`
+token would compile and would not be caught by anything but review.
+
+### D66 — The provider set is closed, and lives in code
+
+Six providers — GitHub, GitLab, Gitea, Azure DevOps, Atlassian, Google Workspace — as a static
+table. A user cannot add a seventh; adding one is a change to `ProviderId` and to the host's table
+beside it. Forgejo is a Gitea fork with the same API surface and the same `/api/v1` base, so it
+connects as `gitea` against its own instance rather than earning a row. The half both crates need —
+the names, and which flows work where — is in `crates/ubiq-proto/src/connectors.rs` so the picker
+can draw itself without a round trip; endpoints, embedded client ids and poll intervals stay
+private to the host.
+
+**Cost:** a service Ubiq does not name cannot be connected at all, however close its API is to one
+that is named. A generic OAuth client is a different feature, and the distance to it is shorter
+than it looks, since a self-hosted instance carries its own URL and client id.
+
+### D67 — An untrusted certificate is pinned by confirmed leaf fingerprint, per instance origin
+
+A self-signed or private-CA certificate is the common case on-premises, and refusing it outright
+makes connectors useless in exactly the environments that most need them. The platform trust store
+is tried first, so a certificate the machine trusts needs no setting and no prompt. One that
+does not validate does not fail the flow: it stops it, hands the interface the certificate's
+details, and waits. What the user confirms is stored against the instance's **origin** — scheme,
+host and port — as the SHA-256 of the leaf's DER, and it means exactly one thing: at that origin, a
+certificate with that fingerprint is accepted though the chain does not validate. Not a trusted CA,
+not a machine-wide exception, not verification off. The host never pins on its own and never accepts
+a fingerprint it did not itself offer.
+
+**Cost:** the pin is the leaf, so a renewal re-prompts; pinning the SPKI instead would survive one.
+And a pin outlives every connection that justified it — listed rather than collected, because a user
+who deletes and re-adds a connection should not be asked twice about one certificate. A trust the user granted is a trust the user revokes.
+
+### D68 — The OAuth callback is a fixed loopback port, and a busy one is a failure
+
+`http://127.0.0.1:47821/callback`, bound only for the duration of one flow, answering exactly one
+request. Every provider here accepts a loopback redirect, and it needs no OS registration, no
+bundle and no running-instance handoff. The port is fixed rather than ephemeral because GitHub,
+Azure DevOps and Atlassian all match the registered redirect URI exactly, port included — an
+ephemeral port would have to be pre-registered, which is a contradiction. A busy port fails the flow
+by name before any browser opens rather than silently picking another, because another port is a
+redirect URI no provider will accept.
+
+**Cost:** a locked-down environment that cannot bind 47821, or a second Ubiq mid-flow on the same
+machine, cannot complete a browser flow at all. Registering `ubiq://` would avoid it and is
+deferred — the scheme is the interface's own internal navigation URI, so one string would mean
+two things.
+
+### D69 — `connector:` is a namespace inside `CredentialId.harness`
+
+A connector token lives in the harness library's `SecretStore`, beside a harness login, under
+`CredentialId { harness: "connector:<provider>", name: <connection id> }` — and a user-supplied
+client secret under `connector-app:<provider>`. The `harness` field is being used as a namespace it
+was not named for. That is deliberate and it is the whole change: the alternative is a parallel
+trait in `crates/agent-manager` with five identical methods and four identical engines behind it.
+
+**Cost:** `am account ls` and anything else that enumerates the store sees rows that are not
+harnesses, and agent-manager's vocabulary gains a second meaning for a field whose name says
+otherwise.
+
+### D70 — Connectors choose a secure engine, and refuse to run without one
+
+agent-manager's default engine is `files` — plaintext, and appropriate for a captured harness login
+that is a plaintext file in a home directory to begin with. It is not appropriate for a bearer token Ubiq
+itself obtained, so the host builds the connector store as `os` explicitly rather than through
+`build_secret_store`, whose resolution reads an environment variable and falls back to plaintext. A
+machine with no usable secure store fails every flow by name, before a browser opens.
+
+**Cost:** a platform whose secure store this build cannot reach has no connectors at all, rather
+than degraded ones — and the failure is at connect time, which is later than a user would like to
+learn it.
+
+### D71 — Ubiq ships client ids, never client secrets
+
+A secret embedded in a distributed binary is not a secret. So every built-in application is a
+**public client**: PKCE for Google, GitLab, Gitea, Atlassian Cloud and Azure DevOps Services, and
+the device flow for GitHub, which is precisely why the device flow was chosen there rather than an
+OAuth-app redirect. What a build embeds is only ever a client *id*, read at compile time through
+`option_env!` and never from the environment at run time, so a variable in a user's shell cannot
+change which application a flow authenticates as. Where a browser flow needs an id the build does
+not have — every self-hosted install, since applications are registered on the instance — the user
+supplies one, and only a genuinely confidential client's *secret* is stored, in `SecretStore`
+beside the tokens.
+
+**Cost:** a build from source is unbranded — no embedded ids means PAT and device flows everywhere
+and bring-your-own client id for the rest. That is a working application rather than a degraded one,
+but it is not the same first-run experience as an official build. Relaxing this later would look
+like a small convenience and would not be one.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
 - [`agent-manager.md`](./agent-manager.md) — the boundary D8 and D9 create
-- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, and the
-  naming rule D58 states
+- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, the
+  naming rule D58 states, and the connector family D65 to D71 produce
 - [`../backlog.md`](../backlog.md) — the choices still open

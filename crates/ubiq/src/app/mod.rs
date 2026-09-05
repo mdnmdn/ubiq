@@ -40,8 +40,8 @@ use crate::state::nav::{
 use crate::state::navigator::NavigatorState;
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
-    self as ui_settings, AccountDialog, CliShortcut, LoginState, LoginStep, MAX_LOGIN_LINKS,
-    MarkdownOpen, SettingsSection,
+    self as ui_settings, AccountDialog, CertPrompt, CliShortcut, ConnectState, ConnectStep,
+    ConnectorDialog, LoginState, LoginStep, MAX_LOGIN_LINKS, MarkdownOpen, SettingsSection,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -69,10 +69,13 @@ use gpui_component::input::{
 };
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
+use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
-use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
-use ubiq_proto::messages::{CliShortcutAction, Message, WorkspaceInfo};
+use ubiq_proto::ids::{
+    ConnectId, ConnectionId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId,
+};
+use ubiq_proto::messages::{CliShortcutAction, Message, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
@@ -557,6 +560,14 @@ pub struct AppState {
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.
     pub account_rename_input: Entity<InputState>,
+    /// The connect modal's three fields. Read at send time rather than mirrored per keystroke,
+    /// for the reason `begin_harness_login` gives: a value the interface copies into its own
+    /// state is a second copy that can disagree with the one on screen.
+    pub connect_instance_input: Entity<InputState>,
+    pub connect_client_id_input: Entity<InputState>,
+    // ponytail: this kit has no masked field, so a pasted token is on screen until the modal
+    // closes. Add masking to `kit::field` if that ceiling ever matters.
+    pub connect_secret_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every

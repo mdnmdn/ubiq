@@ -7,7 +7,8 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use ubiq_proto::ids::PaneId;
+use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, ProviderId};
+use ubiq_proto::ids::{ConnectId, ConnectionId, PaneId};
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus};
 use ubiq_proto::settings::HostSettings;
 
@@ -30,6 +31,7 @@ pub enum SettingsSection {
     Editor,
     Search,
     Harnesses,
+    Connectors,
     CommandLine,
 }
 
@@ -41,6 +43,7 @@ impl SettingsSection {
             SettingsSection::Editor,
             SettingsSection::Search,
             SettingsSection::Harnesses,
+            SettingsSection::Connectors,
             SettingsSection::CommandLine,
         ]
     }
@@ -52,6 +55,7 @@ impl SettingsSection {
             SettingsSection::Editor => "Editor",
             SettingsSection::Search => "Search",
             SettingsSection::Harnesses => "Harnesses",
+            SettingsSection::Connectors => "Connectors",
             SettingsSection::CommandLine => "Command line",
         }
     }
@@ -190,6 +194,98 @@ pub enum AccountDialog {
     SignOut { agent_type: String, account: String },
 }
 
+/// Where a connect flow has got to. One at a time, and the user can leave any of them —
+/// leaving sends `CancelConnect`, and a flow that stored no token left nothing behind.
+///
+/// Mirrors [`ConnectStage`](ubiq_proto::connectors::ConnectStage) one for one, plus the two ends
+/// the wire reports as their own messages and the picker the wire never sees.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectStep {
+    /// Pick a provider and a flow, and name the identity. Nothing has been sent, so leaving
+    /// costs nothing.
+    Choosing {
+        /// The provider picked, or none while the user has not chosen.
+        provider: Option<ProviderId>,
+        /// The flow picked, or none. Cleared whenever the provider changes, because the flows
+        /// on offer are a property of the provider and the instance.
+        auth: Option<AuthKind>,
+    },
+    /// `BeginConnect` is on its way and nothing has answered yet. Without this step the picker
+    /// sat on screen until the first stage arrived, which read as the button having done nothing.
+    Starting,
+    /// [`ConnectStage::Opening`](ubiq_proto::connectors::ConnectStage::Opening).
+    Opening,
+    /// The user types `user_code` at `verification_url`. `expires_in` is seconds.
+    DeviceCode {
+        user_code: String,
+        verification_url: String,
+        expires_in: u64,
+    },
+    /// The browser has been sent to `url`, and the loopback listener is bound on `port`.
+    AwaitingCallback { port: u16, url: String },
+    /// Trading a code, or a pasted token, for an identity.
+    Exchanging,
+    /// Waiting for the user to paste something. `prompt` says what.
+    NeedSecret { prompt: String },
+    /// Stopped on a certificate; the confirmation modal is up, or on its way.
+    AwaitingCertificate,
+    /// The flow ended with nothing stored. Kept as a step rather than closing the modal, so the
+    /// user can read why and retry without retyping.
+    Failed { error: ConnectError },
+}
+
+/// The connect modal: which flow is running, and what it is for.
+#[derive(Clone, Debug)]
+pub struct ConnectState {
+    /// Minted here, and the only thing that lets a late stage be told from the flow on screen —
+    /// anything naming another id is discarded rather than drawn.
+    pub connect_id: ConnectId,
+    /// The user's name for the identity being made. Read out of the field when the flow starts
+    /// and kept afterwards so the outcome can name it.
+    pub label: String,
+    pub provider: ProviderId,
+    /// The base URL the identity lives at, as typed. `None` is the provider's public cloud.
+    pub instance: Option<String>,
+    pub step: ConnectStep,
+}
+
+/// A question asked about one connection or one pinned certificate, over the connectors section.
+/// Only one is up at a time — opening another replaces it, the rule every dialog here follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectorDialog {
+    /// Seeded with the current label; confirming sends `RenameConnection`.
+    Rename {
+        connection: ConnectionId,
+        label: String,
+    },
+    /// Deletes the connection and its token. Confirming sends `DeleteConnection`; the pinned
+    /// certificate is not touched, which is `ForgetCert`'s job.
+    Disconnect {
+        connection: ConnectionId,
+        label: String,
+    },
+    /// Drops a pinned certificate. `uses` is how many connections live at that origin, so the
+    /// question can say what else stops trusting it.
+    ForgetCert { origin: String, uses: usize },
+    /// Sets the client *secret* of a configured OAuth application. A fourth variant rather than
+    /// its own field, because it is raised from the same list and only one question is ever up.
+    AppSecret {
+        provider: ProviderId,
+        origin: Option<String>,
+    },
+}
+
+/// A certificate a running flow stopped on, held until the user answers.
+///
+/// The `connect_id` is carried so the answer goes back to the flow that asked, and the `sha256`
+/// sent back is the one out of `cert` — never one recomputed here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CertPrompt {
+    pub connect_id: ConnectId,
+    pub origin: String,
+    pub cert: CertInfo,
+}
+
 /// The settings overlay, and the values it is showing.
 #[derive(Clone, Debug)]
 pub struct SettingsState {
@@ -206,11 +302,27 @@ pub struct SettingsState {
     pub login: Option<LoginState>,
     /// The rename, delete or sign-out question over one account, while one is up.
     pub dialog: Option<AccountDialog>,
+    /// The connect modal, while a flow is running. There is no list of connections beside it:
+    /// those ride `host.connections`, which the host owns.
+    pub connect: Option<ConnectState>,
+    /// The rename, disconnect or forget-certificate question, while one is up.
+    pub connector: Option<ConnectorDialog>,
+    /// The certificate a flow is waiting on. Its own field rather than a `ConnectorDialog`,
+    /// because it interrupts a running flow instead of being raised from the list.
+    pub cert: Option<CertPrompt>,
     /// What `CheckHarnessLogin` last answered for a harness on an account, keyed
     /// `(agent_type, account)`. An absent entry means never checked, not `Missing` — those
     /// read differently. Pruned whenever `Accounts` arrives, so a renamed or deleted pair
     /// cannot linger here.
     pub statuses: HashMap<(String, String), LoginStatus>,
+    /// What the host last said about one connection's token, keyed by id.
+    ///
+    /// A map rather than a field on the record, because the records themselves ride
+    /// `host.connections` — which the host owns — and a status is an answer *about* a record
+    /// rather than part of it. Absent means never asked, which reads differently from `Missing`.
+    /// Whether an instance has a pinned certificate is not here at all: it is
+    /// `host.trusted_certs` matched by origin, and deriving it keeps one truth.
+    pub connection_status: HashMap<ConnectionId, LoginStatus>,
     /// The `ubiq` command's shortcut, as the host last reported it. Absent until it answers.
     pub cli: Option<CliShortcut>,
     /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
@@ -239,7 +351,11 @@ impl Default for SettingsState {
             accounts: Vec::new(),
             login: None,
             dialog: None,
+            connect: None,
+            connector: None,
+            cert: None,
             statuses: HashMap::new(),
+            connection_status: HashMap::new(),
             cli: None,
             error: None,
         }
@@ -282,6 +398,49 @@ pub fn describe_status(status: &LoginStatus, now_ms: i64) -> String {
         }
         LoginStatus::Unknown => "signed in \u{b7} no expiry recorded".to_string(),
         LoginStatus::Missing => "no credential stored".to_string(),
+    }
+}
+
+/// How a [`ConnectError`] reads in the connect modal.
+///
+/// Here rather than in the drawing code so the wording is one testable place, the same reason
+/// [`describe_status`] is. Every sentence says what happened, and names what the user can do
+/// about it where there is anything.
+pub fn connect_error_note(error: &ConnectError) -> String {
+    match error {
+        ConnectError::Denied => {
+            "The provider refused, or the sign-in was declined in the browser.".to_string()
+        }
+        ConnectError::Expired => {
+            "The code ran out before it was used. Starting again issues a new one.".to_string()
+        }
+        ConnectError::PortBusy => {
+            "Port 47821 is in use, and it is the only port a browser flow can come back on — \
+             close whatever holds it, or use a token instead."
+                .to_string()
+        }
+        ConnectError::StateMismatch => {
+            "The answer did not match what was sent. Nothing was exchanged and nothing stored; \
+             start again."
+                .to_string()
+        }
+        ConnectError::NoSecureStore => {
+            "Connectors need a secure credential store, and this machine has none available — \
+             Ubiq never writes a token to a plaintext file."
+                .to_string()
+        }
+        ConnectError::BadInstance => {
+            "That address is not a URL, or is not this product. Give the base URL of the \
+             install, scheme included."
+                .to_string()
+        }
+        ConnectError::NoApplication => {
+            "No application is registered for this provider, so there is no browser flow to \
+             open. Configure one below, or use a token."
+                .to_string()
+        }
+        ConnectError::Tls(detail) => format!("The connection itself failed: {detail}"),
+        ConnectError::Http(detail) => format!("The provider answered: {detail}"),
     }
 }
 

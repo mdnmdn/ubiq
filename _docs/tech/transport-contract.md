@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account and command-line families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, command-line and connector families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -858,6 +858,86 @@ it is not Ubiq's to name or to delete.
 directory considered, in the order it was considered, each a `CliDir` — so a machine that fits none
 of them shows why.
 
+## The connector family
+
+The eleventh family, and the account family one layer out. An **account** is one authentication a
+*harness* runs as; a **connection** is one authentication an external *service* runs as — a GitHub
+login, a GitLab identity on a company's own install, a Google Workspace grant. This family is how
+one comes into being, where its token lives, and how the interface learns which exist.
+
+Several connections per provider is the ordinary case rather than a feature: nothing in the record
+is unique per provider, and every consumer takes a connection id rather than a provider name.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListConnections` | UI → host | — | `Connections` |
+| `Connections` | host → UI | `connections` | — |
+| `BeginConnect` | UI → host | `connect_id`, `provider`, `instance?`, `label`, `auth`, `client_id?` | `ConnectPending`, then `ConnectCaptured` or `ConnectFailed` |
+| `ConnectPending` | host → UI | `connect_id`, `stage` | — |
+| `ConnectCaptured` | host → UI | `connect_id`, `connection` | `Connections` follows |
+| `ConnectFailed` | host → UI | `connect_id`, `error` | — |
+| `CancelConnect` | UI → host | `connect_id` | — |
+| `SubmitConnectSecret` | UI → host | `connect_id`, `secret` | `ConnectCaptured` or `ConnectFailed` |
+| `RenameConnection` | UI → host | `connection`, `label` | `Connections` or `ConnectorError` |
+| `DeleteConnection` | UI → host | `connection` | `Connections` or `ConnectorError` |
+| `CheckConnection` | UI → host | `connection`, `probe` | `ConnectionStatus` |
+| `ConnectionStatus` | host → UI | `connection`, `status` | — |
+| `ConfirmCertificate` | host → UI | `connect_id`, `origin`, `cert` | `TrustCertificate`, or a cancel |
+| `TrustCertificate` | UI → host | `connect_id`, `origin`, `sha256` | resumes the flow, or `ConnectorError` |
+| `ForgetCertificate` | UI → host | `origin` | `Settings` or `ConnectorError` |
+| `SetAppSecret` | UI → host | `provider`, `origin?`, `secret` | `Settings` or `ConnectorError` |
+| `ClearAppSecret` | UI → host | `provider`, `origin?` | `Settings` or `ConnectorError` |
+| `ConnectorError` | host → UI | `error` | — |
+
+**`ConnectionInfo` carries no material.** It is the stored record — id, provider, label, instance,
+auth, scopes, the provider's own name for the identity — plus the status the host read out of the
+token and whether the instance is pinned. The log sink listens to the same bus, so the account
+family's rule applies unchanged: a token here is a token in a log a user might paste into an issue.
+
+**Two variants carry material, and the rule is the type rather than the list.**
+`SubmitConnectSecret` takes a pasted access token and `SetAppSecret` a user-supplied client secret.
+Both carry a `Secret`, whose `Debug` prints `Secret(***)` and which has no `Display`, no `Deref` and
+no `AsRef<str>` — so a whole `Message` can be logged, as both halves do, without material reaching
+the sink. The rule to hold is **material crosses only in a `Secret`, and a `Secret` is never
+printed**; see [D65](./decisions.md). A client *id* is public, rides the settings blob like any other
+setting, and needs no variant of its own, which is why there is no `SetOauthApp`.
+
+**Creating a connection is completing a flow.** There is no `AddConnection`. `BeginConnect` mints
+nothing but a flow — the `connect_id` is the interface's, on the search family's discipline — and a
+connection exists only once a token is stored, so an abandoned flow leaves nothing behind. Exactly
+one `ConnectCaptured` or `ConnectFailed` ends a flow, and the interface discards any stage naming an
+id it no longer holds.
+
+**`CheckConnection` has two modes, and only one touches the network.** `probe: false` is what the
+list draws: the stored token's own expiry, no request and no latency, so the path that runs on every
+render calls nobody. `probe: true` is the "Check" button, and it runs as a flow with a `connect_id`
+like any other — a handshake must never happen on the thread that carries keystrokes. That is also
+what makes it the one place an existing connection's certificate can be confirmed or replaced, and
+why `ConfirmCertificate` needs only a `connect_id` to say what to resume.
+
+**A pin is answered, never assumed.** `TrustCertificate` must carry the same `sha256` the host
+offered; anything else is a `ConnectorError` and the flow stays stopped. That is what makes the
+confirmation meaningful rather than a formality the interface can click through on the user's
+behalf, and why the payload is a fingerprint rather than a boolean. `origin` is what gets pinned, so
+the trust is instance-wide: two connections to one server find the same row, and a pin outlives the
+flow that created it — including one the user then abandons, because their answer was about the
+server and the server has not changed.
+
+**Deleting a connection deletes the token, and only the token.** It does not touch the pin, which
+belongs to the instance and may be why another connection still works; `ForgetCertificate` is that
+operation, keyed by origin. There is no "sign out but keep the name": unlike a harness account,
+which is a home directory that survives its login, a connection with no token is nothing.
+
+**Status is what the token says about itself.** `ConnectionStatus` carries the same `LoginStatus` the
+account family uses, read from the stored blob's own expiry. Nothing calls the provider, so `Valid`
+means "not expired" rather than "will work" — a revoked token reads `Valid` until something uses it.
+
+**The records live in the host settings blob**, as `connections`, `oauth_apps` and `trusted_certs` —
+already persisted, versioned and round-tripped, so no new store and no new messages to read them.
+The host owns those three fields: the interface mirrors the whole record and writes the whole of it
+back, so a `SetSettings` carrying its older copy would otherwise lose a connection a flow had just
+made. `ListConnections` exists for the refresh-after-a-flow case rather than as the primary path.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -883,6 +963,8 @@ of them shows why.
    session family.
    If it names an **agent** and carries something that agent said, the conversation family.
    If it names nothing in Ubiq at all and asks about the machine, the command-line family.
+   If it names a **connection** at an external service, or a flow authenticating one, the connector
+   family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

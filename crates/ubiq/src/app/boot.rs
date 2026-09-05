@@ -153,6 +153,15 @@ impl AppState {
         let account_rename_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
 
+        // The connect modal's fields. Cleared when a flow is cancelled or captured, and kept
+        // when one fails, so "Try again" is a retry rather than a re-type.
+        let connect_instance_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://gitlab.example.com"));
+        let connect_client_id_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Application id"));
+        let connect_secret_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
+
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
         let sink_harness_name = cx.new(|cx| {
@@ -601,6 +610,9 @@ impl AppState {
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
+            connect_instance_input.read(cx).focus_handle(cx),
+            connect_client_id_input.read(cx).focus_handle(cx),
+            connect_secret_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -742,6 +754,9 @@ impl AppState {
             sink_modal_input,
             login_account_input,
             account_rename_input,
+            connect_instance_input,
+            connect_client_id_input,
+            connect_secret_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,
