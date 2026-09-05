@@ -428,8 +428,9 @@ shrinking, and switches between unified and side by side.
 
 **The history and the refs are real.** The branch list, the tags and the stashes come from one
 `ProjectGitRefs` reply; the remotes and the submodules ride with the overview. The commit log pages
-in from `ProjectGitLog`, oldest page first and newest commit within it, and reaching the bottom
-asks for the next page with the cursor the last one returned. The search over the history and its
+in from `ProjectGitLog`, oldest page first and newest commit within it, but only one page — the view
+stores `log_cursor` and `log_done` (`state/git.rs`) and nothing in `ui/git/history.rs` ever sends a
+second request with that cursor, so reaching the bottom asks for nothing (`G129`). The search over the history and its
 `my commits` filter are real controls over real rows, and both clear together. A commit's lane is
 always `0` — the wire carries a parent count, not a topology, so a merge draws as one hollow dot
 rather than a second column, which is `G123`.
