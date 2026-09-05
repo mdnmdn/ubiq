@@ -43,15 +43,15 @@ use crate::state::vim::VimState;
 use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
-    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, HarnessChoice, LogState,
-    MenuId, NewPaneRow, OpenFile, PanelKind, PendingNewAgent, ProjectSettings, ProjectSettingsMode,
+    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, HarnessChoice,
+    LogState, MenuId, NewPaneRow, OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode,
     RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
 use crate::ui::dock::{self as dock, WorkbenchPanel};
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, Global, Image, ImageFormat, IntoElement,
+    App, Bounds, Context, Entity, FocusHandle, Focusable, Global, Image, ImageFormat, IntoElement,
     PathPromptOptions, Pixels, Render, ScrollHandle, Subscription, UniformListScrollHandle,
     WeakEntity, Window, WindowBounds, WindowId, WindowOptions, point, prelude::*, px, size,
 };
@@ -101,7 +101,8 @@ gpui::actions!(
         ZoomIn,
         ZoomOut,
         DialogConfirm,
-        DialogCancel
+        DialogCancel,
+        FocusFileFilter
     ]
 );
 
@@ -187,6 +188,10 @@ struct PaneTerminal {
 /// and are drained in `render`.
 enum PanelEdit {
     Open(PanelKind),
+    /// Bring a panel the dock already holds forward: its group displays it and its region comes
+    /// back if it was put away. What [`PanelEdit::Open`] cannot do, because a panel already in the
+    /// tree is not added twice.
+    Reveal(PanelKind),
     Close(PanelKind),
 }
 
@@ -359,6 +364,9 @@ pub struct AppState {
     panels: HashMap<PanelKind, Entity<WorkbenchPanel>>,
     /// Panels waiting for the frame that can put them in the dock or take them out of it.
     pending_panels: Vec<PanelEdit>,
+    /// Whether the close question has already been answered yes, so the close that follows it is
+    /// let through rather than asked about again.
+    pub(super) closing: bool,
     /// A saved arrangement waiting for the same frame. Restoring one needs a window, and it
     /// arrives from the host on a message.
     pending_layout: Option<serde_json::Value>,
@@ -460,6 +468,9 @@ pub struct AppState {
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
     pub project_search: Entity<InputState>,
+    /// The one buffer every `kit::Picker` that opts into search types into — a menu is one at a
+    /// time, so one field suffices. Cleared and focused on open.
+    pub picker_search: Entity<InputState>,
     /// The search panel's query field.
     pub search_query: Entity<InputState>,
     /// The settings dialog's two host-owned search lists, each a comma-separated line. They commit
@@ -488,9 +499,6 @@ pub struct AppState {
     /// rather than a shared one, for the reason every other pair here is split: two
     /// states drawn at once would be one field in two places.
     pub login_account_input: Entity<InputState>,
-    /// What the new-agent naming prompt has typed for the conversation's own name. Its own field
-    /// for the same reason `login_account_input` is: a state drawn once, in its own modal.
-    pub new_agent_name_input: Entity<InputState>,
     /// The accounts section's rename dialog field, seeded with the account's current id when
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.
@@ -513,6 +521,10 @@ pub struct AppState {
     pub picker_scroll: ScrollHandle,
     /// The explorer's rows, for the same reason.
     pub explorer_scroll: ScrollHandle,
+    /// Where the keyboard rests when it is on the tree rather than in the filter above it. The two
+    /// are separate focuses on purpose: the field owns every key a field owns — Backspace first of
+    /// all — and the tree's own keys, removal included, are only live once the tree holds focus.
+    pub explorer_focus: FocusHandle,
     /// The agents screen's sidebar. Its own handle rather than the explorer's: the two lists are
     /// on screen in different modes and a shared handle would carry one's position into the other.
     pub agents_scroll: ScrollHandle,
@@ -551,6 +563,8 @@ mod boot;
 mod chat;
 mod editor;
 mod explorer;
+pub use explorer::MIN_QUERY;
+pub use projects::Holds;
 mod git;
 mod graph;
 mod panels;
@@ -643,6 +657,8 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-shift-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-p", FocusFileFilter, Some("Workbench")),
         // Enter answers whichever file question is up; Escape takes it away. Both are handed back
         // when no dialog is up — `AppState::confirm_dialog` says why that matters.
         gpui::KeyBinding::new("enter", DialogConfirm, Some("Workbench")),
@@ -659,6 +675,8 @@ pub fn install_key_bindings(cx: &mut App) {
     // Replace moves to ⌘⌥F rather than losing its key.
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Input")),
+        // ⌘P means "go to file" wherever the caret is, for the same reason and by the same device.
+        gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Input")),
         gpui::KeyBinding::new("cmd-alt-f", gpui_component::input::Replace, Some("Input")),
         // The prompt dialogs put the keyboard in a field, and the component library binds keys at
         // the field's own depth — so Escape is bound there too, or it never reaches the window.
@@ -782,7 +800,7 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some(format!("Ubiq {label} - Agent Harness Multiplexer").into()),
+                title: Some(format!("Ubiq {label} - Agentic workbench").into()),
                 ..Default::default()
             }),
             ..Default::default()
@@ -796,6 +814,14 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
                 }
                 state
             });
+            // Unsaved work and running terminals are the window's to answer for, so the close is
+            // a question before it is an event — see [`AppState::ask_before_closing`].
+            let asked = view.downgrade();
+            window.on_window_should_close(cx, move |_window, cx| {
+                asked
+                    .update(cx, |state, cx| state.ask_before_closing(false, cx))
+                    .unwrap_or(true)
+            });
             cx.new(|cx| gpui_component::Root::new(view, window, cx).bg(crate::theme::app_bg()))
         },
     );
@@ -807,6 +833,31 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
             .update(cx, |_, window, _| window.activate_window())
             .ok();
     }
+}
+
+/// ⌘Q, asked before it is obeyed.
+///
+/// The platform's quit takes every window without asking any of them, so the question is put here
+/// instead: the first window holding unsaved files or running terminals raises it and comes to the
+/// front, and the yes — `confirm_file_dialog` — quits for real. `true` means there was nothing to
+/// ask about.
+pub fn quit_requested(cx: &mut App) -> bool {
+    let windows: Vec<WindowId> = cx
+        .windows()
+        .iter()
+        .map(|handle| handle.window_id())
+        .collect();
+    for id in windows {
+        let Some(view) = OpenWindows::get(cx, id) else {
+            continue;
+        };
+        let asked = view.update(cx, |state, cx| state.ask_before_closing(true, cx));
+        if !asked {
+            focus_window(id, cx);
+            return false;
+        }
+    }
+    true
 }
 
 /// Bring a window to the front. The picker's rows for projects open elsewhere use it: clicking one

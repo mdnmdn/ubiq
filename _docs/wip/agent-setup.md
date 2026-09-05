@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-03
-verified: 2026-09-04
+updated: 2026-09-05
+verified: 2026-09-05
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
@@ -50,8 +50,8 @@ false are deleted rather than annotated: this is what is true now.
 | `IoBridge` is two methods, both `&mut self`, and `next_event` **blocks** | The host needs one pump thread per structured workspace; `send` and `next_event` cannot be called concurrently without splitting the bridge |
 | Only **Claude** and **Codex** accept input after launch. opencode and Copilot bridges are one-shot: the prompt goes in through argv, `send` is a no-op | Only two harnesses can back a conversation column. The other two are single-turn runs wearing the same trait |
 | **Every bridge auto-approves.** Claude's reader answers every `control_request` with `allow`; Codex auto-accepts every approval RPC; opencode runs `--dangerously-skip-permissions`; Copilot runs `--allow-all --no-ask-user` | A permission prompt in the UI would be theatre — the tool has already run. This is the one item with a security consequence, and it gates any "ask me first" feature |
-| **Model discovery is implemented for all five harnesses** — `Harness::discover_models` (`harness/mod.rs:501`) is overridden by every one. But it takes **no account and no directory**, so a list is per harness rather than per identity, and Claude's probe reads the *ambient* login; and there is **no caching at all** — no TTL, no version key | A model picker is available today, and its list is the same whichever account was chosen. Per-account lists need the trait signature to change |
-| **A thinking / reasoning-effort catalog does not exist in Rust.** No `ThinkingEffort`, no per-model level list, nothing. `ConfigCategory::ThoughtLevel` is a *label on an option*, not a catalog; the only real per-model level type lives in `refs/multica`, which is not compiled | "Thinking budget" is library work per harness, not a picker anyone can draw yet |
+| **Model discovery is implemented for all five harnesses** — `Harness::discover_models` (`harness/mod.rs:501`) is overridden by every one. But it takes **no account and no directory**, so a list is per harness rather than per identity, and Claude's probe reads the *ambient* login; discovery **is** cached now — `FileHarnessCache` (`crates/ubiq-host/src/store/harness.rs`) writes `<config root>/cache/harness-models.toml`, keyed on `(harness, account, version)`, with `version` read off the harness binary's own `--version` — so a hit skips the probe outright and a harness whose version cannot be read bypasses the cache in both directions | A model picker is available today, and its list is the same whichever account was chosen. Per-account lists need the trait signature to change. The catalogue can go stale until the harness binary's version string changes |
+| **A thinking / reasoning-effort catalog exists in Rust for two of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses. opencode, Copilot CLI and Grok CLI still answer the empty default — none of the three exposes a reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is still a *label on an option*, not wired to this catalog | The library-side catalog exists for the two harnesses that support reasoning effort; nothing in the UI or bridge layer consumes it yet, so "thinking budget" is still not a picker anyone can draw |
 | **No bridge emits `ConfigOptionUpdate`, and all four reject `SetConfigOption`.** `AgentEvent::ConfigOptionUpdate` (`io/model.rs:623`) has zero producers; `Message::SetAgentConfig` is fully plumbed host-side (`coordinator.rs:647`) and fails one layer down | The config-option mechanism is a shape with nothing behind it. A model chosen at launch works; a model changed mid-turn cannot |
 | `Policy` carries an opaque `permission_mode` string, passed through per harness. Claude's `init` event already reports `permissionMode`, and the bridge surfaces it as `SessionStarted.mode` | The mode is the one item of the three that is free — it is already on the wire as `ConvUpdate::Started` |
 | **Ubiq never touches `agent_manager::session`.** No `SessionStore`, no `sessions_root`, no transcript. Ubiq's own sessions and agents are in-memory (`ubiq-host/src/work/mod.rs`), and only tasks persist | Nothing survives a restart, and no session record is written for an embedded run — the CLI writes one on every run, Ubiq on none |
@@ -339,9 +339,8 @@ in both, and selecting another or closing the panel ends nothing.
 requested** — taken from what the run actually resolved, so a conversation cannot claim an account
 it is not using.
 
-**Deliberately left:** `state/chat.rs`'s four constant-backed pickers. Its canned reply went with
-the panel's composer; the model/thinking/mode constants stay until P3 can fill them from a real
-list, because a picker that changes nothing beside one that works is worse than no picker.
+**Removed, not left:** `state/chat.rs`'s four constant-backed pickers went with the panel's fixture
+composer as dead code, rather than staying until P3 could fill them from a real list.
 
 ### P3 — The model, chosen before the harness starts — **landed**
 
@@ -368,12 +367,14 @@ into `conversations` — where a live pump exists — only then.
 `StartConversation`'s only caller, `AppState::pick_new_agent_menu`
 (`crates/ubiq/src/app/agents.rs`), generates it with `AgentId::generate()` before sending. `Conversation`
 carries a `launched` flag, `false` from `Conversation::new` until `ConvUpdate::Started` sets it, and
-a `chosen_model` the composer's own picker writes to, since the host does not echo a
-`SetAgentConfig` sent before launch. While `launched` is false, `composer()`
-(`crates/ubiq/src/ui/conversation/mod.rs`) draws a `Picker` dropdown sourced from
-`conversation.config`'s `model`-category option — or a "Discovering models…" note before that
-option has arrived — instead of the footer's read-only pill, and a pick sends
-`AppState::pick_agent_model`.
+a `chosen: BTreeMap<String, String>` (keyed by `config_id`) the composer's own pickers write to,
+since the host does not echo a `SetAgentConfig` sent before launch. While `launched` is false,
+`composer()` (`crates/ubiq/src/ui/conversation/mod.rs`) draws one `Picker` chip per option present
+in `conversation.config` — or a "Discovering models…" note before any has arrived — instead of the
+footer's read-only pills, and a pick sends `AppState::pick_agent_config`. P6 generalised this from a
+single hard-coded `model` picker to any of the (up to) three ids the host may mint — see
+[`../tech/decisions.md`](../tech/decisions.md) and
+[`../features/workbench.md`](../features/workbench.md).
 
 **Where the vocabulary comes from differs per harness, and none of it is a protocol answer.** Claude
 scrapes `/model`'s free text from a one-shot session; Codex answers `codex debug models --bundled`;
@@ -481,6 +482,11 @@ much as blocked on P2c, which is what would give it a record to resume from.
 - **A relocated `$HOME` does not force a plaintext credential any more.** Only denying the keychain
   at the policy layer does — and isol8's `auto_profiles` will hand it back by matching the harness's
   own layer on the command name. See P5.
+- **A replaced home grants nothing back from the real one.** isol8 auto-grants nothing from the real
+  `$HOME` once a login's `$HOME` points at the capture directory, so a harness that is not a
+  self-contained binary already named by this policy cannot even start — Codex's Node interpreter,
+  reached through a shim that resolves outside the home entirely (`mise`), is the case that found
+  this. The trap is not only the keychain; `login_confined`'s `login_runtime_grants` is the fix.
 - **A pane with no project silently skips the close path.** `close_pane` returns early when a pane
   belongs to no project, which is every login pane — so a login that exited *successfully* never
   reached `CloseWorkspace`, `pane_gone` never ran, and the credential sat on disk with no account
@@ -531,8 +537,12 @@ much as blocked on P2c, which is what would give it a record to resume from.
    list needs the trait signature to change, and nothing yet says a user would notice.
 7. **Does the agent process outlive its view, and for how long?** A view is a perspective on a
    conversation the host owns, so closing a panel ends nothing — which means a project accumulates
-   live harnesses. The stated intent is to stop a process after a while and recover it when needed,
-   which needs a resumable record (P2c) before it can be anything but a kill.
+   live harnesses. Partly answered: a process can now be stopped without ending the conversation —
+   `UnloadConversation`/`ConversationUnloaded`, and `ResumeConversation` to start it again under the
+   same `agent_id` — so a harness someone is not actively driving no longer has to be killed outright
+   to reclaim it. What is still open is *when* — nothing today unloads one on the user's behalf after
+   a while of disuse, and a resumed harness starts with no memory of the transcript above it until
+   the resumable record (P2c) exists for it to replay from.
 
 ## Related docs
 

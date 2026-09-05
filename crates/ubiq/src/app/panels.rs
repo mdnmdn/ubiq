@@ -158,6 +158,11 @@ impl AppState {
                     }
                     dock::add(&self.dock.clone(), &panel, home, window, cx);
                 }
+                PanelEdit::Reveal(kind) => {
+                    let home = kind.home();
+                    let panel = self.panel(kind, cx);
+                    dock::reveal(&self.dock.clone(), &panel, home, window, cx);
+                }
                 PanelEdit::Close(kind) => {
                     if let Some(panel) = self.panels.remove(&kind) {
                         dock::remove(&self.dock.clone(), &panel, window, cx);

@@ -96,6 +96,8 @@ impl AppState {
         let project_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
 
+        let picker_search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter\u{2026}"));
+
         let search_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search in project\u{2026}"));
 
@@ -152,12 +154,6 @@ impl AppState {
 
         let login_account_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
-
-        // Placeholder is set fresh whenever the naming prompt opens (the picked harness's own
-        // label), so this construction-time one is only ever seen if the prompt somehow paints
-        // before its own open path runs.
-        let new_agent_name_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Name this conversation\u{2026}"));
 
         // Seeded fresh with the account's current id whenever the rename dialog opens, so this
         // construction-time placeholder is only ever seen ahead of that.
@@ -472,9 +468,9 @@ impl AppState {
         subscriptions.push(cx.subscribe_in(
             &file_name,
             window,
-            |this, _input, event: &InputEvent, _window, cx| {
+            |this, _input, event: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
-                    this.confirm_file_dialog(cx);
+                    this.confirm_file_dialog(window, cx);
                 }
             },
         ));
@@ -573,6 +569,19 @@ impl AppState {
             },
         ));
 
+        // No field of the workbench's own mirrors this one: every `Picker` that opts into search
+        // reads `picker_search` straight from the window at render time, so the only thing a
+        // keystroke owes the rest of the window is the redraw that re-filters it.
+        subscriptions.push(cx.subscribe_in(
+            &picker_search,
+            window,
+            |_this, _input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
+
         subscriptions.push(cx.subscribe_in(
             &sink_project_hex,
             window,
@@ -600,7 +609,6 @@ impl AppState {
             sink_textarea.read(cx).focus_handle(cx),
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
-            new_agent_name_input.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
@@ -613,6 +621,7 @@ impl AppState {
             rename_input.read(cx).focus_handle(cx),
             project_form_about.read(cx).focus_handle(cx),
             project_form_hex.read(cx).focus_handle(cx),
+            picker_search.read(cx).focus_handle(cx),
         ] {
             subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
             subscriptions.push(cx.on_focus_out(&handle, window, |_, _, _, cx| cx.notify()));
@@ -693,6 +702,7 @@ impl AppState {
             dock,
             panels,
             pending_panels: Vec::new(),
+            closing: false,
             pending_layout: None,
             pending_regions: None,
             region_had_content: (false, false, false),
@@ -727,6 +737,7 @@ impl AppState {
             new_step_input,
             command_input,
             project_search,
+            picker_search,
             search_query,
             search_excludes_input,
             search_fallbacks_input,
@@ -738,7 +749,6 @@ impl AppState {
             sink_textarea,
             sink_modal_input,
             login_account_input,
-            new_agent_name_input,
             account_rename_input,
             sink_search,
             sink_harness_name,
@@ -751,6 +761,7 @@ impl AppState {
             chat_scroll: ScrollHandle::new(),
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
+            explorer_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,
             md_reflow: 0,

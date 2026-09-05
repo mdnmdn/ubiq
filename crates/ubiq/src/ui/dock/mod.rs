@@ -206,17 +206,13 @@ impl WorkbenchPanel {
                 label: centre_title(app.workbench.rail_mode).into(),
                 ..TabInfo::default()
             },
-            // A file's tab is the file's own report — its name, what it is looking at, whether it
-            // is dirty and whether its close is a question — which is `ui/editor.rs`'s to say.
+            // A file's tab is the file's own report — its name, what it is looking at and whether
+            // it is dirty — which is `ui/editor.rs`'s to say.
             PanelKind::File(key) => match app.file(key, cx) {
                 Some(file) => {
-                    let asking = app
-                        .editor(cx)
-                        .and_then(|editor| editor.pending_tab_close.clone())
-                        == Some(key.clone());
                     let explorer = app.explorer(cx);
                     TabInfo {
-                        label: editor::label(file, asking),
+                        label: editor::label(file),
                         title_colour: explorer
                             .map(|explorer| editor::git_colour(file, explorer))
                             .unwrap_or_else(theme::text_muted),
@@ -676,16 +672,36 @@ pub fn reveal(
         if region != Region::Centre && !dock.is_dock_open(placement) {
             dock.toggle_dock(placement, window, cx);
         }
-        dock.move_panel(
-            id,
-            InsertTarget::Tabs {
-                node,
-                ix: None,
-                activate: true,
-            },
-            window,
-            cx,
-        );
+        // Where the panel already sits in its group. Activating it must not move it: a reveal is
+        // "show me this tab", and a tab that jumped to the end of the strip every time it was
+        // picked would reorder the arrangement behind the user's back.
+        let at = dock
+            .layout(placement)
+            .and_then(|tree| tree.find_node(node))
+            .and_then(|found| match found.kind() {
+                PaneRef::Tabs { panels, active_ix } => panels
+                    .iter()
+                    .position(|panel| *panel == id)
+                    .map(|ix| (ix, active_ix)),
+                _ => None,
+            });
+        match at {
+            // Already the tab its group displays: the region above is all this had to do.
+            Some((ix, active)) if ix == active => {}
+            // Reinserted at the index it already holds, which leaves the strip's order untouched —
+            // and its group has at least two tabs here, so the detach cannot prune the node.
+            Some((ix, _)) => dock.move_panel(
+                id,
+                InsertTarget::Tabs {
+                    node,
+                    ix: Some(ix),
+                    activate: true,
+                },
+                window,
+                cx,
+            ),
+            None => {}
+        }
     });
 }
 

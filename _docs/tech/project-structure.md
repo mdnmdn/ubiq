@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-04
-verified: 2026-09-04
+updated: 2026-09-05
+verified: 2026-09-05
 code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -60,12 +60,20 @@ project's own folder — `D30`.
 ├── preferences.toml         the interface's own view blob, opaque to the host
 ├── ui-settings.toml         Ui-layer settings, opaque to the host
 ├── host-settings.toml       Host-layer settings, the host parses
+├── cache/
+│   └── harness-models.toml  each harness's model + reasoning-level answers, keyed on its own
+│                            version string — a cache, not a catalogue: safe to delete
 └── projects/
     └── <project ulid>/
         ├── tasks.toml       that project's tasks, the user's data
         ├── view.toml        that project's view blob, opaque to the host
         └── ui/              the interface's workarea — the host makes it and never looks in
 ```
+
+`cache/` holds answers the host could re-derive by asking a harness again, never anything the user
+typed or a catalogue entry losing which would lose data — `harness-models.toml` is the one file in
+it today. Losing the directory costs a re-probe on the next launch, nothing more, which is what
+tells a future entry whether it belongs here or under `projects.toml`'s catalogue instead.
 
 A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
 is what makes forgetting a project complete even after a crash halfway through it. The `ui/`

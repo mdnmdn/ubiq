@@ -1,4 +1,4 @@
-//! The bottom strip: which file is open, where the caret is, and what the composer is set to — or,
+//! The bottom strip: which file is open and where the caret is — or,
 //! on the agents screen, how the columns are filled and what is on the bench, or, on the
 //! orchestration screen, how many agents there are and what they are doing, or, on the board, how
 //! much work there is and where it has got to.
@@ -9,7 +9,7 @@
 //! that is not one prints nothing git-related.
 
 use gpui::{
-    Anchor, App, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    Anchor, App, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, px,
 };
 
@@ -279,14 +279,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 theme::text_muted(),
             )
         }))
-        .child(mono(
-            SharedString::from(format!(
-                "{} \u{b7} {}",
-                app.chat.harness_label(),
-                app.chat.mode_label()
-            )),
-            theme::text_muted(),
-        ))
         .child(font_size_dropdown(app, cx))
 }
 

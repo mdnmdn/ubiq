@@ -291,6 +291,29 @@ fn a_filter_finds_inside_shut_folders() {
     assert!(nothing[0].path.is_empty());
 }
 
+/// A filter that matches a folder the host has never listed answers with an empty folder, so the
+/// window is told which folders to ask about. The walk's skip set is left alone.
+#[test]
+fn a_folder_the_filter_matched_is_asked_about_once() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing(
+        "",
+        vec![dir("", "sessions"), dir("", "node_modules")],
+    ));
+
+    let rows = tree.rows("session");
+    let asking = tree.unlisted_hits(&rows);
+    assert_eq!(asking, ["sessions"]);
+
+    // Asked once: the second walk over the same rows asks for nothing.
+    tree.begin_cache(&asking);
+    assert!(tree.unlisted_hits(&rows).is_empty());
+
+    // The skip set is never asked for, however well it matches.
+    let skipped = tree.rows("node_mod");
+    assert!(tree.unlisted_hits(&skipped).is_empty());
+}
+
 /// Collapsing is not forgetting. A folder shut and reopened draws immediately rather than asking
 /// the host a second time for what it has already said.
 #[test]

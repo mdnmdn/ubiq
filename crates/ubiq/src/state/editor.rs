@@ -590,9 +590,6 @@ impl OpenFile {
 pub struct EditorPaneState {
     pub open: Vec<OpenFile>,
     pub active: usize,
-    /// A tab whose close is waiting on an answer, because its buffer holds unsaved changes. The
-    /// close takes a second, explicit click rather than losing an edit silently.
-    pub pending_tab_close: Option<String>,
     /// The key of the current temporary preview tab, if any. Only one preview exists at a time.
     pub temporary_key: Option<String>,
 }
@@ -603,7 +600,6 @@ impl EditorPaneState {
         Self {
             open: Vec::new(),
             active: 0,
-            pending_tab_close: None,
             temporary_key: None,
         }
     }
@@ -704,7 +700,6 @@ impl EditorPaneState {
         } else if index < self.active {
             self.active -= 1;
         }
-        self.pending_tab_close = None;
     }
 
     /// Make the preview for a path permanent, if it is one. Also forget it as the preview, so

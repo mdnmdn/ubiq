@@ -173,6 +173,38 @@ impl ExplorerView {
     }
 }
 
+/// Whether the tree follows the active editor. Three states, cycled by one button: off, a single
+/// reveal, and locked to every change of active editor. Never written down — a follow that
+/// survived a restart would move the tree before the user had asked anything.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Follow {
+    #[default]
+    Off,
+    /// Reveal what is open now, once.
+    Once,
+    /// Reveal every file that becomes the active editor.
+    Locked,
+}
+
+impl Follow {
+    /// The next state the button's click asks for.
+    pub fn next(self) -> Self {
+        match self {
+            Follow::Off => Follow::Once,
+            Follow::Once => Follow::Locked,
+            Follow::Locked => Follow::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Follow::Off => "Follow the active editor",
+            Follow::Once => "Revealed once — click to lock",
+            Follow::Locked => "Following the active editor",
+        }
+    }
+}
+
 /// A key the explorer answers to, told apart from the ones it does not.
 ///
 /// The keystrokes themselves are `ui::explorer`'s: what a platform calls confirm is not something
@@ -394,6 +426,8 @@ pub struct ExplorerState {
     /// gone in the frame before the host answers.
     root_listed: bool,
     pub view: ExplorerView,
+    /// Whether the tree reveals the active editor's file. Not persisted.
+    pub follow: Follow,
     /// Which row the keyboard is on. A path rather than an index: rows come and go as folders open
     /// and the filter narrows, and an index would be pointing at a different row afterwards.
     cursor: Option<String>,

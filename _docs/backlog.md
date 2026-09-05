@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-04
-verified: 2026-09-04
+updated: 2026-09-05
+verified: 2026-09-05
 review_cycle: monthly
 ---
 
@@ -125,6 +125,10 @@ change what Ubiq does (here), or where a document lives (there)?
 | G115 | `AppState`'s diagram and viewport caches (`diagrams`, `viewports` in `crates/ubiq/src/app/mod.rs`, filled by `crates/ubiq/src/app/chat.rs`) are insert-only: nothing ever removes an entry. A window accumulates one per diagram rendered and one per theme switch for as long as it stays open | [`features/chat.md`](./features/chat.md) |
 | G116 | A conversation's transcript (`Conversation::blocks` in `crates/ubiq/src/state/conversation.rs`) grows without bound for the life of the chat — it can hold full diff bodies, and nothing ever trims or pages it out | [`features/chat.md`](./features/chat.md) |
 | G117 | Off a macOS bundle the `ubiq` command execs the binary, so a second application starts with a catalogue of its own instead of the path reaching the window that is up. The single-instance handoff — a socket in `crates/ubiq-app` a live instance answers — is unbuilt, and `script()` in `crates/ubiq-host/src/cli_shortcut.rs` marks the spot | [`features/workbench.md`](./features/workbench.md), [`tech/decisions.md`](./tech/decisions.md) |
+| G118 | `login_confined`'s real-home runtime grants (`crates/agent-manager/src/isolate.rs`'s `login_runtime_grants`) are unverified for opencode and grok — neither binary is installed on this machine, so their login flows have not been run under a relocated `$HOME` to confirm the grant list actually covers them | [`tech/agent-manager.md`](./tech/agent-manager.md) |
+| G119 | A conversation cannot be renamed from the UI once started — naming is automatic (the harness's command, with a per-project counter) and there is no rename message on the wire yet | [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G120 | A resumed harness does not remember the transcript above it. `ResumeConversation` starts a fresh process under the same `agent_id`, and the window's own transcript keeps everything said before the unload, but nothing hands the new process that history — it starts as blank as a first launch. Blocked on the session record P2c would give the library, which is what a resume would actually replay from | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/sessions-and-workspaces.md`](./features/sessions-and-workspaces.md) |
+| G121 | `Conversation::stop` joins the pump thread on the coordinator's own thread. An `UnloadConversation` or `EndConversation` whose bridge will not drain — a harness wedged mid-write, ignoring cancel — blocks that join, and the coordinator answers every window from one thread, so one stuck harness freezes every window's pane and conversation traffic until it gives up | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 
 
 

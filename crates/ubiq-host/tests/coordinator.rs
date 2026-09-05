@@ -12,7 +12,7 @@ use ubiq_host::store::memory::{
 };
 use ubiq_host::work::Work;
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
-use ubiq_proto::conversation::ConvUpdate;
+use ubiq_proto::conversation::{ConfigCategory, ConfigOption, ConfigValue, ConvUpdate};
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
 use ubiq_proto::messages::Message;
@@ -20,7 +20,10 @@ use ubiq_proto::settings::{HostSettings, SettingsLayer};
 use ubiq_proto::work::AgentId;
 
 /// Long enough for a process to start and say something on a loaded machine.
-const PATIENCE: Duration = Duration::from_secs(10);
+// Generous: model discovery for a harness like Claude Code now joins two live probes
+// (`discover_models` + `discover_thinking`, the latter re-running the former internally), each of
+// which can take several seconds against a real, ambiently-logged-in binary.
+const PATIENCE: Duration = Duration::from_secs(20);
 
 /// A host with one window attached. The hub comes back with the client because dropping it would
 /// close the host's inbox and end the thread under the test.
@@ -1323,7 +1326,6 @@ fn start_conversation(
         rel_path: None,
         agent_type: agent_type.to_string(),
         account: account.map(str::to_string),
-        name: None,
     });
     agent_id
 }
@@ -1350,11 +1352,42 @@ fn expect_conversation_started(ui: &Client, agent_id: AgentId) -> bool {
     }
 }
 
+/// The immediate answer to `StartConversation`, keeping the name rather than `accepts_input` —
+/// for the naming tests, where what the harness's command was turned into is the whole point.
+fn expect_conversation_name(ui: &Client, agent_id: AgentId) -> String {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ConversationStarted { agent, .. }) if agent.id == agent_id => {
+                return agent.name;
+            }
+            Ok(Message::ConversationError {
+                agent_id: id,
+                error,
+            }) if id == agent_id => {
+                panic!("the conversation was refused: {error}")
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("ConversationStarted never arrived"),
+        }
+    }
+}
+
 /// The model-discovery thread's own message — always the first thing a pending agent says,
 /// always seq 1, since nothing else can address a brand-new `agent_id` before the window has even
-/// heard of it. Asserts only the shape the doc promises regardless of what discovery found: one
-/// `model` option, never zero.
+/// heard of it. Asserts only the shape every harness owes regardless of what discovery found: a
+/// `model` option, never absent — `mode` and `thinking` are conditional on what the harness/model
+/// actually offers, so callers that care about those use [`expect_config_options`] instead.
 fn expect_model_config_options(ui: &Client, agent_id: AgentId) {
+    let options = expect_config_options(ui, agent_id, 1);
+    assert!(
+        options.iter().any(|o| o.id == "model"),
+        "expected a 'model' option, got {options:?}"
+    );
+}
+
+/// The full `ConfigOptions` vec of the next `ConversationUpdate` addressed to `agent_id`, at the
+/// given `seq`.
+fn expect_config_options(ui: &Client, agent_id: AgentId, expected_seq: u64) -> Vec<ConfigOption> {
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {
             Ok(Message::ConversationUpdate {
@@ -1362,20 +1395,17 @@ fn expect_model_config_options(ui: &Client, agent_id: AgentId) {
                 seq,
                 update,
             }) if id == agent_id => {
-                assert_eq!(seq, 1, "the discovery thread's message is always the first");
+                assert_eq!(
+                    seq, expected_seq,
+                    "unexpected seq for this agent's ConfigOptions"
+                );
                 let ConvUpdate::ConfigOptions(options) = *update else {
                     panic!("expected ConfigOptions, got {update:?}");
                 };
-                assert_eq!(
-                    options.len(),
-                    1,
-                    "one option even when a harness's list could not be read"
-                );
-                assert_eq!(options[0].id, "model");
-                return;
+                return options;
             }
             Ok(_) => continue,
-            Err(_) => panic!("the model picker never arrived"),
+            Err(_) => panic!("the config options never arrived"),
         }
     }
 }
@@ -1415,8 +1445,45 @@ fn a_conversation_is_registered_and_its_models_discovered_before_any_harness_lau
     );
 }
 
+/// A conversation is named after its harness's command, not typed — `claude-code` launches
+/// `claude`, so that is what the first one wears; a second one on the same project counts from
+/// two.
 #[test]
-fn set_agent_config_on_a_pending_agent_is_accepted_silently() {
+fn a_conversation_is_named_after_its_harness_command_with_a_per_project_counter() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let first = start_conversation(&ui, project_id, "claude-code", None);
+    assert_eq!(expect_conversation_name(&ui, first), "claude");
+    expect_model_config_options(&ui, first);
+
+    let second = start_conversation(&ui, project_id, "claude-code", None);
+    assert_eq!(expect_conversation_name(&ui, second), "claude 2");
+    expect_model_config_options(&ui, second);
+}
+
+/// The counter is per project: a second project's first `claude-code` is still plain `claude`,
+/// because nothing there is already wearing it.
+#[test]
+fn the_naming_counter_does_not_cross_projects() {
+    let (_hub, ui) = coordinator();
+    let (project_a, _path_a) = a_project(&ui);
+    let (project_b, _path_b) = a_project(&ui);
+
+    let a = start_conversation(&ui, project_a, "claude-code", None);
+    assert_eq!(expect_conversation_name(&ui, a), "claude");
+    expect_model_config_options(&ui, a);
+
+    let b = start_conversation(&ui, project_b, "claude-code", None);
+    assert_eq!(expect_conversation_name(&ui, b), "claude");
+    expect_model_config_options(&ui, b);
+}
+
+/// `thinking` and `mode` picks on a pending agent are just recorded for the eventual launch —
+/// unlike `model` (see the next test), there is no picker to recompute off either of them, so
+/// nothing is sent back.
+#[test]
+fn set_agent_config_thinking_and_mode_on_a_pending_agent_are_accepted_silently() {
     let (_hub, ui) = coordinator();
     let (project_id, _path) = a_project(&ui);
 
@@ -1426,18 +1493,111 @@ fn set_agent_config_on_a_pending_agent_is_accepted_silently() {
 
     ui.send(Message::SetAgentConfig {
         agent_id,
-        config_id: "model".to_string(),
-        value: "some-model".to_string(),
+        config_id: "thinking".to_string(),
+        value: "high".to_string(),
+    });
+    ui.send(Message::SetAgentConfig {
+        agent_id,
+        config_id: "mode".to_string(),
+        value: "plan".to_string(),
     });
 
-    // A pick on a pending agent is only remembered for the eventual launch — no conversation
-    // exists yet to answer through, and nothing here says otherwise.
+    // No conversation exists yet to answer through, and nothing here says otherwise.
     assert!(
         ui.from_host()
             .recv_timeout(Duration::from_millis(300))
             .is_err(),
-        "a config pick on a pending agent must not answer anything"
+        "a thinking/mode pick on a pending agent must not answer anything"
     );
+}
+
+/// A `model` pick is different: a reasoning level is per model, so offering the previous model's
+/// levels after the pick would be exactly the lie this design exists to prevent. The pending
+/// agent's picker is recomputed for the newly chosen model and re-sent, at the next seq.
+#[test]
+fn set_agent_config_model_on_a_pending_agent_resends_config_options_with_recomputed_thinking() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    // Codex: fast (a local bundled JSON, no network) and, unlike opencode, has both modes and
+    // per-model reasoning levels, so the resend actually has something to recompute.
+    let agent_id = start_conversation(&ui, project_id, "codex", None);
+    expect_conversation_started(&ui, agent_id);
+    let initial = expect_config_options(&ui, agent_id, 1);
+
+    let model_option = initial
+        .iter()
+        .find(|o| o.id == "model")
+        .expect("codex discovery must offer a model option");
+    let ConfigValue::Select { current, choices } = &model_option.value else {
+        panic!("expected a Select value");
+    };
+    // Pick a model other than the one already current, so the recompute is not a no-op — falling
+    // back to the current one if codex's bundled catalogue ever shrinks to a single entry.
+    let other = choices
+        .iter()
+        .map(|c| c.value.clone())
+        .find(|v| v != current)
+        .unwrap_or_else(|| current.clone());
+
+    ui.send(Message::SetAgentConfig {
+        agent_id,
+        config_id: "model".to_string(),
+        value: other.clone(),
+    });
+
+    let resent = expect_config_options(&ui, agent_id, 2);
+    assert!(
+        resent.iter().any(|o| o.id == "model"),
+        "the resend should still carry a model option: {resent:?}"
+    );
+    // codex's currently bundled, user-listable models all carry reasoning levels — if that ever
+    // changes for `other` specifically, this asserts the option is simply absent rather than
+    // stale (see `thinking_config_option`'s unit tests in `coordinator.rs` for the no-levels case).
+    if let Some(thinking) = resent.iter().find(|o| o.id == "thinking") {
+        assert_eq!(thinking.category, Some(ConfigCategory::ThoughtLevel));
+    }
+}
+
+/// The discovery thread's own `ConfigOptions` is the only thing said before launch unless the
+/// window itself asks for something else — one message, at seq 1, and then silence.
+#[test]
+fn a_pending_conversation_gets_exactly_one_config_options_message_at_launch() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "opencode", None);
+    expect_conversation_started(&ui, agent_id);
+    expect_model_config_options(&ui, agent_id);
+
+    assert!(
+        ui.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "nothing else should follow the discovery thread's one ConfigOptions message"
+    );
+}
+
+/// A harness with a fixed, non-empty `modes()` (Codex: `read-only`/`workspace-write`/
+/// `danger-full-access`) carries a `Mode` config option from the very first discovery message.
+#[test]
+fn a_harness_with_modes_carries_a_mode_option() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "codex", None);
+    expect_conversation_started(&ui, agent_id);
+    let options = expect_config_options(&ui, agent_id, 1);
+
+    let mode = options
+        .iter()
+        .find(|o| o.id == "mode")
+        .expect("codex has fixed permission modes and should offer a Mode option");
+    assert_eq!(mode.category, Some(ConfigCategory::Mode));
+    let ConfigValue::Select { choices, .. } = &mode.value else {
+        panic!("expected a Select value");
+    };
+    assert!(choices.iter().any(|c| c.value == "workspace-write"));
 }
 
 #[test]
@@ -1465,5 +1625,79 @@ fn a_launch_that_fails_retracts_the_agent_it_registered() {
     assert!(
         !agents.iter().any(|a| a.id == agent_id),
         "a failed launch must not leave a dead agent in the list"
+    );
+}
+
+/// `ResumeConversation` on a conversation that has never launched takes the same launch path a
+/// first `PromptAgent` does — `launch_pending`'s own `launch` is what both go through, per
+/// `Coordinator::launch_pending`'s doc comment — so a bad account fails it exactly the same way.
+#[test]
+fn resume_conversation_launches_a_still_pending_agent_the_same_way_prompt_agent_does() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "opencode", Some("no-such-account"));
+    expect_conversation_started(&ui, agent_id);
+    expect_model_config_options(&ui, agent_id);
+
+    ui.send(Message::ResumeConversation { agent_id });
+    let error = expect_conversation_error(&ui, agent_id);
+    assert!(error.contains("no-such-account"), "said {error:?}");
+
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    assert!(
+        !agents.iter().any(|a| a.id == agent_id),
+        "a failed resume must retract the agent exactly as a failed first launch does"
+    );
+}
+
+/// `UnloadConversation` on a conversation that has never launched has nothing to unload: it is
+/// a safe no-op rather than a crash or a stray `ConversationUnloaded`, and the agent stays exactly
+/// as pending as it was.
+#[test]
+fn unload_conversation_on_a_still_pending_agent_is_a_no_op() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "opencode", None);
+    expect_conversation_started(&ui, agent_id);
+    expect_model_config_options(&ui, agent_id);
+
+    ui.send(Message::UnloadConversation { agent_id });
+
+    assert!(
+        ui.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "unloading an agent that never launched must say nothing"
+    );
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    assert!(
+        agents.iter().any(|a| a.id == agent_id),
+        "the agent is still pending, exactly as it was"
+    );
+}
+
+/// Neither message means anything about an agent nobody registered — no crash, no reply.
+#[test]
+fn unload_and_resume_on_an_unknown_agent_are_safe_no_ops() {
+    let (_hub, ui) = coordinator();
+    // A window is told what the host is as it attaches, ahead of anything this test sends.
+    assert!(matches!(
+        ui.from_host().recv_timeout(PATIENCE),
+        Ok(Message::HostInfo { .. })
+    ));
+    let agent_id = AgentId::generate();
+
+    ui.send(Message::UnloadConversation { agent_id });
+    ui.send(Message::ResumeConversation { agent_id });
+
+    assert!(
+        ui.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "an unknown agent must produce no reply from either message"
     );
 }

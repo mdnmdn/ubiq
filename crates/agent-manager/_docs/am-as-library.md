@@ -342,6 +342,33 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
   Not a storage seam, but the other axis to extend along. See
   [architecture.md](./architecture.md) §"The `Harness` trait" and
   `_docs/harness/`.
+  - `version() -> Result<String>` — the installed binary's own version
+    string (`<command> --version`, first line, trimmed), meant as a cache
+    key for later work. Defaulted on the trait; every harness gets it for
+    free from `command()` alone.
+  - `discover_thinking() -> Result<BTreeMap<String, ModelThinking>>` —
+    per-model reasoning-effort catalogs, keyed by the same ids
+    `discover_models` answers. Defaults to an empty map — the honest
+    answer for a harness with no reasoning concept (opencode, Copilot CLI,
+    Grok CLI). `Claude` and `Codex` override it; see `_docs/harness/
+    claude-code.md` and `_docs/harness/codex.md` for how each sources its
+    catalog. `ModelThinking { levels: Vec<ThinkingLevel>, default_level }`
+    and `ThinkingLevel { value, label, description }` live beside
+    `ModelInfo` in `harness::mod` — never flattened across harnesses,
+    since each harness's accepted vocabulary differs.
+  - `modes() -> Vec<ModeInfo>` — the permission/sandbox modes this
+    harness's CLI accepts, as a **fixed list**, not probed: these are enum
+    values baked into the binary, so there is nothing to discover. Defaults
+    to empty — the honest answer for opencode, Copilot CLI and Grok CLI,
+    whose bridges run `--dangerously-skip-permissions`/`--allow-all` with
+    no second answer. `Claude` returns the six `--permission-mode` values
+    (`acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk`,
+    `plan`); `Codex` returns the three `sandbox_mode` values
+    (`read-only`, `workspace-write`, `danger-full-access`) that
+    `map_sandbox_mode` already accepted. `RunSpec.thinking` and
+    `RunSpec.policy.permission_mode` are the launch-time counterparts —
+    harness-native strings passed straight through, never interpreted,
+    mirroring `RunSpec.model`.
 
 ## 7. The credential copy-in / copy-back lifecycle
 

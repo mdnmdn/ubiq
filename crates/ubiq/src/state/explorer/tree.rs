@@ -222,6 +222,20 @@ impl ExplorerState {
         out
     }
 
+    /// Folders a filter matched that the host has never listed — a hit the user sees as a folder
+    /// with nothing under it, because nothing under it is known yet.
+    ///
+    /// The walk's skip set is left alone, exactly as the background cache leaves it alone: a
+    /// search for `node_modules` is not a request to list it.
+    pub fn unlisted_hits(&self, rows: &[Row]) -> Vec<String> {
+        rows.iter()
+            .filter(|row| row.is_dir && !row.path.is_empty() && row.readable)
+            .filter(|row| !self.cache_asked.contains(&row.path) && !walk_skipped(&row.path))
+            .filter(|row| !self.is_folder_listed(&row.path))
+            .map(|row| row.path.clone())
+            .collect()
+    }
+
     /// Note that the cache has asked about these folders. They are marked loading so an expand
     /// while the answer is in flight does not ask again; a shut folder does not draw as spinning.
     pub fn begin_cache(&mut self, paths: &[String]) {

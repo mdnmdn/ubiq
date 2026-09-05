@@ -44,6 +44,8 @@ am opencode --config ./run.toml
 | `--account <id>`         | Account/credential profile to use.                                  |
 | `--model <id>`           | Launch with a specific harness-native model id (discover with `--list-models`). |
 | `--list-models`          | List the models available for this harness and exit (don't launch). |
+| `--thinking <level>`     | Launch with a reasoning-effort level, in the harness's own vocabulary (e.g. Claude's `--effort`, Codex's `model_reasoning_effort`). |
+| `--permission-mode <id>` | Launch with a permission/sandbox mode — one of the harness's fixed set (see `Harness::modes()`; e.g. Claude's `plan`/`acceptEdits`/…, Codex's `read-only`/`workspace-write`/`danger-full-access`). Highest precedence: overrides just the mode a `--safe` preset expanded, leaving the rest of its policy untouched. |
 | `--hooks a,b`            | Enable named hooks (defined in the settings file) for this run.     |
 | `--instructions <path>`  | Seed always-on instructions into the harness config.                |
 | `--prompt <text>`        | Seed an initial prompt for the first harness message.               |

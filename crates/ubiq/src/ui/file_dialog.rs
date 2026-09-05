@@ -1,4 +1,4 @@
-//! The five questions a file gesture asks.
+//! The questions a file gesture asks, and the two the window asks over them.
 //!
 //! Painted from the window's root rather than from the explorer, because one of them — the
 //! untitled buffer's save-as — is the editor's and neither panel should have to know about the
@@ -36,7 +36,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 &app.file_name,
                 "Create",
                 !typed.is_empty(),
-                crate::ui::handler(&view, |this, _, cx| this.confirm_file_dialog(cx)),
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
                 crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
                 window,
                 cx,
@@ -52,7 +54,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 &app.file_name,
                 "Rename",
                 !typed.is_empty() && typed != leaf,
-                crate::ui::handler(&view, |this, _, cx| this.confirm_file_dialog(cx)),
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
                 crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
                 window,
                 cx,
@@ -66,7 +70,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             &app.file_name,
             "Save",
             !typed.is_empty(),
-            crate::ui::handler(&view, |this, _, cx| this.confirm_file_dialog(cx)),
+            crate::ui::handler(&view, |this, window, cx| {
+                this.confirm_file_dialog(window, cx)
+            }),
             crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
             window,
             cx,
@@ -86,7 +92,73 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     "Delete permanently"
                 },
                 true,
-                crate::ui::handler(&view, |this, _, cx| this.confirm_file_dialog(cx)),
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
+        Some(FileDialog::DiscardChanges { key }) => {
+            let name = app
+                .file(&key, cx)
+                .map_or_else(|| key.clone(), |file| file.name.clone());
+            confirm_modal(
+                "app-file-discard",
+                "Unsaved changes",
+                &format!("{name} has changes that were never written. Close it anyway?"),
+                "Discard",
+                true,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
+        Some(FileDialog::CloseWindow { quitting }) => {
+            let mut body =
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .pt_3()
+                    .child(modal_note(match quitting {
+                        true => "Quitting takes all of this with it:",
+                        false => "Closing this window takes all of it with it:",
+                    }));
+            for row in app.unsaved_summary(cx) {
+                body = body.child(modal_note(&row));
+            }
+            let footer = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-close-window-cancel",
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, _, cx| this.close_file_dialog(cx)),
+                ))
+                .child(primary_button(
+                    "app-close-window-confirm",
+                    None,
+                    match quitting {
+                        true => "Quit anyway",
+                        false => "Close anyway",
+                    },
+                    cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
+                ))
+                .into_any_element();
+            modal(
+                "app-close-window",
+                theme::danger(),
+                match quitting {
+                    true => "Quit Ubiq",
+                    false => "Close window",
+                },
+                body.into_any_element(),
+                footer,
                 crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
                 window,
             )
@@ -139,7 +211,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     "app-file-move-confirm",
                     None,
                     "Move",
-                    cx.listener(|this, _, _, cx| this.confirm_file_dialog(cx)),
+                    cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
                 ))
                 .into_any_element();
 

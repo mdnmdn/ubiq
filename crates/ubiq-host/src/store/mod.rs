@@ -15,6 +15,7 @@
 //!   host's to parse, like the catalogue: a corrupt file is preserved and reported.
 
 pub mod file;
+pub mod harness;
 pub mod memory;
 
 use std::path::PathBuf;

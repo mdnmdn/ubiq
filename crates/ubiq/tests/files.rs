@@ -145,7 +145,7 @@ impl Fixture {
         self.with(cx, |state, window, cx| {
             let field = state.file_name.clone();
             field.update(cx, |input, cx| input.set_value(typed.clone(), window, cx));
-            state.confirm_file_dialog(cx);
+            state.confirm_file_dialog(window, cx);
         });
     }
 }
@@ -479,9 +479,9 @@ fn a_dropped_file_moves_and_a_dropped_folder_asks_once(cx: &mut TestAppContext) 
     assert!(edits(&fixture.said()).is_empty());
 
     // Ticked, then confirmed: the move goes out and the window opens.
-    fixture.with(cx, |state, _, cx| {
+    fixture.with(cx, |state, window, cx| {
         state.toggle_move_unasked(cx);
-        state.confirm_file_dialog(cx);
+        state.confirm_file_dialog(window, cx);
     });
     assert_eq!(
         edits(&fixture.said()),
@@ -587,4 +587,62 @@ fn an_untitled_buffer_asks_where_to_be_saved(cx: &mut TestAppContext) {
         vec!["docs/notes.md".to_string()],
         "the tab is retitled on the click, the same bet opening one makes"
     );
+}
+
+/// A dirty tab asks before it is dropped, and the answer is the dialog's — the same one Enter and
+/// Escape already reach. The window's own close counts what would go with it, per project.
+#[gpui::test]
+fn an_unsaved_tab_is_asked_about_before_it_closes(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.with(cx, |state, _, cx| {
+        state.select_file("src/main.rs".to_string(), cx)
+    });
+    fixture.deliver(
+        Message::ProjectFileContents {
+            project_id: fixture.project,
+            rel_path: "src/main.rs".to_string(),
+            contents: ubiq_proto::files::FileContents {
+                bytes: b"fn main() {}\n".to_vec(),
+                len: 13,
+                truncated: false,
+                is_binary: false,
+                version: Some(ubiq_proto::files::FileVersion {
+                    len: 13,
+                    modified: None,
+                }),
+            },
+        },
+        cx,
+    );
+    let key = fixture.with(cx, |state, _, cx| {
+        let open = state.open_project_mut(cx).expect("the project is open");
+        let tab = open
+            .editor
+            .find_mut("src/main.rs")
+            .expect("the tab is open");
+        tab.refresh_dirty("fn main() { typed }\n");
+        assert!(tab.dirty(), "the tab holds an unsaved edit");
+        tab.key()
+    });
+
+    // A clean close is refused: the question goes up instead, and the tab stays.
+    fixture.with(cx, |state, _, cx| state.close_editor_tab(0, cx));
+    assert_eq!(
+        fixture.dialog(cx),
+        Some(FileDialog::DiscardChanges { key: key.clone() })
+    );
+    assert_eq!(open_paths(&fixture, cx), vec!["src/main.rs".to_string()]);
+
+    // The window's close counts it, alongside nothing else running here.
+    assert_eq!(
+        fixture.with(cx, |state, _, cx| state.unsaved_summary(cx)),
+        vec!["ubiq — 1 unsaved file".to_string()]
+    );
+
+    // Answered yes, the buffer goes.
+    fixture.with(cx, |state, window, cx| {
+        state.confirm_file_dialog(window, cx)
+    });
+    assert_eq!(fixture.dialog(cx), None);
+    assert!(open_paths(&fixture, cx).is_empty(), "the tab was dropped");
 }

@@ -753,6 +753,59 @@ Allow-list from bare `/effort` (v2.1.207):
   deepest (token warning); `ultracode` = xhigh + dynamic workflow
   orchestration; `auto` enables auto effort.
 
+### Reasoning effort (`Harness::discover_thinking`)
+
+`Claude::discover_thinking` (`src/harness/claude.rs`) takes the cheaper of the
+two discovery paths above — static `claude --help`, not the live JSONL
+`/effort` probe — trading completeness for a single, already-needed process
+spawn shape (no session launch). It scans the whole help text (not per line)
+for `--effort`, then the parenthetical that follows; on 2.1.261 that
+parenthetical wraps onto the next line:
+
+```
+--effort <level>   Effort level for the current session
+                   (low, medium, high, xhigh, max)
+```
+
+giving `low`, `medium`, `high`, `xhigh`, `max` — the CLI-flag allow-list, not
+the richer model-aware `/effort` set (misses `ultracode`/`auto`, and doesn't
+vary by model the way the live probe's Haiku-vs-Opus/Sonnet table above
+does). If a build's `--help` ever drops the parenthetical, the same
+`low`/`medium`/`high` fallback used elsewhere in this codebase applies. The
+parsed set is applied to **every** model `discover_models` returns — Claude's
+model ids here are `/model`-scraped aliases (`opus`, `sonnet`), not full API
+ids, so there is no per-model allow table to key a narrower set on;
+over-offering and letting the CLI reject an unsupported level is the
+accepted tradeoff. `default_level` is always `None`: `--help` names no
+default. Upgrading to the live `/effort` probe (model-aware, includes
+`ultracode`/`auto`) is a possible follow-up, not done here.
+
+### Permission modes (`Harness::modes`)
+
+`claude --help`'s `--permission-mode <mode>` names its accepted set directly
+(unlike effort, no scraping of a parenthetical is needed) — verified against
+the installed binary, **v2.1.261**:
+
+```
+--permission-mode <mode>              Permission mode to use for the session
+                                      (choices: "acceptEdits", "auto",
+                                      "bypassPermissions", "manual",
+                                      "dontAsk", "plan")
+```
+
+`Claude::modes()` returns exactly these six as a fixed list — this is a CLI
+enum baked into the binary, not something to probe the way models/effort
+are. `RunSpec.policy.permission_mode`, when set, reaches Claude Code two
+ways from the same value: written as `settings.json`'s
+`permissions.defaultMode` (see "Permissions" above, both io modes), and,
+only for a structured (headless) launch, also passed as
+`--permission-mode <value>` on argv. A structured launch with no policy set
+keeps the prior hardcoded default, `bypassPermissions`, so an existing run
+that never named a mode stays byte-identical. `--effort <value>` is
+likewise pushed right after the `--model` pair whenever `RunSpec.thinking`
+is set (see "Model & reasoning at launch" above), and omitted entirely
+otherwise.
+
 ## Format quirks / gotchas
 
 - `permissions.allow`/`ask`/`deny` arrays concatenate across layers;

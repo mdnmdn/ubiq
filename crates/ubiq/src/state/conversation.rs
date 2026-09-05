@@ -11,11 +11,11 @@
 //! the context ring. Those are read off the stream rather than asked for,
 //! because a second round trip per token would be a round trip per token.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use ubiq_proto::conversation::{
-    ConfigOption, ConvContent, ConvUpdate, PermissionOption, PlanEntry, RateLimitRecord,
-    StopReason, ToolCallPatch, ToolCallRecord, UsageRecord,
+    ConfigOption, ConfigValue, ConvContent, ConvUpdate, PermissionOption, PlanEntry,
+    RateLimitRecord, StopReason, ToolCallPatch, ToolCallRecord, UsageRecord,
 };
 use ubiq_proto::work::{Activity, AgentId};
 
@@ -103,15 +103,18 @@ pub struct Conversation {
     /// registration until its own `Started` event arrives — the window between them is P3's
     /// pending stage, where the composer offers a model picker instead of a running conversation.
     pub launched: bool,
-    /// The model picked before launch, optimistically — the host does not echo a `SetAgentConfig`
-    /// sent while a conversation is still pending, so this is what the picker highlights until
-    /// `launched` flips [`Self::launched`] true. `None` means "the harness's own default", which is
-    /// also `ConfigOption`'s own `current` field until the user picks something else.
-    pub chosen_model: Option<String>,
-    /// Whether the pre-launch model dropdown is open. Kept on the conversation rather than in the
-    /// window's single `open_menu` — several conversations can be on screen pending at once, each
-    /// with its own picker, unlike the window's one-at-a-time menus.
-    pub model_menu_open: bool,
+    /// What's been picked before launch, optimistically, keyed by `config_id` — the host does not
+    /// echo a `SetAgentConfig` sent while a conversation is still pending, so this is what each
+    /// picker highlights until `launched` flips [`Self::launched`] true. An id with no entry means
+    /// "the harness's own default", which is also that `ConfigOption`'s own `current` field until
+    /// the user picks something else. A map rather than one field per knob: the host can grow a
+    /// fourth config id without a change here.
+    pub chosen: BTreeMap<String, String>,
+    /// Which of the pre-launch pickers (by `config_id`) is open, if any. Kept on the conversation
+    /// rather than the window's single `open_menu` — several conversations can be on screen
+    /// pending at once, each with its own pickers — but still one at a time per conversation, the
+    /// same rule the window's menus follow.
+    pub open_config: Option<String>,
     /// Prompts typed while a turn was already running, held until it ends. A stable
     /// per-conversation id per entry, so an edit or a delete names the right one even if others
     /// are added or removed around it.
@@ -150,8 +153,8 @@ impl Conversation {
             accepts_input: true,
             draft: String::new(),
             launched: false,
-            chosen_model: None,
-            model_menu_open: false,
+            chosen: BTreeMap::new(),
+            open_config: None,
             queued: Vec::new(),
             next_queued_id: 0,
             seq: 0,
@@ -259,7 +262,26 @@ impl Conversation {
             ConvUpdate::ToolCallUpdate(patch) => self.patch_tool(patch),
 
             ConvUpdate::Plan(entries) => self.plan = entries,
-            ConvUpdate::ConfigOptions(options) => self.config = options,
+            ConvUpdate::ConfigOptions(options) => {
+                self.config = options;
+                // A model pick makes the host re-send `ConfigOptions` with e.g. the thinking
+                // levels recomputed for the newly chosen model — a level the old model accepted
+                // may not exist under the new one. Drop any held pick the fresh options no longer
+                // back, and drop picks for ids that vanished entirely, so a stale choice never
+                // survives into launch.
+                let config = &self.config;
+                self.chosen.retain(|config_id, value| {
+                    config
+                        .iter()
+                        .find(|opt| &opt.id == config_id)
+                        .is_some_and(|opt| match &opt.value {
+                            ConfigValue::Select { choices, .. } => {
+                                choices.iter().any(|choice| &choice.value == value)
+                            }
+                            ConfigValue::Flag { .. } => true,
+                        })
+                });
+            }
             ConvUpdate::ModeChanged { mode_id } => self.mode = Some(mode_id),
             // Held here; `refresh_agent_record` (`app.rs`) is what copies it onto the
             // `WorkAgent` the sidebar, the column header and the chat panel actually read.
@@ -303,6 +325,17 @@ impl Conversation {
         self.pending = None;
         self.run = Run::Ended;
         self.stop_reason = Some(stop_reason);
+    }
+
+    /// The harness is gone but the conversation is not: back to the state it had before its first
+    /// turn, so the pickers return and the next prompt — or a resume — starts a new process.
+    /// `blocks` stays exactly as it is; only a resumed harness's own transcript will grow it
+    /// further.
+    pub fn unloaded(&mut self) {
+        self.run = Run::Idle;
+        self.launched = false;
+        self.open_config = None;
+        self.pending = None;
     }
 
     /// Hold a prompt for later, typed while a turn was already running. Returns the id it was

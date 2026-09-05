@@ -179,6 +179,12 @@ pub struct RunSpec {
     /// select a model byte-identical to before this field existed. Discover
     /// valid ids with `am <harness> --list-models`.
     pub model: Option<String>,
+    /// Reasoning-effort level to launch with, in the harness's own vocabulary (e.g. Claude's
+    /// `low|medium|high|xhigh|max`, Codex's `none|minimal|low|medium|high|xhigh`). Harness-native
+    /// and never interpreted by `am` — mirrors [`RunSpec::model`]. `None` (the default) leaves
+    /// the harness on its own default, keeping runs that don't select a level byte-identical to
+    /// before this field existed.
+    pub thinking: Option<String>,
     /// Resolved skills to inject.
     pub skills: Vec<SkillRef>,
     /// Resolved MCP servers to inject.
@@ -239,6 +245,7 @@ impl RunSpec {
         Self {
             harness,
             model: None,
+            thinking: None,
             skills: Vec::new(),
             mcps: Vec::new(),
             mcp_as_skill: Vec::new(),

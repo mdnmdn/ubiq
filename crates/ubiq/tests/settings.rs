@@ -27,6 +27,7 @@ fn a_blob_survives_the_round_trip() {
     let settings = UiSettings {
         schema: settings::SCHEMA,
         explorer_preview: false,
+        rail_projects: false,
         markdown_open: MarkdownOpen::Source,
         vim_mode: true,
     };
@@ -39,6 +40,7 @@ fn missing_fields_open_on_defaults() {
     let blob = r#"{"schema":1}"#;
     let back = settings::decode(blob).expect("decodes");
     assert!(back.explorer_preview);
+    assert!(back.rail_projects);
     assert_eq!(back.markdown_open, MarkdownOpen::Preview);
     // A blob written before vim mode existed opens with it off, rather than being discarded.
     assert!(!back.vim_mode);

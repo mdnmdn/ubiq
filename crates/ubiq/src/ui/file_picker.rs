@@ -298,6 +298,9 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
         row.depth,
         selected,
         row.on_cursor,
+        // The picker's rows are walked from its own field, which never leaves it: there is no
+        // second focus here to tell the cursor bar apart from.
+        true,
         ROW_FONT,
     );
 

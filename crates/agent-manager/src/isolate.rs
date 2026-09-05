@@ -30,6 +30,8 @@
 //! `refs/isol8/_docs/integration.md` for the host-integration contract this
 //! module implements.
 
+use std::ffi::OsStr;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, anyhow};
@@ -222,13 +224,20 @@ pub fn login_confined(
         .collect();
     base.env_pass = vec!["TERM".to_string(), "COLORTERM".to_string()];
 
-    // A harness installed as a versioned payload execs out of its own store, which is
-    // outside the capture home and so denied by default. Guarded by its own existence, so
-    // this costs a harness that keeps no such directory nothing.
-    if let Some(base_dirs) = directories::BaseDirs::new() {
-        let versions = base_dirs.home_dir().join(".local/share/claude");
-        if versions.is_dir() {
-            base.add_dirs_ro.push(path_string(&versions));
+    // A login's `$HOME` is the capture directory, and isol8 auto-grants nothing from the
+    // real home when the home is replaced — so a harness that is not a self-contained
+    // binary in a directory this policy already names cannot even start.
+    for grant in login_runtime_grants(Path::new(&plan.launch.program)) {
+        let grant = path_string(&grant);
+        if !base.add_dirs_ro.contains(&grant) {
+            base.add_dirs_ro.push(grant);
+        }
+    }
+    // The caller's own escape hatch, for any toolchain the list above misses.
+    for extra in &options.extra_ro {
+        let grant = path_string(extra);
+        if !base.add_dirs_ro.contains(&grant) {
+            base.add_dirs_ro.push(grant);
         }
     }
 
@@ -258,6 +267,132 @@ pub fn login_confined(
         .context("resolving the isolation policy for this login")?;
 
     Ok(Confined { spec, ctx })
+}
+
+/// Runtime-manager and package roots under the real home that a login may need but whose
+/// realpath chain does not reveal — a mise shim's realpath ends at `mise` itself, not the
+/// `installs/` tree it then execs into. Order and existence are checked by the caller.
+const WELL_KNOWN_RUNTIME_ROOTS: &[&str] = &[
+    ".local/share/mise",
+    ".config/mise",
+    ".cache/mise",
+    ".local/state/mise",
+    ".nvm",
+    ".fnm",
+    ".local/share/fnm",
+    ".volta",
+    ".asdf",
+    ".bun",
+    ".local/share/pnpm",
+    ".npm-global",
+    ".local/bin",
+    ".local/share/claude",
+];
+
+/// The real-home paths a login has to read to run at all.
+///
+/// A login's `$HOME` is the capture directory, and isol8 auto-grants nothing from the real
+/// home when the home is replaced — so a harness that is not a self-contained binary in a
+/// directory this policy already names cannot even start. `confine_executable` grants the
+/// script and its npm package but never reads the shebang, so the interpreter is ours to
+/// find. Every entry is guarded by existence, so a machine without a given runtime manager
+/// pays nothing.
+fn login_runtime_grants(program: &Path) -> Vec<PathBuf> {
+    let mut grants: Vec<PathBuf> = Vec::new();
+    // Canonicalised before it becomes a grant. A relative symlink target joins as
+    // `<dir>/../lib/...`, which `is_dir` happily accepts — but isol8 renders a grant as a
+    // literal `(subpath "...")` and the process opens the resolved path, so an unnormalised
+    // grant matches nothing and denies silently.
+    let push = |grants: &mut Vec<PathBuf>, dir: PathBuf| {
+        let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+        if dir.is_dir() && !grants.contains(&dir) {
+            grants.push(dir);
+        }
+    };
+
+    for hop in realpath_chain(program) {
+        if let Some(parent) = hop.parent() {
+            push(&mut grants, parent.to_path_buf());
+        }
+    }
+
+    let path_var = std::env::var_os("PATH");
+    if let Some(interpreter) = interpreter_of(program, path_var.as_deref()) {
+        for hop in realpath_chain(&interpreter) {
+            if let Some(parent) = hop.parent() {
+                push(&mut grants, parent.to_path_buf());
+            }
+        }
+    }
+
+    if let Some(base_dirs) = directories::BaseDirs::new() {
+        let home = base_dirs.home_dir();
+        for rel in WELL_KNOWN_RUNTIME_ROOTS {
+            push(&mut grants, home.join(rel));
+        }
+    }
+
+    grants
+}
+
+/// Every hop of `path`'s symlink chain, `path` itself included, ending at the first
+/// non-symlink (or a broken link). A relative link target resolves against the link's own
+/// parent, the way `readlink` + a shell would. Bounded at 16 hops so a symlink cycle cannot
+/// spin.
+fn realpath_chain(path: &Path) -> Vec<PathBuf> {
+    let mut hops = Vec::new();
+    let mut current = path.to_path_buf();
+    for _ in 0..16 {
+        hops.push(current.clone());
+        let Ok(target) = std::fs::read_link(&current) else {
+            break;
+        };
+        current = if target.is_absolute() {
+            target
+        } else {
+            current
+                .parent()
+                .map(|parent| parent.join(&target))
+                .unwrap_or(target)
+        };
+    }
+    hops
+}
+
+/// The interpreter a script's shebang names, resolved against `path_var` (a `PATH`-shaped
+/// value, taken as a parameter rather than read from the environment so this is testable
+/// without touching process-global state).
+///
+/// Reads only the first 256 bytes: a shebang line is always in that prefix, and this must
+/// stay cheap since it runs on every login. Returns `None` when `program` has no `#!` line —
+/// a native binary, or one too short to hold one.
+fn interpreter_of(program: &Path, path_var: Option<&OsStr>) -> Option<PathBuf> {
+    let mut buf = [0u8; 256];
+    let mut file = std::fs::File::open(program).ok()?;
+    let read = file.read(&mut buf).ok()?;
+    let head = &buf[..read];
+    let rest = head.strip_prefix(b"#!")?;
+    let line = rest.split(|&b| b == b'\n').next().unwrap_or(rest);
+    let line = std::str::from_utf8(line).ok()?;
+    let mut words = line.split_whitespace();
+    let first = words.next()?;
+    let name = if Path::new(first).file_name() == Some(OsStr::new("env")) {
+        words.next()?
+    } else {
+        first
+    };
+
+    let candidate = Path::new(name);
+    if candidate.is_absolute() {
+        return candidate.is_file().then(|| candidate.to_path_buf());
+    }
+    for dir in std::env::split_paths(path_var?) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// The effective policy for `confined`, resolved and rendered but not applied
@@ -520,6 +655,158 @@ mod tests {
             grants.len(),
             3,
             "a Source::Files entry and a duplicate Source::Dir must not add grants: {grants:?}"
+        );
+    }
+
+    // 9. A native binary (no shebang, no symlink) must yield its own directory as a login
+    // runtime grant, and nothing script-shaped alongside it — a login for a self-contained
+    // harness like Claude Code's Mach-O binary needs nothing more than that.
+    #[test]
+    fn login_runtime_grants_yields_native_binary_own_directory() {
+        let dir = TempDir::new().expect("bin dir");
+        let bin = dir.path().join("claude");
+        std::fs::write(&bin, b"\x7fELFnotarealbinarybutnotascripteither").expect("write bin");
+
+        let grants = login_runtime_grants(&bin);
+
+        // Canonicalised, because that is what a grant has to be: on macOS a temp dir lives
+        // under `/var`, which is itself a symlink to `/private/var`, and a policy naming the
+        // unresolved form matches nothing the process actually opens.
+        let want = std::fs::canonicalize(dir.path()).expect("canonical bin dir");
+        assert!(
+            grants.contains(&want),
+            "expected {} in {grants:?}",
+            want.display()
+        );
+    }
+
+    // 10. interpreter_of must read a `#!/usr/bin/env node` shebang, see through `env` to the
+    // named interpreter, and resolve it against the given PATH — the whole point being that
+    // this is testable without mutating the process environment (parallel tests would flake).
+    #[test]
+    fn interpreter_of_resolves_env_shebang_against_given_path() {
+        let script_dir = TempDir::new().expect("script dir");
+        let script = script_dir.path().join("cli.js");
+        std::fs::write(&script, b"#!/usr/bin/env node\nconsole.log('hi');\n")
+            .expect("write script");
+
+        let path_dir = TempDir::new().expect("path dir");
+        let node = path_dir.path().join("node");
+        std::fs::write(&node, b"not a real node binary").expect("write node");
+
+        let path_var = std::ffi::OsString::from(path_dir.path());
+        let resolved = interpreter_of(&script, Some(path_var.as_os_str())).expect("interpreter");
+
+        assert_eq!(resolved, node);
+    }
+
+    // 10b. A native binary has no shebang, so interpreter_of must say so rather than guess.
+    #[test]
+    fn interpreter_of_returns_none_for_a_native_binary() {
+        let dir = TempDir::new().expect("bin dir");
+        let bin = dir.path().join("claude");
+        std::fs::write(&bin, b"\x7fELFnotascript").expect("write bin");
+
+        assert!(interpreter_of(&bin, None).is_none());
+    }
+
+    // 11. A symlink chain a -> b -> c must yield all three parents, not just the first hop
+    // or the final target — confine_executable only grants the resolved end, so anything a
+    // login needs from an intermediate hop's directory would otherwise be unreachable.
+    #[cfg(unix)]
+    #[test]
+    fn realpath_chain_collects_every_hop_parent() {
+        let dir_a = TempDir::new().expect("dir a");
+        let dir_b = TempDir::new().expect("dir b");
+        let dir_c = TempDir::new().expect("dir c");
+
+        let c = dir_c.path().join("c");
+        std::fs::write(&c, b"real file").expect("write c");
+        let b = dir_b.path().join("b");
+        std::os::unix::fs::symlink(&c, &b).expect("symlink b -> c");
+        let a = dir_a.path().join("a");
+        std::os::unix::fs::symlink(&b, &a).expect("symlink a -> b");
+
+        let hops = realpath_chain(&a);
+        let parents: Vec<PathBuf> = hops
+            .iter()
+            .filter_map(|p| p.parent().map(Path::to_path_buf))
+            .collect();
+
+        assert!(parents.contains(&dir_a.path().to_path_buf()));
+        assert!(parents.contains(&dir_b.path().to_path_buf()));
+        assert!(parents.contains(&dir_c.path().to_path_buf()));
+    }
+
+    // 12. A well-known root that does not exist on this machine must contribute nothing, or
+    // every login pays for every runtime manager whether or not it is installed.
+    #[test]
+    // A relative symlink target joins as `<dir>/../lib/...`. isol8 renders a grant as a
+    // literal subpath and the process opens the resolved path, so a grant that still carries
+    // `..` matches nothing and denies without saying so — which is how a working-looking
+    // policy starves a harness.
+    #[cfg(unix)]
+    #[test]
+    fn login_runtime_grants_normalise_a_relative_hop() {
+        let root = TempDir::new().expect("root");
+        let bin = root.path().join("bin");
+        let lib = root.path().join("lib").join("pkg");
+        std::fs::create_dir_all(&bin).expect("bin");
+        std::fs::create_dir_all(&lib).expect("lib");
+        let real = lib.join("cli.js");
+        std::fs::write(&real, b"#!/usr/bin/env node\n").expect("script");
+        let link = bin.join("cli");
+        std::os::unix::fs::symlink("../lib/pkg/cli.js", &link).expect("symlink");
+
+        let grants = login_runtime_grants(&link);
+        assert!(
+            grants.iter().all(|g| !g.to_string_lossy().contains("/../")),
+            "a grant still carries `..`: {grants:?}"
+        );
+        let want = std::fs::canonicalize(&lib).expect("canonical lib");
+        assert!(grants.contains(&want), "{want:?} missing from {grants:?}");
+    }
+
+    fn login_runtime_grants_skips_absent_well_known_roots() {
+        let dir = TempDir::new().expect("bin dir");
+        let bin = dir.path().join("claude");
+        std::fs::write(&bin, b"native binary").expect("write bin");
+
+        // Not asserting on the real machine's actual home (which may or may not have mise,
+        // nvm, etc. installed) — just that a root this test knows cannot exist contributes
+        // nothing when checked directly.
+        let grants = login_runtime_grants(&bin);
+        let bogus = PathBuf::from("/nonexistent-well-known-root-for-this-test");
+        assert!(!grants.contains(&bogus));
+    }
+
+    // 13. `extra_ro` must reach a login policy's grants the same way it reaches a run's, or
+    // the escape hatch documented for `IsolateOptions::extra_ro` is a run-only lie.
+    #[test]
+    fn login_confined_honours_extra_ro() {
+        let state = TempDir::new().expect("state dir");
+        let home = TempDir::new().expect("capture home");
+        let toolchain = TempDir::new().expect("toolchain dir");
+        let plan = crate::harness::LoginPlan {
+            launch: Launch {
+                program: "claude".to_string(),
+                args: vec!["auth".to_string(), "login".to_string()],
+                env: vec![("HOME".to_string(), home.path().display().to_string())],
+                env_remove: Vec::new(),
+                env_clear: false,
+            },
+            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
+        };
+        let mut options = IsolateOptions::new(state.path().to_path_buf());
+        options.extra_ro = vec![toolchain.path().to_path_buf()];
+
+        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
+
+        assert!(
+            confined
+                .spec
+                .add_dirs_ro
+                .contains(&toolchain.path().display().to_string())
         );
     }
 

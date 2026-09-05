@@ -12,6 +12,7 @@ impl ExplorerState {
             truncated: false,
             root_listed: false,
             view: ExplorerView::Tree,
+            follow: Follow::default(),
             cursor: None,
             menu: None,
             menu_epoch: 0,

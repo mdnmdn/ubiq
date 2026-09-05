@@ -12,8 +12,10 @@
 //! Nothing about version control is here. The branch, the ahead and behind counts and the
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
+use gpui::SharedString;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ShellInfo};
+use ubiq_proto::work::AgentId;
 
 use crate::state::settings::SettingsState;
 use crate::state::sink::ColourField;
@@ -120,10 +122,6 @@ pub struct ProjectSettings {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuId {
     Project,
-    Harness,
-    Model,
-    Thinking,
-    Mode,
     LogSubsystem,
     LogLevel,
     /// The task panel's session picker. Priority and shape are pill rows rather than menus, because
@@ -151,6 +149,10 @@ pub enum MenuId {
     /// started on. Its rows are [`HarnessChoice`], and where it opened is
     /// `WorkbenchState::new_agent_menu`.
     NewAgent,
+    /// One conversation's three-dots lifecycle menu (Stop, Unload, Resume, Delete), by the agent
+    /// it belongs to — several conversations can be on screen at once, each with its own. Where
+    /// it opened is `WorkbenchState::conversation_menu`.
+    ConversationLifecycle(AgentId),
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.
@@ -194,16 +196,11 @@ pub enum HarnessChoice {
         /// The account id, which is what crosses the wire.
         account: String,
     },
-}
-
-/// A harness and identity have been picked (from `harness_choices`); nothing has started yet —
-/// the window between picking and typing a name, where leaving costs nothing, the same property
-/// `LoginStep::Choosing` has.
-pub struct PendingNewAgent {
-    /// Index into [`WorkbenchState::agent_types`].
-    pub harness: usize,
-    /// The account id, which is what crosses the wire.
-    pub account: Option<String>,
+    /// A heading or a hairline: drawn, never picked. It holds an index because a menu's rows and
+    /// the actions behind them are matched by position, which is what keeps `on_pick(index)`
+    /// honest once the list has groups.
+    Label(SharedString),
+    Separator,
 }
 
 /// The question a file gesture is asking, while one is up. One at a time, the rule
@@ -225,6 +222,13 @@ pub enum FileDialog {
     Move { path: String, into: String },
     /// An untitled buffer asking where to be saved. `key` is its tab key.
     SaveAs { key: String },
+    /// A file tab holding unsaved changes, asked before its buffer is dropped. `key` is its tab
+    /// key.
+    DiscardChanges { key: String },
+    /// The window's close, asked while any project it holds has unsaved files or running
+    /// terminals. What each of them holds is counted when the dialog is drawn. `quitting` is the
+    /// same question asked for the whole application — ⌘Q — which takes every window with it.
+    CloseWindow { quitting: bool },
 }
 
 pub struct WorkbenchState {
@@ -282,10 +286,13 @@ pub struct WorkbenchState {
     /// `MenuId::NewAgent`, and it reads the same [`WorkbenchState::agent_types`] the new-pane menu
     /// does: which harnesses this machine has is one answer, asked once.
     pub new_agent_menu: Option<(f32, f32)>,
-    /// A harness and identity have been picked (from `harness_choices`); nothing has started yet
-    /// — the window between picking and typing a name, where leaving costs nothing, the same
-    /// property `LoginStep::Choosing` has.
-    pub naming_agent: Option<PendingNewAgent>,
+    /// Where a conversation's three-dots menu was clicked. `Some` exactly while `open_menu` is
+    /// `MenuId::ConversationLifecycle(_)` — the agent it belongs to is carried on that `MenuId`
+    /// itself rather than duplicated here.
+    pub conversation_menu: Option<(f32, f32)>,
+    /// The conversation Delete asked to confirm — destructive and irreversible, so it is not fired
+    /// on the click. `None` when no confirm is up.
+    pub confirm_end_conversation: Option<AgentId>,
     /// The shells the host says this machine has, in the order the menu offers them. Empty until
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
@@ -320,7 +327,8 @@ impl Default for WorkbenchState {
             move_unasked_until: None,
             new_pane_menu: None,
             new_agent_menu: None,
-            naming_agent: None,
+            conversation_menu: None,
+            confirm_end_conversation: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
         }
@@ -352,33 +360,49 @@ impl WorkbenchState {
         rows
     }
 
-    /// What a harness menu offers: every harness installed here, once per identity that can start
-    /// it. One list, read by every surface that starts a conversation and by the pick behind it.
+    /// What a harness menu offers: every installed harness bare, plus one row per identity signed
+    /// into one — grouped so both are legible, read by every surface that starts a conversation
+    /// and by the pick behind it.
     ///
-    /// **A harness with accounts is only offered with one.** Which identity a conversation runs
-    /// as is fixed the moment it starts and cannot be changed after, so it is a choice worth
-    /// making explicitly — and a bare row beside three named ones would be the one whose
-    /// identity nobody could name. A harness with no captured login keeps its bare row, because
-    /// that is the only way to start it and the library still has an answer for what it runs as.
+    /// **Signing in must not take away the zero-config start.** A harness with no captured login
+    /// is the only "Default" row it can be, and that stays true once accounts exist: which
+    /// identity a conversation runs as is fixed the moment it starts, so naming one is a choice
+    /// worth making explicitly, not a default a login should have taken away silently. So every
+    /// available harness keeps its bare `Default` row regardless of what accounts exist, and each
+    /// logged-in identity adds its own row in a second, `Configured` group below a separator —
+    /// omitted entirely, heading included, when nothing is signed in: a lone empty heading is
+    /// worse than none.
     ///
-    /// Unavailable harnesses keep their row, disabled, so the menu says a tool is missing rather
-    /// than silently omitting it — the same rule the flat list followed before identities.
+    /// Unavailable harnesses keep their row in `Default`, disabled, so the menu says a tool is
+    /// missing rather than silently omitting it — the same rule the flat list followed before
+    /// identities.
     pub fn harness_choices(&self, accounts: &[AccountInfo]) -> Vec<HarnessChoice> {
-        let mut rows = Vec::new();
-        for (index, harness) in self.agent_types.iter().enumerate() {
-            let mut named = accounts
-                .iter()
-                .filter(|account| account.logged_in.contains(&harness.id))
-                .peekable();
-            if named.peek().is_none() {
-                rows.push(HarnessChoice::Harness(index));
-                continue;
-            }
-            rows.extend(named.map(|account| HarnessChoice::Pair {
-                harness: index,
-                account: account.id.clone(),
-            }));
+        let defaults = (0..self.agent_types.len()).map(HarnessChoice::Harness);
+
+        let pairs: Vec<HarnessChoice> = self
+            .agent_types
+            .iter()
+            .enumerate()
+            .flat_map(|(index, harness)| {
+                accounts
+                    .iter()
+                    .filter(move |account| account.logged_in.contains(&harness.id))
+                    .map(move |account| HarnessChoice::Pair {
+                        harness: index,
+                        account: account.id.clone(),
+                    })
+            })
+            .collect();
+
+        if pairs.is_empty() {
+            return defaults.collect();
         }
+
+        let mut rows: Vec<HarnessChoice> = vec![HarnessChoice::Label("Default".into())];
+        rows.extend(defaults);
+        rows.push(HarnessChoice::Separator);
+        rows.push(HarnessChoice::Label("Configured".into()));
+        rows.extend(pairs);
         rows
     }
 
@@ -428,11 +452,12 @@ mod tests {
         );
     }
 
-    /// A harness with identities is offered once per identity and never bare: which account a
-    /// conversation runs as cannot be changed after it starts, so it is not a choice to leave
-    /// implicit.
+    /// Signing in adds a second, "Configured" group; it never removes the "Default" row a
+    /// harness with no identity chosen still needs — that is the library's own zero-config path,
+    /// and losing it on first login was accidental. The separator sits between every `Harness`
+    /// and every `Pair`, and both headings are decorations at the positions the pick must skip.
     #[test]
-    fn a_harness_with_accounts_is_offered_once_per_account() {
+    fn accounts_add_a_configured_group_without_removing_the_default_row() {
         let state = with(vec![harness("claude-code", true)]);
         let accounts = [
             account("mdn", &["claude-code"]),
@@ -442,6 +467,10 @@ mod tests {
         assert_eq!(
             state.harness_choices(&accounts),
             vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
                     harness: 0,
                     account: "mdn".to_string()
@@ -455,7 +484,8 @@ mod tests {
     }
 
     /// An account is only offered for the harnesses it actually has a login for. One account
-    /// serving two harnesses is normal, and an account that serves neither offers nothing.
+    /// serving two harnesses is normal, and an account that serves neither offers nothing — but
+    /// every harness, signed into or not, still gets its `Default` row.
     #[test]
     fn an_account_is_only_offered_where_it_is_signed_in() {
         let state = with(vec![
@@ -471,6 +501,12 @@ mod tests {
         assert_eq!(
             state.harness_choices(&accounts),
             vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Harness(1),
+                HarnessChoice::Harness(2),
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
                     harness: 0,
                     account: "both".to_string()
@@ -479,8 +515,6 @@ mod tests {
                     harness: 1,
                     account: "both".to_string()
                 },
-                // No login anywhere, so it keeps the bare row that is the only way to start it.
-                HarnessChoice::Harness(2),
             ]
         );
     }
@@ -496,12 +530,33 @@ mod tests {
         assert_eq!(
             state.harness_choices(&accounts),
             vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Harness(1),
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
                     harness: 0,
                     account: "mdn".to_string()
                 },
-                HarnessChoice::Harness(1),
             ]
+        );
+    }
+
+    /// The whole point of matching by position: once the decorations are counted in, a `Pair`'s
+    /// index in the full list still names the same `(harness, account)` the row shows.
+    #[test]
+    fn a_pairs_index_in_the_full_list_still_resolves_to_it() {
+        let state = with(vec![harness("claude-code", true), harness("codex", true)]);
+        let accounts = [account("mdn", &["codex"])];
+
+        let rows = state.harness_choices(&accounts);
+        assert_eq!(
+            rows[5],
+            HarnessChoice::Pair {
+                harness: 1,
+                account: "mdn".to_string()
+            }
         );
     }
 }

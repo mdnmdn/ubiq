@@ -283,6 +283,78 @@ impl AppState {
         cx.notify();
     }
 
+    /// Kill the harness, keeping the conversation, its transcript and its run directory —
+    /// unlike [`Self::end_conversation`], which takes all three with it.
+    pub fn unload_agent(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        self.bus.send(Message::UnloadConversation { agent_id });
+        cx.notify();
+    }
+
+    /// Start an unloaded conversation's harness again, under the same `agent_id`, with no prompt.
+    pub fn resume_agent(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        self.bus.send(Message::ResumeConversation { agent_id });
+        cx.notify();
+    }
+
+    // ── the conversation's three-dots lifecycle menu ─────────────────
+
+    /// Open a conversation's lifecycle menu (Stop, Unload, Resume, Delete), anchored where the
+    /// three dots were clicked.
+    pub fn open_conversation_menu(
+        &mut self,
+        agent_id: AgentId,
+        at: (f32, f32),
+        cx: &mut Context<Self>,
+    ) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::ConversationLifecycle(agent_id));
+        self.workbench.conversation_menu = Some(at);
+        cx.notify();
+    }
+
+    /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Unload, 2 Resume,
+    /// 3 Delete. Delete does not act here — it raises a confirm instead, being the one
+    /// destructive, irreversible verb of the four.
+    pub fn pick_conversation_menu(
+        &mut self,
+        agent_id: AgentId,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_conversation_menu(cx);
+        match index {
+            0 => self.cancel_turn(agent_id, cx),
+            1 => self.unload_agent(agent_id, cx),
+            2 => self.resume_agent(agent_id, cx),
+            3 => {
+                self.workbench.confirm_end_conversation = Some(agent_id);
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn dismiss_conversation_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.conversation_menu = None;
+        cx.notify();
+    }
+
+    /// Delete's confirm answered yes.
+    pub fn confirm_end_conversation(&mut self, cx: &mut Context<Self>) {
+        if let Some(agent_id) = self.workbench.confirm_end_conversation.take() {
+            self.end_conversation(agent_id, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn dismiss_end_conversation_confirm(&mut self, cx: &mut Context<Self>) {
+        self.workbench.confirm_end_conversation = None;
+        cx.notify();
+    }
+
     /// Bench every agent on screen — the "Close all" control on the agents screen.
     ///
     /// Closing one tab benches the agent behind it rather than ending it — see `state::agents`'s
@@ -327,49 +399,91 @@ impl AppState {
         cx.notify();
     }
 
-    /// Pick a model before this conversation's harness has launched — the send is the same
-    /// `SetAgentConfig` a live conversation would use, but here nothing is running yet to answer
-    /// it, so the pick is also kept locally for the picker to highlight.
-    pub fn pick_agent_model(&mut self, agent_id: AgentId, value: String, cx: &mut Context<Self>) {
+    /// Pick a value for one launch-time config option before this conversation's harness has
+    /// launched — the send is the same `SetAgentConfig` a live conversation would use, but here
+    /// nothing is running yet to answer it, so the pick is also kept locally for the picker to
+    /// highlight.
+    pub fn pick_agent_config(
+        &mut self,
+        agent_id: AgentId,
+        config_id: String,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(id) = self.project(cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
-            conversation.chosen_model = Some(value.clone());
-            // Picking a model always means the dropdown should close, so this is the one place
+            conversation.chosen.insert(config_id.clone(), value.clone());
+            // Picking a value always means its dropdown should close, so this is the one place
             // that does it rather than leaving it to every caller.
-            conversation.model_menu_open = false;
+            conversation.open_config = None;
         }
         self.bus.send(Message::SetAgentConfig {
             agent_id,
-            config_id: "model".to_string(),
+            config_id,
             value,
+        });
+        self.clear_picker_search(window, cx);
+        cx.notify();
+    }
+
+    /// Open or shut one pre-launch config picker for one conversation. `open_config` rather than
+    /// the window's single `open_menu`: several pending conversations can each have a picker open
+    /// at once, and this is that per-conversation flag's own one-at-a-time rule.
+    pub fn toggle_agent_config_menu(
+        &mut self,
+        agent_id: AgentId,
+        config_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.open_config =
+                if conversation.open_config.as_deref() == Some(config_id.as_str()) {
+                    None
+                } else {
+                    Some(config_id)
+                };
+        }
+        // A fresh search on every open: the field belongs to whichever picker is down, not to
+        // the one that was down last.
+        let picker_search = self.picker_search.clone();
+        picker_search.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
         });
         cx.notify();
     }
 
-    /// Open or shut the pre-launch model dropdown for one conversation. Its own flag rather than
-    /// the window's single `open_menu`: several pending conversations can each have a picker open
-    /// at once.
-    pub fn toggle_agent_model_menu(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+    /// Dismiss whichever pre-launch config picker is open, without picking — an outside click.
+    pub fn dismiss_agent_config_menu(
+        &mut self,
+        agent_id: AgentId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(id) = self.project(cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
-            conversation.model_menu_open = !conversation.model_menu_open;
+            conversation.open_config = None;
         }
+        self.clear_picker_search(window, cx);
         cx.notify();
     }
 
-    /// Dismiss the pre-launch model dropdown without picking — an outside click.
-    pub fn dismiss_agent_model_menu(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
-        if let Some(id) = self.project(cx)
-            && let Some(open) = self.projects.get_mut(&id)
-            && let Some(conversation) = open.conversations.get_mut(&agent_id)
-        {
-            conversation.model_menu_open = false;
-        }
-        cx.notify();
+    /// Empty the one buffer every searchable `kit::Picker` shares, so the next one to open does
+    /// not inherit what was typed into a different menu.
+    fn clear_picker_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picker_search = self.picker_search.clone();
+        picker_search.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
     }
 
     /// Open or shut one tool block's detail.
@@ -424,18 +538,13 @@ impl AppState {
         cx.notify();
     }
 
-    /// Pick the harness — and the identity — at that row of the menu, and raise the naming
-    /// prompt. Nothing starts yet: [`Self::start_named_agent`] is what sends
-    /// [`Message::StartConversation`], once a name has been typed or skipped.
+    /// Pick the harness — and the identity — at that row of the menu, and start the conversation
+    /// at once: naming is the host's, from the harness's command, so there is nothing left to ask
+    /// the user before [`Message::StartConversation`] goes out.
     ///
     /// A harness the host could not find is drawn disabled and takes no click, so picking it does
-    /// nothing rather than opening a prompt for a start that would fail.
-    pub fn pick_new_agent_menu(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// nothing rather than asking for a start that would fail.
+    pub fn pick_new_agent_menu(&mut self, index: usize, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.new_agent_menu = None;
         // The same list the menu drew, so an index cannot mean one row on screen and another
@@ -446,7 +555,10 @@ impl AppState {
         let (harness, account) = match rows.get(index) {
             Some(HarnessChoice::Harness(harness)) => (*harness, None),
             Some(HarnessChoice::Pair { harness, account }) => (*harness, Some(account.clone())),
-            None => return,
+            // A heading or a hairline is drawn, never picked — a click cannot land on one today
+            // since both are disabled, but this is what stops a future reorder turning into a
+            // wrong launch.
+            Some(HarnessChoice::Label(_)) | Some(HarnessChoice::Separator) | None => return,
         };
         let Some(agent) = self.workbench.agent_types.get(harness) else {
             return;
@@ -454,37 +566,9 @@ impl AppState {
         if !agent.available {
             return;
         }
-        self.workbench.naming_agent = Some(PendingNewAgent { harness, account });
-        let default_name = agent.label.clone();
-        self.new_agent_name_input.update(cx, |state, cx| {
-            state.set_value(default_name, window, cx);
-            state.focus(window, cx);
-        });
-        cx.notify();
-    }
-
-    /// Confirm the naming prompt: mint the agent id and send `StartConversation`. An empty name
-    /// is carried as `None` rather than duplicating the host's own fallback to the harness label.
-    pub fn start_named_agent(&mut self, cx: &mut Context<Self>) {
-        let Some(pending) = self.workbench.naming_agent.take() else {
-            return;
-        };
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        let Some(agent) = self.workbench.agent_types.get(pending.harness) else {
-            return;
-        };
-        if !agent.available {
-            return;
-        }
-        let name = self
-            .new_agent_name_input
-            .read(cx)
-            .value()
-            .trim()
-            .to_string();
-        let name = if name.is_empty() { None } else { Some(name) };
         let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
             agent_id,
@@ -492,15 +576,8 @@ impl AppState {
             session_id: self.session,
             rel_path: None,
             agent_type: agent.id.clone(),
-            account: pending.account,
-            name,
+            account,
         });
-        cx.notify();
-    }
-
-    /// Abandon the naming prompt. Leaving costs nothing — no harness has started yet.
-    pub fn cancel_named_agent(&mut self, cx: &mut Context<Self>) {
-        self.workbench.naming_agent = None;
         cx.notify();
     }
 

@@ -28,7 +28,7 @@
 //! every message — the same role a `sessionId` plays in ACP, one layer up.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 
 use agent_manager::io::{
@@ -58,6 +58,13 @@ pub struct Conversation {
     /// `active_searches`'s own "is this over" flag — to reap a conversation whose harness quit
     /// without anybody asking it to.
     ended: Arc<AtomicBool>,
+    /// The pump's own sequence counter, published after every send, so an unload can hand the
+    /// coordinator the last `seq` it reached without racing the pump for it.
+    seq: Arc<AtomicU64>,
+    /// Set by `stop(true)` before the pump is asked to exit. Read by the pump on its way out to
+    /// decide whether to send the final `ConversationEnded` — an unload wants exactly one
+    /// lifecycle message (`ConversationUnloaded`), not that plus this.
+    quiet: Arc<AtomicBool>,
 }
 
 impl Conversation {
@@ -69,10 +76,14 @@ impl Conversation {
     pub fn start(id: AgentId, bridge: Box<dyn IoBridge>, out: Mailbox, start_seq: u64) -> Self {
         let input = bridge.input();
         let ended = Arc::new(AtomicBool::new(false));
+        let seq = Arc::new(AtomicU64::new(start_seq));
+        let quiet = Arc::new(AtomicBool::new(false));
         let pump_ended = ended.clone();
+        let pump_seq = seq.clone();
+        let pump_quiet = quiet.clone();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
-            .spawn(move || pump(id, bridge, out, start_seq, pump_ended))
+            .spawn(move || pump(id, bridge, out, start_seq, pump_ended, pump_seq, pump_quiet))
             .ok();
 
         Self {
@@ -80,6 +91,8 @@ impl Conversation {
             input,
             pump,
             ended,
+            seq,
+            quiet,
         }
     }
 
@@ -135,18 +148,23 @@ impl Conversation {
         sink.send(input)
     }
 
-    /// Stop the harness and wait for its pump to finish.
+    /// Stop the harness and wait for its pump to finish, returning the last `seq` it reached.
     ///
     /// Cancelling closes the child's input, which is what makes it exit; the
     /// bridge's own teardown then gives it a bounded window to drain before
     /// killing it. So the wait here is for a thread that is already ending
     /// rather than one that has to be interrupted.
-    pub fn stop(mut self) {
+    ///
+    /// `quiet` set is an unload: the pump skips its final `ConversationEnded` so the coordinator's
+    /// own `ConversationUnloaded` is the only lifecycle message this stop produces.
+    pub fn stop(mut self, quiet: bool) -> u64 {
+        self.quiet.store(quiet, Ordering::Relaxed);
         let _ = self.cancel();
         if let Some(pump) = self.pump.take() {
             let _ = pump.join();
         }
         tracing::debug!(agent = %self.id, "conversation stopped");
+        self.seq.load(Ordering::Relaxed)
     }
 }
 
@@ -158,6 +176,8 @@ fn pump(
     out: Mailbox,
     start_seq: u64,
     ended: Arc<AtomicBool>,
+    seq_counter: Arc<AtomicU64>,
+    quiet: Arc<AtomicBool>,
 ) {
     let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
@@ -188,6 +208,7 @@ fn pump(
         };
 
         seq += 1;
+        seq_counter.store(seq, Ordering::Relaxed);
         tracing::debug!(agent = %id, seq, update = ?update, "conversation update");
         if !out.send(Message::ConversationUpdate {
             agent_id: id,
@@ -205,10 +226,12 @@ fn pump(
     // is idempotent), but there must be no window where the pump has already returned — the
     // thread `Conversation::stop` would join — while the flag still reads false.
     ended.store(true, Ordering::Relaxed);
-    out.send(Message::ConversationEnded {
-        agent_id: id,
-        stop_reason,
-    });
+    if !quiet.load(Ordering::Relaxed) {
+        out.send(Message::ConversationEnded {
+            agent_id: id,
+            stop_reason,
+        });
+    }
 }
 
 /// The whole of the translation. `None` is an event the wire has no place for
@@ -490,6 +513,63 @@ fn map_config(option: agent_manager::io::ConfigOption) -> ConfigOption {
                 current: current_value,
             },
         },
+    }
+}
+
+/// A bridge for tests elsewhere in this crate that need a genuinely live `Conversation` — one
+/// with a pump actually blocked in `next_event`, `self.conversations` holding it — without a real
+/// harness process. `coordinator.rs`'s own lifecycle tests are what this is for: `unload`/`resume`
+/// only touch what a `Conversation` and its owning maps look like, never what a harness says, so a
+/// bridge that never says anything is the whole of what they need.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Arc;
+    use std::sync::mpsc;
+
+    use agent_manager::io::{AgentEvent, AgentInput, AgentInputSink, IoBridge};
+
+    /// Blocks in `next_event` until cancelled, the same way a real child blocks until closing its
+    /// input makes it exit.
+    pub(crate) struct Idle {
+        rx: mpsc::Receiver<()>,
+        tx: mpsc::Sender<()>,
+    }
+
+    impl Idle {
+        pub(crate) fn new() -> Self {
+            let (tx, rx) = mpsc::channel();
+            Self { tx, rx }
+        }
+    }
+
+    impl IoBridge for Idle {
+        fn send(&mut self, _input: AgentInput) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn next_event(&mut self) -> anyhow::Result<Option<AgentEvent>> {
+            let _ = self.rx.recv();
+            Ok(None)
+        }
+
+        fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
+            Some(Arc::new(IdleInput {
+                tx: self.tx.clone(),
+            }))
+        }
+    }
+
+    struct IdleInput {
+        tx: mpsc::Sender<()>,
+    }
+
+    impl AgentInputSink for IdleInput {
+        fn send(&self, input: AgentInput) -> anyhow::Result<()> {
+            if matches!(input, AgentInput::Cancel) {
+                let _ = self.tx.send(());
+            }
+            Ok(())
+        }
     }
 }
 

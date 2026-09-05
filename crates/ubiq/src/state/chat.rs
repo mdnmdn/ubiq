@@ -8,20 +8,6 @@
 
 use ubiq_proto::work::AgentId;
 
-/// The harnesses the composer offers. Ubiq never hard-codes how to launch one — this is a label
-/// list for the picker, and the launch belongs to `crates/agent-manager`.
-pub const HARNESSES: &[&str] = &[
-    "Claude Code",
-    "Codex",
-    "Gemini CLI",
-    "opencode",
-    "Copilot CLI",
-];
-pub const MODELS: &[&str] = &["Opus 4.6", "Sonnet 4.6", "Haiku 4.5"];
-pub const MODES: &[&str] = &["Plan", "Edit", "Ask"];
-/// How much reasoning the harness is asked for before it answers.
-pub const THINKING: &[&str] = &["No thinking", "Think", "Think harder", "Ultrathink"];
-
 /// The context window the token pill is a fraction of.
 pub const CONTEXT_TOKENS: f32 = 200_000.0;
 
@@ -156,10 +142,6 @@ pub struct ChatState {
     pub active: usize,
     pub run: RunState,
     pub tokens: f32,
-    pub harness: usize,
-    pub model: usize,
-    pub thinking: usize,
-    pub mode: usize,
     pub collapsed: bool,
     pub attachment: bool,
     /// Mirror of the composer's textarea, so rendering never has to read the entity.
@@ -176,10 +158,6 @@ impl ChatState {
             active: 0,
             run: RunState::Idle,
             tokens,
-            harness: 0,
-            model: 0,
-            thinking: 1,
-            mode: 0,
             collapsed: true,
             attachment: false,
             draft: String::new(),
@@ -200,22 +178,6 @@ impl ChatState {
         ((self.tokens / CONTEXT_TOKENS) * 100.0)
             .round()
             .clamp(0.0, 100.0) as u8
-    }
-
-    pub fn harness_label(&self) -> &'static str {
-        HARNESSES[self.harness]
-    }
-
-    pub fn model_label(&self) -> &'static str {
-        MODELS[self.model]
-    }
-
-    pub fn mode_label(&self) -> &'static str {
-        MODES[self.mode]
-    }
-
-    pub fn thinking_label(&self) -> &'static str {
-        THINKING[self.thinking]
     }
 
     pub fn new_chat(&mut self) {
@@ -251,13 +213,8 @@ impl ChatState {
             return;
         }
 
-        let reply = format!(
-            "Queued for **{}** · {} · {} · {} mode. No harness is attached to this pane yet, so the turn ends here.",
-            self.harness_label(),
-            self.model_label(),
-            self.thinking_label(),
-            self.mode_label(),
-        );
+        let reply =
+            "Queued. No harness is attached to this pane yet, so the turn ends here.".to_string();
 
         // An empty chat takes its title from the first thing said in it.
         let title = first_line(&text);

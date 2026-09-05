@@ -69,6 +69,7 @@ fn tokens() -> AnyElement {
         ("surface_raised", theme::surface_raised()),
         ("hover", theme::hover()),
         ("selected", theme::selected()),
+        ("selected_focus", theme::selected_focus()),
         ("scrim", theme::scrim()),
         ("text", theme::text()),
         ("text_muted", theme::text_muted()),
@@ -534,7 +535,7 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
     let specimen = labelled(
         "file_row",
-        file_row("sink-file-row", 1, true, true, ROW_FONT)
+        file_row("sink-file-row", 1, true, true, true, ROW_FONT)
             .child(kind_icon(false, theme::warning()))
             .child(mono("main.rs", theme::warning()).text_size(px(13.)))
             .child(badge("M", theme::warning()))

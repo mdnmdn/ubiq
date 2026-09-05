@@ -7,14 +7,15 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
-    deferred, div, px,
+    Anchor, AnyElement, App, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Window, anchored, deferred, div, px,
 };
+use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
-use crate::ui::kit::{Action, IndexedAction};
+use crate::ui::kit::{Action, IndexedAction, field};
 
 /// Anchor for a menu that must open upward, clear of the window's bottom edge.
 pub const MENU_ANCHOR_UP: Anchor = Anchor::BottomLeft;
@@ -40,6 +41,9 @@ pub struct Picker {
     on_toggle: Option<Action>,
     on_pick: Option<IndexedAction>,
     on_dismiss: Option<Action>,
+    /// A filter field drawn at the top of the panel: the buffer, and whether it holds focus.
+    /// `None` is every picker that has not opted in — see [`Self::search`].
+    search: Option<(Entity<InputState>, bool)>,
 }
 
 impl Picker {
@@ -56,6 +60,7 @@ impl Picker {
             on_toggle: None,
             on_pick: None,
             on_dismiss: None,
+            search: None,
         }
     }
 
@@ -108,6 +113,14 @@ impl Picker {
         self.on_dismiss = Some(Rc::new(handler));
         self
     }
+
+    /// Draw a filter field at the top of the panel. The caller has already filtered `items`;
+    /// this only draws the field and reports the focus ring — the same split `project_menu`'s
+    /// hand-rolled search uses.
+    pub fn search(mut self, state: &Entity<InputState>, focused: bool) -> Self {
+        self.search = Some((state.clone(), focused));
+        self
+    }
 }
 
 impl RenderOnce for Picker {
@@ -124,6 +137,7 @@ impl RenderOnce for Picker {
             on_toggle,
             on_pick,
             on_dismiss,
+            search,
         } = self;
 
         let panel_id = ElementId::Name(format!("{id:?}-menu").into());
@@ -174,7 +188,7 @@ impl RenderOnce for Picker {
 
         if open {
             trigger = trigger.child(menu_panel(
-                panel_id, anchor, items, selected, on_pick, on_dismiss,
+                panel_id, anchor, items, selected, on_pick, on_dismiss, search,
             ));
         }
 
@@ -189,8 +203,23 @@ fn menu_panel(
     selected: Option<usize>,
     on_pick: Option<IndexedAction>,
     on_dismiss: Option<Action>,
+    search: Option<(Entity<InputState>, bool)>,
 ) -> impl IntoElement {
-    let rows: Vec<_> =
+    // The caller has already filtered `items` — an empty result is said, once, rather than left
+    // as a panel with nothing in it.
+    let rows: Vec<AnyElement> = if items.is_empty() {
+        vec![
+            div()
+                .h(px(28.))
+                .px_2()
+                .flex()
+                .items_center()
+                .text_size(px(12.5))
+                .text_color(theme::text_faint())
+                .child("No matches")
+                .into_any_element(),
+        ]
+    } else {
         items
             .into_iter()
             .enumerate()
@@ -228,8 +257,32 @@ fn menu_panel(
                             pick(ix, window, cx);
                         }
                     })
+                    .into_any_element()
             })
-            .collect();
+            .collect()
+    };
+
+    let search_field = search.map(|(state, focused)| {
+        field(theme::accent(), focused)
+            .h(px(28.))
+            .px_2()
+            .flex_none()
+            .gap_2()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(
+                Icon::new(IconName::Search)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_size(px(12.5))
+                    .child(Input::new(&state).appearance(false)),
+            )
+    });
 
     deferred(
         anchored()
@@ -247,6 +300,7 @@ fn menu_panel(
                     .border_color(theme::accent())
                     .shadow_lg()
                     .font_weight(FontWeight::NORMAL)
+                    .children(search_field)
                     .children(rows)
                     .on_mouse_down_out(move |_, window, cx| {
                         if let Some(dismiss) = on_dismiss.clone() {

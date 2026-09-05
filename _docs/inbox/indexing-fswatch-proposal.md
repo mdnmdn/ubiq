@@ -1,248 +1,368 @@
 ---
 id: inbox-indexing
-title: Proposal — indexing and filesystem watch
+title: Proposal — code navigation over a cached tree-sitter index
 kind: proposal
 status: proposal
-summary: A host-owned watcher and three per-project indexes — filename, full text, symbol — so the knowledge base and the local web export answer from a store instead of a fresh walk, and the tree, the git state, and open diffs stop going stale between asks.
-read_when: you are deciding how Ubiq watches a project's folder for change, or how it indexes a project's files for something other than a live content search
-updated: 2026-09-04
-depends_on: [tech-architecture, tech-structure, tech-transport, inbox-omni]
+summary: One index instead of three — a per-project table of definitions extracted with the tags queries the vendored grammars already ship, cached on disk per file and refreshed incrementally by the watcher that landed, answering the editor's outline, goto-definition and symbol picker and giving the web export its link targets, by name match rather than by a language server.
+read_when: you are deciding how Ubiq makes a codebase navigable — an outline, a jump to a definition, a symbol picker, or a source page whose identifiers are links
+updated: 2026-09-05
+depends_on: [tech-architecture, tech-structure, tech-transport, inbox-omni, inbox-kb-web, inbox-find]
 ---
 
-# Proposal — indexing and filesystem watch
+# Proposal — code navigation over a cached tree-sitter index
 
-Four gaps already say the same thing from four directions: `G34` — nothing watches a project's
-folder, so a file created, deleted or renamed outside Ubiq is invisible until a folder is collapsed
-and expanded again; `G71` — nothing watches the git directory, so `HEAD`, `MERGE_HEAD` and the index
-go stale until a save or a project open asks again; `G30` — health is only probed at load, on open
-and on request; `G77` — autorefresh of git and the tree on filesystem events is wanted outright. None
-of the four needs an index. All four need a watcher, which is why this proposal builds the watcher
-first and treats indexing as what rides on top of it once something asks.
+This document replaces the watcher-and-three-indexes proposal that stood here. The watcher shipped
+and is recorded below; the indexing half named three indexes — filename, full text, symbol — and this
+keeps one of them, on the argument that the other two answer questions the tree already answers.
 
-The indexing half exists because [`inbox-omni`](./omni-search-proposal.md) already named the shape of
-the gap it leaves: content search across a project's files stays a live walk, decided and shipped in
-that proposal's design, and is explicitly not reopened here. What that proposal could not answer is
-the knowledge base's own search, because the knowledge base "will be Ubiq's own store rather than the
-user's folder" — its words — and a store is the one thing a live walk of the user's folder can never
-be. This proposes that store, and the watcher that keeps it honest.
+The goal is a codebase you can move around in: the editor jumps from a use to a definition and shows
+a file's shape, and the web export serves source whose identifiers are links. Both wants are the
+same want, and both are answered by one table of names.
 
-## 0. Where the build has got to — 2026-09-04
+## 0. Where the build has got to — 2026-09-05
 
-**Phase 1 has landed: the watcher and its unsolicited push, with no index of any kind built.** No
-filename index, no symbol index, no `tantivy`, no host-owned cache directory — phases 2 to 4 are
-untouched, and §1 below is the state before the watcher landed, kept for its reasoning rather than
-as a report.
+**The watcher has landed. No index of any kind is built.**
 
-In the tree: `crates/ubiq-host/src/watch/mod.rs` (one recursive `notify` watch and one debounce
-thread per open project, `QUIET` 150ms, `BOUND` 64), keyed per window and per project in
-`coordinator.rs` and started from `Message::OpenedProject`, with `crates/ubiq-host/tests/watch.rs`
-over the classification and the batching. `notify` is a direct dependency of `ubiq-host` and
-resolves to the version already in the lock file, so no package entered the graph.
-`Message::ProjectFilesChanged` — which existed on the wire and had no producer and no consumer — now
-has both; the contract for it is
-[`../tech/transport-contract.md`](../tech/transport-contract.md)'s file family, and what the window
-does with it is [`../features/workbench.md`](../features/workbench.md)'s.
+`crates/ubiq-host/src/watch/mod.rs` runs one recursive `notify` watch and one debounce thread per
+open project — `QUIET` 150ms, `BOUND` 64 paths — keyed per window and per project in the
+coordinator and started when a project opens, with `crates/ubiq-host/tests/watch.rs` over the
+classification and the batching. `.git/HEAD`, `.git/MERGE_HEAD`, `.git/index` and `.git/refs/**` set
+the `repository` flag on the next flush; everything else under `.git/` is dropped; everything else
+is gitignore-filtered. The push is `ProjectFilesChanged`, one variant in the file family, carrying
+relative paths and never contents, and the interface folds it into the explorer's merge and
+re-issues `RefreshProjectGit` when the flag is set.
 
-Where the tree differs from this document:
+Three things the watcher did not close, kept as rows rather than as hedges: its own reading of the
+ignore rules diverges from the walk's and over-reports (`G110`); a project's health is still only
+probed when somebody asks (`G30`); there is no `CloseProject`, so a watch stops when the window
+opens another project or leaves (`G113`).
 
-- **The two scopes are one recursive watch, filtered per event**, rather than a content scope plus a
-  fixed `.git` scope: a selective watch would have to be re-registered every time a directory
-  appears. `.git/HEAD`, `.git/MERGE_HEAD`, `.git/index` and `.git/refs/**` set `repository` on the
-  next flush and everything else under `.git/` is dropped, which is the behaviour §3 asks for.
-- **The watcher's ignore reading is its own, not the walk's.** §3 has both halves agreeing on one
-  reading of a project's `.gitignore`; the watcher builds a single `Gitignore` from the root's
-  `.gitignore` plus the merged excludes, because `ignore::WalkBuilder` cannot answer a question
-  about one path. `G110` is that gap, and it over-reports rather than under-reporting.
-- **The push is `ProjectFilesChanged`, not a `ProjectChanged` record**, and it carries a
-  `repository` flag beside `changed` and `truncated`. It rides no new primitive, so `G47` is
-  untouched: this is one unsolicited variant in the file family and nothing generalised.
-- **`G30` is not closed.** The watcher reports what changed inside a project's folder and never
-  re-probes the record's health, so a folder that goes away is still noticed only when somebody
-  asks.
-- **There is no `CloseProject`,** which §3's "stops when it closes" assumes. A watch is stopped by
-  the same window opening another project or by the window leaving — `G113`.
+**Nothing else from the old document exists.** No `tantivy` in any lock file, no host-owned cache
+directory, no filename index, no symbol extraction. Tree-sitter is in the tree but only for colour:
+`crates/ubiq/src/ui/editor.rs` registers Swift and C# with vendored highlight queries and maps
+Ubiq's `FileLanguage` onto the component library's language enum; every other grammar arrives as a
+`gpui-component` feature flag, and no Ubiq code has ever constructed a `Parser`, a `Query` or a
+`Tree`. The web export is real and lives in `crates/ubiq/src/web_export/` — a process-wide
+`tiny_http` listener in the interface crate, serving markdown, directory listings and source, with
+syntax colour done by highlight.js in the browser and no notion of a symbol.
 
-## 1. Where it stands
+## 1. What this proposes, in one line
 
-**No index of any kind exists.** `⌘K`'s navigator matches names and paths from what is already in
-memory — the explorer's tree, recents, bookmarks — and is owned by
-[`ui-routing-proposal.md`](./ui-routing-proposal.md); it is not a persisted index and this proposal
-does not change it. `RailMode::Kb` draws an empty page today (`G11`). `tantivy` is in no `Cargo.lock`
-anywhere in the workspace. `tree-sitter` is real and vendored — `crates/ubiq/Cargo.toml` depends on
-grammars for markdown, rust, python, javascript, java, toml, tsx, typescript and yaml — but only for
-the editor's syntax highlighting; nothing walks a parse tree for structure.
+One host-owned table of definitions per project — every definition in every file the walk allows,
+extracted with each grammar's own `tags.scm` query, cached on disk per file and refreshed
+incrementally by the watcher's feed — and navigation resolved by matching a name against it, not by
+resolving a scope.
 
-**Nothing watches a project's folder.** `notify` is already in the dependency graph, pulled in
-transitively through `gpui-component`, and nothing in Ubiq calls it. `ExplorerState::merge` in
-`crates/ubiq/src/state/explorer/tree.rs` was written with this in mind — its own doc comment says a
-re-listing folds into what is already known "rather than destructive," which is "what makes a
-re-listing — a restore, or one day a filesystem watch — idempotent." The watcher this proposes is
-that one day, and it can reuse the merge it already describes.
+## 2. Why one index, and why tree-sitter tags
 
-## 2. What this proposes, in one line
+**Tree-sitter already ships the query.** Nine grammars in the lock file expose a `TAGS_QUERY`
+constant beside the highlight query the editor already uses — rust, python, javascript, typescript,
+go, java, c, c-sharp and swift — capturing both halves of navigation: `@definition.function`,
+`@definition.class`, `@definition.method`, `@definition.type`, `@definition.module`,
+`@definition.constant`, `@definition.macro`, `@definition.interface`, and `@reference.call`,
+`@reference.type`, `@reference.class`, `@reference.implementation`, each with a `@name` capture.
+Extracting a project's symbols is running a query the grammar authors already wrote. Only the
+definition half is ever stored, for the reason §3 measures.
 
-A single host-owned watch-and-index worker per open project: a `notify` watcher feeds a debounced
-change queue, the queue drives three independent indexes — filename, full text, symbol — and a coarse
-"something changed here" message reaches the interface without being asked. The watcher runs for
-every open project and is cheap; the indexes are built lazily, the first time something needs one, and
-kept warm afterward by the same feed.
+**Name matching is the whole navigation model, and its ceiling is stated up front.** A jump from a
+use site to a definition is: take the identifier under the cursor, look up every definition with
+that name, offer them. One candidate is a jump; several are a picker. This is search-based code
+navigation — the model GitHub shipped before stack graphs — and it is wrong exactly where scopes
+matter: two methods called `run` on different types are two candidates, a local shadowing an import
+is not resolved, and a name defined outside the project has no answer. **No scope resolution, no
+type inference, no call graph, no rename.** Those need a language server, and a language server is a
+separate proposal with a process lifecycle attached to it.
 
-## 3. The watcher
+**The other two indexes answer questions already answered.** A filename index duplicates the
+explorer's tree and the walk that builds it. A full-text index means `tantivy`, the one genuinely new
+package in the old proposal, to answer a search the host already answers by walking with
+`grep-searcher` under the ceilings in `crates/ubiq-host/src/search/ceiling.rs` — and the knowledge
+base is a marked subset of the same files, so the same walk with a narrower root answers it too. If
+a project ever outgrows that, it is reopened with a measurement rather than an assumption.
 
-**Two scopes, one `notify` instance per project.** The content scope walks and watches everything the
-project's own ignore rules allow — reusing the `ignore`-crate-based rule reading `inbox-omni` §6
-already decided for search, so a project's `.gitignore` is read once and agreed on by both — minus
-`.git` itself. A second, fixed scope watches `.git/HEAD`, `.git/MERGE_HEAD`, `.git/index` and
-`.git/refs/**` unconditionally, because those are exactly the paths an ignore-aware walk would skip
-and exactly the ones `G71` needs.
+**So: one index, and no new third-party package.** Every grammar this needs already resolves in
+`Cargo.lock`, as does `bincode` for the cache; what changes is that `crates/ubiq-host/` gains direct
+edges to them and to `tree-sitter`, which it has never depended on. No `tantivy`, and no
+`tree-sitter-tags` — that crate adds doc extraction and syntax-type resolution over a plain `Query`
+run, and a plain `Query` run is forty lines.
 
-**Events are debounced and coalesced by path**, the same 150ms window `refs/markdown-web`'s watcher
-already proved sufficient for — a directory saved by an editor as a burst of creates and renames
-collapses to one change per path rather than one event per syscall.
+## 3. What is stored, and what is not
 
-**The watcher starts when a project opens and stops when it closes.** It answers `G34`, `G71`, `G30`
-and `G77` on its own, before a single index exists — a project nobody has ever marked for the
-knowledge base still gets a live tree and live git state.
+**Measured on this workspace: 5 637 definitions against 54 008 call sites across 107 000 lines of
+Rust.** One definition per nineteen lines, one reference per two, ten references for every
+definition. That ratio is the whole storage argument, and it holds roughly across languages because
+it is a property of how code is written rather than of a grammar.
 
-## 4. The indexes
-
-Three independent indexes share the watcher's feed and serve different readers. None blocks another,
-and none is a source of truth — each is rebuilt from the files on disk, and none is asked to survive
-being wrong.
-
-### 4.1 Filename index
-
-An in-memory tree of paths and titles, refreshed incrementally from the watcher's changes rather than
-rescanned whole — the same idea as `refs/markdown-web`'s `docstore`, made incremental instead of
-rebuilt. It backs the knowledge-base browser's tree and the web export's directory listings
-([`inbox-kb-web`](./kb-web-export-proposal.md)), and it is available later as a faster backing store
-for `⌘K`'s in-memory scan, without that navigator changing what it means to its user.
-
-### 4.2 Full-text index
-
-One `tantivy` index per project, built lazily and scoped to whatever asked for it — the
-knowledge-base's marked files by default, the whole project if a full export ever needs project-wide
-search. It persists under a new, host-owned cache directory beside the project's existing files — a
-sibling to the interface's own `ui/` workarea under `projects/<ulid>/`, but the other way round: this
-one belongs to the host, the interface never reads it directly, and it is exactly as disposable as
-`ui/` is — safe to delete, rebuilt from the project's files, never consulted to decide what those files
-are. A changed file's document is deleted and re-added inside one commit per debounce window, not one
-commit per file; `tantivy` commits are not free.
-
-This is the store `inbox-omni`'s `Source::Kb` was written to expect and cannot yet query — the phase
-that lands this index is the phase that finally answers it (§9).
-
-### 4.3 Symbol index
-
-Per-file definitions — functions, types, methods, and headings treated as symbols for markdown —
-extracted with the grammars already vendored for syntax highlighting, so v1's language coverage is
-whatever that list already is, at no new grammar cost. Two readers: the knowledge-base's per-document
-outline and its auto-generated titles (`refs/markdown-web`'s heading-walk TOC, done here over a
-`tree-sitter-markdown` tree instead of a goldmark AST), and the web export's "code exploration" mode,
-where a definition becomes a link target.
-
-**Stated ceiling, not a silent gap:** v1 extracts definitions only. No cross-file reference
-resolution, no call graph, no *find all references* — a definition site is a link, a use site is not,
-yet. It is in-memory and rebuilt like the filename index; a symbol table is cheap enough that
-persisting it is not worth the complexity.
-
-## 5. The push
-
-A coarse invalidation, host to interface, sent without being asked — the same class of thing `G47`
-already wants for the work family ("the host answers work messages and never pushes one... a live
-agent needs an unsolicited variant the work family does not have"). This proposal does not invent a
-second unsolicited-push mechanism; whatever plumbing resolves `G47` is what this reuses.
+**So the table holds definitions and nothing else.** One entry per definition capture:
 
 ```rust
-pub struct ProjectChanged { pub project_id: ProjectId, pub changed: Vec<RelPath>, pub truncated: bool }
+pub struct Def {
+    pub name: String,   // the lookup key
+    pub file: FileId,   // u32 into the project's path table
+    pub kind: DefKind,  // u8
+    pub line: u32, pub col: u32, pub end_col: u32,
+}
 ```
 
-Batched on the same debounce window as the watcher itself, bounded the way search's own batches are
-(64 files / 512 hits / 100ms, whichever first) rather than one message per file event. No content
-crosses on this message, only relative paths — architecture rule 2 applied here the same way it is
-applied to a search hit. A reader that wants the new content asks for it the normal way: a fresh
-`ProjectTree` listing, a knowledge-base query, a diff.
+Beside it, the project's path table and one map from name to the entries carrying it — the only
+structure navigation queries. A definition costs about sixty-four bytes with its share of the map.
 
-Four readers of one message: the explorer tree, folded in through `ExplorerState::merge` exactly as
-its own comment anticipates; git state, refreshed on any change inside the fixed `.git` scope; the
-knowledge-base browser panel; and the web export's live-reload endpoint
-(`inbox-kb-web` §5).
+**Extrapolated to a million-line repository: roughly fifty thousand definitions, near six megabytes,
+and it does not grow with how much the code calls itself.** Storing references too would be five
+hundred thousand entries and near forty megabytes, to answer one question the host answers another
+way. Keeping the source line beside each entry, so a picker could show a signature without reading
+the file, would add thirty megabytes at that scale for a string displayed a few dozen at a time; the
+picker reads those lines from disk as it draws them, the same metadata-in-memory, content-on-demand
+split the markdown reference server settled on.
 
-## 6. Where it runs, and what it costs
+**References are read per file, on demand, from a single parse — never stored.** This is what the
+readers actually want: an export page links the identifiers *on that page*, the editor resolves the
+identifier *under the cursor*. Both are one file, and one file is one parse of a few milliseconds.
+Nothing needs every reference in a project held in memory except *find all references*, and that one
+is answered by the content search that already exists — a whole-word query through
+`crates/ubiq-host/src/search/worker.rs` is textual where the tag lookup is syntactic, one notch
+coarser than a model that was already approximate, and it costs no memory, no new code and no new
+message.
 
-**Owns a process-local resource on every count — belongs in `crates/ubiq-host/`.** `tech-structure`'s
-own placement rule is exact: "Does it own a process, a file descriptor or a path on disk? →
-`crates/ubiq-host/`." A `notify` handle, a `tantivy` index directory and a parsed syntax tree are all
-three.
+**Ceilings, each with a flag rather than a silent stop:** 2 000 definitions per file, 50 000 files,
+500 000 definitions per project, and files above one megabyte are skipped unparsed.
 
-**One worker thread per project**, its own queue — the shape `crates/ubiq-host/src/search/` already
-proved for exactly this reason: putting indexing work on the file family's single thread would stall
-every folder listing behind it, the same cost `G36` already names.
+**Coverage is what the grammars give, and a file with no tags is not an error.** The nine languages
+above come free. Markdown gets headings as definitions from a hand-written query beside the two
+highlight queries already vendored under `crates/ubiq/src/ui/languages/` — three patterns, because
+the markdown grammar ships no tags query. Kotlin ships a `tags.scm` without a Rust constant, so it
+is vendored the same way if wanted. YAML, TOML, CSS, HTML, bash, SQL and diff have no symbols and
+never will here: opening one is fine, navigating inside it does nothing.
 
-**One real new dependency.** `notify` is already in the build graph transitively through
-`gpui-component`; a direct edge from `ubiq-host` is a manifest line, not a new crate to vet. The
-tree-sitter grammars are already direct dependencies of the interface crate; a direct edge from
-`ubiq-host` costs the same, a line and nothing else. `tantivy` is the one dependency this proposal
-actually adds — no existing edge, transitive or otherwise, reaches it today.
+## 4. The cache
 
-## 7. Failure
+**One file per project, and the store layer already predicted it** — `crates/ubiq-host/src/store/file.rs`
+says in its own words that where volume eventually arrives is the per-project cache, a different
+store behind a different trait. This is that store, and it stays a file rather than becoming a
+database for the same reason the catalogue did.
+
+**It lives beside the interface's workarea, on the other side of the boundary** — a host-owned
+sibling of the `ui/` directory under `projects/<ulid>/`, which the host makes and the interface
+never reads. Nothing Ubiq remembers is written into the user's project folder.
+
+**Keyed per file by the cheapest identity the walk already has.** The walk yields metadata for every
+entry it visits, so a file is identified by its modification time and its length — no hashing, no
+second stat, no content read. A cached entry whose pair still matches is reused; one that differs is
+re-parsed; one whose file is gone is dropped; a file the cache has never seen is parsed. **A warm
+start therefore costs a walk plus a parse of only what changed**, against a cold start's parse of
+everything, which is the entire point: parsing is one to two orders of magnitude dearer per byte
+than reading back a compact record.
+
+```rust
+struct Cached { version: u16, grammars: u64, files: Vec<(RelPath, Mtime, u64, Vec<Def>)> }
+```
+
+**Written back atomically, debounced, and only when something changed** — through
+`crates/ubiq-host/src/atomic.rs`, on the same write-temp-and-rename path every other store uses,
+after the queue has been idle a few seconds. A crash therefore loses at most the last few seconds of
+parsing, and a torn file is impossible.
+
+**Wrong is always cheap, because the cache is disposable by construction.** `version` bumps when the
+record layout changes and `grammars` stamps the set of grammar versions compiled in; either
+mismatching throws the file away. A corrupt or unreadable cache is deleted and the project is built
+cold. It is never consulted to decide what a project's files *are* — only to avoid re-parsing ones
+the walk has already found.
+
+**It does not hog disk either.** Fifty thousand definitions is one to two megabytes of `bincode` —
+smaller than the source it describes by two orders of magnitude. The directory goes when the project
+is forgotten, collected by `crates/ubiq-host/src/gc.rs` with the rest of the project's workarea, and
+a cache untouched for thirty days is deleted on the next sweep: a project nobody opens pays nothing
+but the seconds of its next cold start.
+
+## 5. Where the work runs
+
+**The index is the host's; the open buffer's outline is the interface's.** This is the split
+`inbox-find` already drew for search — inside one buffer crosses no bus, across the project does —
+and it saves the entire second half of this feature. The editor is `gpui-component`'s, its
+`Highlighter` already owns a parse tree per buffer, already re-parses incrementally on every edit,
+already exposes that tree, and already walks it for fold ranges. An outline and a breadcrumb are one
+more walk of a tree that is already there, updated as the user types, with no message, no worker and
+no dependency added to `crates/ubiq/`. Asking the host for the outline of a file the user is editing
+would be asking about a version of it that is not on disk.
+
+**Everything across the project is the host's**, in a module beside `search/` and `watch/` under
+`crates/ubiq-host/src/`, on the shape those two proved: a job on a queue, one thread per project,
+parallelism inside the worker via the walk's `build_parallel`. It owns parse trees, a path on disk
+and file descriptors, which is the placement rule in `tech/project-structure.md` answered three
+times over, and it must never sit on the file family's single thread — that is `G36`'s cost paid
+twice.
+
+**A file opened outside any project is navigable for free, and this is the split paying for
+itself.** The component library parses whatever buffer it is given and does not know whether a
+project is open. A loose file dragged onto a window gets its outline, its breadcrumb and a jump to
+any definition inside itself, with no host involvement, no index and no message. Only crossing a
+file boundary needs a project, which is what a project *is*. The interface therefore never gates an
+outline on a project being open, and the host is never asked about a file it cannot see.
+
+## 6. What crosses the bus
+
+**Two variants in the file family, not a new family and not a new search.** A symbol request names a
+project and resolves to paths inside it, and the file family is where the transport contract sends
+anything that names a project and a path. One request with an op on it, rather than three that
+differ only in their argument:
+
+```rust
+ProjectSymbols { project_id, of: SymbolsOf }                    // UI → host
+SymbolsListed  { project_id, of, defs: Vec<Def>, truncated }    // host → UI
+
+enum SymbolsOf { File(RelPath), Name(String), Prefix(String) }
+```
+
+`File` is a document's outline for anything that is not the buffer in front of the user — a web
+export page, a knowledge-base document. `Name` is goto-definition: the reply is the candidate set.
+`Prefix` is the symbol picker. Failures reuse the file family's `ProjectFileError`, with an empty
+path for the two queries that name no file.
+
+**Symbol search in the omni panel is a `Source`, not a message** — a `Batch` arm and a group header,
+exactly as `inbox-omni` says a new source should arrive. **Goto-definition deliberately does not go
+there**, because that family allows one live search per project and a supersede, and an editor
+gesture must not cancel the search the user is reading. That is the whole reason the pair above
+exists.
+
+**The index never crosses the bus. Only answers do.** Handing the interface the whole table so it
+could query locally is the tempting shape and it is wrong on three counts. It is large: fifty
+thousand definitions serialised is megabytes in one message, and the reference table nobody should
+store would be tens. It is on a shared channel: the same bus carries every pane's terminal bytes,
+and a multi-megabyte frame head-of-lines all of them — the coordinator's reader may not be blocked
+by a slow interface, because that stalls the harness itself. And it assumes locality: the
+architecture already forbids the interface assuming the pseudo-terminal is local, and a bus treated
+as a network link is one where you ship the question, not the corpus. Every reader wants a slice —
+one file's definitions, one name's candidates, one prefix's matches — so **every navigation reply is
+bounded**: two hundred candidates, four hundred prefix matches, one file's definitions, each with a
+`truncated` flag, and none of them streams.
+
+## 7. What the editor gets
+
+**A breadcrumb and an outline** from the buffer's own tree, following the cursor, costing one walk
+per edit and nothing on the wire.
+
+**Goto-definition on the identifier under the cursor** — the name comes from the buffer's tree, the
+candidates from the host; one opens, several raise the picker the search panel already draws rows
+in. **Find-references** is a whole-word content search under a symbol heading rather than an index
+lookup, which is the trade §3 makes: textual, so a comment or a string can appear among the hits,
+and free. Both are blocked on the same thing: `G107`, that a result can open a file but not a
+position, because `ReadProjectFile` carries no line and no editor takes one. Until a destination
+with a line locus lands, a definition on line 900 opens at line 1, and this is not worth shipping.
+It is phase 0 and it is not optional.
+
+**A symbol picker over the project**, `Prefix` against the table, which is the first thing `G16`'s
+unbuilt half — find a file, find a symbol — can be built on.
+
+## 8. What the web export gets
+
+The export exists, in the interface crate, and this changes two things about it and nothing else.
+
+**Identifiers become links.** Rendering a source page, the export parses that one file and runs the
+same tags query over it, which gives every definition and every reference on the page it is about to
+draw. Definitions become anchors; references become links to a lookup route that resolves the name
+against the host's table — one candidate redirects, several list. The per-page parse costs what the
+highlighting already costs, and the export asks the host only the small question, once per followed
+link, instead of holding a project's worth of symbols for as long as it is up.
+
+**Colour stays in the browser.** `inbox-kb-web` says source is rendered with the same tree-sitter
+grammars the editor highlights with; this supersedes that. highlight.js already colours these pages
+at no cost to the export, and the index buys the thing highlight.js cannot do. Rendering colour
+twice in two engines to arrive at the same page is work for its own sake.
+
+Everything else that document decided stands — one process and one port, slugs derived at start,
+path safety re-checked at the HTTP boundary, loopback unauthenticated, LAN behind an ephemeral share
+slug.
+
+## 9. Failure
 
 | When | What happens |
 |---|---|
-| The watcher can't watch a subtree (permission denied) | Logged; that subtree gets no live updates, nothing else is affected |
-| A `tantivy` commit fails, or the index directory is corrupt | Dropped and rebuilt from the project's files — the cache is disposable by design |
-| A file fails to parse (mid-edit syntax error) | Its symbols stay stale until it parses again; no other file is affected |
-| A burst overwhelms coalescing (a checkout touching thousands of paths) | Treated as a full rescan, the same fallback `refs/markdown-web`'s watcher effectively takes by calling `store.Rescan()` on any change |
-| A project closes while indexing is in flight | The worker's queue is dropped with the project, the same as the file and search workers already do |
+| A file fails to parse (mid-edit, or a dialect the grammar rejects) | Its entries stay as they were until it parses; no other file is affected |
+| A language has no tags query | Its files carry no definitions; opening them works, navigating inside them does nothing |
+| A name resolves to several definitions | A picker, ordered by same-file, then same-directory, then path; never a silent choice |
+| A name resolves to none | Nothing happens and the status bar says so — an unresolved use site is the normal case for anything defined outside the project |
+| The cache is corrupt, truncated, or stamped for other grammars | Deleted, and the project is built cold |
+| A file's modification time is unchanged but its content is not | Its definitions stay stale until it is touched again or the project is rebuilt — the cost of not hashing, and the watcher covers every change made while the project is open |
+| The watcher reports a truncated burst | The table is dropped and rebuilt on the next request, the same fallback the explorer takes |
+| A project is closed while a build is in flight | The queue is dropped with the project, as the file and search workers already do |
+| A ceiling is hit | The reply carries `truncated`; the interface says the project is indexed up to the ceiling |
+| A file is open outside any project | Outline and inside-file jumps work off the buffer's own tree; anything crossing a file has nowhere to go and says so |
+| Find-references matches a comment or a string | It does, and the heading says the source is a text search |
 
-## 8. Rules this adds
+## 10. Rules this adds
 
-- Indexing is always host-side, always lazy — built the first time something asks for it, kept warm
-  afterward by the watcher's feed.
-- The watcher and the indexes are separate: the watcher runs for every open project and fixes
-  staleness on its own; an index is opt-in on top of it.
-- An index is a disposable cache, never a source of truth — safe to delete, always rebuildable from
-  the project's own files.
-- Content search over an arbitrary project stays the live walk `inbox-omni` already decided. These
-  indexes only ever answer for the knowledge base and the web export.
+- Navigation resolves names, never scopes. A definition is a candidate, not an answer, and the
+  interface never hides that behind a jump it cannot justify.
+- Definitions are stored, references are parsed on demand. Anything wanting every reference in a
+  project is a content search, not an index read.
+- The index never crosses the bus; only bounded answers do. The interface holds no copy of it, and
+  no navigation message streams.
+- The cache is disposable by construction — versioned, stamped, atomically written, deleted rather
+  than repaired, and never consulted to decide what a project's files are.
+- Inside the open buffer the interface answers from the tree it already has; across the project the
+  host answers. Neither asks the other for what it owns, and nothing about a buffer's own shape
+  requires a project to be open.
+- Content search stays the live walk. The index answers about names and never about content.
+- A language's coverage is whatever its grammar's own query gives. Ubiq does not write tags queries
+  for languages upstream has not, beyond the markdown headings case.
 
-## 9. Phases
+## 11. Phases
 
-1. **The watcher alone.** `notify`, the two scopes, the debounce, `ProjectChanged`, wired to
-   `ExplorerState::merge` and to git-state refresh. Closes `G34`, `G71`, `G30` and `G77` with no index
-   built yet.
-2. **The filename index.** Feeds the knowledge-base browser and the web export's directory listings.
-3. **The symbol index.** Per-file outlines, document titles, code-exploration link targets.
-4. **The full-text index.** Knowledge-base and web-export search — the phase that finally gives
-   `inbox-omni`'s `Source::Kb` a store to answer from.
+0. **A destination with a line.** `G107`. Nothing here is usable without it, and it is owned outside
+   this document.
+1. **The table and the two messages.** The host module, the parallel build, the watcher-fed refresh,
+   `ProjectSymbols` and its reply, the nine grammars plus markdown headings. In memory only.
+2. **The cache.** Per-file records keyed by modification time and length, atomic debounced write-back,
+   version and grammar stamps, eviction on the existing sweep.
+3. **The editor.** Breadcrumb and outline from the buffer's own tree; goto-definition and the project
+   symbol picker from the table; find-references from the content search.
+4. **The web export.** Definition anchors, reference links, the name-lookup route.
+5. **Symbol search in the omni panel.** A `Source` arm and a group header.
 
-Phase 1 stands alone and is worth building even if nothing after it ever lands.
+Phase 1 is worth building alone: a symbol picker over a project is the whole of `G16`'s missing half.
+Phase 2 is worth building only once phase 1 is slow enough to notice, and the honest trigger is a
+cold start somebody complains about.
 
-## 10. What this asks to be decided
+## 12. What this asks to be decided
 
-- One `notify` watcher per open project, split into an ignore-aware content scope and a fixed
-  git-plumbing scope, debounced 150ms and coalesced by path.
-- The watcher runs for every open project regardless of indexing; indexing is lazy and separate.
-- Three independent indexes — filename, full text, symbol — none a source of truth, none blocking
-  another, the full-text one alone persisted, and only to a host-owned disposable cache directory.
-- The invalidation push is coarse (paths, not content) and unsolicited, riding whatever primitive
-  resolves `G47` rather than a second one.
-- This does not touch how `inbox-omni`'s `Scope::Files` search runs — that stays a live walk.
+- One index, not three: the filename and full-text indexes are dropped and `tantivy` does not enter
+  the build. Knowledge-base and export search ride the live walk that already exists.
+- Navigation is name matching over tree-sitter tags, with the ceiling stated rather than implied, and
+  a language server is a later and separate question.
+- Definitions are stored and references are not: ten references per definition measured here, near
+  six megabytes per million lines instead of forty, and find-references falls back to the content
+  search.
+- The index is cached on disk per project, keyed per file by modification time and length, written
+  atomically and thrown away on any doubt — a warm start re-parses only what changed.
+- `crates/ubiq-host/` takes its first tree-sitter dependency; the grammars and `bincode` are already
+  in the lock file, so this is a set of manifest lines and no new package.
+- The open buffer's outline is the interface's, off the parse tree the component library already
+  keeps; everything project-wide is the host's, and the buffer half works with no project open.
+- The interface never receives the table, only bounded answers, because the bus is shared with every
+  pane's terminal bytes and is to be treated as a network link.
+- Two file-family variants for navigation plus a search-family `Source` for symbol search, with
+  goto-definition deliberately not routed through the search family.
+- The export keeps browser-side highlighting, superseding `inbox-kb-web`'s decision to re-render
+  source with the editor's grammars.
 
-Backlog rows this leaves open: whether the full-text index ever covers a whole project rather than
-only the knowledge base, and at what project size that stops paying for itself; cross-file reference
-resolution for the symbol index; whether a missing or corrupt `tantivy` index rebuilds eagerly on host
-start or waits for the first query that needs it; index warm-up cost on a large project's first
-activation.
+Backlog rows this leaves open: whether find-references ever earns the stored reference half, priced
+at the measured ten-to-one and decided on a complaint rather than a guess; whether the cache's
+modification-time identity ever needs a content hash behind it, and what it would cost; the sibling
+proposal still cites a full-text index and a symbol section that no longer exist here, and owes a
+reconciliation pass; at what project size the live walk stops being enough for knowledge-base
+search; whether a language server ever supplies what name matching cannot, and what owns its process
+if it does; nested-`.gitignore` reading, so the index's walk and the watcher's filter agree
+(`G110`).
 
 ## Related docs
 
-- [`omni-search-proposal.md`](./omni-search-proposal.md) — the live-walk search this does not
-  reopen, and `Source::Kb`, which phase 4 here answers
-- [`kb-web-export-proposal.md`](./kb-web-export-proposal.md) — the feature this indexing serves
-- [`../tech/architecture.md`](../tech/architecture.md) — the placement rule and the no-absolute-path
-  rule this follows
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the message-family shape this
-  imitates
-- [`../tech/project-structure.md`](../tech/project-structure.md) — the workarea this new cache
-  directory sits beside, on the other side of the boundary
+- [`omni-search-proposal.md`](./omni-search-proposal.md) — the live walk this leans on instead of a
+  full-text index, and the `Source` arm phase 5 adds
+- [`kb-web-export-proposal.md`](./kb-web-export-proposal.md) — the export this gives link targets to,
+  and the highlighting decision this supersedes
+- [`find-in-file-proposal.md`](./find-in-file-proposal.md) — the buffer-versus-project split this
+  reuses for outlines
+- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the family this adds two
+  variants to, and the procedure for adding them
+- [`../tech/project-structure.md`](../tech/project-structure.md) — the placement rule and the
+  workarea this cache sits beside

@@ -677,9 +677,6 @@ pub enum Message {
         /// somebody, and a conversation that changed identity halfway would be two
         /// conversations wearing one transcript.
         account: Option<String>,
-        /// What to call this conversation, typed at creation. Absent falls back to the harness's
-        /// own label, the way it always has — a name is a convenience, not a requirement.
-        name: Option<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -708,6 +705,21 @@ pub enum Message {
     },
     /// Stop the agent and clean up after it.
     EndConversation {
+        agent_id: AgentId,
+    },
+    /// Kill the harness without ending the conversation. The transcript stays, the run directory
+    /// stays — seeded credentials included — and the same `agent_id` can be started again by
+    /// [`Message::ResumeConversation`] or by the next [`Message::PromptAgent`], exactly as a
+    /// conversation that has not launched yet is. [`Message::EndConversation`] is still what takes
+    /// everything with it.
+    UnloadConversation {
+        agent_id: AgentId,
+    },
+    /// Start an unloaded conversation's harness again, under the same `agent_id`, with no prompt.
+    /// The launch recipe is the `PendingConversation` the agent has carried since it was created,
+    /// so this is the same launch a first [`Message::PromptAgent`] performs — only with no turn to
+    /// forward afterwards. A conversation that is already live is left alone.
+    ResumeConversation {
         agent_id: AgentId,
     },
 
@@ -743,6 +755,12 @@ pub enum Message {
     ConversationEnded {
         agent_id: AgentId,
         stop_reason: StopReason,
+    },
+    /// The harness is gone and the conversation is not. It is back to the state a conversation has
+    /// before its first turn: the pickers return, and the next prompt — or a resume — starts a new
+    /// process.
+    ConversationUnloaded {
+        agent_id: AgentId,
     },
     /// The conversation could not be started, or its stream failed. A sentence, for the reason
     /// [`Message::WorkError`] carries one.

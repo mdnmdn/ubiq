@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-04
-verified: 2026-09-04
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
+updated: 2026-09-05
+verified: 2026-09-05
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -63,7 +63,7 @@ a palette swap changes every surface consistently.
 
 | Group | Accessors | For |
 |---|---|---|
-| Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `scrim` | The stack of backgrounds, from the window down to a selected row — and what a modal lays over the window it took the keyboard from |
+| Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `selected_focus`, `scrim` | The stack of backgrounds, from the window down to a selected row, deepening once the list holding that row has the keyboard — and what a modal lays over the window it took the keyboard from |
 | Text | `text`, `text_muted`, `text_faint`, `on_accent` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — and copy sitting on a filled surface |
 | Accent | `accent`, `accent_muted`, `accent_soft` | The interactive colour, its subdued form, and the fill behind a selected row |
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
@@ -150,7 +150,8 @@ arguing about in [`decisions.md`](./decisions.md) — `Project` carries `D19`, a
 selection and link colours a pane's emulator paints.
 
 Every token has a call site, and for one of them the only one is a specimen. The style reference
-draws all of them by name — that is what the page is for — but `selected` fills no row, and
+draws all of them by name — that is what the page is for — but `selected` fills only the row a
+list left its cursor on while the keyboard is elsewhere, and
 `border_focus` marks the focused text field rather than a pane: the use it was designed for, focus
 across split panes, is still designed ahead of the code. That is listed as a gap in
 [`../backlog.md`](../backlog.md) rather than quietly resolved by the drawing, because a specimen is
@@ -260,7 +261,7 @@ and the caller reads it back when the confirm fires, and `confirm_enabled: false
 button the same `.opacity(0.5)` way a disabled action dims everywhere else — there is no second
 disabled style. Both close over `kit::modal`'s scrim, edge and dismiss rules rather than repeating
 them; a screen that needs a bespoke body still reaches for `kit::modal` directly, as the harness
-login and the new-agent naming prompt's picker step do.
+login does.
 
 **A dialog is that same modal, worked in rather than answered.** The file picker — `ui/file_picker.rs`,
 raised over any screen — keeps every rule the modal keeps and differs in the three ways a dialog with
@@ -287,8 +288,16 @@ that wants those keys while the focus is in a field binds each of them twice: on
 context, and once for `ItsContext > Input`, which matches at the same depth as the library's and wins
 by being registered afterwards. `app::install_key_bindings` is called after `gpui_component::init` for
 exactly that reason. A handler that turns out to have no answer calls `cx.propagate()`, and the field
-gets its key back — which is how the picker's and the explorer's `left` and `right` are caret keys
-again in a flat list.
+gets its key back — which is how the picker's `left` and `right` are caret keys again in a flat list.
+
+**A filter field and the tree under it are two focuses, and that is the default for every tree and
+collapsible list in Ubiq.** A key means what the focus it is aimed at says it means: the field keeps
+every key a field keeps — Backspace first of all, which must never reach a row — so the list's own
+keys are bound at the panel and are live only while the list holds the keyboard. Three keys cross
+the boundary, because a field with a list under it is one control to the hand: `down` and `tab` step
+from the field onto the list, `escape` clears the query from either, and `enter` opens what the
+query landed on without leaving the field. `tab` and `shift-tab` step back off the list onto the
+field. Clicking a row puts the keyboard on the list.
 
 **A row is one line, and a value that does not fit is elided.** `kit::elided` truncates with the
 system ellipsis and carries the whole string as its tooltip, which is why it takes an element id. A
@@ -316,7 +325,12 @@ explorer share in `files.rs`, and the one dropdown mechanism every menu in the w
 the context menu a right-click, or a control that has no room for a trigger, raises at the pointer:
 that same panel, opened at a point rather than under a chip. Its rows are labels, a disabled label,
 or a separator — a hairline that still takes an index, because a menu's rows and the actions behind
-them are matched by position.
+them are matched by position. `kit::Picker` may carry a filter field of its own, through
+`.search(&state, focused)` — one `Entity<InputState>` drawn at the top of the panel, in the same
+`field(...)` shape `project_menu.rs`'s hand-rolled search uses. The picker never filters: the caller
+narrows `items` and keeps a parallel values list in lockstep before building the picker, so
+`on_pick(index)` stays correct by construction, and an empty result after filtering draws one muted
+"No matches" row rather than a panel with nothing in it.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two

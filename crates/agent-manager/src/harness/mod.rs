@@ -129,6 +129,55 @@ impl ModelInfo {
     }
 }
 
+/// One reasoning-effort level a model accepts, in the harness's own vocabulary.
+///
+/// Never flattened across harnesses: Claude's `low|medium|high|xhigh|max` and Codex's
+/// `none|minimal|low|medium|high|xhigh` are different vocabularies, and what the user picks
+/// has to round-trip exactly through the one the harness reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThinkingLevel {
+    /// The harness-native value to pass through (e.g. `--effort <value>`).
+    pub value: String,
+    /// Human-readable label for a picker UI (e.g. `"Extra high"`).
+    pub label: String,
+    /// Optional one-line note about what this level trades off.
+    pub description: Option<String>,
+}
+
+/// What one model accepts. An empty `levels` means this model has no reasoning knob — which
+/// is the honest answer for most of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelThinking {
+    /// The levels this model accepts, in the harness's own wire order.
+    pub levels: Vec<ThinkingLevel>,
+    /// The level the harness uses when none is specified, if it names one.
+    pub default_level: Option<String>,
+}
+
+/// Title-case a reasoning-effort id for display, e.g. `"medium"` -> `"Medium"`. `"xhigh"` is
+/// special-cased to `"Extra high"` (bare title-casing would render it as `"Xhigh"`).
+pub(crate) fn effort_label(effort: &str) -> String {
+    if effort == "xhigh" {
+        return "Extra high".to_string();
+    }
+    let mut chars = effort.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// One permission/sandbox mode this harness's CLI accepts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModeInfo {
+    /// The harness-native value to pass through (e.g. `--permission-mode <id>`).
+    pub id: String,
+    /// Human-readable label for a picker UI.
+    pub label: String,
+    /// Optional one-line note about what this mode does.
+    pub description: Option<String>,
+}
+
 /// A plan for an interactive credential login into a relocated home dir,
 /// produced by [`Harness::login`]. The launch runs in passthrough (the user
 /// completes the harness's native login); afterwards the caller verifies
@@ -504,6 +553,43 @@ pub trait Harness {
             "model discovery for harness '{}' is not implemented",
             self.id()
         )
+    }
+    /// The installed binary's own version string, as a cache key. `<command> --version`, first
+    /// line, trimmed — the shape every harness in the table answers.
+    /// Verified: claude → "2.1.261 (Claude Code)", codex → "codex-cli 0.142.5".
+    fn version(&self) -> Result<String> {
+        let output = std::process::Command::new(self.command())
+            .arg("--version")
+            .output()
+            .with_context(|| format!("running `{} --version` (is it on PATH?)", self.command()))?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "`{} --version` failed ({}): {}",
+                self.command(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(stdout.lines().next().unwrap_or_default().trim().to_string())
+    }
+    /// Per-model reasoning catalogs, keyed by the same ids `discover_models` answers.
+    ///
+    /// Default empty — a harness with no reasoning concept. That is the truthful answer for
+    /// opencode, Copilot CLI and Grok CLI, and it is why they are not overridden: opencode's
+    /// levels are `run --variant` values that a local `opencode.json` can extend and that no
+    /// command lists; Copilot's `help config` block carries model ids and nothing about effort;
+    /// Grok's `models_cache.json` has no reasoning field.
+    fn discover_thinking(&self) -> Result<std::collections::BTreeMap<String, ModelThinking>> {
+        Ok(std::collections::BTreeMap::new())
+    }
+    /// The permission/sandbox modes this harness's CLI accepts, as a fixed list — these are
+    /// enum values baked into the binary, not something a harness advertises, so there is
+    /// nothing to probe. Default empty: opencode, Copilot and Grok offer no choice — their
+    /// bridges run `--dangerously-skip-permissions` / `--allow-all` and there is no second
+    /// answer, so one doc line here is cheaper than three empty overrides there.
+    fn modes(&self) -> Vec<ModeInfo> {
+        Vec::new()
     }
     /// Build a [`LoginPlan`] to interactively log this harness into `home` (a
     /// persistent per-account dir) and capture the resulting credential file(s).

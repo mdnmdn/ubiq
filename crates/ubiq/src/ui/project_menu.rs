@@ -81,12 +81,12 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .bg(colour)
         .text_color(theme::on_accent())
         .text_size(px(13.))
-        .child(name)
         .child(
             Icon::new(IconName::ChevronDown)
                 .with_size(Size::XSmall)
                 .text_color(theme::on_accent()),
         )
+        .child(name)
         .on_click(cx.listener(|this, _, _, cx| this.open_menu(MenuId::Project, cx)));
 
     if open {
@@ -250,7 +250,7 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     }
 
     if app.workbench.pending_close == Some(project) && group == Group::Here {
-        return confirm_row(entry.open_panes, project, cx);
+        return confirm_row(app.project_holds(project), project, cx);
     }
 
     let healthy = entry.health.is_ok();
@@ -522,8 +522,12 @@ fn window_mark(label: char, colour: gpui::Rgba) -> impl IntoElement {
         .child(label.to_string())
 }
 
-/// Closing a project with terminals running is a question, not a click.
-fn confirm_row(panes: usize, project: ProjectId, cx: &mut Context<AppState>) -> AnyElement {
+/// Closing a project with terminals running or unsaved files is a question, not a click.
+fn confirm_row(
+    holds: crate::app::Holds,
+    project: ProjectId,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     div()
         .px_2()
         .py_2()
@@ -541,8 +545,10 @@ fn confirm_row(panes: usize, project: ProjectId, cx: &mut Context<AppState>) -> 
                 .text_size(px(12.))
                 .text_color(theme::text())
                 .child(format!(
-                    "{panes} terminal{} still running. Close anyway?",
-                    if panes == 1 { "" } else { "s" }
+                    "{}. Close anyway?",
+                    holds
+                        .sentence()
+                        .unwrap_or_else(|| "Nothing open".to_string())
                 )),
         )
         .child(small_button(

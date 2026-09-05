@@ -156,7 +156,13 @@ pub fn run(boot: Boot) {
         // Before any window: `open_project_window` takes the window's connection from here.
         app::BusHub::install(hub, cx);
 
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        // Unsaved work is the interface's to answer for, so ⌘Q is a question first: the window
+        // holding it raises the same dialog its close button does, and quits on the yes.
+        cx.on_action(|_: &Quit, cx| {
+            if app::quit_requested(cx) {
+                cx.quit();
+            }
+        });
         cx.bind_keys([
             KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("ctrl-q", Quit, None),

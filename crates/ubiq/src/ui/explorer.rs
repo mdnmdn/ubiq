@@ -15,8 +15,8 @@ use gpui_component::IconName;
 use gpui_component::InteractiveElementExt;
 use gpui_component::input::Input;
 
-use crate::app::AppState;
-use crate::state::{ExplorerKey, ExplorerView, GitStatus, MenuId, Row};
+use crate::app::{AppState, MIN_QUERY};
+use crate::state::{ExplorerKey, ExplorerView, Follow, GitStatus, MenuId, Row};
 use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
@@ -99,7 +99,9 @@ gpui::actions!(
         ExplorerEnter,
         ExplorerShiftEnter,
         ExplorerDelete,
-        ExplorerDismiss
+        ExplorerDismiss,
+        ExplorerFocusTree,
+        ExplorerFocusFilter
     ]
 );
 
@@ -114,39 +116,49 @@ const DELETE_KEYS: [&str; 4] = if cfg!(target_os = "macos") {
     ["delete", "shift-delete", "backspace", "shift-backspace"]
 };
 
-/// The keys the panel answers to, bound twice each — once for the panel and once for the field
-/// inside it, for the same reason the picker's are: the focus is in the filter, and the component
-/// library's input binds the arrows for itself at the deepest node. See
-/// `ui::file_picker::key_bindings`.
+/// The keys the panel answers to, and where each is live.
+///
+/// **This is the default for every tree in Ubiq**, and the rule behind it is one sentence: the
+/// filter above a tree and the tree itself are two focuses, and a key means what the focus it is
+/// aimed at says it means. So the field keeps every key a field keeps — Backspace first of all,
+/// which must never reach a file — and the tree's own keys are bound at the panel, where they are
+/// only reachable once the tree holds the keyboard.
+///
+/// Three keys cross the boundary, because a field with a list under it is one control to the hand:
+/// Down and Tab step from the field onto the tree, Escape clears the query from either, and Enter
+/// opens what the query landed on without asking the user to leave the field first. Shift+Tab and
+/// Tab step back off the tree onto the field.
 pub fn key_bindings() -> Vec<KeyBinding> {
-    fn both<A: gpui::Action + Clone>(key: &str, action: A) -> [KeyBinding; 2] {
-        [
-            KeyBinding::new(key, action.clone(), Some(CONTEXT)),
-            KeyBinding::new(key, action, Some(FIELD_CONTEXT)),
-        ]
+    fn panel<A: gpui::Action>(key: &str, action: A) -> KeyBinding {
+        KeyBinding::new(key, action, Some(CONTEXT))
+    }
+    // The field's own, bound at the field's depth for the reason `ui::file_picker::key_bindings`
+    // gives: the component library binds at the deepest node, so a binding on the panel alone
+    // would never be reached while the caret is in the field.
+    fn field<A: gpui::Action>(key: &str, action: A) -> KeyBinding {
+        KeyBinding::new(key, action, Some(FIELD_CONTEXT))
     }
 
-    [
-        both("up", ExplorerUp),
-        both("down", ExplorerDown),
-        both("left", ExplorerOut),
-        both("right", ExplorerInto),
-        both("enter", ExplorerEnter),
-        both("shift-enter", ExplorerShiftEnter),
-        both("escape", ExplorerDismiss),
-    ]
-    .into_iter()
-    .flatten()
-    // Delete is bound at the panel and at the field, like every key above it — the focus is in the
-    // filter while the tree is walked, so a binding at the panel alone would never be reached. What
-    // keeps the field usable is `answer_delete`, which hands the key back whenever there is
-    // something typed to edit.
-    .chain(
-        DELETE_KEYS
-            .into_iter()
-            .flat_map(|key| both(key, ExplorerDelete)),
-    )
-    .collect()
+    let mut binds = vec![
+        panel("up", ExplorerUp),
+        panel("down", ExplorerDown),
+        panel("left", ExplorerOut),
+        panel("right", ExplorerInto),
+        panel("enter", ExplorerEnter),
+        panel("shift-enter", ExplorerShiftEnter),
+        panel("escape", ExplorerDismiss),
+        panel("tab", ExplorerFocusFilter),
+        panel("shift-tab", ExplorerFocusFilter),
+        field("down", ExplorerFocusTree),
+        field("tab", ExplorerFocusTree),
+        field("enter", ExplorerEnter),
+        field("escape", ExplorerDismiss),
+    ];
+    // Delete is the panel's alone. There is no version of it at the field: Backspace is how a
+    // query is corrected, and a tree that removed a file because the field had run out of letters
+    // to delete would be indefensible.
+    binds.extend(DELETE_KEYS.map(|key| panel(key, ExplorerDelete)));
+    binds
 }
 
 fn answer(
@@ -158,21 +170,6 @@ fn answer(
     if !this.press_explorer_key(key, window, cx) {
         cx.propagate();
     }
-}
-
-/// Backspace or Delete: remove the row the keyboard is on, or edit the filter.
-///
-/// **A filter with anything in it keeps the key.** Backspace is how a query is corrected, and a
-/// tree that deleted a file because the user was fixing a typo would be indefensible — so the
-/// gesture is only a removal when the field is empty, which is exactly when the key has nothing
-/// else to mean. Escape clears the filter first, so the removal is one keystroke away rather than
-/// unreachable.
-fn answer_delete(this: &mut AppState, window: &mut gpui::Window, cx: &mut Context<AppState>) {
-    if !this.workbench.file_filter.is_empty() || !this.file_filter.read(cx).value().is_empty() {
-        cx.propagate();
-        return;
-    }
-    answer(this, ExplorerKey::Delete, window, cx);
 }
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -200,6 +197,12 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     // Which folder a drop would land in, which is the only answer the user gets before letting go.
     let drop_onto = explorer.drop_onto.clone();
 
+    // Whether the tree itself holds the keyboard, which is what deepens the cursor bar.
+    let on_tree = app.explorer_focus.is_focused(window);
+    // Whether what is typed is long enough to be searching for anything. Read off the field
+    // rather than off the applied filter, so the text stops being faint on the keystroke that
+    // clears the floor rather than when the walk behind it lands.
+    let searching = app.file_filter.read(cx).value().trim().chars().count() >= MIN_QUERY;
     let drawn = explorer.drawn_rows(&app.workbench.file_filter);
     // The project's own row is drawn whatever the filter says, so "nothing matches" is what a
     // filter leaving nothing *under* it looks like.
@@ -213,7 +216,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
             // densest surface, so it sits a half point under the editor's floor.
             let font = app.ui_font_size_or_default(cx) - 0.5;
             let lit = drop_onto.as_deref() == Some(row.path.as_str());
-            line(row, tree, selected.as_deref(), font, lit, cx)
+            line(row, tree, selected.as_deref(), font, lit, on_tree, cx)
         })
         .collect();
 
@@ -243,9 +246,15 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .on_action(cx.listener(|this, _: &ExplorerDismiss, window, cx| {
             answer(this, ExplorerKey::Dismiss, window, cx)
         }))
-        .on_action(
-            cx.listener(|this, _: &ExplorerDelete, window, cx| answer_delete(this, window, cx)),
-        )
+        .on_action(cx.listener(|this, _: &ExplorerDelete, window, cx| {
+            answer(this, ExplorerKey::Delete, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerFocusTree, window, cx| {
+            this.focus_explorer_tree(window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerFocusFilter, window, cx| {
+            this.focus_explorer_filter(window, cx)
+        }))
         .border_r_1()
         .border_color(theme::border())
         .child(panel_header(
@@ -272,6 +281,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                         this.open_explorer_menu(None, (f32::from(at.x), f32::from(at.y)), cx);
                     }),
                 ))
+                .child(follow_button(explorer.follow, cx))
                 .child(icon_button(
                     "explorer-collapse",
                     IconName::ChevronsUpDown,
@@ -280,30 +290,28 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                 )),
         ))
         .child(filter_bar(
-            Input::new(&app.file_filter).appearance(false),
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap_1()
-                .child(
-                    mono(view.label(), theme::text_faint())
-                        .text_size(px(10.5))
-                        .flex_none()
-                        .px_1()
-                        .bg(theme::surface_raised()),
-                )
-                .child(
-                    mono("\u{2318}P", theme::text_faint())
-                        .text_size(px(10.5))
-                        .px_1()
-                        .bg(theme::surface_raised()),
-                ),
+            // Under the three-character floor nothing is being searched for yet, and the query
+            // says so by drawing faint rather than by a message the user has to read.
+            Input::new(&app.file_filter)
+                .appearance(false)
+                .text_color(match searching {
+                    true => theme::text(),
+                    false => theme::text_muted(),
+                }),
+            div().flex().flex_none().items_center().gap_1().child(
+                mono("\u{2318}P", theme::text_faint())
+                    .text_size(px(10.5))
+                    .px_1()
+                    .bg(theme::surface_raised()),
+            ),
             app.file_filter.read(cx).focus_handle(cx).is_focused(window),
         ))
         .child(
             div()
                 .id("explorer-tree")
+                // The tree is a focus of its own, separate from the filter above it. Every key the
+                // panel binds is live only from here.
+                .track_focus(&app.explorer_focus)
                 .flex()
                 .flex_col()
                 .flex_1()
@@ -377,6 +385,7 @@ fn line(
     selected: Option<&str>,
     font_size: f32,
     lit: bool,
+    focused: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let path = row.path.clone();
@@ -388,6 +397,7 @@ fn line(
         row.depth,
         is_selected,
         row.on_cursor,
+        focused,
         font_size,
     );
 
@@ -517,4 +527,36 @@ fn line(
         this.double_click_explorer_row(double_path.clone(), cx);
     }))
     .into_any_element()
+}
+
+/// The follow button: a small square that says whether the tree tracks the active editor.
+///
+/// Three states in one control, cycled by clicking it — off, revealed once, and locked — because
+/// the middle one is a verb and the last one is a mode, and a user asking for the first rarely
+/// wants the second. Empty, half-lit, lit.
+fn follow_button(state: Follow, cx: &mut Context<AppState>) -> impl IntoElement {
+    let edge = match state {
+        Follow::Off => theme::text_faint(),
+        _ => theme::accent(),
+    };
+    let mut mark = div().size(px(10.)).border_1().border_color(edge);
+    mark = match state {
+        Follow::Off => mark,
+        Follow::Once => mark.bg(theme::accent_soft()),
+        Follow::Locked => mark.bg(theme::accent()),
+    };
+    div()
+        .id("explorer-follow")
+        .size(px(30.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(state.label()).build(window, cx)
+        })
+        .child(mark)
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.cycle_explorer_follow(cx)))
 }

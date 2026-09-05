@@ -21,7 +21,10 @@ use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::conversation::Run;
 use ubiq_proto::bus::{self, FromClient, To};
-use ubiq_proto::conversation::{ConvContent, ConvUpdate, StopReason, UsageRecord};
+use ubiq_proto::conversation::{
+    ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate, StopReason,
+    UsageRecord,
+};
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
@@ -168,6 +171,33 @@ fn chunk(text: &str) -> ConvUpdate {
     }
 }
 
+/// A select-shaped `ConfigOption`, for the three ids the host mints: `model`, `thinking`, `mode`.
+fn config_option(
+    id: &str,
+    category: ConfigCategory,
+    current: &str,
+    choices: &[(&str, &str)],
+) -> ConfigOption {
+    ConfigOption {
+        id: id.to_string(),
+        name: id.to_string(),
+        description: None,
+        category: Some(category),
+        value: ConfigValue::Select {
+            current: current.to_string(),
+            choices: choices
+                .iter()
+                .map(|(value, name)| ConfigChoice {
+                    value: value.to_string(),
+                    name: name.to_string(),
+                    description: None,
+                    group: None,
+                })
+                .collect(),
+        },
+    }
+}
+
 /// A conversation joins the work the way any other agent does, so the sidebar and the graph find
 /// it with no change of their own.
 #[gpui::test]
@@ -259,6 +289,33 @@ fn an_ended_conversation_is_kept(cx: &mut TestAppContext) {
     assert_eq!(activity, Activity::Failed);
 }
 
+/// Unlike `ConversationEnded`, the conversation is back to its pre-launch state: the pickers
+/// return, and the transcript above stays exactly as it was for a resume to run under.
+#[gpui::test]
+fn an_unloaded_conversation_goes_back_to_idle_and_keeps_its_transcript(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(id, 1, chunk("done"), cx);
+
+    fixture
+        .host
+        .send(To::Everyone, Message::ConversationUnloaded { agent_id: id });
+    cx.run_until_parked();
+
+    let (run, launched, blocks) = fixture.state.read_with(cx, |state, cx| {
+        let conversation = state.conversation(id, cx).expect("the transcript is kept");
+        (
+            conversation.run,
+            conversation.launched,
+            conversation.blocks.len(),
+        )
+    });
+    assert_eq!(run, Run::Idle);
+    assert!(!launched, "the next turn starts a new harness");
+    assert_eq!(blocks, 1, "unload does not touch the transcript");
+}
+
 /// A sentence has to land where the user is looking, whether or not a conversation exists to hang
 /// it on — a start that failed before one did is exactly the case worth saying.
 #[gpui::test]
@@ -304,8 +361,8 @@ fn an_error_is_surfaced_with_or_without_a_conversation(cx: &mut TestAppContext) 
     );
 }
 
-/// Picking a harness raises the naming prompt, and confirming it asks the host to start one. The
-/// id is what crosses, never the label.
+/// Picking a harness asks the host to start a conversation at once, in the same turn — naming is
+/// the host's, so there is no prompt in between. The id is what crosses, never the label.
 #[gpui::test]
 fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
@@ -331,15 +388,7 @@ fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
 
     fixture.state.update(cx, |state, cx| {
         state.open_new_agent_menu((10.0, 20.0), cx);
-    });
-    cx.update_window(fixture.window.into(), |_, window, cx| {
-        fixture
-            .state
-            .update(cx, |state, cx| state.pick_new_agent_menu(0, window, cx));
-    })
-    .unwrap();
-    fixture.state.update(cx, |state, cx| {
-        state.start_named_agent(cx);
+        state.pick_new_agent_menu(0, cx);
     });
     cx.run_until_parked();
 
@@ -361,13 +410,8 @@ fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
     // A harness the host could not find is drawn disabled and takes no click.
     fixture.state.update(cx, |state, cx| {
         state.open_new_agent_menu((10.0, 20.0), cx);
+        state.pick_new_agent_menu(1, cx);
     });
-    cx.update_window(fixture.window.into(), |_, window, cx| {
-        fixture
-            .state
-            .update(cx, |state, cx| state.pick_new_agent_menu(1, window, cx));
-    })
-    .unwrap();
     cx.run_until_parked();
     assert!(
         !fixture
@@ -484,4 +528,367 @@ fn a_started_agent_is_listed_under_its_session_and_put_on_the_field(cx: &mut Tes
         on_the_field,
         "an agent the user asked for was left on the bench"
     );
+}
+
+/// The pre-launch model picker filters by `AppState::picker_search`, and a pick names the
+/// filtered row's value — never the unfiltered list's row at that same index. Five choices, a
+/// query that matches two of them, and the two are not the list's first two: if the picker ever
+/// forgot to filter before indexing, this would send the wrong model.
+#[gpui::test]
+fn the_model_picker_filters_and_picks_the_filtered_row(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    let choices = vec![
+        ConfigChoice {
+            value: "opus5".to_string(),
+            name: "Claude Opus 5".to_string(),
+            description: None,
+            group: None,
+        },
+        ConfigChoice {
+            value: "sonnet5".to_string(),
+            name: "Claude Sonnet 5".to_string(),
+            description: None,
+            group: None,
+        },
+        ConfigChoice {
+            value: "haiku5".to_string(),
+            name: "Claude Haiku 5".to_string(),
+            description: None,
+            group: None,
+        },
+        ConfigChoice {
+            value: "gpt5-codex".to_string(),
+            name: "GPT-5 Codex".to_string(),
+            description: None,
+            group: None,
+        },
+        ConfigChoice {
+            value: "gpt5-mini".to_string(),
+            name: "GPT-5 mini".to_string(),
+            description: None,
+            group: None,
+        },
+    ];
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::ConfigOptions(vec![ConfigOption {
+            id: "model".to_string(),
+            name: "Model".to_string(),
+            description: None,
+            category: Some(ConfigCategory::Model),
+            value: ConfigValue::Select {
+                current: "opus5".to_string(),
+                choices: choices.clone(),
+            },
+        }]),
+        cx,
+    );
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.toggle_agent_config_menu(id, "model".to_string(), window, cx);
+                let search = state.picker_search.clone();
+                search.update(cx, |input, cx| {
+                    input.set_value("gpt", window, cx);
+                });
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let (row_count, filtered_first) = fixture.state.read_with(cx, |state, cx| {
+        let conversation = state
+            .conversation(id, cx)
+            .expect("the agent has a conversation");
+        let search = state.picker_search.read(cx).value().to_string();
+        let row = ubiq::ui::conversation::config_choices(conversation, "model", &search)
+            .expect("the harness has already advertised its models");
+        (row.names.len(), row.values[0].clone())
+    });
+    assert_eq!(row_count, 2, "gpt matches two of the five choices");
+    assert_eq!(filtered_first, "gpt5-codex");
+    assert_ne!(
+        filtered_first, choices[0].value,
+        "the filtered list's row 0 must not be the unfiltered list's row 0"
+    );
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.pick_agent_config(
+                    id,
+                    "model".to_string(),
+                    filtered_first.clone(),
+                    window,
+                    cx,
+                );
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let sent = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SetAgentConfig {
+                agent_id,
+                config_id,
+                value,
+            } if agent_id == id && config_id == "model" => Some(value),
+            _ => None,
+        })
+        .expect("picking a filtered row asks the host to set that model");
+    assert_eq!(sent, "gpt5-codex");
+}
+
+/// The host mints up to three config options at once. Every one of them offered means every one
+/// of them is a real picker — `config_choices` returns `Some` for each id, not just the model.
+#[gpui::test]
+fn config_options_carrying_all_three_draws_three_pickers(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::ConfigOptions(vec![
+            config_option(
+                "model",
+                ConfigCategory::Model,
+                "opus5",
+                &[("opus5", "Claude Opus 5"), ("sonnet5", "Claude Sonnet 5")],
+            ),
+            config_option(
+                "thinking",
+                ConfigCategory::ThoughtLevel,
+                "low",
+                &[("low", "Low"), ("high", "High")],
+            ),
+            config_option(
+                "mode",
+                ConfigCategory::Mode,
+                "",
+                &[("plan", "Plan"), ("edit", "Edit")],
+            ),
+        ]),
+        cx,
+    );
+
+    fixture.state.read_with(cx, |state, cx| {
+        let conversation = state
+            .conversation(id, cx)
+            .expect("the agent has a conversation");
+        for config_id in ["model", "thinking", "mode"] {
+            assert!(
+                ubiq::ui::conversation::config_choices(conversation, config_id, "").is_some(),
+                "{config_id} should draw its own picker"
+            );
+        }
+    });
+}
+
+/// A `ConfigOptions` naming only a model draws exactly one picker — no thinking or mode row
+/// invented for a harness that never offered them.
+#[gpui::test]
+fn a_config_options_with_only_a_model_draws_one_picker(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::ConfigOptions(vec![config_option(
+            "model",
+            ConfigCategory::Model,
+            "opus5",
+            &[("opus5", "Claude Opus 5")],
+        )]),
+        cx,
+    );
+
+    fixture.state.read_with(cx, |state, cx| {
+        let conversation = state
+            .conversation(id, cx)
+            .expect("the agent has a conversation");
+        assert!(ubiq::ui::conversation::config_choices(conversation, "model", "").is_some());
+        assert!(ubiq::ui::conversation::config_choices(conversation, "thinking", "").is_none());
+        assert!(ubiq::ui::conversation::config_choices(conversation, "mode", "").is_none());
+    });
+}
+
+/// Picking a thinking level sends the same `SetAgentConfig` a model pick would, keyed on
+/// `"thinking"` instead of `"model"` — one mechanism, three ids.
+#[gpui::test]
+fn picking_a_thinking_level_puts_set_agent_config_on_the_bus(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::ConfigOptions(vec![config_option(
+            "thinking",
+            ConfigCategory::ThoughtLevel,
+            "low",
+            &[("low", "Low"), ("high", "High")],
+        )]),
+        cx,
+    );
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.pick_agent_config(id, "thinking".to_string(), "high".to_string(), window, cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let sent = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SetAgentConfig {
+                agent_id,
+                config_id,
+                value,
+            } if agent_id == id && config_id == "thinking" => Some(value),
+            _ => None,
+        })
+        .expect("picking a thinking level asks the host to set it");
+    assert_eq!(sent, "high");
+}
+
+/// The regression this package exists to prevent: a model pick re-sends `ConfigOptions` with
+/// `thinking` recomputed for the new model, and a level the old model accepted may not exist
+/// under the new one. A `chosen` entry the fresh options no longer back must not survive.
+#[gpui::test]
+fn a_thought_level_missing_from_the_new_options_is_forgotten(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::ConfigOptions(vec![
+            config_option(
+                "model",
+                ConfigCategory::Model,
+                "opus5",
+                &[("opus5", "Claude Opus 5"), ("haiku5", "Claude Haiku 5")],
+            ),
+            config_option(
+                "thinking",
+                ConfigCategory::ThoughtLevel,
+                "low",
+                &[("low", "Low"), ("high", "High"), ("ultra", "Ultra")],
+            ),
+        ]),
+        cx,
+    );
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.pick_agent_config(
+                    id,
+                    "thinking".to_string(),
+                    "ultra".to_string(),
+                    window,
+                    cx,
+                );
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, cx| {
+        let conversation = state
+            .conversation(id, cx)
+            .expect("the agent has a conversation");
+        assert_eq!(
+            conversation.chosen.get("thinking").map(String::as_str),
+            Some("ultra"),
+            "the pick was held before the model changed"
+        );
+    });
+
+    // The user switches models. Haiku has no "ultra" level — the host re-sends `ConfigOptions`
+    // with `thinking` recomputed for it.
+    fixture.update(
+        id,
+        2,
+        ConvUpdate::ConfigOptions(vec![
+            config_option(
+                "model",
+                ConfigCategory::Model,
+                "haiku5",
+                &[("opus5", "Claude Opus 5"), ("haiku5", "Claude Haiku 5")],
+            ),
+            config_option(
+                "thinking",
+                ConfigCategory::ThoughtLevel,
+                "low",
+                &[("low", "Low"), ("high", "High")],
+            ),
+        ]),
+        cx,
+    );
+
+    fixture.state.read_with(cx, |state, cx| {
+        let conversation = state
+            .conversation(id, cx)
+            .expect("the agent has a conversation");
+        assert_eq!(
+            conversation.chosen.get("thinking"),
+            None,
+            "a thinking level the new model does not offer must not survive"
+        );
+    });
+}
+
+/// The three-dots menu's own rule, pulled out where it can be checked without rendering it: Stop
+/// only while a turn runs, Unload only while launched, Resume only while it is not, Delete always.
+#[test]
+fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not() {
+    use ubiq::state::conversation::Conversation;
+    use ubiq::ui::conversation::lifecycle_menu_enabled;
+
+    let mut conversation = Conversation::new(
+        AgentId::generate(),
+        "Claude Code".to_string(),
+        String::new(),
+    );
+
+    // Freshly launched: running a turn, Unload applies, Resume does not.
+    conversation.launched = true;
+    conversation.run = Run::Working;
+    let [stop, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
+    assert!(stop, "a turn is running");
+    assert!(unload, "the harness is up");
+    assert!(!resume, "already launched");
+    assert!(delete, "always enabled");
+
+    // Unloaded: no turn to stop, nothing to unload, Resume is what applies now.
+    conversation.launched = false;
+    conversation.run = Run::Idle;
+    let [stop, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
+    assert!(!stop, "nothing is running");
+    assert!(!unload, "there is no harness to unload");
+    assert!(resume, "not launched");
+    assert!(delete, "always enabled");
 }

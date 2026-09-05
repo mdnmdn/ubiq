@@ -65,6 +65,8 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         mcp_json: run_args.mcp_json.clone(),
         account: run_args.account.clone(),
         model: run_args.model.clone(),
+        thinking: run_args.thinking.clone(),
+        permission_mode: run_args.permission_mode.clone(),
         hooks: clean_ids(run_args.hooks.clone()),
         safe: run_args.safe,
         no_isolate: run_args.no_isolate,

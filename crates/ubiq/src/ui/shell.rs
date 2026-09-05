@@ -9,7 +9,7 @@
 
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
-use crate::app::{AppState, ZoomIn, ZoomOut};
+use crate::app::{AppState, FocusFileFilter, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{rail, settings, status_bar, titlebar};
@@ -25,6 +25,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::new_untitled_file))
         .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
+        .on_action(cx.listener(|this, _: &FocusFileFilter, window, cx| {
+            this.reveal_explorer_filter(window, cx)
+        }))
         // Enter and Escape answer the file question that is up. Both propagate when none is, so
         // the explorer's Escape and every field's Enter are untouched.
         .on_action(cx.listener(AppState::confirm_dialog))
@@ -54,7 +57,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .flex()
                 .flex_1()
                 .min_h(px(0.))
-                .child(rail::render(app, cx))
+                .child(rail::render(app, window, cx))
                 .child(
                     div()
                         .flex()
@@ -131,14 +134,5 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .new_agent_menu
                 .is_some()
                 .then(|| crate::ui::agents::new_agent_menu(app, cx)),
-        )
-        // The new-agent naming prompt, raised once a harness and identity are picked and before
-        // the conversation actually starts. Painted here for the same reason the menu above is:
-        // more than one surface can open it.
-        .children(
-            app.workbench
-                .naming_agent
-                .is_some()
-                .then(|| crate::ui::agents::new_agent_naming(app, window, cx)),
         )
 }

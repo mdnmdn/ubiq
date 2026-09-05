@@ -119,12 +119,8 @@ pub fn git_colour(file: &OpenFile, explorer: &crate::state::ExplorerState) -> Rg
 
 /// The tab's label. The dot and git colour are drawn by the dock's tab skin, so the label itself
 /// is just the name — the file's own report lives next to it, not inside it.
-pub fn label(file: &OpenFile, confirming: bool) -> SharedString {
-    let name = format!("{}{}", file.name, file.subject.suffix());
-    if confirming {
-        return SharedString::from(format!("{name} \u{2014} discard?"));
-    }
-    SharedString::from(name)
+pub fn label(file: &OpenFile) -> SharedString {
+    SharedString::from(format!("{}{}", file.name, file.subject.suffix()))
 }
 
 /// The centre panel in IDE mode, which is only ever the page saying no file is open.

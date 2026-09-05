@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account and command-line families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-04
-verified: 2026-09-04
+updated: 2026-09-05
+verified: 2026-09-05
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -452,15 +452,18 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `name?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
 | `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
 | `EndConversation` | UI → host | `agent_id` | `ConversationEnded` |
+| `UnloadConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
+| `ResumeConversation` | UI → host | `agent_id` | `ConvUpdate::Started`, or nothing if already live |
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
 | `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
+| `ConversationUnloaded` | host → UI | `agent_id` | — |
 | `ConversationError` | host → UI | `agent_id`, `error` | — |
 
 **The vocabulary is the Agent Client Protocol's; the transport is the bus.** `D53` states why, and
@@ -485,17 +488,23 @@ second channel, no fan-out and no per-agent subscription.
 harness exists, so the window can draw the record and a loader while the host discovers that
 harness's models in the background and reports them as a single `ConvUpdate::ConfigOptions`
 addressed to that `agent_id` (always the first update it receives, at `seq: 1`, whether or not
-discovery actually found anything). Only the window's first `PromptAgent` launches the harness,
-carrying whatever `SetAgentConfig` last chose on `RunFlags.model` — a model reaches a harness only
-as a launch flag, so changing the pick before that first prompt costs nothing. See
-`_docs/wip/agent-setup.md`'s P3.
+discovery actually found anything). That first `ConfigOptions` carries up to three options, all
+built by the same mechanism: `model` (always), `thinking` (only when the chosen model has
+reasoning levels), and `mode` (only when the harness offers one). Picking a model makes the host
+re-send `ConfigOptions` at the next `seq`, with `thinking` recomputed for the newly chosen model —
+a level the old model accepted may not exist under the new one, so the window drops any held pick
+the fresh options no longer back. Only the window's first `PromptAgent` launches the harness,
+carrying whatever `SetAgentConfig` last chose for each of the three — they reach a harness only as
+launch flags, so changing a pick before that first prompt costs nothing. See
+`_docs/wip/agent-setup.md`'s P3 and P6.
 
-**`name` is what the user typed, not what the harness is called.** It sets `WorkAgent.name` —
-the sidebar row, the column header, the chat panel row all draw that field, never `harness`
-directly — and an absent `name` falls back host-side to the harness's own label, the way every
-conversation's name worked before this field existed. Chosen once, at the naming prompt between
-picking a harness and the first turn, and never after: renaming mid-conversation is not this
-field's job.
+**`WorkAgent.name` is derived host-side, not typed by the user.** The host names a conversation
+from its harness's command — `claude`, `codex`, `opencode`, not the display label a menu shows —
+with a counter from the second occurrence onward, per project: `claude`, `claude 2`, `claude 3`.
+The first free name is picked, so a closed `claude 2` is reused before a new `claude 4` would be
+minted. The sidebar row, the column header and the chat panel row all draw that field, never
+`harness` directly. There is no rename message on the wire yet, so a name set at creation is a
+name for the conversation's life.
 
 **`seq` is per agent, monotonic, and starts at one.** Order is promised per agent and not across
 them, on exactly the terms the pane family already sets for terminal output. A window that receives
@@ -536,8 +545,15 @@ one-shot: their prompt goes in through the launch and they take nothing after it
 learned that from a refused turn would have offered the user something that was never there, so the
 capability is on the message that says the agent exists.
 
-**A conversation outlives its harness.** `ConversationEnded` says the process is gone; the transcript
-stays on screen, and the agent stops accepting turns. Only closing it discards what was said.
+**A conversation outlives its harness, and can start another one.** `ConversationEnded` says the
+process is gone for good; the transcript stays on screen, and the agent stops accepting turns.
+`UnloadConversation` is the same ending without the finality: the harness is killed, but the
+transcript, the run directory and the `WorkAgent` all stay, and `ConversationUnloaded` — not
+`ConversationEnded` — says so. A conversation in that state reads exactly as a pending one that has
+not launched yet: the pickers return, `launched` is false again, and either `ResumeConversation` or
+the next `PromptAgent` starts a fresh process under the same `agent_id`, picking the sequence up
+where the old one left off rather than restarting it at one. Only `EndConversation` discards what
+was said.
 
 **`AnswerPermission` is on the wire and answered with a refusal.** Nothing emits a permission
 request yet — every bridge auto-approves, and P7 is what changes that. It is named here because the

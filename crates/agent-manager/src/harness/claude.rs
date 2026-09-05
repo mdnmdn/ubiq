@@ -89,6 +89,75 @@ impl Harness for Claude {
         discover_models_via_jsonl()
     }
 
+    /// `claude --help` advertises `--effort <level>` with the accepted set in
+    /// parentheses (see [`parse_effort_levels`]). Applied uniformly to every model
+    /// [`Harness::discover_models`] returns: our Claude model ids are the aliases
+    /// scraped from `/model` (`opus`, `sonnet`), not full API ids, so there is no
+    /// per-model allow table to key a subset on — over-offering and letting the
+    /// CLI reject an unsupported level is the right fallback. `default_level` is
+    /// always `None`: `--help` names no default.
+    fn discover_thinking(&self) -> Result<BTreeMap<String, super::ModelThinking>> {
+        let models = self.discover_models()?;
+        let output = Command::new("claude")
+            .arg("--help")
+            .output()
+            .with_context(|| "running `claude --help` (is the claude binary on PATH?)")?;
+        if !output.status.success() {
+            bail!(
+                "`claude --help` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let help = String::from_utf8_lossy(&output.stdout);
+        let mut values = parse_effort_levels(&help);
+        if values.is_empty() {
+            // `--help` didn't advertise the flag's accepted set; fall back to the
+            // levels every observed build has supported, so the picker still works.
+            values = vec!["low".to_string(), "medium".to_string(), "high".to_string()];
+        }
+        let levels: Vec<super::ThinkingLevel> = values
+            .into_iter()
+            .map(|value| super::ThinkingLevel {
+                label: super::effort_label(&value),
+                value,
+                description: None,
+            })
+            .collect();
+        Ok(models
+            .into_iter()
+            .map(|m| {
+                (
+                    m.id,
+                    super::ModelThinking {
+                        levels: levels.clone(),
+                        default_level: None,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// The six modes `claude --help`'s `--permission-mode <mode>` choices list (verified against
+    /// Claude Code 2.1.261). Fixed CLI enum, not probed — see [`super::Harness::modes`].
+    fn modes(&self) -> Vec<super::ModeInfo> {
+        [
+            ("acceptEdits", "Accept edits"),
+            ("auto", "Auto"),
+            ("bypassPermissions", "Bypass permissions"),
+            ("manual", "Manual"),
+            ("dontAsk", "Don't ask"),
+            ("plan", "Plan"),
+        ]
+        .into_iter()
+        .map(|(id, label)| super::ModeInfo {
+            id: id.to_string(),
+            label: label.to_string(),
+            description: None,
+        })
+        .collect()
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // 1. Skills: copy each skill folder into <dir>/skills/<id>/.
         let skills_dir = dir.join("skills");
@@ -182,6 +251,12 @@ impl Harness for Claude {
             args.push("--model".to_string());
             args.push(model.clone());
         }
+        // Reasoning effort: `--effort <value>` right after the model pair. Only added when set,
+        // so runs without a chosen level keep byte-identical argv.
+        if let Some(thinking) = &spec.thinking {
+            args.push("--effort".to_string());
+            args.push(thinking.clone());
+        }
         // Resume: `--resume <id>` works in both passthrough and headless
         // (structured) invocation, so it's appended here rather than
         // branching on `structured`. Only added when a resume id is set —
@@ -191,15 +266,19 @@ impl Harness for Claude {
             args.push(id.clone());
         }
         if structured {
-            args.extend(
-                [
-                    "--permission-mode",
-                    "bypassPermissions",
-                    "--disallowedTools",
-                    "AskUserQuestion",
-                ]
-                .map(str::to_string),
-            );
+            // Highest precedence: a mode `resolve` wrote onto `spec.policy` (from
+            // `--permission-mode` or a `--safe` preset) wins; unattended structured runs still
+            // default to `bypassPermissions` when nothing chose a mode, so every existing run
+            // stays byte-identical.
+            let permission_mode = spec
+                .policy
+                .as_ref()
+                .and_then(|p| p.permission_mode.as_deref())
+                .unwrap_or("bypassPermissions");
+            args.push("--permission-mode".to_string());
+            args.push(permission_mode.to_string());
+            args.push("--disallowedTools".to_string());
+            args.push("AskUserQuestion".to_string());
         }
         args.extend(spec.passthrough_args.iter().cloned());
 
@@ -639,6 +718,31 @@ fn parse_model_slash_output(text: &str) -> Vec<ModelInfo> {
         models.push(info);
     }
     models
+}
+
+/// `claude --help` advertises `--effort <level>` with the accepted set in parentheses.
+/// Verified against 2.1.261, where the parenthetical wraps onto the following line, so the
+/// scan runs over the whole help text rather than per line. Returns an empty vec (rather than
+/// a hard-coded fallback) when `--effort` or its parenthetical is absent — the caller decides
+/// what an unadvertised build should fall back to.
+fn parse_effort_levels(help: &str) -> Vec<String> {
+    let Some(flag_pos) = help.find("--effort") else {
+        return Vec::new();
+    };
+    let rest = &help[flag_pos..];
+    let Some(open) = rest.find('(') else {
+        return Vec::new();
+    };
+    let after_open = &rest[open + 1..];
+    let Some(close) = after_open.find(')') else {
+        return Vec::new();
+    };
+    after_open[..close]
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]
@@ -1216,6 +1320,107 @@ mod tests {
     }
 
     #[test]
+    fn provision_injects_effort_flag_right_after_model_pair_when_thinking_set() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.model = Some("sonnet".to_string());
+        spec.thinking = Some("high".to_string());
+
+        let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+
+        let model_idx = launch
+            .args
+            .iter()
+            .position(|a| a == "--model")
+            .expect("--model present");
+        assert_eq!(launch.args[model_idx + 1], "sonnet");
+        assert_eq!(launch.args[model_idx + 2], "--effort");
+        assert_eq!(launch.args[model_idx + 3], "high");
+    }
+
+    #[test]
+    fn provision_without_thinking_has_no_effort_flag() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+
+        let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+        assert!(
+            !launch.args.iter().any(|a| a == "--effort"),
+            "no --effort expected when spec.thinking is None: {:?}",
+            launch.args
+        );
+    }
+
+    #[test]
+    fn provision_structured_io_honors_spec_policy_permission_mode() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+        spec.policy = Some(crate::spec::Policy {
+            permission_mode: Some("plan".to_string()),
+            ..Default::default()
+        });
+
+        let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+        let pair = launch
+            .args
+            .windows(2)
+            .any(|w| w[0] == "--permission-mode" && w[1] == "plan");
+        assert!(
+            pair,
+            "expected `--permission-mode plan` in argv: {:?}",
+            launch.args
+        );
+    }
+
+    #[test]
+    fn provision_structured_io_defaults_to_bypass_permissions_with_no_policy() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+
+        let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+        let pair = launch
+            .args
+            .windows(2)
+            .any(|w| w[0] == "--permission-mode" && w[1] == "bypassPermissions");
+        assert!(
+            pair,
+            "expected default bypassPermissions in argv: {:?}",
+            launch.args
+        );
+    }
+
+    #[test]
+    fn every_mode_id_survives_its_own_provision_path() {
+        for mode in Claude::new().modes() {
+            let config_dir = tempfile::TempDir::new().unwrap();
+            let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+            spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+            spec.io = crate::spec::IoModes::Structured;
+            spec.policy = Some(crate::spec::Policy {
+                permission_mode: Some(mode.id.clone()),
+                ..Default::default()
+            });
+
+            let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
+            let pair = launch
+                .args
+                .windows(2)
+                .any(|w| w[0] == "--permission-mode" && w[1] == mode.id);
+            assert!(
+                pair,
+                "mode '{}' did not reach argv: {:?}",
+                mode.id, launch.args
+            );
+        }
+    }
+
+    #[test]
     fn login_points_home_at_capture_dir_and_names_credentials_file() {
         let home = tempfile::TempDir::new().unwrap();
 
@@ -1321,5 +1526,40 @@ Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], o
             ids.contains(&"opus") && ids.contains(&"sonnet") && ids.contains(&"haiku"),
             "expected core aliases in live list: {ids:?}"
         );
+    }
+
+    #[test]
+    fn parse_effort_levels_from_wrapped_help() {
+        let help = "  --effort <level>                      Effort level for the current session\n                                        (low, medium, high, xhigh, max)\n";
+        assert_eq!(
+            parse_effort_levels(help),
+            vec!["low", "medium", "high", "xhigh", "max"]
+        );
+    }
+
+    #[test]
+    fn parse_effort_levels_absent_is_empty() {
+        let help = "  --model <model>                       Model for the current session\n";
+        assert!(parse_effort_levels(help).is_empty());
+    }
+
+    /// Live check against a real `claude` on PATH. Skipped when the binary
+    /// is missing so unit CI without Claude Code still passes.
+    #[test]
+    fn version_live_when_claude_available() {
+        let has_claude = Command::new("claude")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !has_claude {
+            eprintln!("skipping: `claude` not on PATH");
+            return;
+        }
+        let version = Claude::new().version().expect("live `claude --version`");
+        assert!(!version.is_empty());
+        assert!(!version.contains('\n'));
     }
 }

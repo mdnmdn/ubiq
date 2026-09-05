@@ -36,7 +36,7 @@ impl AppState {
     /// instant. Anything else waits [`FILTER_DEBOUNCE`] so a burst of letters is one job, and the
     /// walk itself runs on the background executor so the window keeps taking keystrokes.
     pub(super) fn schedule_explorer_filter(&mut self, draft: String, cx: &mut Context<Self>) {
-        if draft.trim().is_empty() {
+        if short_query(&draft) {
             self.explorer_filter_gen = self.explorer_filter_gen.wrapping_add(1);
             self.workbench.file_filter.clear();
             if let Some(open) = self.open_project_mut(cx) {
@@ -63,7 +63,7 @@ impl AppState {
     }
 
     pub(super) fn spawn_explorer_filter(&mut self, text: String, cx: &mut Context<Self>) {
-        if text.trim().is_empty() {
+        if short_query(&text) {
             self.workbench.file_filter.clear();
             if let Some(open) = self.open_project_mut(cx) {
                 open.explorer.clear_filter();
@@ -101,15 +101,29 @@ impl AppState {
         rows: Vec<crate::state::Row>,
         cx: &mut Context<Self>,
     ) {
-        let at = {
+        let (at, asking) = {
             let Some(open) = self.open_project_mut(cx) else {
                 return;
             };
+            // A folder the filter matched is an answer with its contents, so one the host has
+            // never listed is asked for here. The reply re-runs the walk, which is what fills the
+            // rows under it.
+            let asking = open.explorer.unlisted_hits(&rows);
+            open.explorer.begin_cache(&asking);
             if !open.explorer.apply_hits(job, text.clone(), view, rows) {
                 return;
             }
-            open.explorer.cursor_index(&text)
+            (open.explorer.cursor_index(&text), asking)
         };
+        if let Some(project) = self.project(cx) {
+            for rel_path in asking {
+                self.bus.send(Message::ProjectTree {
+                    project_id: project,
+                    rel_path,
+                    depth: EXPAND_DEPTH,
+                });
+            }
+        }
         self.workbench.file_filter = text;
         if let Some(at) = at {
             self.explorer_scroll.scroll_to_item(at);
@@ -268,18 +282,32 @@ impl AppState {
                 if permanent || !self.workbench.settings.ui.explorer_preview {
                     self.select_file(path, cx);
                 } else {
+                    // A preview leaves the keyboard on the tree: the click was a step through the
+                    // tree, not a decision to start editing. A permanent open — double-click,
+                    // Shift, ⌘ — is the decision, and that one takes the keyboard with it.
+                    //
+                    // A file that is **already open** is neither: there is no preview to make, the
+                    // click only picks which of the open tabs to look at, and that one takes the
+                    // keyboard the way clicking its tab would.
+                    let previewing = self
+                        .open_project(cx)
+                        .is_some_and(|open| open.editor.index_of(&path).is_none());
                     self.select_file_temporary(path, cx);
+                    if previewing {
+                        self.pending_editor_focus = None;
+                        self.focus_explorer_tree(window, cx);
+                    }
                 }
             }
             ExplorerPressed::Listing { path } => {
                 let Some(project) = self.project(cx) else {
                     return;
                 };
-                self.focus_explorer_filter(window, cx);
+                self.focus_explorer_tree(window, cx);
                 self.ask_listing(project, path, cx);
             }
             ExplorerPressed::Moved => {
-                self.focus_explorer_filter(window, cx);
+                self.focus_explorer_tree(window, cx);
                 cx.notify();
             }
             ExplorerPressed::Ignored
@@ -289,9 +317,77 @@ impl AppState {
         }
     }
 
-    fn focus_explorer_filter(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn focus_explorer_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = self.file_filter.read(cx).focus_handle(cx);
         window.focus(&field, cx);
+        cx.notify();
+    }
+
+    /// Put the keyboard on the tree itself. The tree's own keys — the arrows, Enter, and the one
+    /// that removes a row — are live only from here, which is what stops a Backspace meant for the
+    /// filter's text from reaching a file.
+    pub fn focus_explorer_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.explorer_focus.clone(), cx);
+        cx.notify();
+    }
+
+    /// Cycle the follow button: off, once, locked. Both live states reveal straight away.
+    pub fn cycle_explorer_follow(&mut self, cx: &mut Context<Self>) {
+        let Some(open) = self.open_project_mut(cx) else {
+            return;
+        };
+        open.explorer.follow = open.explorer.follow.next();
+        let reveal = open.explorer.follow != Follow::Off;
+        if reveal {
+            self.reveal_active_file(cx);
+        }
+        cx.notify();
+    }
+
+    /// The active editor changed: reveal it if the tree is locked to it, and otherwise do nothing.
+    pub(super) fn follow_active_file(&mut self, cx: &mut Context<Self>) {
+        if self.explorer(cx).map(|tree| tree.follow) != Some(Follow::Locked) {
+            return;
+        }
+        self.reveal_active_file(cx);
+    }
+
+    /// Put the tree on the active editor's file: open the folders above it, move the keyboard
+    /// there, and scroll it into view.
+    ///
+    /// The folders are opened through the same `wanted` list a restore uses, so a folder the host
+    /// has not listed is asked for and opened when the answer lands rather than skipped.
+    pub fn reveal_active_file(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(path) = open.explorer.selected.clone() else {
+            return;
+        };
+        let mut at = path.as_str();
+        while let Some(cut) = at.rfind('/') {
+            at = &at[..cut];
+            open.wanted.push(at.to_string());
+        }
+        open.explorer.set_cursor(&path);
+        self.reach_wanted(project, cx);
+        self.scroll_explorer_to_cursor(cx);
+    }
+
+    /// Bring the row the keyboard is on into view. Called again as listings land, because a folder
+    /// opened by a reveal changes where the row is.
+    pub(super) fn scroll_explorer_to_cursor(&mut self, cx: &mut Context<Self>) {
+        let filter = self.workbench.file_filter.clone();
+        let at = self
+            .open_project(cx)
+            .and_then(|open| open.explorer.cursor_index(&filter));
+        if let Some(at) = at {
+            self.explorer_scroll.scroll_to_item(at);
+        }
+        cx.notify();
     }
 
     /// Decorate the filter field with the filter the project on screen was left filtering by.
@@ -549,12 +645,17 @@ impl AppState {
     ///
     /// With no dialog up the key is handed back: Enter belongs to every field and every list on
     /// screen, and swallowing it here would take it from all of them.
-    pub fn confirm_dialog(&mut self, _: &DialogConfirm, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn confirm_dialog(
+        &mut self,
+        _: &DialogConfirm,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.workbench.file_dialog.is_none() {
             cx.propagate();
             return;
         }
-        self.confirm_file_dialog(cx);
+        self.confirm_file_dialog(window, cx);
     }
 
     /// Escape on the dialog that is up, handed back the same way when there is none — a bare
@@ -628,10 +729,30 @@ impl AppState {
     ///
     /// One method for all five, because each is the same two steps — one message, then the dialog
     /// goes away — and the branch is which op the message carries.
-    pub fn confirm_file_dialog(&mut self, cx: &mut Context<Self>) {
+    pub fn confirm_file_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(dialog) = self.workbench.file_dialog.clone() else {
             return;
         };
+        // The two questions that are not about a path in a project are answered first: one drops a
+        // buffer, the other takes the window with it.
+        match dialog {
+            FileDialog::DiscardChanges { key } => {
+                self.close_file_dialog(cx);
+                self.force_close_tab(&key, cx);
+                return;
+            }
+            FileDialog::CloseWindow { quitting } => {
+                self.close_file_dialog(cx);
+                if quitting {
+                    cx.quit();
+                    return;
+                }
+                self.closing = true;
+                window.remove_window();
+                return;
+            }
+            _ => {}
+        }
         let Some(project) = self.project(cx) else {
             self.close_file_dialog(cx);
             return;
@@ -678,6 +799,8 @@ impl AppState {
                 }
                 self.save_untitled_as(&key, typed, cx);
             }
+            // Answered above, before the project was looked up.
+            FileDialog::DiscardChanges { .. } | FileDialog::CloseWindow { .. } => {}
         }
         self.close_file_dialog(cx);
     }
@@ -727,7 +850,18 @@ impl AppState {
                 rel_path: path,
                 max_bytes: Some(MAX_FILE_BYTES),
             });
+        } else {
+            // A file already open is a panel the dock already holds, and adding it again is a
+            // no-op — so the dock is asked to bring it forward instead. Which tab a group displays
+            // is the dock's to say, and the highlight, the body, the keyboard and the strip
+            // scrolling the tab into view all follow from it.
+            self.pending_panels
+                .push(PanelEdit::Reveal(PanelKind::File(tab_key(
+                    &path,
+                    Subject::File,
+                ))));
         }
+        self.follow_active_file(cx);
         self.remember(project, cx);
         cx.notify();
     }
@@ -771,7 +905,14 @@ impl AppState {
                 rel_path: path,
                 max_bytes: Some(MAX_FILE_BYTES),
             });
+        } else {
+            self.pending_panels
+                .push(PanelEdit::Reveal(PanelKind::File(tab_key(
+                    &path,
+                    Subject::File,
+                ))));
         }
+        self.follow_active_file(cx);
         self.remember(project, cx);
         cx.notify();
     }
@@ -965,4 +1106,14 @@ pub(super) fn child_path(parent: &str, leaf: &str) -> String {
 /// here is what stops the gesture asking about a move that could never happen.
 pub(super) fn can_move_into(path: &str, into: &str) -> bool {
     path != into && parent_dir(path) != into && !into.starts_with(&format!("{path}/"))
+}
+
+/// The shortest query worth walking the cache for. One or two letters match nearly every file in a
+/// project, which costs a full walk to answer with a screen the user has to narrow anyway — so
+/// under this the field is treated as empty and the tree is left alone.
+pub const MIN_QUERY: usize = 3;
+
+/// Whether a query is too short to search with, an empty field included.
+fn short_query(text: &str) -> bool {
+    text.trim().chars().count() < MIN_QUERY
 }

@@ -27,6 +27,52 @@ impl AppState {
     // with; none of them touches a picker that is already up, because the ask a dialog was opened
     // under is the ask it is answering.
 
+    /// What this window would take with it if it closed: one line per project it holds that has
+    /// unsaved files or terminals still running, in name order.
+    ///
+    /// An untitled buffer nobody has typed into does not count — its baseline is the empty bytes
+    /// it opened with, so `OpenFile::dirty` already answers no for it.
+    pub fn unsaved_summary(&self, cx: &App) -> Vec<String> {
+        let registry = WindowRegistry::read(cx);
+        let mut rows: Vec<String> = self
+            .projects
+            .keys()
+            .filter_map(|project| {
+                let holds = self.project_holds(*project);
+                let name = registry
+                    .project(*project)
+                    .map_or_else(|| project.to_string(), |entry| entry.record.name.clone());
+                Some(format!("{name} — {}", holds.sentence()?))
+            })
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    /// What one project this window holds would take with it: unsaved files, and terminals still
+    /// running. An untitled buffer nobody has typed into is not one of them — its baseline is the
+    /// empty bytes it opened with, so `OpenFile::dirty` already answers no for it.
+    pub fn project_holds(&self, project: ProjectId) -> Holds {
+        let Some(open) = self.projects.get(&project) else {
+            return Holds::default();
+        };
+        Holds {
+            files: open.editor.open.iter().filter(|file| file.dirty()).count(),
+            panes: open.panes.len(),
+        }
+    }
+
+    /// The window's close, asked once. `false` holds the window open while the question is up;
+    /// the yes comes back through `confirm_file_dialog`, which sets `closing` and closes again.
+    pub(super) fn ask_before_closing(&mut self, quitting: bool, cx: &mut Context<Self>) -> bool {
+        if self.closing || self.unsaved_summary(cx).is_empty() {
+            return true;
+        }
+        self.workbench.file_dialog = Some(FileDialog::CloseWindow { quitting });
+        cx.notify();
+        false
+    }
+
     /// Point this window at a project it already holds.
     pub fn activate_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
@@ -66,12 +112,9 @@ impl AppState {
     /// window open on nothing, with the picker to offer.
     pub fn close_project(&mut self, project: ProjectId, force: bool, cx: &mut Context<Self>) {
         // This window's own count, not the catalogue's: closing a project here kills the panes
-        // *this* window is running in it, and says so about those.
-        let panes = self
-            .projects
-            .get(&project)
-            .map_or(0, |open| open.panes.len());
-        if panes > 0 && !force {
+        // *this* window is running in it and drops what was typed into its buffers, and says so
+        // about those.
+        if self.project_holds(project).anything() && !force {
             self.workbench.pending_close = Some(project);
             cx.notify();
             return;
@@ -497,4 +540,34 @@ impl AppState {
     }
 
     // ── The dock ────────────────────────────────────────────────────
+}
+
+/// What a project would take with it if it closed. Counted on demand — a per-frame count is
+/// cheaper than a flag every edit has to remember to set, and it cannot go stale.
+#[derive(Default, Clone, Copy)]
+pub struct Holds {
+    pub files: usize,
+    pub panes: usize,
+}
+
+impl Holds {
+    pub fn anything(self) -> bool {
+        self.files > 0 || self.panes > 0
+    }
+
+    /// "3 unsaved files and 4 terminals", or `None` when there is nothing to say.
+    pub fn sentence(self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.files > 0 {
+            parts.push(format!("{} unsaved file{}", self.files, plural(self.files)));
+        }
+        if self.panes > 0 {
+            parts.push(format!("{} terminal{}", self.panes, plural(self.panes)));
+        }
+        (!parts.is_empty()).then(|| parts.join(" and "))
+    }
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }

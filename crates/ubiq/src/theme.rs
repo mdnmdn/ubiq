@@ -90,6 +90,10 @@ pub struct SurfaceColors {
     pub raised: Rgba,
     pub hover: Rgba,
     pub selected: Rgba,
+    /// What the cursor bar looks like once the list itself holds the keyboard. The same colour as
+    /// `selected`, a shade deeper: which row the next key lands on has to read at a glance from
+    /// the row a list merely left its cursor on when the keyboard went elsewhere.
+    pub selected_focus: Rgba,
     /// What a modal lays over the window it took the keyboard from. Its own token rather than a
     /// `fade` at the call site, because the amount a palette has to dim by is not the same in both.
     pub scrim: Rgba,
@@ -242,6 +246,10 @@ pub fn hover() -> Rgba {
 
 pub fn selected() -> Rgba {
     Theme::current().palette.surface.selected
+}
+
+pub fn selected_focus() -> Rgba {
+    Theme::current().palette.surface.selected_focus
 }
 
 pub fn scrim() -> Rgba {
@@ -405,6 +413,7 @@ pub fn dark() -> Theme {
                 raised: rgba_hex(0x25252c),
                 hover: rgba_hex(0x2a2a33),
                 selected: rgba_hex(0x1c2a44),
+                selected_focus: rgba_hex(0x27405f),
                 scrim: rgba_hex_a(0x05050a, 0.62),
             },
             text: TextColors {
@@ -475,6 +484,7 @@ pub fn light() -> Theme {
                 raised: rgba_hex(0xf0f0f4),
                 hover: rgba_hex(0xe8e8ec),
                 selected: rgba_hex(0xd4e4ff),
+                selected_focus: rgba_hex(0xb3d0ff),
                 scrim: rgba_hex_a(0x1a1a2e, 0.38),
             },
             text: TextColors {

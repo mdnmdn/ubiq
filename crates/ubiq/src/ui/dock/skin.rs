@@ -134,8 +134,6 @@ pub struct Skin {
     /// The file-tab double-click, so a preview tab can be promoted to permanent. `None` where the
     /// skin has no project-facing window to hand the click to.
     file_tab_promote: Option<FileTabPromoteRun>,
-    /// The scroll handle shared by every tab bar the skin draws.
-    tab_scroll: gpui::ScrollHandle,
 }
 
 impl Default for Skin {
@@ -145,7 +143,6 @@ impl Default for Skin {
             new_pane: None,
             file_tab_menu: None,
             file_tab_promote: None,
-            tab_scroll: gpui::ScrollHandle::new(),
         }
     }
 }
@@ -487,26 +484,39 @@ impl TabGroupRenderer for Skin {
             .as_ref()
             .filter(|action| hosts_panes || (action.region)(group.node(), cx));
 
-        let scroll = self.tab_scroll.clone();
+        // Each tab bar scrolls on its own handle: the skin draws every group, and one shared
+        // handle would give them one offset and one set of measured tab bounds — the last strip to
+        // prepaint winning, and one chevron pushing all of them.
+        let scroll = _window
+            .use_keyed_state(
+                format!("ubiq-tab-scroll-{}", group.node().as_u64()),
+                cx,
+                |_, _| gpui::ScrollHandle::new(),
+            )
+            .read(cx)
+            .clone();
         let left = scroll.clone();
         let right = scroll.clone();
 
-        // Auto-scroll the active tab into view. The track handle's geometry is filled in at
-        // prepaint, after render has handed the tree over, so the frame a tab first becomes active
-        // the handle still reports last frame's (zeroed) offsets and `scroll_to_item` has nothing
-        // to nudge with. A chase refresh is therefore issued the first time a new tab index turns
-        // active, which lets the next frame measure the strip for real and land the tab in view —
-        // and only once, keyed on the previous active index, so a strip that fits is never
-        // redrawn every frame.
+        // Auto-scroll the active tab into view, and **only when the active tab changes**. The
+        // handle clamps the offset to keep the item it was given visible, every prepaint it is
+        // asked — so asking on every frame pins the strip to the active tab and undoes the
+        // chevrons' nudge on the frame after the click.
+        //
+        // The track handle's geometry is filled in at prepaint, after render has handed the tree
+        // over, so the frame a tab first becomes active the handle still reports last frame's
+        // (zeroed) offsets and `scroll_to_item` has nothing to nudge with. A chase refresh is
+        // therefore issued too, which lets the next frame measure the strip for real and land the
+        // tab in view.
         let chase_key = format!("ubiq-tab-chase-{}", group.node().as_u64());
         let prev_active = _window.use_keyed_state(chase_key, cx, |_, _| None::<usize>);
         let newly_active = *prev_active.read(cx) != Some(active_tab_ix);
         if newly_active {
             prev_active.update(cx, |state, _| *state = Some(active_tab_ix));
-        }
-        scroll.scroll_to_item(active_tab_ix);
-        if newly_active && tabs.len() > 1 {
-            _window.refresh();
+            scroll.scroll_to_item(active_tab_ix);
+            if tabs.len() > 1 {
+                _window.refresh();
+            }
         }
 
         // The chevrons nudge the band by a step each way. They are always present so the user can
@@ -551,7 +561,7 @@ impl TabGroupRenderer for Skin {
                     .flex_1()
                     .min_w(px(0.))
                     .overflow_x_scroll()
-                    .track_scroll(&self.tab_scroll)
+                    .track_scroll(&scroll)
                     .flex()
                     .children(tabs),
             )

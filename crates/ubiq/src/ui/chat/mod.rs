@@ -9,7 +9,6 @@
 //! every surface shares. The panel supplies only the frame: which conversation, and the furniture
 //! around it.
 
-pub mod composer;
 pub mod sidebar;
 pub mod transcript;
 

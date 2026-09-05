@@ -73,19 +73,7 @@ impl Harness for Codex {
     /// id passed to `model`), a `display_name`, and a `visibility` — we surface
     /// the ones marked `list`. Requires Codex ≥ 0.131.0.
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
-        let output = std::process::Command::new("codex")
-            .args(["debug", "models", "--bundled"])
-            .output()
-            .with_context(|| "running `codex debug models --bundled` (is the codex binary on PATH, ≥ 0.131.0?)")?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "`codex debug models --bundled` failed ({}): {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
-            .context("parsing `codex debug models --bundled` JSON")?;
+        let parsed = bundled_models()?;
         let models = parsed
             .get("models")
             .and_then(|m| m.as_array())
@@ -110,6 +98,32 @@ impl Harness for Codex {
             })
             .collect();
         Ok(out)
+    }
+
+    /// Reads `default_reasoning_level` / `supported_reasoning_levels` off the same
+    /// `codex debug models --bundled` value [`discover_models`](Self::discover_models)
+    /// reads — no second probe, no second process spawn. Models whose level list is
+    /// empty are skipped: an empty catalog entry is the honest "no reasoning knob" case,
+    /// same as the default in [`super::Harness::discover_thinking`].
+    fn discover_thinking(&self) -> Result<BTreeMap<String, super::ModelThinking>> {
+        thinking_from_bundled(&bundled_models()?)
+    }
+
+    /// The three values [`map_sandbox_mode`] accepts. Fixed CLI enum, not probed — see
+    /// [`super::Harness::modes`].
+    fn modes(&self) -> Vec<super::ModeInfo> {
+        [
+            ("read-only", "Read only"),
+            ("workspace-write", "Workspace write"),
+            ("danger-full-access", "Danger full access"),
+        ]
+        .into_iter()
+        .map(|(id, label)| super::ModeInfo {
+            id: id.to_string(),
+            label: label.to_string(),
+            description: None,
+        })
+        .collect()
     }
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
@@ -321,6 +335,85 @@ struct McpServerToml {
     http_headers: BTreeMap<String, String>,
 }
 
+/// Run `codex debug models --bundled` (JSON; the bundled list needs no network) and parse its
+/// stdout. Shared by [`Codex::discover_models`] and [`Codex::discover_thinking`] so the model
+/// catalog is read from a single process spawn, not two. Requires Codex ≥ 0.131.0.
+fn bundled_models() -> Result<serde_json::Value> {
+    let output = std::process::Command::new("codex")
+        .args(["debug", "models", "--bundled"])
+        .output()
+        .with_context(
+            || "running `codex debug models --bundled` (is the codex binary on PATH, ≥ 0.131.0?)",
+        )?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "`codex debug models --bundled` failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    serde_json::from_slice(&output.stdout).context("parsing `codex debug models --bundled` JSON")
+}
+
+/// Parse `default_reasoning_level` / `supported_reasoning_levels` out of a
+/// `codex debug models --bundled` value (see [`bundled_models`]), keyed by `slug`. A model
+/// whose `supported_reasoning_levels` is missing or empty has no reasoning knob and is
+/// skipped, not inserted with an empty vec — the honest "no entry" is more useful to a caller
+/// than an entry it has to check for emptiness anyway.
+fn thinking_from_bundled(
+    parsed: &serde_json::Value,
+) -> Result<BTreeMap<String, super::ModelThinking>> {
+    let models = parsed
+        .get("models")
+        .and_then(|m| m.as_array())
+        .ok_or_else(|| anyhow::anyhow!("no 'models' array in `codex debug models` output"))?;
+    let mut out = BTreeMap::new();
+    for model in models {
+        let Some(slug) = model.get("slug").and_then(|s| s.as_str()) else {
+            continue;
+        };
+        let Some(supported) = model
+            .get("supported_reasoning_levels")
+            .and_then(|v| v.as_array())
+        else {
+            continue;
+        };
+        if supported.is_empty() {
+            continue;
+        }
+        let levels: Vec<super::ThinkingLevel> = supported
+            .iter()
+            .filter_map(|level| {
+                let effort = level.get("effort").and_then(|e| e.as_str())?;
+                let description = level
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string);
+                Some(super::ThinkingLevel {
+                    value: effort.to_string(),
+                    label: super::effort_label(effort),
+                    description,
+                })
+            })
+            .collect();
+        if levels.is_empty() {
+            continue;
+        }
+        let default_level = model
+            .get("default_reasoning_level")
+            .and_then(|d| d.as_str())
+            .map(str::to_string);
+        out.insert(
+            slug.to_string(),
+            super::ModelThinking {
+                levels,
+                default_level,
+            },
+        );
+    }
+    Ok(out)
+}
+
 fn mcp_server_toml(server: &McpServer) -> McpServerToml {
     match server.transport {
         McpTransport::Stdio => McpServerToml {
@@ -370,11 +463,15 @@ fn build_mcp_servers_block(mcps: &[McpRef]) -> Result<String> {
 /// Top-level permission keys (System A only — see codex.md "Permissions"
 /// §"System A: legacy `sandbox_mode` + `approval_policy`"). Serialized with
 /// the `toml` crate for correctness rather than hand-formatted strings.
-/// The top-level `model` key in codex's `config.toml`. Serialized with the
-/// `toml` crate so the id is correctly escaped.
-#[derive(Debug, serde::Serialize)]
+/// The top-level `model` / `model_reasoning_effort` keys in codex's `config.toml`. Serialized
+/// with the `toml` crate so ids are correctly escaped. Both optional so the one struct covers
+/// "model only", "effort only" and "neither" without three call sites.
+#[derive(Debug, Default, serde::Serialize)]
 struct ModelToml {
-    model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -440,15 +537,19 @@ fn build_hooks_json(hooks: &[HookRef]) -> Result<String> {
 fn build_config_toml(spec: &RunSpec) -> Result<String> {
     let mut out = String::new();
 
-    // Model selection: the top-level `model` key in config.toml is honored by
-    // both interactive (passthrough) codex and the app-server, so `am`'s
-    // mode-agnostic `spec.model` maps here rather than to a CLI flag. Emitted
-    // first so it stays a top-level key (before any `[table]`). Only written
-    // when set, so runs without `--model` keep a byte-identical config.toml.
-    if let Some(model) = &spec.model {
+    // Model selection + reasoning effort: the top-level `model` /
+    // `model_reasoning_effort` keys in config.toml are honored by both interactive
+    // (passthrough) codex and the app-server, so `am`'s mode-agnostic `spec.model`/
+    // `spec.thinking` map here rather than to CLI flags. Emitted first so they stay
+    // top-level keys (before any `[table]`). Only written when set, so runs without
+    // either keep a byte-identical config.toml. `spec.thinking` is filtered for an
+    // empty string: codex rejects `model_reasoning_effort = ""`.
+    let thinking = spec.thinking.clone().filter(|v| !v.is_empty());
+    if spec.model.is_some() || thinking.is_some() {
         out.push_str(
             &toml::to_string(&ModelToml {
-                model: model.clone(),
+                model: spec.model.clone(),
+                model_reasoning_effort: thinking,
             })
             .context("serializing model")?,
         );
@@ -968,6 +1069,52 @@ mod tests {
     }
 
     #[test]
+    fn config_toml_carries_model_reasoning_effort_when_thinking_set() {
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.thinking = Some("xhigh".to_string());
+        let toml_str = build_config_toml(&spec).unwrap();
+        let parsed: toml::Value = toml::from_str(&toml_str).unwrap();
+        assert_eq!(
+            parsed
+                .get("model_reasoning_effort")
+                .and_then(|v| v.as_str()),
+            Some("xhigh")
+        );
+    }
+
+    #[test]
+    fn config_toml_omits_model_reasoning_effort_when_thinking_unset() {
+        let spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        let toml = build_config_toml(&spec).unwrap();
+        assert!(
+            !toml.contains("model_reasoning_effort"),
+            "config.toml should not carry model_reasoning_effort when unset:\n{toml}"
+        );
+    }
+
+    #[test]
+    fn config_toml_never_emits_empty_model_reasoning_effort() {
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.thinking = Some(String::new());
+        let toml = build_config_toml(&spec).unwrap();
+        assert!(
+            !toml.contains("model_reasoning_effort"),
+            "config.toml should never emit an empty model_reasoning_effort:\n{toml}"
+        );
+    }
+
+    #[test]
+    fn every_mode_id_maps_through_map_sandbox_mode() {
+        for mode in Codex::new().modes() {
+            assert!(
+                map_sandbox_mode(&mode.id).is_some(),
+                "mode '{}' did not map through map_sandbox_mode",
+                mode.id
+            );
+        }
+    }
+
+    #[test]
     fn login_points_codex_home_at_capture_dir_names_auth_json_and_forces_file_store() {
         let home = tempfile::TempDir::new().unwrap();
 
@@ -988,5 +1135,53 @@ mod tests {
 
         let config_toml = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
         assert!(config_toml.contains("cli_auth_credentials_store = \"file\""));
+    }
+
+    #[test]
+    fn thinking_from_bundled_parses_fixture() {
+        let fixture = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/codex-debug-models-bundled.json"
+        ))
+        .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+        let thinking = thinking_from_bundled(&parsed).unwrap();
+
+        let gpt55 = thinking
+            .get("gpt-5.5")
+            .expect("gpt-5.5 has reasoning levels");
+        assert_eq!(gpt55.default_level.as_deref(), Some("medium"));
+        let values: Vec<&str> = gpt55.levels.iter().map(|l| l.value.as_str()).collect();
+        assert_eq!(values, vec!["low", "medium", "high", "xhigh"]);
+        assert_eq!(gpt55.levels[3].label, "Extra high");
+
+        assert!(
+            !thinking.contains_key("gpt-5-chat-latest"),
+            "a model with an empty supported_reasoning_levels must be absent from the map"
+        );
+    }
+
+    /// Live check against a real `codex` on PATH. Skipped when the binary is missing so unit
+    /// CI without Codex still passes.
+    #[test]
+    fn discover_thinking_live_when_codex_available() {
+        let has_codex = std::process::Command::new("codex")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !has_codex {
+            eprintln!("skipping: `codex` not on PATH");
+            return;
+        }
+        let thinking = Codex::new()
+            .discover_thinking()
+            .expect("live `codex debug models --bundled` discovery");
+        assert!(
+            thinking.values().any(|t| !t.levels.is_empty()),
+            "expected at least one model with at least one reasoning level"
+        );
     }
 }

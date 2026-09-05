@@ -25,6 +25,7 @@ pub const SCHEMA: u32 = 1;
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SettingsSection {
     #[default]
+    Appearance,
     FileExplorer,
     Editor,
     Search,
@@ -35,6 +36,7 @@ pub enum SettingsSection {
 impl SettingsSection {
     pub fn all() -> &'static [SettingsSection] {
         &[
+            SettingsSection::Appearance,
             SettingsSection::FileExplorer,
             SettingsSection::Editor,
             SettingsSection::Search,
@@ -45,6 +47,7 @@ impl SettingsSection {
 
     pub fn label(self) -> &'static str {
         match self {
+            SettingsSection::Appearance => "Appearance",
             SettingsSection::FileExplorer => "File explorer",
             SettingsSection::Editor => "Editor",
             SettingsSection::Search => "Search",
@@ -104,6 +107,9 @@ pub struct UiSettings {
     /// Single click and Enter open a temporary preview tab. Off, they open permanently.
     #[serde(default = "default_true")]
     pub explorer_preview: bool,
+    /// The open projects, as coloured badges at the bottom of the activity rail.
+    #[serde(default = "default_true")]
+    pub rail_projects: bool,
     /// The layout a new markdown tab opens in.
     #[serde(default)]
     pub markdown_open: MarkdownOpen,
@@ -122,6 +128,7 @@ impl Default for UiSettings {
         Self {
             schema: SCHEMA,
             explorer_preview: true,
+            rail_projects: true,
             markdown_open: MarkdownOpen::Preview,
             vim_mode: false,
         }
@@ -221,7 +228,7 @@ impl Default for SettingsState {
     fn default() -> Self {
         Self {
             open: false,
-            nav: SettingsSection::FileExplorer,
+            nav: SettingsSection::Appearance,
             ui: UiSettings::default(),
             host: HostSettings::default(),
             accounts: Vec::new(),

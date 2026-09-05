@@ -99,12 +99,14 @@ pub fn filter_bar(
 /// Two marks, and they say different things: the accent is what is chosen, and the keyboard's own
 /// bar is only where the next key lands. A row that is both keeps the accent — what is chosen
 /// outranks where the cursor happens to be — and takes the focus colour's edge to say the keyboard
-/// is there too.
+/// is there too. `focused` is whether the list itself holds the keyboard, which is what deepens
+/// the cursor bar.
 pub fn file_row(
     id: impl Into<ElementId>,
     depth: usize,
     selected: bool,
     on_cursor: bool,
+    focused: bool,
     font_size: f32,
 ) -> Stateful<Div> {
     let mut line = div()
@@ -132,8 +134,13 @@ pub fn file_row(
             .bg(theme::accent_soft())
             .border_l_2()
             .border_color(theme::border_focus()),
+        // The cursor bar deepens once the list holds the keyboard, so where the next key lands is
+        // told apart from where a list left its cursor while the keyboard was somewhere else.
         (false, true) => line
-            .bg(theme::selected())
+            .bg(match focused {
+                true => theme::selected_focus(),
+                false => theme::selected(),
+            })
             .border_l_2()
             .border_color(theme::border_focus()),
         (false, false) => line,

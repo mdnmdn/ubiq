@@ -106,7 +106,7 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
     div()
         .h(px(theme::TITLEBAR_HEIGHT))
-        .px_3()
+        .px_2()
         .flex()
         .flex_none()
         .items_center()
@@ -210,6 +210,10 @@ pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement 
         .iter()
         .filter_map(|row| {
             let (harness, account) = match row {
+                HarnessChoice::Label(text) => {
+                    return Some(kit::ContextItem::new(text.clone()).disabled());
+                }
+                HarnessChoice::Separator => return Some(kit::ContextItem::separator()),
                 HarnessChoice::Harness(harness) => (*harness, None),
                 HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
             };
@@ -241,37 +245,12 @@ pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement 
         "agents-new-menu",
         point(px(at.0), px(at.1)),
         items,
-        indexed(&view, |this, index, window, cx| {
-            this.pick_new_agent_menu(index, window, cx);
+        indexed(&view, |this, index, _window, cx| {
+            this.pick_new_agent_menu(index, cx);
         }),
         handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
     )
     .into_any_element()
-}
-
-/// The step after [`new_agent_menu`]'s pick: name the conversation, or leave it to fall back to
-/// the harness's own label. One field, the same shape as the login modal's own "pick, then name"
-/// second half (`crate::ui::settings::choosing`) — except the harness and identity are already
-/// chosen by the time this shows, so there is no picker to draw here.
-///
-/// Only rendered while [`crate::state::WorkbenchState::naming_agent`] is `Some` — set by
-/// [`AppState::pick_new_agent_menu`], cleared by [`AppState::start_named_agent`] or
-/// [`AppState::cancel_named_agent`].
-pub fn new_agent_naming(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
-    let view = cx.entity();
-    kit::prompt_modal(
-        "agents-naming",
-        "Name this conversation",
-        Some("What to call this conversation. Leave it to use the harness's own name."),
-        "Name",
-        &app.new_agent_name_input,
-        "Start",
-        true,
-        handler(&view, |this, _, cx| this.start_named_agent(cx)),
-        handler(&view, |this, _, cx| this.cancel_named_agent(cx)),
-        window,
-        cx,
-    )
 }
 
 /// The row of columns, and the strip past the last one that a dragged tab is split off into.

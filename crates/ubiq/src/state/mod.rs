@@ -37,8 +37,7 @@ pub mod workbench;
 pub use agents::{AgentsView, Column};
 pub use board::{BoardState, Field, TaskForm};
 pub use chat::{
-    Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, HARNESSES, MODELS, MODES, RunState,
-    THINKING, ToolCall, ToolKind,
+    Block, Chat, ChatMessage, ChatState, DiffKind, DiffLine, RunState, ToolCall, ToolKind,
 };
 pub use conversation::{ConvBlock, Conversation, Pending, Run};
 pub use diagrams::{DiagramImage, DiagramPalette};
@@ -46,7 +45,7 @@ pub use dock::{PanelClass, PanelKind, Region};
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
 pub use explorer::{
     ExplorerAction, ExplorerEntry, ExplorerKey, ExplorerMenu, ExplorerPressed, ExplorerState,
-    ExplorerView, FileNode, GitStatus, NodeKind, Row, Toggle,
+    ExplorerView, FileNode, Follow, GitStatus, NodeKind, Row, Toggle,
 };
 pub use file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest,
@@ -62,6 +61,6 @@ pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    FileDialog, HarnessChoice, MenuId, NewPaneRow, PendingNewAgent, ProjectSettings,
-    ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
+    FileDialog, HarnessChoice, MenuId, NewPaneRow, ProjectSettings, ProjectSettingsMode, RailMode,
+    RowAction, WorkbenchState,
 };

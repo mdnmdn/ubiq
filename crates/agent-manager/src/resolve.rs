@@ -47,6 +47,14 @@ pub struct RunFlags {
     /// `--model <id>`, if given: harness-native model id to launch with.
     /// Passed straight through to `spec.model` (no catalog lookup).
     pub model: Option<String>,
+    /// `--thinking <level>`, if given: harness-native reasoning-effort level to launch with.
+    /// Passed straight through to `spec.thinking` (no catalog lookup). Highest precedence, the
+    /// same rule `model` follows.
+    pub thinking: Option<String>,
+    /// `--permission-mode <id>`, if given: one of the harness's fixed `modes()` ids. Highest
+    /// precedence: it overrides the mode `--safe`'s preset expanded into `spec.policy`, without
+    /// touching anything else the preset set.
+    pub permission_mode: Option<String>,
     /// `--hooks a,b`, if given: catalog hook ids to enable for this run.
     pub hooks: Option<Vec<String>>,
     /// `--safe`: expand the `[presets.safe]` policy.
@@ -375,10 +383,19 @@ pub fn resolve(
     };
     spec.account = account;
     spec.policy = policy;
+    // `--permission-mode` overrides only the mode a `--safe` preset expanded into `spec.policy`
+    // (or creates a bare `Policy` naming just the mode, when there was none) — everything else
+    // the preset set (allow/ask/deny) is untouched.
+    if let Some(mode) = &flags.permission_mode {
+        spec.policy
+            .get_or_insert_with(crate::spec::Policy::default)
+            .permission_mode = Some(mode.clone());
+    }
     spec.model = flags
         .model
         .clone()
         .or_else(|| profile_defaults.and_then(|d| d.model.clone()));
+    spec.thinking = flags.thinking.clone();
     spec.passthrough_args = flags.passthrough_args.clone();
 
     // --- instructions & prompt ---
@@ -669,6 +686,58 @@ mod tests {
         let policy = spec.policy.expect("policy should be set");
         assert_eq!(policy.permission_mode.as_deref(), Some("restricted"));
         assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+    }
+
+    #[test]
+    fn permission_mode_flag_overrides_safe_preset_mode_only() {
+        let mut f = flags("claude");
+        f.safe = true;
+        f.permission_mode = Some("plan".to_string());
+
+        let mut settings = Settings::default();
+        settings.presets.insert(
+            "safe".to_string(),
+            Policy {
+                permission_mode: Some("restricted".to_string()),
+                allow: vec![],
+                ask: vec![],
+                deny: vec!["Bash(rm *)".to_string()],
+            },
+        );
+
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let policy = spec.policy.expect("policy should be set");
+        assert_eq!(policy.permission_mode.as_deref(), Some("plan"));
+        // Everything else the preset set survives untouched.
+        assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+    }
+
+    #[test]
+    fn permission_mode_flag_with_no_safe_creates_a_bare_policy() {
+        let mut f = flags("claude");
+        f.permission_mode = Some("acceptEdits".to_string());
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let policy = spec.policy.expect("policy should be set");
+        assert_eq!(policy.permission_mode.as_deref(), Some("acceptEdits"));
+        assert!(policy.allow.is_empty());
+    }
+
+    #[test]
+    fn thinking_flag_passes_through_to_spec() {
+        let mut f = flags("claude");
+        f.thinking = Some("high".to_string());
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        assert_eq!(spec.thinking.as_deref(), Some("high"));
     }
 
     #[test]

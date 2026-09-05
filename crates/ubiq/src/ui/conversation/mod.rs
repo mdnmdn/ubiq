@@ -16,21 +16,23 @@
 
 use gpui::{
     AnyElement, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
-    Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::conversation::{ConfigCategory, ConfigValue, ToolContent, ToolKind, ToolStatus};
+use ubiq_proto::conversation::{ConfigChoice, ConfigValue, ToolContent, ToolKind, ToolStatus};
 use ubiq_proto::work::AgentId;
 
 use crate::app::AppState;
+use crate::state::MenuId;
 use crate::state::conversation::{ConvBlock, Conversation, Pending, QueuedMessage, Run};
 use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
-    HARNESS_GLYPH, Picker, PickerStyle, field, ghost_button, mono, pill, progress_ring, state_chip,
+    ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, field,
+    ghost_button, mono, pill, progress_ring, state_chip,
 };
 use crate::ui::{handler, indexed};
 
@@ -66,6 +68,7 @@ pub fn render(
         .flex_col()
         .flex_1()
         .min_h(px(0.))
+        .child(lifecycle_header(app, conversation, &view, cx))
         .child(transcript(conversation, &view, cx));
 
     if let Some(pending) = &conversation.pending {
@@ -98,7 +101,109 @@ pub fn render(
         root = root.child(composer(app, conversation, &view, window, cx));
     }
 
+    // Delete is destructive and irreversible — the run directory and its seeded credentials go
+    // with it — so it is confirmed rather than fired on the click.
+    if app.workbench.confirm_end_conversation == Some(id) {
+        let entity = cx.entity();
+        root = root.child(confirm_modal(
+            "conversation-delete-confirm",
+            "Delete conversation",
+            "Delete this conversation? Its transcript and run directory \u{2014} seeded \
+             credentials included \u{2014} go with it. This cannot be undone.",
+            "Delete",
+            true,
+            handler(&entity, move |this, _, cx| {
+                this.confirm_end_conversation(cx)
+            }),
+            handler(&entity, move |this, _, cx| {
+                this.dismiss_end_conversation_confirm(cx)
+            }),
+            window,
+        ));
+    }
+
     root.into_any_element()
+}
+
+/// Which of the four lifecycle-menu rows apply, in the order the menu draws them — Stop, Unload,
+/// Resume, Delete. A pure reading of the conversation's own state, pulled out of [`lifecycle_header`]
+/// so the enable/disable rule is testable on its own: Stop only while a turn is running, Unload
+/// only while launched, Resume only while not, Delete always (ending applies whatever the state).
+pub fn lifecycle_menu_enabled(conversation: &Conversation) -> [bool; 4] {
+    [
+        conversation.run != Run::Idle,
+        conversation.launched,
+        !conversation.launched,
+        true,
+    ]
+}
+
+/// The three-dots lifecycle menu — Stop, Unload, Resume, Delete — first element of the view's
+/// header row, top left. Each item disables rather than hides, so the menu's shape never changes
+/// under the cursor.
+fn lifecycle_header(
+    app: &AppState,
+    conversation: &Conversation,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let id = conversation.id;
+    let entity = cx.entity();
+
+    let enabled = lifecycle_menu_enabled(conversation);
+    let labels = ["Stop", "Unload", "Resume", "Delete"];
+    let items: Vec<ContextItem> = labels
+        .into_iter()
+        .zip(enabled)
+        .map(|(label, enabled)| {
+            let item = ContextItem::new(label);
+            if enabled { item } else { item.disabled() }
+        })
+        .collect();
+
+    let button = div()
+        .id(view.eid("lifecycle"))
+        .h(px(20.))
+        .w(px(20.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(IconName::EllipsisVertical)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_muted()),
+        )
+        .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+            let at = event.position();
+            this.open_conversation_menu(id, (at.x.into(), at.y.into()), cx);
+        }));
+
+    let mut row = div()
+        .h(px(28.))
+        .px_1p5()
+        .flex()
+        .flex_none()
+        .items_center()
+        .border_b_1()
+        .border_color(theme::border())
+        .child(button);
+
+    if app.workbench.open_menu == Some(MenuId::ConversationLifecycle(id)) {
+        let at = app.workbench.conversation_menu.unwrap_or_default();
+        row = row.child(context_menu(
+            view.eid("lifecycle-menu"),
+            point(px(at.0), px(at.1)),
+            items,
+            indexed(&entity, move |this, index, _window, cx| {
+                this.pick_conversation_menu(id, index, cx);
+            }),
+            handler(&entity, |this, _, cx| this.dismiss_conversation_menu(cx)),
+        ));
+    }
+
+    row.into_any_element()
 }
 
 /// What has been said, oldest first.
@@ -510,6 +615,69 @@ fn footer(conversation: &Conversation) -> AnyElement {
     row.into_any_element()
 }
 
+/// What one composer picker offers, after the caller's own substring filter — the same list
+/// `on_pick`'s index resolves against, so a filtered pick can never name the wrong row. `None` is
+/// "the harness has not advertised this config id", drawn as its own sentence rather than an
+/// empty picker.
+pub struct ConfigRow {
+    pub label: String,
+    pub selected: usize,
+    pub values: Vec<String>,
+    pub names: Vec<String>,
+}
+
+/// Build one for `config_id` from the conversation's advertised config and whatever is typed
+/// into the search field. `search` is matched case-insensitively against each choice's name —
+/// `to_lowercase()` and `contains`, the one filter every menu in the window uses; an empty query
+/// keeps everything. `None` when the harness has not offered this id at all — a harness with no
+/// modes never grows a mode picker.
+pub fn config_choices(
+    conversation: &Conversation,
+    config_id: &str,
+    search: &str,
+) -> Option<ConfigRow> {
+    let option = conversation.config.iter().find(|opt| opt.id == config_id)?;
+    let current = match &option.value {
+        ConfigValue::Select { current, .. } => current.as_str(),
+        ConfigValue::Flag { .. } => "",
+    };
+    let chosen = conversation
+        .chosen
+        .get(config_id)
+        .map(String::as_str)
+        .unwrap_or(current);
+    let all: &[ConfigChoice] = match &option.value {
+        ConfigValue::Select { choices, .. } => choices,
+        ConfigValue::Flag { .. } => &[],
+    };
+    let query = search.to_lowercase();
+    let choices: Vec<&ConfigChoice> = all
+        .iter()
+        .filter(|choice| choice.name.to_lowercase().contains(&query))
+        .collect();
+    let selected = choices
+        .iter()
+        .position(|choice| choice.value == chosen)
+        .unwrap_or(0);
+    let label = choices
+        .get(selected)
+        .map(|choice| choice.name.clone())
+        .unwrap_or_else(|| chosen.to_string());
+    let values = choices.iter().map(|choice| choice.value.clone()).collect();
+    let names = choices.iter().map(|choice| choice.name.clone()).collect();
+    Some(ConfigRow {
+        label,
+        selected,
+        values,
+        names,
+    })
+}
+
+/// The order the composer's pickers appear in. Fixed rather than read off `conversation.config`'s
+/// own order: the host may add ids to that list in whatever order it minted them, but the picker
+/// row reads left to right as "what to run as, how hard to think, which mode" every time.
+const CONFIG_ORDER: [&str; 3] = ["model", "thinking", "mode"];
+
 /// The field that steers this agent, and the Stop that interrupts it.
 fn composer(
     app: &AppState,
@@ -522,8 +690,8 @@ fn composer(
     // one that swallows what is typed.
     if !conversation.accepts_input {
         return div()
-            .px_3()
-            .py_2()
+            .px_2()
+            .py_1p5()
             .flex()
             .flex_none()
             .border_t_1()
@@ -549,88 +717,92 @@ fn composer(
     let working = conversation.run == Run::Working;
 
     // Before the harness has launched, the composer offers a model picker instead of the
-    // read-only pill the footer draws once it has — the picker's own row, above the field, rather
-    // than blocking it: the user may type and send before discovery finishes, and the host then
-    // launches with the harness's own default.
-    let model_row = (!conversation.launched).then(|| {
-        let option = conversation
-            .config
+    // read-only pill the footer draws once it has. It sits in the controls row *under* the field,
+    // beside Send, rather than in a strip above it: what a turn will run as belongs next to the
+    // control that starts it, and a row of its own pushed the field down for a chip. It never
+    // blocks typing — the user may send before discovery finishes, and the host then launches with
+    // the harness's own default.
+    let config_row = (!conversation.launched).then(|| {
+        let search = app.picker_search.read(cx).value().to_string();
+        let search_focused = app
+            .picker_search
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+
+        let pickers: Vec<AnyElement> = CONFIG_ORDER
             .iter()
-            .find(|opt| opt.category == Some(ConfigCategory::Model));
-        match option {
-            None => div()
-                .px_3()
-                .py_1()
+            .filter_map(|&config_id| {
+                // Only the model picker filters — thinking and mode are at most six rows, and a
+                // filter field over six rows is furniture.
+                let query = if config_id == "model" {
+                    search.as_str()
+                } else {
+                    ""
+                };
+                let row = config_choices(conversation, config_id, query)?;
+                let values = row.values;
+                let cid = config_id.to_string();
+                let mut picker = Picker::new(view.eid(&format!("{config_id}-picker")), row.label)
+                    .style(PickerStyle::Chip)
+                    .anchor(MENU_ANCHOR_UP)
+                    .items(row.names)
+                    .selected(row.selected)
+                    .open(conversation.open_config.as_deref() == Some(config_id));
+                if config_id == "model" {
+                    picker = picker.search(&app.picker_search, search_focused);
+                }
+                let cid_toggle = cid.clone();
+                let cid_pick = cid.clone();
+                let picker = picker
+                    .on_toggle(handler(&entity, move |this, window, cx| {
+                        this.toggle_agent_config_menu(id, cid_toggle.clone(), window, cx)
+                    }))
+                    .on_pick(indexed(&entity, move |this, index, window, cx| {
+                        if let Some(value) = values.get(index) {
+                            this.pick_agent_config(id, cid_pick.clone(), value.clone(), window, cx);
+                        }
+                    }))
+                    .on_dismiss(handler(&entity, move |this, window, cx| {
+                        this.dismiss_agent_config_menu(id, window, cx)
+                    }));
+                Some(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .child(picker)
+                        .into_any_element(),
+                )
+            })
+            .collect();
+
+        if pickers.is_empty() {
+            mono("Discovering models\u{2026}", theme::text_faint())
+                .text_size(px(11.5))
+                .into_any_element()
+        } else {
+            div()
                 .flex()
                 .flex_none()
-                .child(mono("Discovering models\u{2026}", theme::text_faint()).text_size(px(11.5)))
-                .into_any_element(),
-            Some(option) => {
-                let current = match &option.value {
-                    ConfigValue::Select { current, .. } => current.as_str(),
-                    ConfigValue::Flag { .. } => "",
-                };
-                let chosen = conversation.chosen_model.as_deref().unwrap_or(current);
-                let choices = match &option.value {
-                    ConfigValue::Select { choices, .. } => choices.clone(),
-                    ConfigValue::Flag { .. } => Vec::new(),
-                };
-                let selected = choices
-                    .iter()
-                    .position(|choice| choice.value == chosen)
-                    .unwrap_or(0);
-                let label = choices
-                    .get(selected)
-                    .map(|choice| choice.name.clone())
-                    .unwrap_or_else(|| chosen.to_string());
-                let values: Vec<String> =
-                    choices.iter().map(|choice| choice.value.clone()).collect();
-                let names: Vec<String> = choices.iter().map(|choice| choice.name.clone()).collect();
-
-                div()
-                    .px_3()
-                    .py_1()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .child(
-                        Picker::new(view.eid("model-picker"), label)
-                            .style(PickerStyle::Chip)
-                            .anchor(MENU_ANCHOR_UP)
-                            .items(names)
-                            .selected(selected)
-                            .open(conversation.model_menu_open)
-                            .on_toggle(handler(&entity, move |this, _, cx| {
-                                this.toggle_agent_model_menu(id, cx)
-                            }))
-                            .on_pick(indexed(&entity, move |this, index, _, cx| {
-                                if let Some(value) = values.get(index) {
-                                    this.pick_agent_model(id, value.clone(), cx);
-                                }
-                            }))
-                            .on_dismiss(handler(&entity, move |this, _, cx| {
-                                this.dismiss_agent_model_menu(id, cx)
-                            })),
-                    )
-                    .into_any_element()
-            }
+                .items_center()
+                .gap_1p5()
+                .children(pickers)
+                .into_any_element()
         }
     });
 
+    // No keyboard hint. Enter, cmd/ctrl+Enter and shift+Enter are what every text field on the
+    // machine already does, and a permanent line of shortcut text under every composer is furniture
+    // the user reads once. The row carries what changes instead: what this turn will run as.
     let controls = div()
-        .px_2()
-        .pb_2()
-        .pt_1()
+        .px_1p5()
+        .pb_1()
+        .pt_0p5()
         .flex()
         .items_center()
-        .gap_2()
-        .child(
-            mono(
-                "\u{23ce} / cmd\u{2044}ctrl+\u{23ce} send \u{b7} \u{21e7}\u{23ce} newline",
-                theme::text_faint(),
-            )
-            .text_size(px(10.5)),
-        )
+        .gap_1p5()
+        .children(config_row)
         .child(div().flex_1().min_w(px(0.)));
 
     // One control, and which it is depends on the turn and the draft: idle sends, a running turn
@@ -667,6 +839,24 @@ fn composer(
         })
     };
 
+    // Said once, above the config row, for a conversation that was unloaded rather than never
+    // launched — the two look the same to `config_row` (both have `launched == false`), but only
+    // one of them has a transcript above it that a fresh harness will not remember.
+    let unloaded_notice = (!conversation.launched && !conversation.blocks.is_empty()).then(|| {
+        div()
+            .px_2()
+            .pb(px(2.))
+            .child(
+                mono(
+                    "Unloaded. The next turn starts a new harness, which will not remember what \
+                     is above.",
+                    theme::text_faint(),
+                )
+                .text_size(px(11.)),
+            )
+            .into_any_element()
+    });
+
     let field_el = field(theme::accent(), focused)
         .flex_none()
         .flex_col()
@@ -674,8 +864,8 @@ fn composer(
         .child(
             div()
                 .id(view.eid("composer"))
-                .px_3()
-                .pt_2()
+                .px_2()
+                .pt_1p5()
                 .cursor_text()
                 .child(
                     Textarea::new(&input)
@@ -689,10 +879,10 @@ fn composer(
                     input.update(cx, |state, cx| state.focus(window, cx));
                 })),
         )
+        .children(unloaded_notice)
         .child(controls.child(action));
 
     let mut extras: Vec<AnyElement> = Vec::new();
-    extras.extend(model_row);
     if !conversation.queued.is_empty() {
         extras.push(queue_list(id, slot, view, &conversation.queued, cx));
     }

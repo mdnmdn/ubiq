@@ -142,6 +142,7 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 fn nav_icon(item: SettingsSection) -> IconName {
     match item {
+        SettingsSection::Appearance => IconName::Palette,
         SettingsSection::FileExplorer => IconName::Folder,
         SettingsSection::Editor => IconName::File,
         SettingsSection::Search => IconName::Search,
@@ -152,6 +153,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
 
 fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let content = match app.workbench.settings.nav {
+        SettingsSection::Appearance => appearance(app, cx),
         SettingsSection::FileExplorer => file_explorer(app, cx),
         SettingsSection::Editor => editor(app, cx),
         SettingsSection::Search => search(app),
@@ -171,6 +173,23 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .py_5()
         .child(content)
         .into_any_element()
+}
+
+fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    column(vec![
+        heading("Appearance", "What the window's own chrome shows."),
+        setting_row(
+            "Open projects in the rail",
+            "The projects this window holds, as coloured badges under the mode icons \u{2014} the \
+             most recent first, and only as many as the rail has room for.",
+            check_box(
+                "app-settings-rail-projects",
+                app.workbench.settings.ui.rail_projects,
+                cx.listener(|this, _, _, cx| this.toggle_rail_projects(cx)),
+            )
+            .into_any_element(),
+        ),
+    ])
 }
 
 fn file_explorer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {

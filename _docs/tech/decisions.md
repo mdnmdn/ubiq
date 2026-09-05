@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-04
-verified: 2026-09-04
+updated: 2026-09-05
+verified: 2026-09-05
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -971,9 +971,52 @@ a type. `Trash` also puts a platform dependency in the host for one gesture, and
 platform's rather than Ubiq's: what "the trash" means, and whether there is one at all, is not
 something the host can promise on every filesystem it might be pointed at.
 
+### D58 — A conversation's name is derived from the harness's command, not typed by the user
+
+A conversation used to be named at creation, typed into a prompt between picking a harness and the
+first turn. That prompt is gone: picking a harness now sends `StartConversation` at once, and the
+host names the conversation itself, from the harness's **command** — `claude`, `codex`, `opencode`,
+not the display label a menu shows — with a counter from the second occurrence onward, per project:
+`claude`, `claude 2`, `claude 3`. The first free name is picked, so a closed `claude 2` is reused
+before a new `claude 4` would be minted.
+
+**Cost:** a conversation cannot be renamed after it starts, because no rename message exists on the
+wire yet — that is a backlog gap, not a design decision.
+
+### D59 — A harness stays startable with no identity chosen after accounts exist
+
+`WorkbenchState::harness_choices` used to offer a harness bare only when nothing was signed into it
+— the moment one account logged in, its bare row vanished, and the New agent menu offered nothing
+but named identities. That was an accident of the fold, not a decision: the library's own answer to
+"what does a bare pick run as" — a profile, or the user's own home — never stopped existing, only
+the menu's way to reach it did. The menu now offers both, grouped as `Default` (every available
+harness bare) and `Configured` (one row per signed-in `(harness, account)` pair), with the second
+group — heading and separator included — omitted entirely when nothing is signed in.
+
+**Cost:** the menu is one row longer per harness once an account exists, and a reader of
+`HarnessChoice` now has to skip two decoration variants, `Label` and `Separator`, that carry no
+pick — the same cost `NewPaneRow::Separator` already pays for the same reason.
+
+### D60 — The model/thinking catalogue is a disk cache keyed on the harness binary's version
+
+Discovering what models a harness offers, and which reasoning levels each accepts, means running
+that harness's own probe commands — not free, and not something a pending conversation's first
+`ConfigOptions` should wait on twice. `FileHarnessCache`
+(`crates/ubiq-host/src/store/harness.rs`) writes the answer to
+`<config root>/cache/harness-models.toml`, keyed on `(harness, account, version)`, where `version`
+is that harness binary's own `--version` (or equivalent) output. A hit skips the probe outright; a
+miss probes and writes.
+
+**Cost:** the list can go stale until the user upgrades the harness binary — a new model released
+under the same version string is invisible until the entry is evicted or the file is deleted, and
+nothing today evicts it early. And a harness whose `--version` cannot be read at all bypasses the
+cache entirely, in both directions: no read, no write, a fresh probe on every launch. Both are
+judged cheaper than a wrong catalogue silently served from a stale entry.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
 - [`agent-manager.md`](./agent-manager.md) — the boundary D8 and D9 create
-- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes
+- [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, and D58
+  the naming rule it now states
 - [`../backlog.md`](../backlog.md) — the choices still open

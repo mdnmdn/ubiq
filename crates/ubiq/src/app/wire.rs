@@ -362,6 +362,14 @@ impl AppState {
                 // A listing can put a remembered folder within reach, which is what makes
                 // restoring a deep one terminate: each answer either resolves one or drops it.
                 self.reach_wanted(project_id, cx);
+                // A folder opened by a reveal moves the row that was being revealed, so a tree
+                // that is following brings it back into view as each answer lands.
+                if self
+                    .explorer(cx)
+                    .is_some_and(|tree| tree.follow != Follow::Off)
+                {
+                    self.scroll_explorer_to_cursor(cx);
+                }
                 // The cache fills in the background from project open: each reply names more
                 // folders, and those are asked about next, until the skip set is all that remains.
                 self.fill_explorer_cache(project_id);
@@ -871,6 +879,20 @@ impl AppState {
                     .find(|open| open.conversations.contains_key(&agent_id))?;
                 let conversation = open.conversations.get_mut(&agent_id)?;
                 conversation.ended(stop_reason);
+                refresh_agent_record(open, agent_id);
+                cx.notify();
+            }
+
+            // The harness is gone, but unlike `ConversationEnded` the conversation itself is back
+            // to its pre-launch state: the pickers return, and the next prompt — or a resume —
+            // starts a new process.
+            Message::ConversationUnloaded { agent_id } => {
+                let open = self
+                    .projects
+                    .values_mut()
+                    .find(|open| open.conversations.contains_key(&agent_id))?;
+                let conversation = open.conversations.get_mut(&agent_id)?;
+                conversation.unloaded();
                 refresh_agent_record(open, agent_id);
                 cx.notify();
             }

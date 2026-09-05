@@ -346,6 +346,16 @@ impl Work {
         }
     }
 
+    /// The names the agents already running in `project` are wearing, so a new one can pick the
+    /// first that is free. Live agents only: the mocks are not the user's and must not push a
+    /// real conversation to "claude 4".
+    pub fn live_agent_names(&self, project: ProjectId) -> Vec<String> {
+        self.live
+            .get(&project)
+            .map(|agents| agents.iter().map(|agent| agent.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
     /// Take a running agent out of the project's list, once its harness has
     /// gone and its transcript is all that is left.
     pub fn remove_live_agent(&mut self, project: ProjectId, agent: AgentId) {

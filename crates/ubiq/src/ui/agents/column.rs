@@ -153,8 +153,8 @@ fn tab(
 
     let mut row = div()
         .id(eid("agents-tab", id))
-        .h(px(38.))
-        .px_3()
+        .h(px(32.))
+        .px_2()
         .flex()
         .flex_none()
         .items_center()

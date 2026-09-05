@@ -148,41 +148,52 @@ impl AppState {
             return;
         }
         open.editor.active = index;
-        open.editor.pending_tab_close = None;
         if let Some(path) = open.editor.active_path() {
             open.explorer.selected = Some(path);
         }
+        self.follow_active_file(cx);
         self.remember(project, cx);
         cx.notify();
     }
 
-    /// Close a tab. One holding unsaved changes asks first: the × becomes a confirmation rather
-    /// than taking the click, on the pattern a project with running terminals already uses.
-    ///
-    /// Clicking the tab itself is how the question is answered no, because bringing a tab forward
-    /// is already the one thing that clears it.
+    /// Close a tab. One holding unsaved changes asks first, in the window's one file dialog —
+    /// which is where Enter and Escape already answer.
     pub fn close_editor_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let Some(open) = self.projects.get_mut(&project) else {
+        let Some(open) = self.projects.get(&project) else {
             return;
         };
         let Some(file) = open.editor.open.get(index) else {
             return;
         };
         let key = file.key();
-        if file.dirty() && open.editor.pending_tab_close.as_deref() != Some(key.as_str()) {
-            open.editor.pending_tab_close = Some(key);
+        if file.dirty() {
+            self.workbench.file_dialog = Some(FileDialog::DiscardChanges { key });
             cx.notify();
             return;
         }
+        self.force_close_tab(&key, cx);
+    }
 
-        open.editor.close(index);
+    /// Drop a tab and its panel, unsaved edit and all. The one path that discards a buffer: every
+    /// close that could lose work asks first and lands here on a yes.
+    pub(super) fn force_close_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            return;
+        };
+        open.editor.close(at);
         // The tab and its panel go together, and the panel leaves through a `Window` this does not
         // have — so it queues, like every other edit to the dock.
         self.pending_panels
-            .push(PanelEdit::Close(PanelKind::File(key)));
+            .push(PanelEdit::Close(PanelKind::File(key.to_string())));
         self.remember(project, cx);
         cx.notify();
     }
@@ -202,10 +213,10 @@ impl AppState {
             return;
         };
         open.editor.active = at;
-        open.editor.pending_tab_close = None;
         if let Some(path) = open.editor.active_file().map(|file| file.path.clone()) {
             open.explorer.selected = Some(path);
         }
+        self.follow_active_file(cx);
         // A file panel becoming the displayed tab asks for the keyboard, which the frame grants
         // once it has a window and the file has a buffer — see [`Self::take_editor_focus`].
         self.pending_editor_focus = Some(key.to_string());
@@ -222,7 +233,7 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let Some(open) = self.projects.get_mut(&project) else {
+        let Some(open) = self.projects.get(&project) else {
             return;
         };
         let Some(at) = index_of_key(&open.editor, key) else {
@@ -231,15 +242,19 @@ impl AppState {
             return;
         };
 
-        if open.editor.open[at].dirty() && open.editor.pending_tab_close.as_deref() != Some(key) {
-            open.editor.pending_tab_close = Some(key.to_string());
+        if open.editor.open[at].dirty() {
+            self.workbench.file_dialog = Some(FileDialog::DiscardChanges {
+                key: key.to_string(),
+            });
             self.pending_panels
                 .push(PanelEdit::Open(PanelKind::File(key.to_string())));
             cx.notify();
             return;
         }
 
-        open.editor.close(at);
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.editor.close(at);
+        }
         self.panels.remove(&PanelKind::File(key.to_string()));
         self.remember(project, cx);
         cx.notify();
@@ -549,22 +564,19 @@ impl AppState {
 
     /// Close the active file's tab, taking an unsaved edit with it — vim's `:qa`.
     ///
-    /// `close_editor_tab` asks before it drops a dirty buffer, and asking twice is how the × and
-    /// `cmd-w` force it. This arms that same confirmation rather than adding a second way to close
-    /// a tab, so there is still exactly one path that discards a buffer.
+    /// `close_editor_tab` asks before it drops a dirty buffer; `:q!` is the answer given in
+    /// advance, so it goes straight to the one path that discards a buffer.
     pub fn discard_active_editor(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let Some(open) = self.projects.get_mut(&project) else {
+        let Some(open) = self.projects.get(&project) else {
             return;
         };
-        let index = open.editor.active;
-        let Some(file) = open.editor.open.get(index) else {
+        let Some(key) = open.editor.active_file().map(|file| file.key()) else {
             return;
         };
-        open.editor.pending_tab_close = Some(file.key());
-        self.close_editor_tab(index, cx);
+        self.force_close_tab(&key, cx);
     }
 
     /// Write the active file back.

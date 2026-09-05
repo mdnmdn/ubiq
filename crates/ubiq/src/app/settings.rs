@@ -123,6 +123,12 @@ impl AppState {
 
     /// Turn modal editing on or off. Reached from two places — the settings checkbox and the
     /// status bar's chip — so that the readout and the switch can never disagree.
+    pub fn toggle_rail_projects(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.rail_projects = !self.workbench.settings.ui.rail_projects;
+        self.remember_settings();
+        cx.notify();
+    }
+
     pub fn toggle_vim_mode(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.ui.vim_mode = !self.workbench.settings.ui.vim_mode;
         // Leaving a half-typed command or a Normal-mode caret behind would mean the next time vim

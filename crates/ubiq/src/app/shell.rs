@@ -145,6 +145,13 @@ impl AppState {
             saved.show_right,
         ));
         self.sync_file_panels(project);
+        // The field is the window's and the query in it is the project's, so a switch brings back
+        // whatever this project was left filtering by rather than carrying the last one's over.
+        // `sync_file_filter_field` writes it into the field on the next frame, which is where a
+        // window is on hand.
+        self.workbench.file_filter = view.file_filter.clone();
+        self.explorer_filter_gen = self.explorer_filter_gen.wrapping_add(1);
+        self.spawn_explorer_filter(view.file_filter.clone(), cx);
 
         self.pending_focus = focused;
         if let Some(pane_id) = focused {
@@ -316,6 +323,7 @@ impl AppState {
         self.workbench.pending_close = None;
         self.workbench.file_tab_menu = None;
         self.workbench.new_pane_menu = None;
+        self.workbench.conversation_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
         cx.notify();
@@ -361,6 +369,12 @@ impl AppState {
         WindowRegistry::read(cx)
             .slot(self.window_id)
             .and_then(|slot| slot.active_project())
+    }
+
+    /// What this window holds, straight from the registry — unlike `project_groups`, unfiltered
+    /// by the picker's search box.
+    pub fn window_slot<'a>(&self, cx: &'a App) -> Option<&'a crate::state::WindowSlot> {
+        WindowRegistry::read(cx).slot(self.window_id)
     }
 
     /// Everything known about the project this window is pointed at.
@@ -557,6 +571,23 @@ impl AppState {
         let field = self.search.query.read(cx).focus_handle(cx);
         window.focus(&field, cx);
         cx.notify();
+    }
+
+    /// ⌘P: bring the explorer out if it is put away, and put the caret in its filter.
+    ///
+    /// The same shape as [`Self::reveal_search`], for the same reason: the gesture is "go to a
+    /// file", and a panel that opens without the keyboard in the field reads as nothing having
+    /// happened.
+    pub fn reveal_explorer_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = self.panel(PanelKind::Explorer, cx);
+        dock::reveal(
+            &self.dock.clone(),
+            &panel,
+            PanelKind::Explorer.home(),
+            window,
+            cx,
+        );
+        self.focus_explorer_filter(window, cx);
     }
 
     /// Serve the active project over the local web-export server and open it in the browser.

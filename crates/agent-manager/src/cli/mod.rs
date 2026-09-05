@@ -121,6 +121,14 @@ struct RunArgs {
     /// List the models available for this harness and exit (don't launch).
     #[arg(long)]
     list_models: bool,
+    /// Reasoning-effort level to launch with (harness-native, e.g. `high`, `xhigh`).
+    #[arg(long)]
+    thinking: Option<String>,
+    /// Permission/sandbox mode to launch with — one of the harness's fixed set (e.g. Claude
+    /// Code's `plan`, `acceptEdits`; Codex's `read-only`, `workspace-write`). Highest
+    /// precedence: overrides just the mode a `--safe` preset expanded.
+    #[arg(long)]
+    permission_mode: Option<String>,
     /// Named hooks (defined in the settings file) to enable for this run.
     #[arg(long, value_delimiter = ',')]
     hooks: Option<Vec<String>>,

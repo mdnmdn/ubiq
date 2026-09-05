@@ -64,7 +64,7 @@ fn ref_row(index: usize, row: &RefRow, selected: bool, cx: &mut Context<AppState
         theme::text_faint()
     };
 
-    file_row(eid("git-ref", index), 0, selected, false, ROW_FONT)
+    file_row(eid("git-ref", index), 0, selected, false, false, ROW_FONT)
         .child(status_dot(colour, theme::pane_bg()))
         .child(elided(
             eid("git-ref-name", index),

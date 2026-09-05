@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-03
-verified: 2026-09-03
-code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs]
+updated: 2026-09-05
+verified: 2026-09-05
+code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -61,6 +61,15 @@ for that run, and the harness is launched against it with the environment the li
 the user's own `~/.claude` and its siblings are read-only for the duration. The directory belongs to
 the pane: it is named by it, and it is deleted when the pane closes, credentials seeded into it
 included. One left behind by a process that was killed is deleted at the next start.
+
+**Unload is not delete.** A conversation's harness can be killed without ending the conversation —
+`UnloadConversation`, answered by `ConversationUnloaded` — and unlike a pane close or
+`EndConversation`, that keeps everything: the transcript, the `WorkAgent`, and the run directory with
+whatever was seeded into it. Only the harness process and its pump go. What is kept is exactly what a
+resume (`ResumeConversation`, or the next `PromptAgent`) needs to start the harness again under the
+same `agent_id`, continuing the same message sequence rather than starting a new one. Delete
+(`EndConversation`) is still what removes the run directory and its credentials, and takes the
+conversation with it.
 
 **An agent runs confined unless the settings say otherwise.** The policy grants the project's folder
 and that run's own directory, gives it an ephemeral `$HOME`, and denies the rest of the machine. A

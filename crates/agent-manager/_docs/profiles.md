@@ -223,6 +223,19 @@ replace it on other platforms). Either way the two axes compose cleanly:
 - Even for Class A, full isolation is available: run inside an isol8 HOME and let
   `CLAUDE_CONFIG_DIR` point inside it. The seeding step is identical; only the
   `HOME` the child sees changes.
+- **A login needs real-home grants a run does not, because nothing reconstructs its HOME.**
+  A run's isol8 HOME is deliberately rebuilt (§8's "sandbox HOME is reconstructed"): the
+  toolchain caveat is paid once, on purpose. `login_confined`'s HOME is just the capture
+  directory — no reconstruction step runs for it — so isol8's rule that a replaced HOME
+  auto-grants nothing from the real one leaves a login unable to read anything outside a
+  directory this policy already names. A self-contained binary (Claude Code) is fine; a
+  script run through an interpreter (Codex, `#!/usr/bin/env node`) is not, because
+  `confine_executable` grants the script and its npm package but never reads the shebang.
+  `login_runtime_grants` (`isolate.rs`) closes that gap: it walks the resolved program's own
+  symlink chain, resolves and walks the interpreter's chain when the program is a script, and
+  adds a short list of well-known runtime-manager roots (`mise`, `nvm`, `volta`, …) under the
+  real home — every entry existence-guarded, so a machine without a given manager pays
+  nothing.
 
 ## 9. Materializing the overlay (symlink-else-copy, GC, Windows)
 

@@ -179,6 +179,12 @@ impl Agents {
         harness::resolve(id).is_some()
     }
 
+    /// The binary `agent_type` launches as — `claude`, `codex` — which is what a conversation is
+    /// named after. Ubiq never spells this out; the library answers it.
+    pub fn command_of(&self, agent_type: &str) -> Option<String> {
+        harness::resolve(agent_type).map(|h| h.command().to_string())
+    }
+
     /// The models `agent_type` will answer for, before anything is spawned.
     ///
     /// `discover_models` takes no account and no directory: it spawns its own probe rather than
@@ -419,6 +425,8 @@ impl Agents {
             IoModes::Passthrough,
             None,
             None,
+            None,
+            None,
         )
     }
 
@@ -434,6 +442,7 @@ impl Agents {
     ///   combination outright, and producing it quietly here would be worse.
     /// - The id is the agent's rather than a pane's, because a conversation
     ///   has no pane. It is the day `WorkspaceId` and `PaneId` come apart.
+    #[allow(clippy::too_many_arguments)]
     pub fn converse(
         &self,
         agent: AgentId,
@@ -441,6 +450,8 @@ impl Agents {
         cwd: &Path,
         account: Option<String>,
         model: Option<String>,
+        thinking: Option<String>,
+        mode: Option<String>,
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -452,6 +463,8 @@ impl Agents {
             IoModes::Structured,
             account,
             model,
+            thinking,
+            mode,
         )?;
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
@@ -495,6 +508,8 @@ impl Agents {
         io: IoModes,
         account: Option<String>,
         model: Option<String>,
+        thinking: Option<String>,
+        mode: Option<String>,
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -512,10 +527,12 @@ impl Agents {
             cwd: cwd.to_path_buf(),
             passthrough_args: args,
             // Highest precedence in `resolve`, which is what "the user picked this one" has to
-            // mean: an identity — or a model — chosen when the conversation started outranks
-            // the profile's.
+            // mean: an identity — or a model, a thinking level, a mode — chosen when the
+            // conversation started outranks the profile's.
             account,
             model,
+            thinking,
+            permission_mode: mode,
             ..Default::default()
         };
         let mut spec = resolve::resolve(

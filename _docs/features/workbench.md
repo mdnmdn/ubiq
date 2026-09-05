@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, vim mode, or the status bar
-updated: 2026-09-04
-verified: 2026-09-04
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
+updated: 2026-09-05
+verified: 2026-09-05
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/state/sample.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -29,6 +29,16 @@ under `PROJECT`. Exactly one
 is active, and the active one is shown by the accent colour on both its icon and its label. The
 group is not decoration: a `PROJECT` mode with no folder open draws the page saying so, and an `APP`
 mode answers whether or not one is open.
+
+**Under the modes, the projects this window holds, once it holds more than one.** Bottom-justified
+badges, each in the project's own colour with its initial and its full name as the tooltip; a click
+points the window at it. The active project is the filled square, edge to edge; the rest are the
+same square drawn as a thick ring, inset. One project is nothing to pick between, so the rail shows
+no badge at all. The modes have precedence: the rail fits as many whole badges as the space left
+under them allows and drops the least recently opened — the active project is the one that survives
+when there is room for a single badge, and a window too short for even one shows none. **The order
+never moves**: badges stay in the order the window holds them, whichever of them the rail had to
+leave out. The switch is Appearance settings, on by default.
 
 **Six modes are built.** What the rail selects between is the centre. Git fills it with the
 repository, Agents with the parallel columns, Orchestration with the graph, Tasks with the board,
@@ -66,23 +76,41 @@ on screen — `bench_agent` for every tab in every column, the same thing a tab'
 does, not `EndConversation` — and is shown only when there is something on screen to bench; a row
 with no columns gets no button rather than one that would silently do nothing. `New
 agent` reads the harness library's agent types, the same `ListAgentTypes` answer the new-pane menu
-reads so the two lists cannot disagree. A pick does not start anything by itself — it raises a
-naming prompt (`ui::agents::new_agent_naming`, over `WorkbenchState::naming_agent`), the window
-between choosing a harness and identity and typing what to call the conversation, where leaving
-costs nothing because no harness exists yet. Confirming sends `StartConversation` with that name,
-or `None` if the field was left empty, which the host reads as "use the harness's own label" —
-the way every conversation's name worked before this prompt existed. A type whose binary is not on
-this machine is listed and refuses the click rather than being started into a failure. What a pick
-eventually makes is a conversation rather than a pane — the same question asked of the other face
-of a workspace, and a conversation has no size.
+reads so the two lists cannot disagree, plus the accounts signed in. `WorkbenchState::harness_choices`
+groups what it offers into two: every available harness bare, under a `Default` heading, and — only
+when at least one account is signed in — a `Configured` heading below a separator with one row per
+`(harness, account)` pair. Signing in adds the second group; it never removes a harness's `Default`
+row, because which identity a conversation runs as is fixed the moment it starts and is worth
+choosing explicitly, and the library still has an answer — a profile, or the user's own home — for
+what a bare pick runs as. Both headings and the separator are rows like any other `HarnessChoice`,
+disabled and unpickable, because the menu and the pick behind it read one list matched by position;
+`AppState::pick_new_agent_menu` returns rather than acting when a pick lands on one. A pick sends
+`StartConversation` at once, in the same turn — no prompt sits between choosing a harness and the
+first turn. The conversation's name is not the UI's to set: the host derives it from the harness's
+command, with a per-project counter from the second occurrence onward. A type whose binary is not
+on this machine is listed and refuses the click rather than being started into a failure. What a
+pick eventually makes is a conversation rather than a pane — the same question asked of the other
+face of a workspace, and a conversation has no size.
 
 **Closing a tab benches the agent; it does not end it.** This is the one place the screen
 deliberately reads differently from a terminal pane, whose close kills the harness behind it —
 [`panes-and-terminals.md`](./panes-and-terminals.md). A tab is a view onto a conversation, so taking
 it off screen leaves the agent running: the sidebar still lists it, marked `bench`, and one click
 brings it back. Nothing on this screen kills an agent — `Close all` benches the whole row the same
-way a single close does. `AppState::end_conversation` and `Message::EndConversation` still exist for
-a future explicit "end this agent for good" action, but nothing drawn today calls it.
+way a single close does. Ending an agent for good is the shared conversation view's own three-dots
+menu, below, not a gesture on the tab.
+
+**A three-dots menu, top left of the shared conversation view, is where a live agent's four
+lifecycle verbs live.** Stop (`CancelTurn`) interrupts the turn in flight and leaves the harness up.
+Unload (`UnloadConversation`) kills the harness but keeps the conversation, its transcript and its
+run directory — the pickers return, exactly as a conversation that has not launched yet reads.
+Resume (`ResumeConversation`) starts the harness again under the same agent, with no prompt. Delete
+(`EndConversation`) ends the conversation outright, taking the run directory and the transcript with
+it, and is the one item confirmed before it fires rather than acted on the click. Each item disables
+rather than disappears when it does not apply — Stop only while a turn runs, Unload only while
+launched, Resume only while it is not, Delete always — so the menu's shape never changes under the
+cursor. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
+delete does not.
 
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
 so an agent the host stops reporting stops being listed with nothing to clean up.
@@ -156,8 +184,8 @@ a single placeholder standing in for every harness alike, since none has a real 
 the harness text in the column footer's pill, the sidebar's secondary line and the chat panel's row.
 Only the *choosing* surfaces still spell the label out in full: the new-agent menu's rows and the
 settings page's harness list, where the full name is what a reader needs to make the pick. The
-conversation's own name — what item above's naming prompt sets — is unaffected either way; the
-glyph only ever stands in for the harness identifier next to it.
+conversation's own name — derived host-side from the harness's command, not set by the UI — is
+unaffected either way; the glyph only ever stands in for the harness identifier next to it.
 
 **The sidebar lists everything the host reports, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
@@ -608,7 +636,8 @@ stylesheet paints, ahead of `script.js`'s own `DOMContentLoaded` handler.
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Four sections ship: **File explorer** (whether a
+it dismisses project settings, and the reverse. Five sections ship: **Appearance** (whether the rail carries the open-project badges), **File
+explorer** (whether a
 single click opens a preview tab), **Editor** (whether a new markdown file opens in preview or
 source), **Harnesses** (whether an agent is confined to its project, over the accounts
 registered here and an Add button that signs a new one in), and **Command line** (the `ubiq`
@@ -742,10 +771,15 @@ the file picker uses.** Opening a project asks the host for its top level; expan
 for that folder's children, and only then. A repository's `node_modules` is therefore one row
 rather than a walk, and a tree the user never opens costs nothing. The tree is the folders that
 have been opened, indented; the list is every match the host has already named, flat and sorted by
-name without case, each row saying which folder it came from. One filter field sits over both and
-what was typed survives the toggle. A filter finds rather than prunes: every folder already listed
-is walked while one is typed, and a folder with nothing matching under it drops out instead of
-drawing as empty. **The listings are cached in the window, filled in the background when the
+name without case, each row saying which folder it came from. **The view switch in the panel header
+is the one control that says which arrangement is on**, and what was typed survives the toggle: one
+filter field sits over both, under the header. A filter finds rather than prunes: every folder
+already listed is walked while one is typed, and a folder with nothing matching under it drops out
+instead of drawing as empty. **The field starts searching at three characters**, because one or two
+letters match nearly everything in a project and cost a full walk to answer with a screen the user
+has to narrow anyway — anything shorter is treated as an empty field and the tree is left alone. A
+hit on a folder the host has never listed is asked for, so a matched folder answers with its
+contents; the walk's skip set is still never asked for. **The listings are cached in the window, filled in the background when the
 project opens**, so a search reads what is already named rather than waiting on the host. The walk's
 skip set is left alone — `node_modules` stays one row — and a cached listing does not expand the
 tree: collapsing is still not forgetting, and an unfiltered tree still shows only what the user
@@ -764,14 +798,17 @@ removed: there is nowhere to put a project inside its own tree, and the host ref
 same reason. The flat list has no such row, because a list is flat by definition and there is nothing
 for a root to contain.
 
-**The explorer is worked from the keyboard, and the field keeps it the whole time.** The keys that
-drive the rows are bound against the field as well as against the panel, so nothing has to be
-tabbed to. `up` and `down` move a cursor bar through the rows and stop at the ends; `right` opens
+**The explorer is worked from the keyboard, and the filter and the tree are two focuses** — the
+convention [`tech/ui-and-design.md`](../tech/ui-and-design.md) states for every tree in Ubiq. `⌘P`
+(and `ctrl-p`) reveals the explorer and puts the caret in its filter from anywhere, including from
+inside another field. `down` and `tab` step from there onto the tree, `tab` and `shift-tab` step
+back off it onto the field, and the keys below are live only while the tree holds the keyboard.
+`up` and `down` move a cursor bar through the rows and stop at the ends; `right` opens
 the folder the cursor is on and then steps into it, `left` shuts it and then steps out to the
 folder holding it; `enter` opens a file in a temporary preview and toggles a folder, `shift-enter`
-opens the file permanently; `escape` closes the right-click menu,
-then clears the filter, then is handed back. What the panel has no answer for it hands back, which
-is how `left` and `right` are the field's own caret keys again in the flat list. The cursor is not
+opens the file permanently; `escape` closes the right-click menu, then clears the filter, then is
+handed back. `enter` and `escape` are the two the field keeps as well, so a query can be opened or
+cleared without leaving it. What the panel has no answer for it hands back. The cursor is not
 the open file: the accent is the file that is open, the keyboard's bar is only where the next key
 lands.
 
@@ -779,11 +816,23 @@ lands.
 platform.** Backspace is what a macOS file manager uses and Delete is what the others use, so each
 is bound everywhere rather than made to depend on which operating system the keyboard came with. It
 raises the same question the menu's Delete row does, with the same Shift on it: on its own the path
-goes to the Trash, and with Shift held it is removed outright. **A filter with anything typed in it
-keeps the key**, because Backspace is how a query is corrected and a tree that deleted a file while
-the user was fixing a typo would be indefensible — Escape clears the filter first, so the removal is
-one keystroke away rather than unreachable. The project's own row is refused, as are the rows the
+goes to the Trash, and with Shift held it is removed outright. **Neither key exists at the field**,
+because Backspace is how a query is corrected and a tree that deleted a file because the field had
+run out of letters would be indefensible. The project's own row is refused, as are the rows the
 host will not follow.
+
+**Clicking a row puts the keyboard on the tree.** A single click previews a file and leaves the
+focus where the next arrow key is useful; a permanent open — double-click, Shift+click, ⌘+click —
+takes the keyboard to the editor, because the file is where the user is now going.
+
+**A three-state follow button sits in the panel header.** Off, revealed once, locked, cycled by
+clicking it. *Once* reveals the active editor's file in the tree and stops there; *locked* reveals
+every file that becomes the active editor, however it became active — a tab brought forward, a file
+opened from the tree, the picker or a search. **Revealing opens the folders above the file and
+scrolls the row into view**: it runs through the same `wanted` list a restore uses, so a folder the
+host has never listed is asked for and opened when the answer lands. Nothing is collapsed — a
+reveal opens the way to one file, it does not tidy the rest of the tree away. It is never written
+down, so a window opens with it off.
 
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
 path, Copy full path, Open in Finder, Open in Web, New file, New folder, Copy, Paste, Duplicate,
@@ -1356,13 +1405,13 @@ those. **The window owns what is about the window** — the dock and one
 panel per kind in it, the palette, the chat, the log console, and one flat map from pane id to
 emulator, because an emulator does not care which list draws it.
 
-The task panel's four fields, the board's filter and the Git screen's search and commit box sit
-across that line: the entities are the
+The task panel's four fields, the board's filter, the Git screen's search and commit box and the
+explorer's filter sit across that line: the entities are the
 **window's**, because a text field is a component the window builds and there is one of each, while
 the text in them is the **project's**, because it is about the task that project has open. So a
-project switch refills them from whichever project came forward. That is the `file_filter` precedent
-one step on — there both the field and what was typed into it are the window's; here only the field
-is.
+project switch refills them from whichever project came forward — the explorer's filter included,
+which is how a window brought back to a project finds that project's own query in it rather than
+the last one typed anywhere.
 
 A project's state lives exactly as long as the window holds the project. That one rule is why
 switching projects is a lookup rather than a rebuild, and why the terminals of a project nobody is
@@ -1680,16 +1729,24 @@ conversation on the harness at that row. `crates/ubiq/tests/conversation.rs` cov
 **A conversation is drawn before its harness exists.** `pick_new_agent_menu()` mints the `AgentId`
 itself — the `SessionId` precedent — and the host adopts it, so `ConversationStarted` and the
 `Conversation` it creates arrive with no process behind them yet; `Conversation.launched` stays
-`false` until the harness's own `Started` update sets it. While it is false, `composer()` reads
-`conversation.config` for a `model`-category `ConfigOption` and draws a `Picker` dropdown above the
-field instead of the footer's read-only pill (a "Discovering models…" note when the list has not
-arrived), its own open/shut state on `Conversation.model_menu_open` rather than the window's single
-`open_menu` — several pending conversations can each have one open at once — and a pick sends
-`AppState::pick_agent_model()` — which also records the pick on `Conversation.chosen_model`, since
-the host does not echo a `SetAgentConfig` sent before launch, so the picker has nowhere else to read
-its own highlight from, and closes the dropdown. `activity()` reads that pending,
-never-run state (`Run::Idle` with no `stop_reason` yet) as `Activity::Thinking` rather than
-`Activity::Ended`, matching what the host already reports at registration.
+`false` until the harness's own `Started` update sets it. While it is false, `composer()` draws one
+`Picker` chip per config option the host has advertised in `conversation.config` — `model`,
+`thinking`, `mode`, in that fixed order, each drawn only when the host actually offered that id (a
+"Discovering models…" note when none have arrived yet) — beside Send rather than the footer's
+read-only pills. `ui::conversation::config_choices(conversation, config_id, search)` builds each
+picker's rows; only the model picker's takes a search string, since thinking and mode are at most a
+handful of rows. Which picker (if any) is open lives on `Conversation.open_config` — one `config_id`
+at a time, per conversation — rather than the window's single `open_menu`, since several pending
+conversations can each have their own picker open at once. A pick sends
+`AppState::pick_agent_config(agent_id, config_id, value, ..)`, which also records it on
+`Conversation.chosen` keyed by `config_id`, since the host does not echo a `SetAgentConfig` sent
+before launch and the picker has nowhere else to read its own highlight from, and closes the
+picker. Picking a model makes the host re-send `ConfigOptions` with `thinking` recomputed for it —
+`Conversation::apply`'s `ConfigOptions` arm drops any `chosen` entry the fresh options no longer
+back, so a thinking level the old model accepted cannot survive a model switch into launch.
+`activity()` reads that pending, never-run state (`Run::Idle` with no `stop_reason` yet) as
+`Activity::Thinking` rather than `Activity::Ended`, matching what the host already reports at
+registration.
 
 `AppState` carries it as `agents`, the composers as `column_inputs` — a fixed pool of
 `COMPOSER_SLOTS` `TextareaState` entities built in the constructor (one per column, plus

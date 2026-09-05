@@ -34,6 +34,7 @@ use crate::reply::Reply;
 use crate::search::{self, Search};
 use crate::settings::Settings;
 use crate::shells;
+use crate::store::harness::{CachedModel, FileHarnessCache};
 use crate::watch;
 use crate::work::Work;
 
@@ -78,6 +79,10 @@ struct Coordinator {
     settings: Settings,
     /// Which agent types can run here, and the composer that turns one into a launch.
     agents: Agents,
+    /// The on-disk cache of what each harness answered about its own models/reasoning levels,
+    /// keyed on the harness binary's own version string. `Arc` because the discovery thread
+    /// cannot borrow `&self` — the same constraint that made model discovery a free function.
+    catalogue: Arc<FileHarnessCache>,
     /// The thread that reads and writes a project's files. Nothing in the file family touches disk
     /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
     files: Files,
@@ -117,9 +122,13 @@ struct Coordinator {
     /// have, for the same two reasons: a reply goes to the window that asked, and a project's
     /// count changes when one ends.
     conversation_owners: HashMap<AgentId, (ClientId, ProjectId)>,
-    /// A conversation the window asked for whose harness has not launched yet — P3's ordering:
-    /// the model is a launch flag, so it is chosen while a loader shows, and moves into
-    /// [`Self::conversations`] only on the first [`Message::PromptAgent`].
+    /// The launch recipe for every agent this window has asked for, kept for the agent's whole
+    /// life rather than only until its first launch. Before a first [`Message::PromptAgent`] it is
+    /// what P3's loader is waiting on; after `UnloadConversation` it is what
+    /// `ResumeConversation` (or the next `PromptAgent`) relaunches from. Only
+    /// [`Message::EndConversation`] removes an entry — a live agent's own row stays put beside its
+    /// [`Self::conversations`] one, holding the picks (`chosen_model` and friends) a relaunch must
+    /// not lose.
     pending_conversations: HashMap<AgentId, PendingConversation>,
     /// The logins running in a pane, keyed by it. Whether a login captured anything is only
     /// answerable once its process has exited, so what the answer needs is parked here until
@@ -130,6 +139,7 @@ struct Coordinator {
 /// A conversation the window asked for and the harness has not yet answered — registered so the
 /// UI can draw it with a loader while its harness's models are discovered, instead of starting it.
 /// [`Coordinator::conversations`] is where an agent moves once the harness actually exists.
+#[derive(Clone)]
 struct PendingConversation {
     project_id: ProjectId,
     agent_type: String,
@@ -138,6 +148,17 @@ struct PendingConversation {
     /// Set by a `SetAgentConfig{config_id: "model", ..}` before launch. `None`, or an empty
     /// string, both mean "whatever this harness defaults to" — no `--model` flag at all.
     chosen_model: Option<String>,
+    /// Set by a `SetAgentConfig{config_id: "thinking", ..}` before launch. Same `None`/empty
+    /// convention as `chosen_model`: no `--effort`-equivalent flag at all.
+    chosen_thinking: Option<String>,
+    /// Set by a `SetAgentConfig{config_id: "mode", ..}` before launch. Same `None`/empty
+    /// convention as `chosen_model`: no `--permission-mode`-equivalent flag at all.
+    chosen_mode: Option<String>,
+    /// The model catalogue this agent's discovery answered, refreshed by a synchronous cache
+    /// re-read whenever the picked model changes (see the `SetAgentConfig` "model" arm) — a
+    /// level is per model, so recomputing the thinking picker needs the whole catalogue, not
+    /// just the one id that changed.
+    catalogue: Vec<CachedModel>,
     /// Where the real pump's own sequence counter picks up, so a message sent before launch (the
     /// model-discovery thread's `ConfigOptions`, always seq 1) and the harness's first frame after
     /// it are one unbroken sequence.
@@ -153,6 +174,23 @@ fn accepts_second_turn(agent_type: &str) -> bool {
     matches!(agent_type, "claude-code" | "codex")
 }
 
+/// `base`, then `base 2`, `base 3` … — the first that nothing in `taken` is wearing. A counter
+/// from the second occurrence onward, per project, so the first `claude` is just `claude` and a
+/// closed `claude 2` is reused rather than skipped.
+fn unique_name(base: &str, taken: &[String]) -> String {
+    if !taken.iter().any(|name| name == base) {
+        return base.to_string();
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("{base} {n}");
+        if !taken.iter().any(|name| name == &candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 /// Now, in epoch milliseconds — the unit a stored credential's own expiry is in.
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -161,14 +199,72 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// The models `agent_type` will answer for, resolved directly against the library rather than
-/// through [`crate::agent::Agents::discover_models`] — this runs on a one-off thread with no
-/// borrow of `self`, and `Agents` cannot be shared there while `Message::SetSettings` still needs
-/// `&mut` access to it for `set_isolate`.
-fn probe_models(agent_type: &str) -> anyhow::Result<Vec<agent_manager::harness::ModelInfo>> {
-    agent_manager::harness::resolve(agent_type)
-        .ok_or_else(|| anyhow::anyhow!("unknown agent type '{agent_type}'"))?
-        .discover_models()
+/// The models (with reasoning levels folded in) `agent_type` will answer for `account`, resolved
+/// directly against the library rather than through [`crate::agent::Agents::discover_models`] —
+/// this runs on a one-off thread with no borrow of `self`, and `Agents` cannot be shared there
+/// while `Message::SetSettings` still needs `&mut` access to it for `set_isolate`.
+///
+/// Cached on the harness binary's own `version()` string: a hit skips both probes entirely; a
+/// miss joins `discover_models()` (fatal on failure — no models is nothing to offer) with
+/// `discover_thinking()` (**not** fatal — models with no reasoning knob are the normal case, so a
+/// failure there just means every model comes back with empty `levels`), then writes the cache.
+/// `version()` failing or answering empty bypasses the cache entirely (no read, no write) —
+/// an unversioned entry would survive the very upgrade it exists to be invalidated by.
+fn probe_catalogue(
+    agent_type: &str,
+    account: &str,
+    cache: &FileHarnessCache,
+) -> anyhow::Result<Vec<CachedModel>> {
+    let harness = agent_manager::harness::resolve(agent_type)
+        .ok_or_else(|| anyhow::anyhow!("unknown agent type '{agent_type}'"))?;
+
+    let version = harness.version().ok().filter(|v| !v.is_empty());
+    if let Some(version) = &version
+        && let Some(hit) = cache.get(agent_type, account, version)
+    {
+        return Ok(hit);
+    }
+
+    let models = harness.discover_models()?;
+    let thinking = harness.discover_thinking().unwrap_or_default();
+    let merged: Vec<CachedModel> = models
+        .into_iter()
+        .map(|model| {
+            let levels = thinking.get(&model.id).cloned().unwrap_or_default();
+            CachedModel {
+                id: model.id,
+                description: model.description,
+                default: model.default,
+                levels: levels
+                    .levels
+                    .into_iter()
+                    .map(|level| crate::store::harness::CachedLevel {
+                        value: level.value,
+                        label: level.label,
+                        description: level.description,
+                    })
+                    .collect(),
+                default_level: levels.default_level,
+            }
+        })
+        .collect();
+
+    if let Some(version) = &version {
+        cache.put(agent_type, account, version, merged.clone());
+    }
+    Ok(merged)
+}
+
+/// The default model id: the one flagged `default`, else the first, else empty (no models at
+/// all). Shared by [`model_config_option`] (its `current`) and the caller feeding a chosen-model
+/// id to [`thinking_config_option`] before the user has picked one.
+fn default_model_id(models: &[CachedModel]) -> String {
+    models
+        .iter()
+        .find(|model| model.default)
+        .or_else(|| models.first())
+        .map(|model| model.id.clone())
+        .unwrap_or_default()
 }
 
 /// The one `model` [`ConfigOption`] a pending agent's picker gets: a select filled from what the
@@ -176,57 +272,128 @@ fn probe_models(agent_type: &str) -> anyhow::Result<Vec<agent_manager::harness::
 /// `_docs/wip/agent-setup.md`'s P3: "one that cannot answer must offer 'whatever it defaults to'
 /// rather than an empty picker." An empty `current`/`value` is what tells `launch_pending` to pass
 /// no `--model` flag at all.
-fn model_config_option(
-    discovered: anyhow::Result<Vec<agent_manager::harness::ModelInfo>>,
-) -> ConfigOption {
-    let models = match discovered {
-        Ok(models) if !models.is_empty() => models,
-        _ => {
-            return ConfigOption {
-                id: "model".to_string(),
-                name: "Model".to_string(),
-                description: Some(
-                    "This harness's model list could not be read; it will use its own default."
-                        .to_string(),
-                ),
-                category: Some(ConfigCategory::Model),
-                value: ConfigValue::Select {
-                    current: String::new(),
-                    choices: vec![ConfigChoice {
-                        value: String::new(),
-                        name: "Default".to_string(),
-                        description: None,
-                        group: None,
-                    }],
-                },
-            };
-        }
-    };
+fn model_config_option(models: &[CachedModel]) -> ConfigOption {
+    if models.is_empty() {
+        return ConfigOption {
+            id: "model".to_string(),
+            name: "Model".to_string(),
+            description: Some(
+                "This harness's model list could not be read; it will use its own default."
+                    .to_string(),
+            ),
+            category: Some(ConfigCategory::Model),
+            value: ConfigValue::Select {
+                current: String::new(),
+                choices: vec![ConfigChoice {
+                    value: String::new(),
+                    name: "Default".to_string(),
+                    description: None,
+                    group: None,
+                }],
+            },
+        };
+    }
 
-    let current = models
-        .iter()
-        .find(|model| model.default)
-        .or(models.first())
-        .map(|model| model.id.clone())
-        .unwrap_or_default();
     ConfigOption {
         id: "model".to_string(),
         name: "Model".to_string(),
         description: None,
         category: Some(ConfigCategory::Model),
         value: ConfigValue::Select {
-            current,
+            current: default_model_id(models),
             choices: models
-                .into_iter()
+                .iter()
                 .map(|model| ConfigChoice {
                     value: model.id.clone(),
-                    name: model.id,
-                    description: model.description,
+                    name: model.id.clone(),
+                    description: model.description.clone(),
                     group: None,
                 })
                 .collect(),
         },
     }
+}
+
+/// The `thinking` [`ConfigOption`] for whichever model `chosen` names (falling back to the
+/// default model, then the first, when `chosen` doesn't match one) — `None` when there is no
+/// matching model or it has no reasoning levels at all, an absent picker rather than an empty
+/// one, because a lone "Default" choice would claim a knob the harness does not have.
+fn thinking_config_option(models: &[CachedModel], chosen: &str) -> Option<ConfigOption> {
+    let model = models
+        .iter()
+        .find(|model| model.id == chosen)
+        .or_else(|| models.iter().find(|model| model.default))
+        .or_else(|| models.first())?;
+    if model.levels.is_empty() {
+        return None;
+    }
+    let current = model
+        .default_level
+        .clone()
+        .unwrap_or_else(|| model.levels[0].value.clone());
+    Some(ConfigOption {
+        id: "thinking".to_string(),
+        name: "Thinking".to_string(),
+        description: None,
+        category: Some(ConfigCategory::ThoughtLevel),
+        value: ConfigValue::Select {
+            current,
+            choices: model
+                .levels
+                .iter()
+                .map(|level| ConfigChoice {
+                    value: level.value.clone(),
+                    name: level.label.clone(),
+                    description: level.description.clone(),
+                    group: None,
+                })
+                .collect(),
+        },
+    })
+}
+
+/// The `mode` [`ConfigOption`] for `agent_type`, from its fixed, non-probed [`agent_manager::
+/// harness::Harness::modes`] list — `None` when the harness offers no choice (opencode, Copilot,
+/// Grok today), an absent picker rather than an empty one. `current` is always empty: no mode
+/// is a harness default the way a model or a reasoning level is, so nothing is preselected —
+/// leaving it unset is what tells `launch_pending` to pass no mode flag at all.
+fn mode_config_option(agent_type: &str) -> Option<ConfigOption> {
+    let modes = agent_manager::harness::resolve(agent_type)?.modes();
+    if modes.is_empty() {
+        return None;
+    }
+    Some(ConfigOption {
+        id: "mode".to_string(),
+        name: "Mode".to_string(),
+        description: None,
+        category: Some(ConfigCategory::Mode),
+        value: ConfigValue::Select {
+            current: String::new(),
+            choices: modes
+                .into_iter()
+                .map(|mode| ConfigChoice {
+                    value: mode.id,
+                    name: mode.label,
+                    description: mode.description,
+                    group: None,
+                })
+                .collect(),
+        },
+    })
+}
+
+/// The full set of `ConfigOption`s a pending agent's picker gets, for `chosen_model` (the default
+/// model id on the first send, the newly picked one on a `SetAgentConfig{"model", ..}` re-send):
+/// always `model`, plus `mode`/`thinking` whenever the harness/model actually offers one.
+fn build_config_options(
+    agent_type: &str,
+    models: &[CachedModel],
+    chosen_model: &str,
+) -> Vec<ConfigOption> {
+    let mut options = vec![model_config_option(models)];
+    options.extend(mode_config_option(agent_type));
+    options.extend(thinking_config_option(models, chosen_model));
+    options
 }
 
 impl Coordinator {
@@ -242,6 +409,9 @@ impl Coordinator {
         // from a previous process is still running, so the sweep happens once here.
         let agents = Agents::new(root.path.clone(), settings.host().isolate_agents);
         agents.sweep();
+        let catalogue = Arc::new(FileHarnessCache::new(
+            root.path.join("cache").join("harness-models.toml"),
+        ));
 
         Self {
             host,
@@ -250,6 +420,7 @@ impl Coordinator {
             work,
             settings,
             agents,
+            catalogue,
             files: Files::start(),
             git: Git::start(),
             search: Search::start(),
@@ -827,17 +998,16 @@ impl Coordinator {
                 rel_path,
                 agent_type,
                 account,
-                name,
             } => {
                 self.start_conversation(
-                    client, agent_id, project_id, session_id, rel_path, agent_type, account, name,
+                    client, agent_id, project_id, session_id, rel_path, agent_type, account,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
-                if self.pending_conversations.contains_key(&agent_id) {
-                    self.launch_pending(client, agent_id, text);
-                } else {
+                if self.conversations.contains_key(&agent_id) {
                     self.drive(client, agent_id, |conversation| conversation.prompt(text));
+                } else {
+                    self.launch_pending(client, agent_id, text);
                 }
             }
             Message::CancelTurn { agent_id } => {
@@ -870,7 +1040,38 @@ impl Coordinator {
                         .get_mut(&agent_id)
                         .expect("just checked above");
                     if config_id == "model" {
-                        pending.chosen_model = Some(value);
+                        pending.chosen_model = Some(value.clone());
+                        // ponytail: re-reads the cache rather than holding the probe's result; a
+                        // miss would cost one re-probe and cannot happen — the discovery thread
+                        // wrote the cache before it ever sent the `ConfigOptions` that made this
+                        // pick possible.
+                        let account_key = pending.account.clone().unwrap_or_default();
+                        pending.catalogue =
+                            probe_catalogue(&pending.agent_type, &account_key, &self.catalogue)
+                                .unwrap_or_default();
+                        // A level is per model: offering one the newly chosen model does not
+                        // accept is exactly the lie this design exists to prevent, so the
+                        // thinking picker is recomputed for `value`, not the previous model.
+                        let options =
+                            build_config_options(&pending.agent_type, &pending.catalogue, &value);
+                        // Pre-increment, mirroring the pump's own `seq += 1` before it sends: the
+                        // discovery thread's message already claimed seq 1, so the first pick's
+                        // resend is seq 2, and `next_seq` still names "the last seq used" when
+                        // `launch_pending` later hands it to `Conversation::start` as the pump's
+                        // own starting point.
+                        pending.next_seq += 1;
+                        let seq = pending.next_seq;
+                        self.host
+                            .mailbox(To::Client(client))
+                            .send(Message::ConversationUpdate {
+                                agent_id,
+                                seq,
+                                update: Box::new(ConvUpdate::ConfigOptions(options)),
+                            });
+                    } else if config_id == "thinking" {
+                        pending.chosen_thinking = Some(value);
+                    } else if config_id == "mode" {
+                        pending.chosen_mode = Some(value);
                     } else {
                         tracing::debug!(
                             agent = %agent_id,
@@ -886,6 +1087,12 @@ impl Coordinator {
             }
             Message::EndConversation { agent_id } => {
                 self.end_conversation(agent_id, StopReason::Cancelled);
+            }
+            Message::UnloadConversation { agent_id } => {
+                self.unload_conversation(client, agent_id);
+            }
+            Message::ResumeConversation { agent_id } => {
+                self.resume_conversation(client, agent_id);
             }
 
             // ── the search family ───────────────────────────────────
@@ -940,7 +1147,6 @@ impl Coordinator {
         rel_path: Option<String>,
         agent_type: String,
         account: Option<String>,
-        name: Option<String>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
@@ -965,12 +1171,18 @@ impl Coordinator {
             .map(|offered| offered.label)
             .unwrap_or_else(|| agent_type.clone());
 
+        let base = self
+            .agents
+            .command_of(&agent_type)
+            .unwrap_or_else(|| agent_type.clone());
+        let name = unique_name(&base, &self.work.live_agent_names(project_id));
+
         let agent = WorkAgent {
             id: agent_id,
             session: session_id,
             task: None,
             parent: None,
-            name: name.unwrap_or(label.clone()),
+            name,
             role: "agent".to_string(),
             activity: Activity::Thinking,
             note: String::new(),
@@ -1008,6 +1220,9 @@ impl Coordinator {
         // process, so it is known without a bridge — the same answer `Conversation::accepts_input`
         // would give once one exists.
         let accepts_input = accepts_second_turn(&agent_type);
+        // `account` is inert in `discover_models` today, but it is already the cache key's
+        // identity leg — captured before `account` moves into the pending record below.
+        let account_key = account.clone().unwrap_or_default();
         self.pending_conversations.insert(
             agent_id,
             PendingConversation {
@@ -1016,6 +1231,9 @@ impl Coordinator {
                 account,
                 cwd,
                 chosen_model: None,
+                chosen_thinking: None,
+                chosen_mode: None,
+                catalogue: Vec::new(),
                 // The discovery thread below always sends the first message this agent_id will
                 // ever see, and always as seq 1 — nothing else can race ahead of it.
                 next_seq: 1,
@@ -1030,54 +1248,61 @@ impl Coordinator {
             accepts_input,
         });
 
-        // Discover this harness's models instead of starting it — a one-off thread because
-        // `discover_models` blocks (it shells out), and the coordinator must keep answering every
-        // other window while it runs.
+        // Discover this harness's models (+ reasoning levels) instead of starting it — a one-off
+        // thread because probing blocks (it shells out), and the coordinator must keep answering
+        // every other window while it runs. `Arc` clone: the thread cannot borrow `&self`.
         let discovery_mailbox = mailbox;
+        let cache = self.catalogue.clone();
         thread::Builder::new()
             .name(format!("discover-models-{agent_id}"))
             .spawn(move || {
-                let discovered = probe_models(&agent_type);
-                if let Err(error) = &discovered {
-                    tracing::warn!(
-                        agent = %agent_id,
-                        harness = %agent_type,
-                        "model discovery failed: {error:#}"
-                    );
-                }
+                let models =
+                    probe_catalogue(&agent_type, &account_key, &cache).unwrap_or_else(|error| {
+                        tracing::warn!(
+                            agent = %agent_id,
+                            harness = %agent_type,
+                            "model discovery failed: {error:#}"
+                        );
+                        Vec::new()
+                    });
+                let chosen = default_model_id(&models);
+                let options = build_config_options(&agent_type, &models, &chosen);
                 discovery_mailbox.send(Message::ConversationUpdate {
                     agent_id,
                     seq: 1,
-                    update: Box::new(ConvUpdate::ConfigOptions(vec![model_config_option(
-                        discovered,
-                    )])),
+                    update: Box::new(ConvUpdate::ConfigOptions(options)),
                 });
             })
             .ok();
     }
 
-    /// Launch the harness a pending agent is still waiting on, now that its first prompt has
-    /// arrived — the moment P3 draws the line between "asked for" and "running".
+    /// Launch the harness a pending or unloaded agent is still waiting on — the shared core of a
+    /// first [`Message::PromptAgent`] (`launch_pending`, below, forwards the prompt afterwards)
+    /// and [`Message::ResumeConversation`] (which forwards nothing). `pending` is a clone of the
+    /// launch recipe: the row in [`Self::pending_conversations`] itself is left in place, kept for
+    /// the next relaunch, and is only ever removed by [`Self::end_conversation`] or by a launch
+    /// failure here.
     ///
-    /// Everything here is what old, eager `start_conversation` used to do at the end of one call:
-    /// compose, wire the pump, then forward the prompt. What is new is that a failure here has to
-    /// retract what `start_conversation` already made visible — the `WorkAgent` and its owner —
-    /// because unlike the old code, `ConversationStarted` has already gone out by this point.
-    fn launch_pending(&mut self, client: ClientId, agent_id: AgentId, text: String) {
-        if !self.drives(client, agent_id) {
-            return;
-        }
-        let Some(pending) = self.pending_conversations.remove(&agent_id) else {
-            return;
-        };
-
+    /// Returns whether the launch succeeded. A failure has to retract what `start_conversation`
+    /// (a first launch) or the previous run (a resume) already made visible — the `WorkAgent`, its
+    /// owner, and the recipe itself, since nothing can relaunch a harness that will not compose.
+    fn launch(
+        &mut self,
+        client: ClientId,
+        agent_id: AgentId,
+        pending: PendingConversation,
+    ) -> bool {
         let model = pending.chosen_model.filter(|model| !model.is_empty());
+        let thinking = pending.chosen_thinking.filter(|v| !v.is_empty());
+        let mode = pending.chosen_mode.filter(|v| !v.is_empty());
         let (composed, bridge) = match self.agents.converse(
             agent_id,
             &pending.agent_type,
             &pending.cwd,
             pending.account.clone(),
             model,
+            thinking,
+            mode,
         ) {
             Ok(started) => started,
             Err(error) => {
@@ -1089,8 +1314,9 @@ impl Coordinator {
                 self.agents.retire_agent(agent_id);
                 self.work.remove_live_agent(pending.project_id, agent_id);
                 self.conversation_owners.remove(&agent_id);
+                self.pending_conversations.remove(&agent_id);
                 self.refuse_conversation(client, agent_id, format!("{error:#}"));
-                return;
+                return false;
             }
         };
         tracing::info!(
@@ -1103,12 +1329,62 @@ impl Coordinator {
         let mailbox = self.host.mailbox(To::Client(client));
         let conversation = Conversation::start(agent_id, bridge, mailbox, pending.next_seq);
         self.conversations.insert(agent_id, conversation);
+        true
+    }
 
-        // `ConversationStarted` already went out when this agent was registered as pending, and
-        // `accepts_input` cannot have changed since — it is the harness's own fact, not the
-        // process's. So this is only the forwarded prompt, exactly what `drive` sends for a live
-        // conversation.
+    /// Launch a pending agent now that its first prompt has arrived — the moment P3 draws the
+    /// line between "asked for" and "running" — then forward that prompt. `ConversationStarted`
+    /// already went out when this agent was registered as pending, and `accepts_input` cannot
+    /// have changed since — it is the harness's own fact, not the process's.
+    fn launch_pending(&mut self, client: ClientId, agent_id: AgentId, text: String) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let Some(pending) = self.pending_conversations.get(&agent_id).cloned() else {
+            return;
+        };
+        if !self.launch(client, agent_id, pending) {
+            return;
+        }
         self.drive(client, agent_id, |conversation| conversation.prompt(text));
+    }
+
+    /// Start an unloaded (or never-launched) conversation's harness again, with no prompt to
+    /// forward. Already live is left alone — resuming twice must not spawn a second pump.
+    fn resume_conversation(&mut self, client: ClientId, agent_id: AgentId) {
+        if self.conversations.contains_key(&agent_id) {
+            return;
+        }
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let Some(pending) = self.pending_conversations.get(&agent_id).cloned() else {
+            return;
+        };
+        self.launch(client, agent_id, pending);
+    }
+
+    /// Kill the harness without ending the conversation. The transcript, the run directory and the
+    /// `WorkAgent` all stay; only the pump and its `Conversation` go.
+    fn unload_conversation(&mut self, client: ClientId, agent_id: AgentId) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let Some(conversation) = self.conversations.remove(&agent_id) else {
+            return;
+        };
+        // `quiet`: the pump skips its own `ConversationEnded` so `ConversationUnloaded`, sent
+        // below, is the only lifecycle message this produces.
+        let last_seq = conversation.stop(true);
+        // One past the last seq actually used, so a relaunched pump's first message continues
+        // this conversation's sequence rather than restarting it.
+        if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+            pending.next_seq = last_seq + 1;
+        }
+        self.host.send(
+            To::Client(client),
+            Message::ConversationUnloaded { agent_id },
+        );
     }
 
     /// Hand one conversation-family message to the agent it names.
@@ -1183,7 +1459,7 @@ impl Coordinator {
     fn end_conversation(&mut self, agent_id: AgentId, reason: StopReason) {
         if let Some(conversation) = self.conversations.remove(&agent_id) {
             tracing::info!("agent {agent_id} ending: {reason:?}");
-            conversation.stop();
+            conversation.stop(false);
         }
         // A pending agent has no `Conversation` and no run directory yet — closed here, this
         // already covers "closed before it ever launched" without a second path.
@@ -1781,5 +2057,377 @@ impl Coordinator {
             let replies = self.projects.refresh(project_id);
             self.answer(client, replies);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::harness::{CachedLevel, CachedModel};
+    use ubiq_proto::conversation::{ConfigCategory, ConfigValue};
+
+    #[test]
+    fn unique_name_counts_from_the_second_occurrence_and_reuses_the_first_free_one() {
+        assert_eq!(unique_name("claude", &[]), "claude");
+        assert_eq!(unique_name("claude", &["claude".to_string()]), "claude 2");
+        assert_eq!(
+            unique_name("claude", &["claude".to_string(), "claude 2".to_string()]),
+            "claude 3"
+        );
+        // A closed "claude 2" is reused rather than skipped to "claude 4".
+        assert_eq!(
+            unique_name("claude", &["claude".to_string(), "claude 3".to_string()]),
+            "claude 2"
+        );
+        assert_eq!(unique_name("claude", &["codex".to_string()]), "claude");
+    }
+
+    fn model_with_levels(id: &str, default: bool) -> CachedModel {
+        CachedModel {
+            id: id.to_string(),
+            description: None,
+            default,
+            levels: vec![CachedLevel {
+                value: "high".to_string(),
+                label: "High".to_string(),
+                description: None,
+            }],
+            default_level: None,
+        }
+    }
+
+    fn model_without_levels(id: &str) -> CachedModel {
+        CachedModel {
+            id: id.to_string(),
+            description: None,
+            default: false,
+            levels: Vec::new(),
+            default_level: None,
+        }
+    }
+
+    #[test]
+    fn model_config_option_with_no_models_offers_a_default_fallback() {
+        let option = model_config_option(&[]);
+        assert_eq!(option.id, "model");
+        let ConfigValue::Select { current, choices } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(current, "");
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].name, "Default");
+    }
+
+    #[test]
+    fn thinking_config_option_is_none_for_a_model_with_no_levels() {
+        let models = [model_without_levels("gpt-5-chat-latest")];
+        assert!(thinking_config_option(&models, "gpt-5-chat-latest").is_none());
+    }
+
+    #[test]
+    fn thinking_config_option_is_none_when_there_are_no_models_at_all() {
+        assert!(thinking_config_option(&[], "anything").is_none());
+    }
+
+    #[test]
+    fn thinking_config_option_matches_the_chosen_models_levels() {
+        let models = [
+            model_with_levels("sonnet", true),
+            model_without_levels("haiku"),
+        ];
+        let option = thinking_config_option(&models, "sonnet").expect("sonnet has levels");
+        assert_eq!(option.id, "thinking");
+        assert_eq!(option.category, Some(ConfigCategory::ThoughtLevel));
+        let ConfigValue::Select { choices, .. } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].value, "high");
+
+        // The other model in the same catalogue has no levels: choosing it produces none.
+        assert!(thinking_config_option(&models, "haiku").is_none());
+    }
+
+    #[test]
+    fn mode_config_option_is_none_for_a_harness_with_no_modes() {
+        assert!(mode_config_option("opencode").is_none());
+    }
+
+    #[test]
+    fn mode_config_option_carries_claude_codes_modes() {
+        let option = mode_config_option("claude-code").expect("claude-code has modes");
+        assert_eq!(option.id, "mode");
+        assert_eq!(option.category, Some(ConfigCategory::Mode));
+        let ConfigValue::Select { current, choices } = option.value else {
+            panic!("expected a Select value");
+        };
+        assert_eq!(current, "", "no mode is preselected");
+        assert!(choices.iter().any(|c| c.value == "plan"));
+    }
+
+    #[test]
+    fn build_config_options_includes_mode_and_thinking_when_the_harness_and_model_offer_them() {
+        let models = [model_with_levels("sonnet", true)];
+        let options = build_config_options("claude-code", &models, "sonnet");
+        let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
+        assert!(ids.contains(&"model"));
+        assert!(ids.contains(&"mode"));
+        assert!(ids.contains(&"thinking"));
+    }
+
+    #[test]
+    fn build_config_options_omits_thinking_for_a_model_with_no_levels() {
+        let models = [model_without_levels("gpt-5-chat-latest")];
+        let options = build_config_options("codex", &models, "gpt-5-chat-latest");
+        let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
+        assert!(ids.contains(&"model"));
+        assert!(ids.contains(&"mode"));
+        assert!(!ids.contains(&"thinking"));
+    }
+
+    #[test]
+    fn build_config_options_omits_mode_for_a_harness_with_none() {
+        let models = [model_without_levels("some-model")];
+        let options = build_config_options("opencode", &models, "some-model");
+        let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
+        assert!(ids.contains(&"model"));
+        assert!(!ids.contains(&"mode"));
+    }
+
+    // ── lifecycle: unload / resume, white-box ────────────────────────
+    //
+    // These drive `Coordinator`'s methods directly rather than over the bus, because getting a
+    // genuinely *live* conversation the honest way needs a real, installed harness binary — the
+    // rest of this file's tests never do that even for `claude-code`/`codex` (see
+    // `a_launch_that_fails_retracts_the_agent_it_registered` in `tests/coordinator.rs`, which
+    // forces a failure with a bad account rather than depend on one). `test_support::Idle`
+    // supplies a `Conversation` whose pump is genuinely alive — blocked in `next_event` — without
+    // a process behind it, which is all `unload_conversation`/`resume_conversation` ever look at.
+
+    use crate::conversation::test_support::Idle;
+    use crate::store::memory::{
+        MemoryPreferenceStore, MemoryProjectStore, MemorySettingsStore, MemoryTaskStore,
+    };
+    use ubiq_proto::bus;
+    use ubiq_proto::ids::{ProjectId, SessionId};
+    use ubiq_proto::work::{Activity, WorkAgent, WorkSession};
+
+    fn test_coordinator() -> (Coordinator, ubiq_proto::bus::Client) {
+        let (hub, host) = bus::hub();
+        let root_dir = tempfile::TempDir::new().unwrap();
+        let root = ConfigRoot {
+            path: root_dir.path().to_path_buf(),
+            source: crate::config::RootSource::Flag,
+        };
+        let (projects, pending) = crate::projects::Projects::open(
+            root.path.clone(),
+            Box::new(MemoryProjectStore::new()),
+            Box::new(MemoryPreferenceStore::new()),
+        );
+        // The directory has to outlive the coordinator that is writing into it.
+        std::mem::forget(root_dir);
+        let work = Work::open(Box::new(MemoryTaskStore::new()));
+        let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+        let coordinator = Coordinator::new(host, root, projects, work, settings, pending);
+        let client = hub.connect();
+        (coordinator, client)
+    }
+
+    /// Register everything a live conversation needs — a `WorkAgent`, an owner, a launch recipe
+    /// with an `agent_type` no real harness answers to (so a relaunch attempt fails at once rather
+    /// than spawning anything), and a genuinely live `Conversation` pumping `Idle`, seeded to
+    /// `last_seq`. Returns the agent and project ids.
+    fn seed_live_conversation(
+        coordinator: &mut Coordinator,
+        client: &ubiq_proto::bus::Client,
+        last_seq: u64,
+    ) -> (AgentId, ProjectId) {
+        let agent_id = AgentId::generate();
+        let project_id = ProjectId::generate();
+        let session_id = SessionId::generate();
+
+        let agent = WorkAgent {
+            id: agent_id,
+            session: session_id,
+            task: None,
+            parent: None,
+            name: "fake".to_string(),
+            role: "agent".to_string(),
+            activity: Activity::Thinking,
+            note: String::new(),
+            branch: String::new(),
+            tokens: 0.0,
+            harness: "Fake".to_string(),
+            account: String::new(),
+            model: String::new(),
+            context_pct: 0,
+            thread: Vec::new(),
+        };
+        let session = WorkSession {
+            id: session_id,
+            name: "s".to_string(),
+            branch: String::new(),
+            worktree: false,
+        };
+        coordinator.work.add_live_agent(project_id, agent, session);
+        coordinator
+            .conversation_owners
+            .insert(agent_id, (client.id(), project_id));
+        coordinator.pending_conversations.insert(
+            agent_id,
+            PendingConversation {
+                project_id,
+                agent_type: "not-a-real-harness".to_string(),
+                account: None,
+                cwd: std::path::PathBuf::from("."),
+                chosen_model: None,
+                chosen_thinking: None,
+                chosen_mode: None,
+                catalogue: Vec::new(),
+                next_seq: last_seq,
+            },
+        );
+        let mailbox = coordinator.host.mailbox(To::Client(client.id()));
+        let conversation = Conversation::start(agent_id, Box::new(Idle::new()), mailbox, last_seq);
+        coordinator.conversations.insert(agent_id, conversation);
+
+        (agent_id, project_id)
+    }
+
+    fn drain_all(client: &ubiq_proto::bus::Client) -> Vec<Message> {
+        std::iter::from_fn(|| {
+            client
+                .from_host()
+                .recv_timeout(Duration::from_millis(200))
+                .ok()
+        })
+        .collect()
+    }
+
+    #[test]
+    fn unload_removes_the_live_conversation_and_sends_no_conversation_ended() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, project_id) = seed_live_conversation(&mut coordinator, &client, 5);
+
+        coordinator.unload_conversation(client.id(), agent_id);
+
+        assert!(
+            !coordinator.conversations.contains_key(&agent_id),
+            "the pump is gone"
+        );
+        assert!(
+            coordinator
+                .work
+                .live_agent_names(project_id)
+                .contains(&"fake".to_string()),
+            "the WorkAgent stays: unload is not delete"
+        );
+        let pending = coordinator
+            .pending_conversations
+            .get(&agent_id)
+            .expect("the launch recipe stays, for a resume or the next PromptAgent");
+        assert_eq!(
+            pending.next_seq, 6,
+            "one past the pump's last seq, so a relaunch continues rather than restarts it"
+        );
+
+        let messages = drain_all(&client);
+        assert_eq!(
+            messages.len(),
+            1,
+            "exactly one lifecycle message: {messages:?}"
+        );
+        assert!(matches!(
+            &messages[0],
+            Message::ConversationUnloaded { agent_id: id } if *id == agent_id
+        ));
+    }
+
+    #[test]
+    fn resume_on_a_live_conversation_changes_nothing_and_spawns_no_second_pump() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+
+        coordinator.resume_conversation(client.id(), agent_id);
+
+        assert!(
+            coordinator.conversations.contains_key(&agent_id),
+            "still exactly the one, live conversation"
+        );
+        assert_eq!(coordinator.conversations.len(), 1, "no second pump");
+        assert!(
+            drain_all(&client).is_empty(),
+            "resuming an already-live conversation must say nothing"
+        );
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    #[test]
+    fn prompt_agent_after_an_unload_relaunches_through_the_implicit_path() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        coordinator.unload_conversation(client.id(), agent_id);
+        drain_all(&client);
+
+        // `agent_type` cannot resolve to a real harness, so the relaunch this triggers fails at
+        // once — but it must be *attempted*, which is what this proves: `PromptAgent` after an
+        // unload takes the `launch_pending` branch rather than `drive`, since the agent is no
+        // longer in `conversations`.
+        coordinator.dispatch(
+            client.id(),
+            Message::PromptAgent {
+                agent_id,
+                text: "hi".to_string(),
+            },
+        );
+
+        let error = loop {
+            match client.from_host().recv_timeout(Duration::from_millis(500)) {
+                Ok(Message::ConversationError {
+                    agent_id: id,
+                    error,
+                }) if id == agent_id => break error,
+                Ok(_) => continue,
+                Err(_) => panic!("the relaunch attempt never answered"),
+            }
+        };
+        assert!(
+            error.contains("unknown agent type"),
+            "expected an unknown-harness refusal, said {error:?}"
+        );
+        assert!(
+            !coordinator.pending_conversations.contains_key(&agent_id),
+            "a failed relaunch retracts the recipe, the same as a failed first launch"
+        );
+    }
+
+    #[test]
+    fn ending_after_an_unload_still_removes_the_run_directory() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+
+        let run_dir = coordinator.agents.agent_dir(agent_id);
+        std::fs::create_dir_all(&run_dir).unwrap();
+
+        coordinator.unload_conversation(client.id(), agent_id);
+        assert!(run_dir.exists(), "unload must not touch the run directory");
+
+        coordinator.end_conversation(agent_id, StopReason::Cancelled);
+        assert!(
+            !run_dir.exists(),
+            "a delete after an unload still removes the run directory"
+        );
+        assert!(
+            !coordinator
+                .work
+                .live_agent_names(project_id)
+                .contains(&"fake".to_string()),
+            "a delete takes the WorkAgent with it"
+        );
     }
 }

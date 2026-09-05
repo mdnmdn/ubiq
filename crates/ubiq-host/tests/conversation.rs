@@ -76,6 +76,50 @@ impl IoBridge for Scripted {
     }
 }
 
+/// A bridge that blocks in `next_event` until cancelled — cancelling ends its stream, the same way
+/// closing a real child's input makes it exit. What an unload/resume test needs: a pump genuinely
+/// in flight, not one that has already reached end of stream on its own.
+struct Cancellable {
+    rx: mpsc::Receiver<Option<AgentEvent>>,
+    tx: mpsc::Sender<Option<AgentEvent>>,
+}
+
+struct CancellableInput {
+    tx: mpsc::Sender<Option<AgentEvent>>,
+}
+
+impl Cancellable {
+    fn new() -> (Self, mpsc::Sender<Option<AgentEvent>>) {
+        let (tx, rx) = mpsc::channel();
+        (Self { rx, tx: tx.clone() }, tx)
+    }
+}
+
+impl IoBridge for Cancellable {
+    fn send(&mut self, _input: AgentInput) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn next_event(&mut self) -> anyhow::Result<Option<AgentEvent>> {
+        Ok(self.rx.recv().unwrap_or(None))
+    }
+
+    fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
+        Some(Arc::new(CancellableInput {
+            tx: self.tx.clone(),
+        }))
+    }
+}
+
+impl AgentInputSink for CancellableInput {
+    fn send(&self, input: AgentInput) -> anyhow::Result<()> {
+        if matches!(input, AgentInput::Cancel) {
+            let _ = self.tx.send(None);
+        }
+        Ok(())
+    }
+}
+
 /// A bridge with no detached input handle — what a one-shot harness is.
 struct OneShot;
 
@@ -175,7 +219,7 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
             ..
         }
     ));
-    conversation.stop();
+    conversation.stop(false);
 }
 
 /// A tool call and its completion are two messages about one block, which is
@@ -214,7 +258,7 @@ fn a_tool_call_and_its_completion_keep_the_same_id() {
     assert_eq!(patch.id, "t1", "the patch names the call it completes");
     assert_eq!(patch.status, Some(WireStatus::Completed));
     assert_eq!(patch.title, None, "a patch changes only what it names");
-    conversation.stop();
+    conversation.stop(false);
 }
 
 /// A prompt reaches the harness from a thread that does not own the bridge —
@@ -288,8 +332,8 @@ fn two_conversations_share_one_bus_without_interleaving() {
         assert_eq!(seqs, vec![1, 2], "agent {id} numbered its own updates");
     }
 
-    a.stop();
-    b.stop();
+    a.stop(false);
+    b.stop(false);
 }
 
 /// A pump started with a non-zero `start_seq` continues the count rather than restarting it —
@@ -307,5 +351,86 @@ fn a_pump_continues_from_its_start_seq() {
         panic!("expected an update, got {:?}", messages[0]);
     };
     assert_eq!(*seq, 42, "the first frame continues start_seq, not 1");
-    conversation.stop();
+    conversation.stop(false);
+}
+
+/// An unload is `stop(true)`: quiet, and it hands back the last `seq` the pump actually reached,
+/// which is what the coordinator uses to pick up where a resume's own pump must continue.
+#[test]
+fn a_quiet_stop_sends_no_conversation_ended_and_returns_the_last_seq() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let (bridge, tx) = Cancellable::new();
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+
+    tx.send(Some(text("hello"))).unwrap();
+    tx.send(Some(text("again"))).unwrap();
+    let messages = drain(&client, 2);
+    assert!(matches!(
+        &messages[1],
+        Message::ConversationUpdate { seq: 2, .. }
+    ));
+
+    let last_seq = conversation.stop(true);
+    assert_eq!(
+        last_seq, 2,
+        "stop hands back the last seq the pump actually reached"
+    );
+
+    // In particular, no `ConversationEnded` — an unload produces exactly one lifecycle message,
+    // and it is not this one.
+    assert!(
+        client
+            .from_host()
+            .recv_timeout(Duration::from_millis(200))
+            .is_err(),
+        "a quiet stop must send no ConversationEnded"
+    );
+}
+
+/// The non-quiet path is unchanged: stopping a conversation still says so.
+#[test]
+fn a_stop_that_is_not_quiet_still_sends_conversation_ended() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let (bridge, _tx) = Cancellable::new();
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+    conversation.stop(false);
+
+    let messages = drain(&client, 1);
+    assert!(matches!(messages[0], Message::ConversationEnded { .. }));
+}
+
+/// The exact arithmetic `unload_conversation` relies on: a resumed pump, started at one past an
+/// unloaded pump's last seq, continues the conversation's sequence rather than restarting it.
+#[test]
+fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let (bridge, tx) = Cancellable::new();
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+    tx.send(Some(text("hello"))).unwrap();
+    drain(&client, 1);
+    let last_seq = conversation.stop(true);
+    assert_eq!(last_seq, 1);
+
+    let (bridge2, _) = Scripted::new(vec![text("again")]);
+    let resumed = Conversation::start(
+        id,
+        Box::new(bridge2),
+        host_end.mailbox(To::Client(client.id())),
+        last_seq + 1,
+    );
+    let messages = drain(&client, 1);
+    assert!(matches!(
+        &messages[0],
+        Message::ConversationUpdate { seq: 3, .. }
+    ));
+    resumed.stop(false);
 }
