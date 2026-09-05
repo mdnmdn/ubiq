@@ -3,6 +3,7 @@
 //! The Ui layer is opaque — a string the host writes down and hands back. The Host layer is this
 //! half's to parse: a blob it cannot read is preserved and reported, not discarded.
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use ubiq_proto::messages::Message;
@@ -146,4 +147,32 @@ fn parse_host(value: &str) -> Result<HostSettings, String> {
         .to_string());
     }
     Ok(settings)
+}
+
+/// The folder a clone lands in, unless the request names another.
+///
+/// The contract names no path — `projects_root` is `Option<String>` precisely so the default is
+/// the host's to pick — and this is where it is picked, so no caller re-derives it. Nothing is
+/// created: the clone makes its own parent when it needs one.
+pub fn projects_root(settings: &HostSettings, config_root: &Path) -> PathBuf {
+    named(settings.projects_root.as_deref()).unwrap_or_else(|| config_root.join("clones"))
+}
+
+/// The folder an ephemeral clone lands in, and **the only tree Ubiq will delete a project's own
+/// folder from**.
+///
+/// A second root rather than a flag, because `temporary` is already set for a folder the user
+/// dragged in from anywhere on their disk. Where a project sits is a fact; what a record claims
+/// about itself is not, so the removal in [`crate::projects::Projects::forget`] gates on this.
+pub fn ephemeral_root(settings: &HostSettings, config_root: &Path) -> PathBuf {
+    named(settings.ephemeral_root.as_deref()).unwrap_or_else(|| config_root.join("ephemeral"))
+}
+
+/// A configured root, if it is one. Blank is not a path, and taking it as one would point a clone
+/// at the current directory.
+fn named(configured: Option<&str>) -> Option<PathBuf> {
+    configured
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }

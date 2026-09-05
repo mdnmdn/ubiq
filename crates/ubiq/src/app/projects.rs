@@ -38,7 +38,7 @@ impl AppState {
             .projects
             .keys()
             .filter_map(|project| {
-                let holds = self.project_holds(*project);
+                let holds = self.project_holds(*project, cx);
                 let name = registry
                     .project(*project)
                     .map_or_else(|| project.to_string(), |entry| entry.record.name.clone());
@@ -52,13 +52,22 @@ impl AppState {
     /// What one project this window holds would take with it: unsaved files, and terminals still
     /// running. An untitled buffer nobody has typed into is not one of them — its baseline is the
     /// empty bytes it opened with, so `OpenFile::dirty` already answers no for it.
-    pub fn project_holds(&self, project: ProjectId) -> Holds {
+    ///
+    /// An ephemeral clone always holds something, whatever is open in it: closing it forgets the
+    /// project and the folder goes with it, which is the one close in this window that cannot be
+    /// undone by reopening.
+    pub fn project_holds(&self, project: ProjectId, cx: &App) -> Holds {
+        let ephemeral = self.project_is_ephemeral(project, cx);
         let Some(open) = self.projects.get(&project) else {
-            return Holds::default();
+            return Holds {
+                ephemeral,
+                ..Holds::default()
+            };
         };
         Holds {
             files: open.editor.open.iter().filter(|file| file.dirty()).count(),
             panes: open.panes.len(),
+            ephemeral,
         }
     }
 
@@ -114,7 +123,7 @@ impl AppState {
         // This window's own count, not the catalogue's: closing a project here kills the panes
         // *this* window is running in it and drops what was typed into its buffers, and says so
         // about those.
-        if self.project_holds(project).anything() && !force {
+        if self.project_holds(project, cx).anything() && !force {
             self.workbench.pending_close = Some(project);
             cx.notify();
             return;
@@ -548,15 +557,21 @@ impl AppState {
 pub struct Holds {
     pub files: usize,
     pub panes: usize,
+    /// Whether the project is a throwaway clone — see `crate::state::clone::is_ephemeral`. Not a
+    /// count, and it outranks the other two in the sentence: what is lost is the whole folder.
+    pub ephemeral: bool,
 }
 
 impl Holds {
     pub fn anything(self) -> bool {
-        self.files > 0 || self.panes > 0
+        self.files > 0 || self.panes > 0 || self.ephemeral
     }
 
     /// "3 unsaved files and 4 terminals", or `None` when there is nothing to say.
     pub fn sentence(self) -> Option<String> {
+        if self.ephemeral {
+            return Some("This clone will be discarded".to_string());
+        }
         let mut parts = Vec::new();
         if self.files > 0 {
             parts.push(format!("{} unsaved file{}", self.files, plural(self.files)));

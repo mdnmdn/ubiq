@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, command-line and connector families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, command-line, connector and repository families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -187,7 +187,19 @@ the flag and writes it down, and adding the same folder again through `AddProjec
 `temporary: false`) promotes it the same way. See `D54`.
 
 **`ForgetProject` is not deleting.** It removes the record and the project's own directory in
-Ubiq's config, and touches nothing inside the project's folder.
+Ubiq's config, and touches nothing inside the project's folder — with one exception, which is the
+folder Ubiq created in the first place. An **ephemeral clone** is deleted with its record, and only
+when both of two independent things hold: the record is `temporary`, and its canonicalised path is
+strictly inside the ephemeral root. Neither alone is enough — a folder dragged onto the window is
+`temporary` too, and the root is a setting a user could point at their home directory — which is why
+the gate is a conjunction rather than a flag (`D74`).
+
+**The snapshot's `ephemeral` says whether that exception applies**, and the interface reads it
+rather than repeating the test. The host answers the question with the same conjunction it deletes
+by, so the warning a window raises and the folder `ForgetProject` removes cannot come apart; and the
+interface could not repeat it in any case, since the unset ephemeral root resolves to a default only
+the host knows. It sits beside `health` and `open_panes` for that reason — a fact about a project
+that only the half owning the filesystem can state.
 
 **Every `ProjectSnapshot` carries a `workarea`** — an absolute path to the directory that project's
 *interface* may keep its own files in. It travels on the snapshot, so it arrives on `ProjectList`,
@@ -614,7 +626,7 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Twenty-nine records travel inside payloads.
+Thirty-two records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -623,7 +635,7 @@ Twenty-nine records travel inside payloads.
 | `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `id`, `label`, `available` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
-| `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes` and `workarea` |
+| `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |
 | `FileContents` | `bytes`, `len`, `truncated`, `is_binary`, `version?` |
@@ -648,6 +660,9 @@ Twenty-nine records travel inside payloads.
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
+| `RemoteRepo` | `id`, `name`, `full_name`, `description?`, `default_branch?`, `private`, `clone_url`, `pushed_at?` |
+| `CloneRequest` | `clone_id`, `source`, `branch?`, `shallow`, `parent`, `name`, `ephemeral` |
+| `ParsedRepo` | `host`, `owner`, `name`, `clone_url` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
 what stops a stale health flag or a pane count from being written down and believed at the next
@@ -677,8 +692,11 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` and `isolate_agents`, which is whether an agent runs confined —
-the one setting the host acts on rather than stores, read again at every spawn. A record written by
+`HostSettings` carries a `schema` — at 4 — and `isolate_agents`, which is whether an agent runs
+confined, the one setting the host acts on rather than stores, read again at every spawn. It also
+carries `projects_root` and `ephemeral_root`, the two folders a clone lands in: an absent or blank
+one means the host's own default under its config root, so the interface offers a placeholder rather
+than inventing a path it cannot read. A record written by
 an older build still parses, because every field added since carries a default; only a newer schema
 is refused.
 
@@ -938,6 +956,64 @@ The host owns those three fields: the interface mirrors the whole record and wri
 back, so a `SetSettings` carrying its older copy would otherwise lose a connection a flow had just
 made. `ListConnections` exists for the refresh-after-a-flow case rather than as the primary path.
 
+## The repository family
+
+The twelfth family, and the first consumer of a connection. It answers two questions about a remote
+— which repositories an identity has, and which branches one of them holds — and then clones one
+into a folder. It sits between the connector family and the project family in
+`crates/ubiq-proto/src/messages.rs` because that is where it sits in life: it starts at a connection
+and ends at a project.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListRepos` | UI → host | `query_id`, `connection`, `query` | `Repos` or `RepoError` |
+| `ListRepoBranches` | UI → host | `query_id`, `source` | `RepoBranches` or `RepoError` |
+| `CloneRepo` | UI → host | `request` | `ClonePending`, then `ProjectAdded` or `CloneFailed` |
+| `CancelClone` | UI → host | `clone_id` | — |
+| `Repos` | host → UI | `query_id`, `repos`, `truncated` | — |
+| `RepoBranches` | host → UI | `query_id`, `branches`, `default` | — |
+| `RepoError` | host → UI | `query_id`, `error` | — |
+| `ClonePending` | host → UI | `clone_id`, `stage` | — |
+| `CloneFailed` | host → UI | `clone_id`, `error` | — |
+
+**There is deliberately no clone-success message.** A finished clone registers the project, so
+`ProjectAdded` — already a broadcast — is the success signal, and every window's picker learns about
+the clone rather than only the one that asked. A second variant saying the same thing would be a
+second truth for the interface to reconcile, and the one that arrived first would win.
+
+**A `RepoQueryId` and a `CloneId` are the interface's**, on `ConnectId`'s stale-answer discipline:
+the asker mints the id, every reply carries it, and a reply naming an id the interface no longer
+holds is discarded rather than drawn. That is what makes a filter typed faster than the network
+answers safe — the answer to the query before last is thrown away on arrival.
+
+**A `RepoSource` is a `Connection` or a `Url`, and the second needs no connection at all.** A public
+repository is cloned from a pasted URL, which is why `ListRepoBranches` takes a source rather than a
+connection: a connection's branches come from the provider's branch API, and a bare URL's come from
+an anonymous ref listing against the remote. `parse_repo_url` in
+`crates/ubiq-proto/src/repos.rs` is the single place a repository URL is sniffed, so the modal, the
+navigator and the host all agree on what one is. It normalises whatever it is given to
+`https://<host>/<owner>/<name>.git`, `git@host:owner/name` included, so an ssh remote is understood
+well enough to be named as unsupported rather than read as "not a repository"; refusing it is the
+caller's, which is why `ParsedRepo` carries no flag for it.
+
+**A destination is a parent folder and a name, not a path.** `CloneRequest` carries the two apart
+because the modal offers them as two fields, and joining them is the half that touches disk — which
+is also where a `name` that is not a single path component is refused.
+
+**Listing is bounded and says so.** `Repos` carries `truncated`, because the provider's own
+membership listing is paged and the host stops after a fixed number of pages. The interface filters
+what it holds in memory; only a filter that comes up empty against a truncated listing asks the
+provider to search.
+
+**A clone reports a stage, not a percentage.** `CloneStage` is `Resolving`, `Counting`, `Receiving`,
+`CheckingOut` or `Registering`, and `ClonePending` is throttled host-side rather than sent per
+object. `CloneError` is `Network`, `Auth`, `NotFound`, `Exists`, `Unsupported` or `Refused` —
+`Unsupported` is what a provider with no repository listing and an `ssh` URL both answer, and
+`Refused` is a request the host would not run at all. `RepoError` carries the same `CloneError`
+rather than a kind of its own, because a listing fails for the same reasons and the interface writes
+the same sentence. `CancelClone` and a failure are the same outcome on disk: the partial destination is
+removed, so nothing half-cloned is ever registered.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -964,7 +1040,8 @@ made. `ListConnections` exists for the refresh-after-a-flow case rather than as 
    If it names an **agent** and carries something that agent said, the conversation family.
    If it names nothing in Ubiq at all and asks about the machine, the command-line family.
    If it names a **connection** at an external service, or a flow authenticating one, the connector
-   family.
+   family. If it names a **remote repository** — listing one, or cloning one into a project that
+   does not exist yet — the repository family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

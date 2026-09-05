@@ -560,6 +560,12 @@ pub struct AppState {
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.
     pub account_rename_input: Entity<InputState>,
+    /// The clone modal's three fields: the repository filter, the pasted URL, and the folder
+    /// name. The destination folder is not among them — it is chosen with the platform's own
+    /// dialog and never typed.
+    pub clone_filter_input: Entity<InputState>,
+    pub clone_url_input: Entity<InputState>,
+    pub clone_name_input: Entity<InputState>,
     /// The connect modal's three fields. Read at send time rather than mirrored per keystroke,
     /// for the reason `begin_harness_login` gives: a value the interface copies into its own
     /// state is a second copy that can disagree with the one on screen.
@@ -627,6 +633,7 @@ mod agents;
 mod board;
 mod boot;
 mod chat;
+mod clone;
 mod editor;
 mod explorer;
 pub use explorer::MIN_QUERY;

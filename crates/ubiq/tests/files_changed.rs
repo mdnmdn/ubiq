@@ -125,6 +125,7 @@ fn a_project() -> ProjectSnapshot {
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
+        ephemeral: false,
         workarea: "/tmp/ubiq-workarea".to_string(),
     }
 }

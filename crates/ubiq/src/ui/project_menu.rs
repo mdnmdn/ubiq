@@ -207,7 +207,7 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
     }
 
     // Always drawn, because on a first run it is the only thing there is to do.
-    body = body.child(add_row(cx));
+    body = body.child(add_row(cx)).child(clone_row(cx));
 
     deferred(
         anchored()
@@ -250,7 +250,7 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     }
 
     if app.workbench.pending_close == Some(project) && group == Group::Here {
-        return confirm_row(app.project_holds(project), project, cx);
+        return confirm_row(app.project_holds(project, cx), project, cx);
     }
 
     let healthy = entry.health.is_ok();
@@ -474,6 +474,37 @@ fn add_row(cx: &mut Context<AppState>) -> impl IntoElement {
                 .child("Add a project\u{2026}"),
         )
         .on_click(cx.listener(|this, _, _, cx| this.choose_folder(None, cx)))
+}
+
+/// The other way in: a project Ubiq has to fetch first.
+///
+/// Always enabled, connections or not — the paste half of the clone modal needs no identity, so
+/// there is nothing here to disable.
+fn clone_row(cx: &mut Context<AppState>) -> impl IntoElement {
+    div()
+        .id("project-clone")
+        .h(px(34.))
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .border_t_1()
+        .border_color(theme::border())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(IconName::Globe)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_muted()),
+        )
+        .child(
+            div()
+                .text_size(px(12.5))
+                .text_color(theme::text_muted())
+                .child("Clone a project\u{2026}"),
+        )
+        .on_click(cx.listener(|this, _, window, cx| this.open_clone(None, window, cx)))
 }
 
 /// What the host last refused to do. Dismissible, because it is history the moment it is read.

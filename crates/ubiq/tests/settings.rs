@@ -30,6 +30,7 @@ fn a_blob_survives_the_round_trip() {
         rail_projects: false,
         markdown_open: MarkdownOpen::Source,
         vim_mode: true,
+        last_connection: Some("01J0".to_string()),
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -164,6 +165,7 @@ fn a_project() -> ProjectSnapshot {
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
+        ephemeral: false,
         workarea: "/tmp/ubiq-workarea".to_string(),
     }
 }

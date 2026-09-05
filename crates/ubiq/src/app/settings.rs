@@ -21,7 +21,7 @@ impl AppState {
     }
 
     /// Write down how the interface behaves. Immediate: a toggle is one event, not a drag.
-    fn remember_settings(&mut self) {
+    pub(super) fn remember_settings(&mut self) {
         let mut ui = self.workbench.settings.ui.clone();
         ui.schema = ui_settings::SCHEMA;
         self.bus.send(Message::SetSettings {
@@ -158,6 +158,53 @@ impl AppState {
         self.workbench.settings.host.isolate_agents = !self.workbench.settings.host.isolate_agents;
         self.remember_host_settings();
         cx.notify();
+    }
+
+    /// Where a clone lands by default, and where an ephemeral one lands. Host-owned, so both
+    /// write the Host layer. An empty string means "the host's own default" and is stored as
+    /// `None` — the interface names no path of its own, so it has no default to write instead.
+    pub fn set_clone_root(&mut self, path: String, ephemeral: bool, cx: &mut Context<Self>) {
+        let value = (!path.trim().is_empty()).then(|| path.trim().to_string());
+        let host = &mut self.workbench.settings.host;
+        match ephemeral {
+            true => host.ephemeral_root = value,
+            false => host.projects_root = value,
+        }
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Ask the operating system which folder that is. The same chooser, and the same three
+    /// outcomes, `choose_folder` handles.
+    pub fn choose_clone_root(&mut self, ephemeral: bool, cx: &mut Context<Self>) {
+        let chosen = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Choose".into()),
+        });
+
+        cx.spawn(async move |this, cx| {
+            let answer = match chosen.await {
+                Ok(answer) => answer,
+                Err(_) => return,
+            };
+            this.update(cx, |this, cx| match answer {
+                Ok(Some(paths)) => {
+                    if let Some(path) = paths.into_iter().next() {
+                        this.set_clone_root(path.to_string_lossy().into_owned(), ephemeral, cx);
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    this.workbench.settings.error =
+                        Some(format!("could not open a chooser: {error}"));
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The globs every project search skips. Host-owned, and committed rather than typed.

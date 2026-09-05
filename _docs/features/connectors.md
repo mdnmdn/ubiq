@@ -21,7 +21,11 @@ GitHub token, a GitLab identity on a company's own install, an Azure DevOps scop
 Workspace grant — the missing piece every capability that reaches a service is blocked on.
 
 It is deliberately only that piece. A connection is an identity, not a binding: it does not name a
-project, a repository or a board, and nothing here fetches one. The deliverable is a valid token and
+project, a repository or a board, and nothing here fetches one. Cloning a project is the consumer
+that reads one — it takes a connection id, lists that identity's repositories and clones the chosen
+one — and it belongs to [`workbench.md`](./workbench.md) rather than to this document. GitHub,
+GitLab and Gitea answer it; the other three providers have no repository listing behind them.
+The deliverable is a valid token and
 the identity it belongs to.
 
 The shape is the account family's, one layer out. An account is one authentication a *harness* runs
@@ -152,4 +156,7 @@ it does.
 ## Next steps
 
 - Refresh a stored `refresh_token` lazily, on use.
-- Give a consumer a reason to take a connection id: a git remote, a task source, a document picker.
+- Give the three providers with no repository listing — Azure DevOps, Atlassian and Google
+  Workspace — something a connection to them is worth holding for. Cloning is the first consumer of
+  a connection id, and it reaches only GitHub, GitLab and Gitea.
+- A second consumer beyond cloning: a task source, or a document picker.

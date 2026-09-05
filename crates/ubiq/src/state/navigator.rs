@@ -9,6 +9,7 @@
 //! makes it testable and costs nothing.
 
 use ubiq_proto::ids::{ProjectId, TaskId};
+use ubiq_proto::repos::parse_repo_url;
 use ubiq_proto::work::AgentId;
 
 use crate::state::nav::{Bookmark, Destination, View};
@@ -27,6 +28,9 @@ pub const RECENTS_MAX: usize = 32;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Group {
     Uri,
+    /// A repository URL, offered as a clone rather than as a place. The only group whose row goes
+    /// nowhere: it opens the clone modal instead — see [`NavAction`].
+    Clone,
     Recent,
     Bookmark,
     File,
@@ -39,6 +43,7 @@ impl Group {
     pub fn label(self) -> &'static str {
         match self {
             Group::Uri => "Link",
+            Group::Clone => "Clone",
             Group::Recent => "Recent",
             Group::Bookmark => "Bookmarks",
             Group::File => "Files",
@@ -59,6 +64,19 @@ pub struct NavRow {
     pub dest: Option<Destination>,
     /// Whether the bookmark behind the row has lost its line. Drawn, never repaired.
     pub adrift: bool,
+    /// What pressing the row does when it is not a place. Checked before `dest`, because a row
+    /// carrying an action never carries a destination too.
+    pub action: Option<NavAction>,
+}
+
+/// What a row does instead of going somewhere.
+///
+/// One variant, and an enum rather than a bool: the navigator is where every "type this and
+/// something happens" lands, and the next one is a variant rather than a second field.
+#[derive(Clone, PartialEq, Debug)]
+pub enum NavAction {
+    /// Open the clone modal with this URL already in its field.
+    Clone(String),
 }
 
 /// The navigator, while it is up: what was typed, and which row the keyboard is on.
@@ -99,6 +117,7 @@ pub fn rows(
                 detail: query.to_string(),
                 dest: Some(dest),
                 adrift: false,
+                action: None,
             },
             None => NavRow {
                 group: Group::Uri,
@@ -106,7 +125,21 @@ pub fn rows(
                 detail: query.to_string(),
                 dest: None,
                 adrift: false,
+                action: None,
             },
+        }];
+    }
+
+    // A repository URL is likewise an answer rather than a filter: it names one repository, so
+    // the list collapses to the one thing that can be done with it.
+    if let Some(parsed) = parse_repo_url(query) {
+        return vec![NavRow {
+            group: Group::Clone,
+            label: format!("Clone {}/{}", parsed.owner, parsed.name),
+            detail: parsed.host.clone(),
+            dest: None,
+            adrift: false,
+            action: Some(NavAction::Clone(query.to_string())),
         }];
     }
 
@@ -121,6 +154,7 @@ pub fn rows(
             detail: kind_of(&dest.view).to_string(),
             dest: Some(dest.clone()),
             adrift: false,
+            action: None,
         }),
         &needle,
     );
@@ -132,6 +166,7 @@ pub fn rows(
             detail: mark.dest.label(),
             dest: Some(mark.dest.clone()),
             adrift: mark.adrift,
+            action: None,
         }),
         &needle,
     );
@@ -155,6 +190,7 @@ pub fn rows(
                 },
             )),
             adrift: false,
+            action: None,
         }),
         &needle,
     );
@@ -166,6 +202,7 @@ pub fn rows(
             detail: String::new(),
             dest: Some(Destination::new(project, View::Tasks { task: *task })),
             adrift: false,
+            action: None,
         }),
         &needle,
     );
@@ -177,6 +214,7 @@ pub fn rows(
             detail: role.clone(),
             dest: Some(Destination::new(project, View::Agents { agent: *agent })),
             adrift: false,
+            action: None,
         }),
         &needle,
     );
@@ -193,10 +231,18 @@ fn keep(out: &mut Vec<NavRow>, rows: impl Iterator<Item = NavRow>, needle: &str)
 /// two strings. No scorer and no fuzzy library — a subsequence is what a person typing an
 /// abbreviation means, and ranking six short lists is ceremony.
 fn matches(needle: &str, row: &NavRow) -> bool {
+    subsequence(needle, &format!("{} {}", row.label, row.detail))
+}
+
+/// The matcher itself, over one already-lowercased needle and any haystack.
+///
+/// Shared with the clone modal's repository filter so "does this answer what was typed?" has one
+/// answer in the window rather than two that drift apart.
+pub(crate) fn subsequence(needle: &str, hay: &str) -> bool {
     if needle.is_empty() {
         return true;
     }
-    let hay = format!("{} {}", row.label, row.detail).to_lowercase();
+    let hay = hay.to_lowercase();
     let mut have = hay.chars();
     needle.chars().all(|want| have.any(|seen| seen == want))
 }

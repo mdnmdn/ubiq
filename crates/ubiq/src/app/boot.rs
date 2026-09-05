@@ -153,6 +153,14 @@ impl AppState {
         let account_rename_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
 
+        // The clone modal's fields. Cleared whenever the modal opens, so a previous clone's
+        // repository name is never what a fresh one is called.
+        let clone_filter_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter repositories\u{2026}"));
+        let clone_url_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/owner/name"));
+        let clone_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Folder name"));
+
         // The connect modal's fields. Cleared when a flow is cancelled or captured, and kept
         // when one fails, so "Try again" is a retry rather than a re-type.
         let connect_instance_input =
@@ -582,6 +590,40 @@ impl AppState {
             },
         ));
 
+        // The clone modal's three fields, each mirrored into the modal's own state: the filter
+        // and the URL because what is drawn under them is derived from the text, and the name
+        // because it is what the request carries.
+        subscriptions.push(cx.subscribe_in(
+            &clone_filter_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.retype_clone_filter(typed, cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &clone_url_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.retype_clone_url(typed, window, cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &clone_name_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.rename_clone(typed, window, cx);
+                }
+            },
+        ));
+
         subscriptions.push(cx.subscribe_in(
             &sink_project_hex,
             window,
@@ -613,6 +655,9 @@ impl AppState {
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
             connect_secret_input.read(cx).focus_handle(cx),
+            clone_filter_input.read(cx).focus_handle(cx),
+            clone_url_input.read(cx).focus_handle(cx),
+            clone_name_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -754,6 +799,9 @@ impl AppState {
             sink_modal_input,
             login_account_input,
             account_rename_input,
+            clone_filter_input,
+            clone_url_input,
+            clone_name_input,
             connect_instance_input,
             connect_client_id_input,
             connect_secret_input,

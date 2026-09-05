@@ -152,3 +152,17 @@ ulid_id! {
     /// Stable across a rename: the label is the user's, this is what everything else references.
     ConnectionId
 }
+
+ulid_id! {
+    /// One clone operation, from `CloneRepo` to the single success or `CloneFailed` that ends it.
+    /// Minted by the interface, on [`ConnectId`]'s discipline: a stage naming an id the interface
+    /// no longer holds is discarded rather than drawn, so a clone the user cancelled cannot repaint
+    /// a progress bar with an answer still in flight.
+    CloneId
+}
+
+ulid_id! {
+    /// One repository or branch listing. Minted by the interface so an answer for a query the user
+    /// has typed past is discarded by id, the same discipline [`SearchId`] buys for search.
+    RepoQueryId
+}

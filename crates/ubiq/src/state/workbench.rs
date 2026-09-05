@@ -17,6 +17,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ShellInfo};
 use ubiq_proto::work::AgentId;
 
+use crate::state::clone::CloneState;
 use crate::state::settings::SettingsState;
 use crate::state::sink::ColourField;
 use crate::theme::ThemeId;
@@ -137,6 +138,11 @@ pub enum MenuId {
     /// One agents-screen column's `+`: which benched agent to group into it. It carries the
     /// column, because a row of columns each has one and only one may be open.
     AgentBench(usize),
+    /// The clone modal's two dropdowns: whose repositories are listed, and which branch the
+    /// clone checks out. Two ids rather than one carrying a discriminant, because they are two
+    /// controls and only one menu in the window is open at a time anyway.
+    CloneConnection,
+    CloneBranch,
     /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
     /// looked at, and one menu in the window has to be openable with no project behind it.
     SinkPicker,
@@ -261,6 +267,10 @@ pub struct WorkbenchState {
     pub row_action: Option<(ProjectId, RowAction)>,
     /// Project settings, raised over the window to create a project or edit the one on screen.
     pub project_settings: Option<ProjectSettings>,
+    /// The clone modal, while it is up. Beside `project_settings` rather than a mode of it: a
+    /// clone has no project yet, and the two questions — "which repository" and "what is this
+    /// project called here" — are asked in different places.
+    pub clone_project: Option<CloneState>,
     /// Application settings, raised from the titlebar's gear. Interface-wide, so it opens with
     /// no project.
     pub settings: SettingsState,
@@ -327,6 +337,7 @@ impl Default for WorkbenchState {
             pending_close: None,
             row_action: None,
             project_settings: None,
+            clone_project: None,
             settings: SettingsState::default(),
             project_error: None,
             work_error: None,

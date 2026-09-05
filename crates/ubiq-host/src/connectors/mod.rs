@@ -240,6 +240,14 @@ impl Connectors {
         self.flows.retain(|_, flow| flow.client != client);
     }
 
+    /// The secret store, for the one other family that needs a connection's token.
+    ///
+    /// Lent rather than opened a second time: two stores over one directory would be two answers
+    /// to [`Store::usable`], and the whole point of that probe is that there is one.
+    pub fn store(&self) -> Arc<Store> {
+        self.store.clone()
+    }
+
     /// Every connection as the interface is told about it.
     pub fn connections(&self) -> Vec<ConnectionInfo> {
         infos(&self.settings.host(), Some(&self.store), flow::now_ms())

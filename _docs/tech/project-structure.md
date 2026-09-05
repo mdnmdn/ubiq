@@ -131,9 +131,11 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-proto/src/ids.rs` | The contract's id newtypes, and the one generator behind them | A second id scheme |
 | `ubiq-proto/src/bus.rs` | The hub, a client's end of it, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
+| `ubiq-proto/src/repos.rs` | A remote repository, a clone's request, its stages and its errors, and the one repository-URL parser both halves call | A token, a credential, or a `git2` type |
 | `ubiq-proto/src/git.rs` | A project's repository as it crosses the bus: overview, working-tree map, errors | A `git2` type, a path on disk |
 | `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
+| `ubiq-host/src/repos/` | Listing a remote's repositories, and cloning one into a folder, on a thread of its own per clone | A read of an existing repository — that is `git/` — or a write into one |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
 | `ubiq-host/src/store/` | The catalogue, a project's tasks, the view state and settings, behind four traits | Any opinion about what a Ui-layer blob means |

@@ -200,10 +200,11 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 fn file_explorer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let on = app.workbench.settings.ui.explorer_preview;
+    let host = &app.workbench.settings.host;
     column(vec![
         heading(
             "File explorer",
-            "How a click on a file in the tree opens it.",
+            "How a click on a file in the tree opens it, and where projects Ubiq fetches land.",
         ),
         setting_row(
             "Open files in previews",
@@ -216,7 +217,73 @@ fn file_explorer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .into_any_element(),
         ),
+        folder_row(
+            "Default project folder",
+            "Where a clone lands unless the clone modal is pointed somewhere else.",
+            "app-settings-projects-root",
+            host.projects_root.as_deref(),
+            false,
+            cx,
+        ),
+        folder_row(
+            "Ephemeral folder",
+            "Where a throwaway clone lands \u{2014} and the only tree Ubiq will delete a project \
+             folder from.",
+            "app-settings-ephemeral-root",
+            host.ephemeral_root.as_deref(),
+            true,
+            cx,
+        ),
     ])
+}
+
+/// One host-owned folder, and the platform's own chooser for it.
+///
+/// **An empty value is drawn as a placeholder, never as a path.** The host resolves its own
+/// default and the contract does not name one, so the interface saying where that is would be a
+/// guess the user could not correct.
+fn folder_row(
+    label: &str,
+    note: &str,
+    id: &'static str,
+    value: Option<&str>,
+    ephemeral: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let (text, colour) = match value.map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => (path.to_string(), theme::text_muted()),
+        None => ("The host's own default".to_string(), theme::text_faint()),
+    };
+
+    setting_row(
+        label,
+        note,
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(elided(
+                ElementId::Name(format!("{id}-value").into()),
+                text,
+                colour,
+                220.,
+            ))
+            .child(ghost_button(
+                ElementId::Name(format!("{id}-choose").into()),
+                None,
+                "Choose\u{2026}",
+                cx.listener(move |this, _, _, cx| this.choose_clone_root(ephemeral, cx)),
+            ))
+            .child(ghost_button(
+                ElementId::Name(format!("{id}-clear").into()),
+                None,
+                "Clear",
+                cx.listener(move |this, _, _, cx| {
+                    this.set_clone_root(String::new(), ephemeral, cx)
+                }),
+            ))
+            .into_any_element(),
+    )
 }
 
 fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {

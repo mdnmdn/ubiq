@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-04
+updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -148,6 +148,7 @@ the transport beneath the contract.
 | PTY streams and backpressure | `crates/ubiq-host/src/pty/` | `portable-pty` |
 | A project's folder, its files, a save and a diff | `crates/ubiq-host/src/files/` | The walk, the read, the atomic write and one file's comparison with version control, on a worker thread of their own so no listing blocks the coordinator |
 | A project's repository | `crates/ubiq-host/src/git/` | The overview the status bar reads and the working-tree map the explorer's badges read, on a worker thread of their own so a cold status does not stall every pane |
+| Listing a remote's repositories, and cloning one | `crates/ubiq-host/src/repos/` | A thread per clone, deliberately not the git worker, whose synchronous queue a clone would block for minutes (`D73`). It reaches the connectors' HTTP and token helpers for a listing, and hands the finished folder to the coordinator over a channel because it cannot reach the catalogue |
 | What changed in a project's folder | `crates/ubiq-host/src/watch/` | One recursive `notify` watch and one debounce thread per open project, per window. The only thing in the host that speaks without being asked |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |

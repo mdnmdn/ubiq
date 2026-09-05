@@ -13,8 +13,12 @@ use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connecti
 use crate::conversation::{ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
-use crate::ids::{ConnectId, ConnectionId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId};
+use crate::ids::{
+    CloneId, ConnectId, ConnectionId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, StepId,
+    TaskId,
+};
 use crate::projects::{ProjectSnapshot, Scope};
+use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
@@ -354,6 +358,68 @@ pub enum Message {
     /// Something in the connector family went wrong, outside any one flow.
     ConnectorError {
         error: String,
+    },
+
+    // ── Repository family: UI → host ────────────────────────────────
+    /// List the repositories a connection can see. `query` is the provider's own search text;
+    /// `None` asks for what it offers unprompted, which is what an empty field shows. Answered
+    /// with [`Message::Repos`] or [`Message::RepoError`].
+    ListRepos {
+        query_id: RepoQueryId,
+        connection: ConnectionId,
+        query: Option<String>,
+    },
+    /// List one repository's branches, so a clone can offer something other than the default.
+    /// Answered with [`Message::RepoBranches`] or [`Message::RepoError`].
+    ListRepoBranches {
+        query_id: RepoQueryId,
+        source: RepoSource,
+    },
+    /// Clone a repository and take the result into the catalogue.
+    ///
+    /// There is deliberately no clone-success message: a finished clone is a registered project,
+    /// so [`Message::ProjectAdded`] is the success signal and the interface has one place to learn
+    /// a project exists rather than two.
+    CloneRepo {
+        request: CloneRequest,
+    },
+    /// Stop a clone in flight. A partial destination is the host's to clean up; the interface
+    /// hears nothing further about this id.
+    CancelClone {
+        clone_id: CloneId,
+    },
+
+    // ── Repository family: host → UI ────────────────────────────────
+    /// The answer to [`Message::ListRepos`].
+    Repos {
+        query_id: RepoQueryId,
+        repos: Vec<RemoteRepo>,
+        /// The listing hit its page ceiling. It matters because it is what stops the interface
+        /// saying "no such repository": an empty local filter over a truncated list is not proof.
+        truncated: bool,
+    },
+    /// The answer to [`Message::ListRepoBranches`]. `default` is the branch a clone takes when the
+    /// user picks none.
+    RepoBranches {
+        query_id: RepoQueryId,
+        branches: Vec<String>,
+        default: Option<String>,
+    },
+    /// A listing failed. It carries [`CloneError`] rather than a kind of its own, because the
+    /// reasons are the same ones and the sentence the interface writes is the same sentence.
+    RepoError {
+        query_id: RepoQueryId,
+        error: CloneError,
+    },
+    /// How far a clone has got. One per change of stage.
+    ClonePending {
+        clone_id: CloneId,
+        stage: CloneStage,
+    },
+    /// The clone ended without a project. Nothing was registered.
+    CloneFailed {
+        clone_id: CloneId,
+        error: CloneError,
     },
 
     // ── Project family: UI → host ───────────────────────────────────

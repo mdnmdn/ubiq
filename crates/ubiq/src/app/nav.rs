@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::state::navigator::{self, NavRow, NavigatorState, kept_recents};
+use crate::state::navigator::{self, NavAction, NavRow, NavigatorState, kept_recents};
 
 impl AppState {
     /// The place the window is drawing, if it is drawing one.
@@ -465,6 +465,22 @@ impl AppState {
     /// Act on one row. A row that names no place — a link to a project the catalogue does not
     /// hold — says so and does nothing, so the list stays up rather than closing on a dead press.
     pub fn press_navigator(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // An action is checked first: a row that carries one never carries a destination too, and
+        // the navigator only knows how to navigate.
+        if let Some(action) = self
+            .navigator_rows(cx)
+            .get(index)
+            .and_then(|row| row.action.clone())
+        {
+            self.navigator = None;
+            self.command_input
+                .clone()
+                .update(cx, |state, cx| state.set_value("", window, cx));
+            match action {
+                NavAction::Clone(url) => self.open_clone(Some(url), window, cx),
+            }
+            return;
+        }
         let Some(dest) = self
             .navigator_rows(cx)
             .get(index)

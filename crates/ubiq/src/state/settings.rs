@@ -121,6 +121,11 @@ pub struct UiSettings {
     /// means the interceptor in `app/vim.rs` returns before it looks at anything.
     #[serde(default)]
     pub vim_mode: bool,
+    /// Which connection the clone modal opened on last, as its id in text. A string rather than a
+    /// `ConnectionId` because this blob is written by the interface and read back by a build that
+    /// may no longer hold that connection — an id nothing matches is simply not preselected.
+    #[serde(default)]
+    pub last_connection: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -135,6 +140,7 @@ impl Default for UiSettings {
             rail_projects: true,
             markdown_open: MarkdownOpen::Preview,
             vim_mode: false,
+            last_connection: None,
         }
     }
 }

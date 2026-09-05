@@ -79,6 +79,16 @@ pub struct ProjectSnapshot {
     /// How many panes the host has running in this project. Only the half that owns the panes can
     /// know this, which is why it is not a field on the record.
     pub open_panes: usize,
+    /// Whether forgetting this project also deletes its folder — a throwaway clone, in a tree Ubiq
+    /// owns.
+    ///
+    /// Told rather than derived, for the same reason `workarea` is. The test is the host's: the
+    /// record is `temporary` *and* its path resolves inside the ephemeral root. The interface
+    /// cannot repeat it, because the root is a setting whose unset value is a default only the
+    /// host knows, and a path prefix is not a thing the interface reasons about. It matters
+    /// because this is the one close the user cannot undo, so it is the one close that asks first.
+    #[serde(default)]
+    pub ephemeral: bool,
     /// The directory this project's interface may keep its own files in — caches, and anything
     /// else that is the interface's business and not the project's.
     ///

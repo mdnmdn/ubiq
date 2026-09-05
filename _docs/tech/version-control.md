@@ -3,11 +3,11 @@ id: tech-version-control
 title: Version control
 kind: tech
 status: current
-summary: How the host reads a project's repository — the read-only rule, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
-read_when: you are extending version control, adding the write family, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
+summary: How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
+read_when: you are extending version control, adding the write family, touching how a clone runs, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs]
+code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
 ---
@@ -20,7 +20,7 @@ refuses to do. The message table belongs to
 belongs to [`../features/workbench.md`](../features/workbench.md). This document is the layer under
 both.
 
-## 1. Ubiq reads and never writes
+## 1. Ubiq creates a repository, or reads one; it never writes into one
 
 **The agents in the panes are what mutate the repository. Ubiq only observes.** That is the domain
 fact the whole subsystem is shaped around, and it is why the read-only line was worth drawing:
@@ -34,6 +34,16 @@ either. `D43` — the host links libgit2 and computes hunks itself — makes `gi
 no `git` subprocess whose output would have to be parsed, and gitoxide is not a second reader. Both
 are in [`decisions.md`](./decisions.md); `D9` is why the harness library, and not Ubiq, decides how
 an agent is launched into that same folder.
+
+**Cloning is the one write, and it is a write that has no repository to corrupt.** A clone brings a
+repository into existence at a path where none was — nothing is staged, no ref is moved, no working
+tree another writer is in is touched — and from the moment it registers the project, everything above
+applies to it unchanged. That is the whole of why `git2` is compiled with `https` (`D72`); a
+transport was left out while Ubiq only read, and it is in for exactly one operation. The line the
+rule draws is the useful one: **no message in this family mutates a repository Ubiq did not just
+make.** The clone itself belongs to
+[`../features/workbench.md`](../features/workbench.md) and its wire form to
+[`transport-contract.md`](./transport-contract.md).
 
 The consequence to hold on to: **every fact this family reports is about a moment that has passed.**
 The machinery that narrows that window (§6) is the feature. The walk being fast is not.
@@ -73,6 +83,18 @@ files in the git directory — the overview, the refs list, a log page, a forget
 working-tree walks. Cheap work is drained ahead of a walk, so the branch name in the status bar is
 never stuck behind the explorer's badges. A second full refresh for a project that is still walking
 **replaces** the queued one rather than lining up behind it.
+
+**A clone never runs on this worker** (`D73`). The worker is one shared thread whose `answer()` is
+synchronous, so a clone of a large repository sitting in either queue would be minutes of
+head-of-line blocking on the branch name and the explorer's badges of every project in every window.
+`crates/ubiq-host/src/repos/` takes a thread per clone instead, copying the connector flows' shape:
+an id in every message, the asker's mailbox for progress, and a `flume` receiver as the sole cancel
+mechanism. Progress is throttled to one message every 250ms, because libgit2's `transfer_progress`
+fires per object. The clone thread cannot reach the project catalogue, so it hands the finished
+folder back over a channel the coordinator drains in `register_clones()` beside
+`reap_conversations()`, and the run loop's wait is capped while `Repos::busy()`. Nothing about
+`repos/` touches this worker's repository cache — a clone opens no cached handle, which is why
+`G84`'s un-mutexed cache is untouched by it.
 
 Three pieces of per-project state live on the worker:
 

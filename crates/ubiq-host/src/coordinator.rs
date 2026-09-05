@@ -32,6 +32,7 @@ use crate::health;
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
 use crate::reply::Reply;
+use crate::repos::Repos;
 use crate::search::{self, Search};
 use crate::settings::Settings;
 use crate::shells;
@@ -44,9 +45,9 @@ use crate::work::Work;
 const INITIAL_COLS: u16 = 80;
 const INITIAL_ROWS: u16 = 24;
 
-/// How long the run loop's wait may be while a conversation is live, so a harness that ends on its
-/// own is reaped promptly rather than only on the next unrelated message. See the wait computation
-/// in `run` for why this is needed at all.
+/// How long the run loop's wait may be while a conversation or a clone is live, so work that
+/// finishes on another thread is collected promptly rather than only on the next unrelated
+/// message. See the wait computation in `run` for why this is needed at all.
 const CONVERSATION_POLL: Duration = Duration::from_millis(500);
 
 /// Start the coordinator on its own thread. One per process, started before the first window: the
@@ -84,6 +85,10 @@ struct Coordinator {
     /// on this thread; everything that touches a network runs as a flow of its own, for the same
     /// reason a search and a git status do.
     connectors: Connectors,
+    /// Cloning a repository into a project, and the listings that find one. Holds a sender per
+    /// clone and nothing else — every call it makes is on a thread of its own, for the same reason
+    /// a connector flow is.
+    repos: Repos,
     /// Which agent types can run here, and the composer that turns one into a launch.
     agents: Agents,
     /// The on-disk cache of what each harness answered about its own models/reasoning levels,
@@ -486,7 +491,7 @@ impl Coordinator {
     fn new(
         host: HostEnd,
         root: ConfigRoot,
-        projects: Projects,
+        mut projects: Projects,
         work: Work,
         settings: Settings,
         pending: Vec<Reply>,
@@ -497,6 +502,15 @@ impl Coordinator {
         agents.sweep();
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
+        let repos = Repos::new(settings.clone(), connectors.store());
+        // The catalogue was opened before the settings were parsed, so the tree it is allowed to
+        // delete a project's own folder from is named here, and swept once now: an ephemeral clone
+        // whose window went without a clean forget has nobody left to remove it.
+        projects.point_ephemeral_at(crate::settings::ephemeral_root(
+            &settings.host(),
+            &root.path,
+        ));
+        projects.sweep_ephemeral();
         let catalogue = Arc::new(FileHarnessCache::new(
             root.path.join("cache").join("harness-models.toml"),
         ));
@@ -508,6 +522,7 @@ impl Coordinator {
             work,
             settings,
             connectors,
+            repos,
             agents,
             catalogue,
             files: Files::start(),
@@ -536,7 +551,7 @@ impl Coordinator {
             // is live, taking the sooner of the two deadlines, or its run directory (credentials
             // seeded into it included) would outlive it until the next thing the user did.
             let due = self.projects.next_due(Instant::now());
-            let wait = if self.conversations.is_empty() {
+            let wait = if self.conversations.is_empty() && !self.repos.busy() {
                 due
             } else {
                 Some(due.map_or(CONVERSATION_POLL, |due| due.min(CONVERSATION_POLL)))
@@ -560,6 +575,7 @@ impl Coordinator {
                 None => {}
             }
             self.reap_conversations();
+            self.register_clones();
             self.projects.flush_due(Instant::now());
         }
         // Nothing is left to say it to, but what the user last did still belongs on disk.
@@ -643,8 +659,26 @@ impl Coordinator {
             tracing::info!("{client} has gone; stopping agent {agent_id}");
             self.end_conversation(agent_id, StopReason::Cancelled);
         }
-        // A flow whose window has gone has nobody left to answer its next question.
+        // A flow whose window has gone has nobody left to answer its next question, and neither
+        // has a clone: dropping its sender is what stops the transfer mid-fetch.
         self.connectors.client_gone(client);
+        self.repos.client_gone(client);
+    }
+
+    /// Take the folders finished clones left into the catalogue.
+    ///
+    /// A clone's own thread cannot: [`Projects`] is this thread's, which is why a finished clone
+    /// posts a `Registered` and this drains it. The project is added exactly as a folder the user
+    /// picked would be, so [`Message::ProjectAdded`] is the success signal and there is no
+    /// clone-success message to keep in step with it.
+    fn register_clones(&mut self) {
+        for done in self.repos.registered() {
+            tracing::info!("clone {} landed at {}", done.clone_id, done.path);
+            let replies =
+                self.projects
+                    .add(&done.path, Some(done.name), None, None, done.ephemeral);
+            self.answer(done.client, replies);
+        }
     }
 
     /// A pane has ended, however it ended: the project it belonged to has one fewer.
@@ -944,6 +978,28 @@ impl Coordinator {
                 let replies = self.connectors.clear_app_secret(provider, origin);
                 self.answer(client, replies);
             }
+
+            // ── Repository family: cloning one into a project ──
+            // Every arm here starts a thread and answers nothing itself: a listing is a round
+            // trip and a clone is minutes of transfer. A finished clone comes back through
+            // `register_clones`, because the catalogue is this thread's.
+            Message::ListRepos {
+                query_id,
+                connection,
+                query,
+            } => {
+                let (asker, _) = self.sinks(client);
+                self.repos.list(query_id, connection, query, asker);
+            }
+            Message::ListRepoBranches { query_id, source } => {
+                let (asker, _) = self.sinks(client);
+                self.repos.branches(query_id, source, asker);
+            }
+            Message::CloneRepo { request } => {
+                let (asker, _) = self.sinks(client);
+                self.repos.clone(client, request, asker);
+            }
+            Message::CancelClone { clone_id } => self.repos.cancel(clone_id),
 
             // The `ubiq` command on PATH. Every path in the exchange is the host's: the interface
             // says which of the three things to do and is told what is there afterwards.

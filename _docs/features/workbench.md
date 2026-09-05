@@ -4,10 +4,10 @@ title: The workbench
 kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, application settings, vim mode, or the status bar
+read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -520,6 +520,36 @@ opens over the window with only General enabled, the path filled and immutable, 
 prefilled from the folder's last component. Create sends `AddProject`. Cancel leaves the catalogue
 untouched.
 
+**Cloning is the picker's second way in.** A "Clone a project…" row sits beside Add and opens a
+modal of its own. With a connection to GitHub, GitLab or Gitea the modal lists that identity's
+repositories and filters them as the user types; a repository URL pasted into the modal's own field
+needs no connection at all, and is what reaches a public repository. Either way the branch is picked
+from what the remote actually has — the provider's branch API for a connection, an anonymous ref
+listing for a bare URL — the destination folder is chosen in the platform's dialog, and shallow is a
+checkbox. **https only:** an `ssh` remote is recognised and named as unsupported rather than
+attempted. The connection last used is remembered, so the modal reopens where it was left.
+
+**The clone registers the project itself.** There is no Add afterwards and no success dialog: the
+project arriving in every window's picker is what says the clone finished. Until then the modal
+names the stage it is on — resolving, counting, receiving, checking out, registering — rather than a
+percentage, and Cancel is live throughout. A cancelled or failed clone leaves nothing behind, its
+partial destination removed, and the modal says which of network, authentication, a repository that
+is not there, a folder already there, an unsupported provider or a refusal it was.
+
+**A pasted repository URL is a clone, wherever it is pasted.** Typing one into the `⌘K` field and
+pressing Enter opens the same modal on that URL — see the navigator below.
+
+**A clone can be ephemeral.** The checkbox puts it under Ubiq's own ephemeral folder instead of the
+default project folder and marks the record `temporary`: the case is a repository read once and
+thrown away — a pull request looked at, a dependency checked before it is trusted. Closing an
+ephemeral project turns its row into the same inline confirmation a project with terminals raises,
+saying that the clone will be discarded, and confirming sends `ForgetProject` the way closing any
+temporary project does. The host is what deletes the folder, and only when the record is
+`temporary` **and** the folder lies inside the ephemeral root — a folder dragged in from anywhere on
+the disk is `temporary` too, and the root is a setting a user could point anywhere (`D74`). Folders
+left under that root by a crash are swept at startup, after the catalogue has loaded and can say
+which of them no record names.
+
 **A 3-dot next to the title chip opens project settings for the project this window is showing.**
 The path stays as it is. Documentation and Integrations are drawn and disabled. Save writes the
 name and colour through `UpdateProject`.
@@ -620,8 +650,10 @@ what the row itself says. An empty query is Recent then Bookmarks and **no files
 with nothing typed is the explorer. Files are the explorer's own filtered rows, under the same
 three-character floor and deepening as its background walk lands. A pasted `ubiq://` is an answer
 rather than a filter and collapses the list to one row naming where it goes; one naming a project
-this catalogue does not hold says so and takes no click. There are no commands in it: a command is
-not a place.
+this catalogue does not hold says so and takes no click. **A pasted repository URL collapses it the
+same way**, to a single Clone row whose Enter opens the clone modal on that URL rather than going
+anywhere — the one row in the list that carries an action instead of a destination. There are no
+commands in it: a command is not a place.
 
 **A link in rendered content is a destination.** A Markdown document's own relative links resolve
 against the document, so `../src/app.rs#L200` opens that file at that line, and a target that pops
@@ -740,7 +772,9 @@ stylesheet paints, ahead of `script.js`'s own `DOMContentLoaded` handler.
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
 it dismisses project settings, and the reverse. Five sections ship: **Appearance** (whether the rail carries the open-project badges), **File
 explorer** (whether a
-single click opens a preview tab), **Editor** (whether a new markdown file opens in preview or
+single click opens a preview tab, and the two folders a clone lands in — the default project folder
+and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
+default as a placeholder rather than a path the interface invented), **Editor** (whether a new markdown file opens in preview or
 source), **Harnesses** (whether an agent is confined to its project, over the accounts
 registered here and an Add button that signs a new one in), and **Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
@@ -1401,6 +1435,15 @@ project settings reads that flag off the project it is editing to choose its own
 `Create` for a temporary project's first real save or `Save changes` otherwise. The full family is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
+**A clone is its own family, and it ends in the project family.** `ListRepos` and `ListRepoBranches`
+fill the modal's two pickers, `CloneRepo` starts the work and `CancelClone` stops it; `Repos`,
+`RepoBranches` and `RepoError` come back to the pickers and `ClonePending` and `CloneFailed` to the
+modal. There is deliberately no clone-success message: the host registers the project, so the
+broadcast `ProjectAdded` is the signal, which is why every window's picker learns about the clone
+rather than only the one that asked. The two folders the settings section writes ride the Host
+settings blob as `projects_root` and `ephemeral_root`, through the same `SetSettings` every other
+host setting uses. The repository family is in the transport contract with the rest.
+
 **The `ubiq` command crosses the bus as a single pair.** `CliShortcut` goes out carrying nothing but
 `Query`, `Install` or `Remove`, and `CliShortcutState` comes back to every one of them — where a
 shortcut is, whether it launches this build, where one would go, and the directories considered. The
@@ -1713,7 +1756,19 @@ The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `s
 `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/` and
 `board/`, with `work.rs` beside them for the one thing all three of the last draw. The project picker is
 its own module rather than a `Picker`, because a project row carries actions and a confirmation and
-is not just a value. Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
+is not just a value. The clone modal is `ui/clone.rs` on `kit::modal_sized`, over `state/clone.rs`
+(`CloneState`, `CloneMode`, and the notes `stage_note()` and `clone_error_note()` turn a stage or an
+error into a line) with `app/clone.rs` carrying the traffic and linking `receive_repo()` into the
+`app/wire.rs` chain. It reuses the kit and nothing else: `kit::menu::Picker` for the connection and
+for the branch, `kit::field` for the filter and the URL, `kit::check_box` for ephemeral and shallow,
+and `app/projects.rs`'s own `choose_folder()` for the destination. `state/navigator.rs`'s `rows()`
+short-circuits on `parse_repo_url` the way it already does on a `ubiq://` link, into a `Group::Clone`
+of one row; `NavRow` carries an optional `action` that `app/nav.rs`'s `press_navigator()` checks
+before it looks a destination up. `AppState::project_holds` takes `cx` and its `Holds` carries
+`ephemeral`, which is what raises the discard confirmation on the picker's row. That flag is read
+off `ProjectSnapshot::ephemeral` rather than worked out from the record: the host answers with the
+same test it deletes by, so the warning and the deletion cannot disagree.
+Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
 shell paints the same dialog over the window when a project is being created or edited. Application
 settings is `ui/settings.rs`: the titlebar's gear raises it, `state/settings.rs` holds the overlay
 and the Ui-layer schema, and a toggle sends `SetSettings`. Its Command line section is
@@ -2135,6 +2190,11 @@ deferred panel is nowhere on the focus path. `ui::on_link()` is the one handler
 | The pane region is opened with nothing in it | A pane is started in it, the platform's default shell, as a bare click on `+` would |
 | The last project in a window is closed | The window stays, on the empty state. Its harnesses are killed with the project, and what it remembered is written down |
 | A project with terminals is closed | The row asks first, and closes only on a second, explicit click |
+| An ephemeral project is closed | The row says the clone will be discarded and closes only on a second, explicit click. The host deletes the folder when it forgets the record |
+| A clone is cancelled, or fails | The modal names the reason and stays open with what was typed. The partial destination is removed, and no project appears |
+| A repository URL is pasted that is `ssh` | The modal names it as unsupported and offers nothing to click. https is the only transport a clone runs over |
+| A connection's provider has no repository listing | The modal says the provider is unsupported. A pasted URL still works, because it needs no connection |
+| The repository listing is cut short | The modal says so, and a filter that matches nothing against a cut-short listing asks the provider to search rather than claiming there is nothing |
 | A project open in another window is opened here | It leaves that window, which stays open on the empty state if it held nothing else. Its panes are killed rather than moved |
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |

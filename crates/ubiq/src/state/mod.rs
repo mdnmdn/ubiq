@@ -11,6 +11,7 @@
 pub mod agents;
 pub mod board;
 pub mod chat;
+pub mod clone;
 pub mod conversation;
 pub mod diagrams;
 pub mod dock;

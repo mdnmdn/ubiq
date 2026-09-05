@@ -43,6 +43,14 @@ pub struct Projects {
     due: Option<Instant>,
     /// Whether the user has already been told the catalogue is not durable.
     warned: bool,
+    /// The one tree a project's own folder may be deleted from — see
+    /// [`crate::settings::ephemeral_root`]. Pointed at the resolved root by the coordinator, which
+    /// is the half that can read the settings; until then it is the built-in default.
+    ephemeral_root: PathBuf,
+    /// Whether the catalogue actually loaded. A sweep against the empty catalogue a *corrupt*
+    /// file produces would delete every ephemeral project's folder, which is the thing preserving
+    /// the file was meant to avoid.
+    loaded: bool,
 }
 
 impl Projects {
@@ -53,6 +61,8 @@ impl Projects {
         preferences: Box<dyn PreferenceStore>,
     ) -> (Self, Vec<Reply>) {
         let mut this = Self {
+            ephemeral_root: root.join("ephemeral"),
+            loaded: false,
             root,
             catalogue,
             preferences,
@@ -67,6 +77,7 @@ impl Projects {
         match this.catalogue.load() {
             Ok(records) => {
                 this.records = records;
+                this.loaded = true;
                 // Only ever after a load that worked. Collecting against the empty catalogue a
                 // *corrupt* file produces would delete every project's view state.
                 let keep: HashSet<ProjectId> = this.records.iter().map(|r| r.id).collect();
@@ -94,8 +105,18 @@ impl Projects {
             health: probe(Path::new(&record.path)),
             open_panes: self.open_panes.get(&record.id).copied().unwrap_or(0),
             workarea: self.reserve_workarea(record.id),
+            ephemeral: self.ephemeral(record),
             record: record.clone(),
         }
+    }
+
+    /// Whether forgetting this project also takes its folder.
+    ///
+    /// The one place the question is answered, so that what the interface warns about and what
+    /// [`Self::forget`] deletes can never come apart. Both conditions are load-bearing: see the
+    /// comment in `forget` for why neither alone is enough.
+    fn ephemeral(&self, record: &ProjectRecord) -> bool {
+        record.temporary && inside(&self.ephemeral_root, Path::new(&record.path))
     }
 
     /// Where this project's interface keeps its own files.
@@ -298,9 +319,13 @@ impl Projects {
     /// The order matters: the catalogue is authoritative, so it goes first, and a directory left
     /// behind by a crash between the two is collected at the next load.
     pub fn forget(&mut self, id: ProjectId) -> Vec<Reply> {
-        if self.find(id).is_none() {
+        let Some(folder) = self
+            .find(id)
+            .map(|record| (record.path.clone(), self.ephemeral(record)))
+        else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
-        }
+        };
+        let folder = Some(folder);
         self.records.retain(|r| r.id != id);
         self.open_panes.remove(&id);
         let _ = self.preferences.clear(&Scope::Project(id));
@@ -317,6 +342,20 @@ impl Projects {
             && let Err(error) = std::fs::remove_dir_all(&dir)
         {
             tracing::warn!("could not remove {}: {error}", dir.display());
+        }
+
+        // The project's *own* folder, which is a different thing from the workarea above and is
+        // usually the user's. Two independent conditions have to hold, because deleting one of
+        // these is the mistake nobody can undo. It must sit inside the ephemeral root — a clone
+        // Ubiq made, in a tree Ubiq owns — and it must be `temporary`. Neither alone is enough:
+        // the flag is already set for a folder dragged in from anywhere on the disk, and the root
+        // is a setting, so a user who points it at their home directory would otherwise turn the
+        // ordinary Forget action into a delete.
+        if let Some((path, ephemeral)) = folder
+            && ephemeral
+            && let Err(error) = std::fs::remove_dir_all(&path)
+        {
+            tracing::warn!("could not remove the ephemeral clone at {path}: {error}");
         }
 
         replies.push(Reply::Everyone(
@@ -451,6 +490,50 @@ impl Projects {
         }
     }
 
+    /// Point the ephemeral gate at the root the settings actually name.
+    ///
+    /// Called once by the coordinator, which is the half that can read the host settings —
+    /// [`Projects::open`] runs before they are parsed and starts from the built-in default.
+    pub fn point_ephemeral_at(&mut self, root: PathBuf) {
+        self.ephemeral_root = root;
+    }
+
+    /// Remove the folders under the ephemeral root that no record names.
+    ///
+    /// The same job [`crate::gc`] does for a project's config directory, over the other tree a
+    /// clone writes to: an ephemeral project is dropped from the catalogue when its window closes,
+    /// and a crash between the two leaves a folder nobody will ever open again.
+    ///
+    /// **Only ever after a load that succeeded**, on `gc`'s rule: against the empty catalogue a
+    /// corrupt file produces, every ephemeral clone still on disk would look like an orphan.
+    pub fn sweep_ephemeral(&mut self) {
+        if !self.loaded {
+            return;
+        }
+        let keep: HashSet<PathBuf> = self
+            .records
+            .iter()
+            .filter_map(|record| std::fs::canonicalize(&record.path).ok())
+            .collect();
+        let Ok(entries) = std::fs::read_dir(&self.ephemeral_root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let path = entry.path();
+            let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if keep.contains(&canonical) {
+                continue;
+            }
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => tracing::info!("collected {}, which no record names", path.display()),
+                Err(error) => tracing::warn!("could not collect {}: {error}", path.display()),
+            }
+        }
+    }
+
     // ── view state ──────────────────────────────────────────────────
 
     pub fn get_preferences(&self, scope: Scope) -> Reply {
@@ -546,4 +629,18 @@ fn message_error(
 
 fn error_for(id: Option<ProjectId>, error: &StoreError) -> ubiq_proto::messages::Message {
     message_error(id, error.to_string())
+}
+
+/// Whether `path` really sits inside `root`.
+///
+/// Both sides are canonicalised, which is the whole point: a record naming `<root>/../elsewhere`
+/// is a string that starts with the root and a folder that is nowhere near it, and a textual test
+/// would delete the wrong tree. Anything that cannot be canonicalised — a folder already gone, a
+/// root that was never made — answers `false`, so the gate fails closed. The root itself is not
+/// inside itself: emptying the whole tree is not what forgetting one project means.
+fn inside(root: &Path, path: &Path) -> bool {
+    match (std::fs::canonicalize(root), std::fs::canonicalize(path)) {
+        (Ok(root), Ok(path)) => path != root && path.starts_with(&root),
+        _ => false,
+    }
 }

@@ -4,7 +4,7 @@
 
 use ubiq::state::dock::ChatId;
 use ubiq::state::nav::{Bookmark, Destination, Locus, View};
-use ubiq::state::navigator::{Group, NavRow, RECENTS_MAX, kept_recents, remember, rows};
+use ubiq::state::navigator::{Group, NavAction, NavRow, RECENTS_MAX, kept_recents, remember, rows};
 use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::work::AgentId;
 
@@ -201,4 +201,33 @@ fn recents_keep_only_what_survives_and_still_parses() {
     recents.push("not a link".to_string());
     remember(&mut recents, &file(project, "a.rs"));
     assert_eq!(kept_recents(&recents).len(), 1);
+}
+
+/// A repository URL is an answer, not a filter: the list collapses to the one thing that can be
+/// done with it, and the row carries an action rather than a place.
+#[test]
+fn a_repository_url_collapses_the_list_to_a_clone_row() {
+    let project = ProjectId::generate();
+    let found = ask("https://github.com/acme/router", project, &[], &[]);
+
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].group, Group::Clone);
+    assert!(found[0].dest.is_none());
+    assert_eq!(
+        found[0].action,
+        Some(NavAction::Clone(
+            "https://github.com/acme/router".to_string()
+        ))
+    );
+}
+
+/// Ordinary text is still a filter. Nothing about "router" is a URL, so the groups answer as they
+/// always did.
+#[test]
+fn ordinary_text_is_still_filtered_rather_than_offered_as_a_clone() {
+    let project = ProjectId::generate();
+    let found = ask("router", project, &[], &[]);
+
+    assert!(found.iter().all(|row| row.group != Group::Clone));
+    assert!(found.iter().any(|row| row.group == Group::File));
 }

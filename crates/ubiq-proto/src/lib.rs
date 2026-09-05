@@ -16,6 +16,7 @@
 //! - `settings`: which half owns a settings blob, and the host's own record
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
 //! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
+//! - `repos`: a repository somewhere else, and the clone that turns one into a project
 //! - `work`: a task as it is written down, and the sessions and agents doing it
 //! - `conversation`: what a live agent says, in the Agent Client Protocol's vocabulary
 //! - `bus`: the switchboard between the one host and the windows attached to it
@@ -30,6 +31,7 @@ pub mod ids;
 pub mod log;
 pub mod messages;
 pub mod projects;
+pub mod repos;
 pub mod search;
 pub mod settings;
 pub mod work;

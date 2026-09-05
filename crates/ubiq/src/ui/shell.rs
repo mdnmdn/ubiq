@@ -137,6 +137,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::certificate(app, window, cx)),
         )
+        // The clone modal, over the picker that raised it and over the settings page, since the
+        // omni search can raise it from anywhere.
+        .children(
+            app.workbench
+                .clone_project
+                .as_ref()
+                .map(|_| crate::ui::clone::render(app, window, cx)),
+        )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.
         .children(

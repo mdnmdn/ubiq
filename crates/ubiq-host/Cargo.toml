@@ -25,9 +25,11 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 tracing = "0.1"
 flume = "0.12"
-# Reading version control: blobs from HEAD and from the index, never the network — which is why
-# neither ssh nor https is compiled in.
-git2 = { version = "0.21", default-features = false }
+# Version control. Reading it — blobs from HEAD and from the index — is what nearly every use here
+# is, and needs no transport at all. `https` is compiled in for exactly one thing: cloning a
+# repository into existence, which is the only moment Ubiq's git talks to a network. Everything
+# after the clone is still read-only, and ssh stays out — a clone goes over https or not at all.
+git2 = { version = "0.21", default-features = false, features = ["https"] }
 # The hunks themselves. A diff library lives here and never in the interface.
 similar = "2"
 # Content search: walk the tree with the project's own ignore rules, match with the ripgrep

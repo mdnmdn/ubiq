@@ -42,6 +42,15 @@ pub struct HostSettings {
     /// built-in walk could not answer. Empty means there is no fallback.
     #[serde(default = "search_fallbacks_default")]
     pub search_fallbacks: Vec<String>,
+    /// The folder a clone lands in. `None` is the built-in default, which the host resolves — the
+    /// contract does not name a path, and this one is no exception.
+    #[serde(default)]
+    pub projects_root: Option<String>,
+    /// The folder an ephemeral clone lands in, and the only tree an ephemeral project may be
+    /// deleted from. A second root rather than a flag on the first, because "may Ubiq remove this
+    /// folder" is answered by where it is, not by what a record claims about it.
+    #[serde(default)]
+    pub ephemeral_root: Option<String>,
 
     /// The authenticated identities at external services — see [`crate::connectors`].
     ///
@@ -67,7 +76,7 @@ pub struct HostSettings {
 ///
 /// A record from an older schema still parses — every field added since carries a default — and
 /// only a *newer* one is refused, because that is the one this build cannot be trusted to read.
-pub const HOST_SETTINGS_SCHEMA: u32 = 3;
+pub const HOST_SETTINGS_SCHEMA: u32 = 4;
 
 fn isolate_agents_default() -> bool {
     true
@@ -106,6 +115,8 @@ impl Default for HostSettings {
             isolate_agents: isolate_agents_default(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
+            projects_root: None,
+            ephemeral_root: None,
             connections: Vec::new(),
             oauth_apps: Vec::new(),
             trusted_certs: Vec::new(),

@@ -1202,6 +1202,44 @@ and bring-your-own client id for the rest. That is a working application rather 
 but it is not the same first-run experience as an official build. Relaxing this later would look
 like a small convenience and would not be one.
 
+### D72 — `git2` gains an https transport, for cloning and nothing else
+
+`git2` is linked for reading a repository that sits on disk, which needs no transport at all. Cloning one into existence does, so the crate is compiled with `features = ["https"]`.
+The read-only rule survives the change intact: a clone creates a repository where there was none,
+and every operation after it is the same read it always was — see
+[`version-control.md`](./version-control.md).
+
+**Cost:** a larger dependency tree and a TLS stack in the host that only one code path uses, plus a
+standing invitation to reach for `push` or `fetch`, since the transport is in the build. What stops
+that is the rule, not the build.
+
+### D73 — A clone runs on its own thread, never on the git worker
+
+The git worker is one shared thread whose `answer()` is synchronous, so anything queued there blocks
+everything behind it. A clone is minutes, over a network, and putting one in either queue would
+stall the branch name and the explorer's badges for every project in every window. So
+`crates/ubiq-host/src/repos/` spawns a thread per clone on the connector flows' shape — an id in
+every message, the asker's mailbox for progress, a channel receiver as the only way to cancel — and
+hands the finished folder back to the coordinator over a channel, because a clone thread cannot
+reach the project catalogue.
+
+**Cost:** a second place in the host that opens a repository, a second progress-and-cancel
+mechanism to keep honest, and a run loop that must cap its wait while a clone is in flight rather
+than sleeping until the next message.
+
+### D74 — Deleting an ephemeral clone needs the flag *and* the path
+
+Forgetting a project deletes its folder only when the record is `temporary` **and** its canonicalised
+path lies strictly inside the ephemeral root. Either condition alone would be a data-loss bug:
+`temporary` is what a folder dragged in from anywhere on the disk carries too, and the
+ephemeral root is a setting a user could point at their home directory. The conjunction is what makes
+the deletion mean "a folder Ubiq made, in the place Ubiq made it".
+
+**Cost:** the gate depends on a resolved root the coordinator has to aim at the catalogue
+(`point_ephemeral_at()`), so the two halves of the condition are set in different places and a wrong
+root silently turns deletion off rather than on. That is the failure direction to prefer, and it is
+still a failure nobody sees.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

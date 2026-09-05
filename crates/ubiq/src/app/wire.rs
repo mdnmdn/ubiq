@@ -199,6 +199,9 @@ impl AppState {
         let Some(message) = self.receive_search(message, cx) else {
             return;
         };
+        let Some(message) = self.receive_repo(message, cx) else {
+            return;
+        };
         // The rest are the window's own words, coming back the wrong way.
         tracing::warn!("the window was sent a message only it may send: {message:?}");
     }
@@ -292,6 +295,14 @@ impl AppState {
                 let id = project.record.id;
                 let root = project.record.path.clone();
                 cx.global_mut::<WindowRegistry>().apply(project);
+                // There is no clone-success message: a finished clone is a registered project, so
+                // this is where the modal learns it worked and gets out of the way.
+                if self.clone_in_flight() {
+                    self.workbench.clone_project = None;
+                    self.take_project(id, cx);
+                    cx.notify();
+                    return None;
+                }
                 // Whoever asked for it is the window that opens it.
                 if self.adding {
                     self.adding = false;

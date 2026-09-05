@@ -618,7 +618,10 @@ fn b64url(bytes: &[u8]) -> String {
 }
 
 /// Percent-encoding for a query value. The unreserved set of RFC 3986, and everything else escaped.
-fn encode(value: &str) -> String {
+///
+/// Shared with [`crate::repos::list`], whose provider searches put user text in a query string for
+/// the same reason and would otherwise grow a second copy of this.
+pub(crate) fn encode(value: &str) -> String {
     value
         .bytes()
         .map(|byte| match byte {
