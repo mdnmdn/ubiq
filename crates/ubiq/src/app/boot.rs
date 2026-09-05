@@ -22,13 +22,6 @@ impl AppState {
         // command line, a Finder open, a dock-icon drop — has somewhere to be delivered.
         OpenWindows::register(window_id, cx.weak_entity(), cx);
 
-        let chat_input = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .placeholder("Reply, or describe the next change\u{2026}")
-                .auto_grow(1, 8)
-                .submit_on_enter(true)
-        });
-
         let agent_input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("Describe a task for this agent\u{2026}")
@@ -305,21 +298,6 @@ impl AppState {
         // picker in all of them. Another window taking a project is also a change this window has
         // to act on, and it learns about it the same way it learns about its own.
         subscriptions.push(cx.observe_global::<WindowRegistry>(|this, cx| this.sync_projects(cx)));
-
-        subscriptions.push(cx.subscribe_in(
-            &chat_input,
-            window,
-            |this, input, event: &InputEvent, window, cx| match event {
-                InputEvent::Change => {
-                    this.chat.draft = input.read(cx).value().to_string();
-                    cx.notify();
-                }
-                // The textarea submits on a bare Enter; Shift+Enter still inserts a newline and
-                // must not send.
-                InputEvent::PressEnter { shift: false, .. } => this.send_chat(window, cx),
-                _ => {}
-            },
-        ));
 
         subscriptions.push(cx.subscribe_in(
             &agent_input,
@@ -707,7 +685,7 @@ impl AppState {
             pending_regions: None,
             region_had_content: (false, false, false),
             workbench: WorkbenchState::default(),
-            chat: sample::chat(),
+            pending_chat_attach: None,
             sink: SinkState::default(),
             file_picker: None,
             logs: LogState::default(),
@@ -722,7 +700,6 @@ impl AppState {
             viewport_drag: RefCell::new(None),
             vim: VimState::default(),
             vim_focus: None,
-            chat_input,
             agent_input,
             column_inputs,
             file_filter,
@@ -758,7 +735,6 @@ impl AppState {
             sink_project_name,
             sink_project_about,
             sink_project_hex,
-            chat_scroll: ScrollHandle::new(),
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
             explorer_focus: cx.focus_handle(),

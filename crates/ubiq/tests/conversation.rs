@@ -23,7 +23,7 @@ use ubiq::state::conversation::Run;
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate, StopReason,
-    UsageRecord,
+    ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
 };
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
@@ -891,4 +891,83 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     assert!(!unload, "there is no harness to unload");
     assert!(resume, "not launched");
     assert!(delete, "always enabled");
+}
+
+/// The lifecycle glyph's own rule, pulled out the same way the menu's is: derived from
+/// `launched`, `run`, `blocks`, `accepts_input` and `config` alone, with nothing new stored on
+/// `Conversation` for it.
+#[test]
+fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
+    use ubiq::state::conversation::{ConvBlock, Conversation};
+    use ubiq::ui::conversation::{Lifecycle, lifecycle};
+
+    let fresh = || {
+        Conversation::new(
+            AgentId::generate(),
+            "Claude Code".to_string(),
+            String::new(),
+        )
+    };
+
+    // Never launched, and nothing has answered `ListAgentTypes`'s config yet.
+    let c = fresh();
+    assert_eq!(lifecycle(&c), Lifecycle::Starting);
+
+    // Never launched, but the harness's config has arrived — the pickers are answerable.
+    let mut c = fresh();
+    c.config = vec![config_option(
+        "model",
+        ConfigCategory::Model,
+        "opus5",
+        &[("opus5", "Claude Opus 5")],
+    )];
+    assert_eq!(lifecycle(&c), Lifecycle::Ready);
+
+    // A turn in flight carries its own activity rather than one flattened "working".
+    let mut c = fresh();
+    c.launched = true;
+    c.run = Run::Working;
+    c.blocks.push(ConvBlock::Tool {
+        call: ToolCallRecord {
+            id: "t1".to_string(),
+            title: "tool".to_string(),
+            kind: ToolKind::default(),
+            status: ToolStatus::default(),
+            content: Vec::new(),
+            locations: Vec::new(),
+        },
+        open: false,
+    });
+    assert_eq!(lifecycle(&c), Lifecycle::Working(Activity::Tools));
+
+    // Loaded and between turns.
+    let mut c = fresh();
+    c.launched = true;
+    c.run = Run::Idle;
+    assert_eq!(lifecycle(&c), Lifecycle::Idle);
+
+    // Unloaded and never-launched both read `launched == false` — the transcript is what tells
+    // them apart. A blank one reads as `Starting` above; one with something said reads as
+    // `Unloaded`, whatever its stale `config` still holds from before the harness went.
+    let mut c = fresh();
+    c.config = vec![config_option(
+        "model",
+        ConfigCategory::Model,
+        "opus5",
+        &[("opus5", "Claude Opus 5")],
+    )];
+    c.blocks
+        .push(ConvBlock::Agent("said something".to_string()));
+    assert_eq!(lifecycle(&c), Lifecycle::Unloaded);
+
+    // A conversation the harness will take no more turns on reads `Ended`, whether it ran one to
+    // completion or its harness never takes a second turn at all.
+    let mut c = fresh();
+    c.launched = true;
+    c.run = Run::Ended;
+    assert_eq!(lifecycle(&c), Lifecycle::Ended);
+
+    let mut c = fresh();
+    c.accepts_input = false;
+    assert_eq!(lifecycle(&c), Lifecycle::Ended);
 }

@@ -76,7 +76,7 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
-| [The chat panel](./features/chat.md) | The conversation beside the work — the chat list, the run and context readout, the transcript with its tool blocks and diffs, and the composer that chooses harness, model and mode. | 2026-09-03 |
+| [The chat panel](./features/chat.md) | Editor-like chat tabs, movable to any dockable region, each a view onto a host-owned conversation or onto none, with an attach picker and the shared transcript, tool blocks and composer every live-agent surface draws. | 2026-09-05 |
 | [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-04 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-04 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-03 |

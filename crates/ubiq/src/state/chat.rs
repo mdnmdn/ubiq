@@ -1,245 +1,88 @@
-//! The chat panel's state.
+//! The chat surface's own state: one entry per open tab.
 //!
-//! **What the panel shows is not here.** A conversation is the host's, projected into
-//! [`super::conversation`] and drawn by the one view every surface shares, so this holds only
-//! which of them the panel has selected and the panel's own furniture. The fixtures below are the
-//! record-shaped mock the panel drew before conversations were real, kept for the surfaces that
-//! still read them.
+//! **What a tab shows is not here.** A conversation is the host's, projected into
+//! [`super::conversation`] and drawn by the one view every surface shares — a column on the
+//! agents screen and a chat tab alike. What is here is only which conversation a tab has picked,
+//! and nothing about the conversation itself.
 
-use ubiq_proto::work::AgentId;
+use ubiq_proto::work::{AgentId, WorkAgent};
 
-/// The context window the token pill is a fraction of.
-pub const CONTEXT_TOKENS: f32 = 200_000.0;
+use super::agents::{CHATS_MAX, COLUMNS_MAX};
+use super::dock::ChatId;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ToolKind {
-    Read,
-    Edit,
-    Bash,
-    Grep,
+/// One chat tab: a view, and nothing else. It owns a composer slot and, at most, an attachment.
+/// Closing it ends nothing — the conversation is the host's.
+#[derive(Clone, Copy, Debug)]
+pub struct ChatTab {
+    pub id: ChatId,
+    pub slot: usize,
+    /// The conversation this tab looks at, or none: a tab may exist attached to nothing, which is
+    /// what a fresh `+` produces.
+    pub attached: Option<AgentId>,
+    /// Whether this tab's attach picker is down. Per tab, the way a conversation's own
+    /// pre-launch config picker is per conversation: several may be open at once.
+    pub picker_open: bool,
 }
 
-impl ToolKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            ToolKind::Read => "READ",
-            ToolKind::Edit => "EDIT",
-            ToolKind::Bash => "BASH",
-            ToolKind::Grep => "GREP",
-        }
-    }
+/// The lowest chat composer slot nothing is using. `None` is every chat slot taken.
+///
+/// Chat tabs draw from the range above the columns' — `COLUMNS_MAX..COLUMNS_MAX + CHATS_MAX` —
+/// so the two halves of the pool never hand out the same slot.
+pub fn free_chat_slot(tabs: &[ChatTab]) -> Option<usize> {
+    (COLUMNS_MAX..COLUMNS_MAX + CHATS_MAX).find(|slot| tabs.iter().all(|tab| tab.slot != *slot))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DiffKind {
-    Add,
-    Remove,
-    Context,
+/// What one chat tab's attach picker offers: the project's conversations, filtered by what is
+/// typed, and which of the survivors are already spoken for.
+pub struct AttachChoices {
+    /// `(agent, name)`, in the host's own order, after the filter.
+    pub items: Vec<(AgentId, String)>,
+    /// Indices into `items` attached to a *different* chat tab — drawn disabled, never dropped:
+    /// a row that vanishes reads as a conversation that ended, not one taken.
+    pub disabled: Vec<usize>,
+    /// This tab's own attachment, if it survived the filter. Never in `disabled`, even if the
+    /// filter kept it: a picker's current value is always its own to leave.
+    pub selected: Option<usize>,
 }
 
-impl DiffKind {
-    pub fn marker(self) -> &'static str {
-        match self {
-            DiffKind::Add => "+",
-            DiffKind::Remove => "\u{2212}",
-            DiffKind::Context => " ",
-        }
-    }
-}
+/// Build one tab's attach choices out of the project's chats and agents.
+///
+/// **Exclusivity is per surface, not per conversation.** A conversation already open in a
+/// *different* chat tab is disabled here; the agents workbench may show the same conversation at
+/// the same time, and the host does not care, because a view was never the workspace.
+pub fn attach_choices(
+    chats: &[ChatTab],
+    this: ChatId,
+    agents: &[WorkAgent],
+    query: &str,
+) -> AttachChoices {
+    let query = query.to_lowercase();
+    let items: Vec<(AgentId, String)> = agents
+        .iter()
+        .filter(|agent| query.is_empty() || agent.name.to_lowercase().contains(&query))
+        .map(|agent| (agent.id, agent.name.clone()))
+        .collect();
 
-#[derive(Clone, Debug)]
-pub struct DiffLine {
-    pub kind: DiffKind,
-    pub text: String,
-}
+    let elsewhere: Vec<AgentId> = chats
+        .iter()
+        .filter(|tab| tab.id != this)
+        .filter_map(|tab| tab.attached)
+        .collect();
+    let disabled = items
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, (agent, _))| elsewhere.contains(agent).then_some(ix))
+        .collect();
 
-impl DiffLine {
-    pub fn add(text: &str) -> Self {
-        Self {
-            kind: DiffKind::Add,
-            text: text.to_string(),
-        }
-    }
+    let attached = chats
+        .iter()
+        .find(|tab| tab.id == this)
+        .and_then(|tab| tab.attached);
+    let selected = attached.and_then(|agent| items.iter().position(|(id, _)| *id == agent));
 
-    pub fn remove(text: &str) -> Self {
-        Self {
-            kind: DiffKind::Remove,
-            text: text.to_string(),
-        }
-    }
-
-    pub fn context(text: &str) -> Self {
-        Self {
-            kind: DiffKind::Context,
-            text: text.to_string(),
-        }
-    }
-}
-
-/// What an assistant turn's tool block shows. `body` carries plain output rows (READ, BASH, GREP);
-/// `diff` carries an edit. A block uses one or the other, never both.
-#[derive(Clone, Debug)]
-pub struct ToolCall {
-    pub kind: ToolKind,
-    pub target: String,
-    pub meta: String,
-    pub expanded: bool,
-    pub body: Vec<String>,
-    pub diff: Vec<DiffLine>,
-}
-
-impl ToolCall {
-    /// Whether the header is worth clicking — a block with nothing behind it does not expand.
-    pub fn has_body(&self) -> bool {
-        !self.body.is_empty() || !self.diff.is_empty()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Block {
-    Markdown(String),
-    Tool(ToolCall),
-}
-
-#[derive(Clone, Debug)]
-pub enum ChatMessage {
-    User(String),
-    Assistant(Vec<Block>),
-}
-
-#[derive(Clone, Debug)]
-pub struct Chat {
-    pub id: usize,
-    pub title: String,
-    /// Relative time, as the list shows it: "2m", "1h", "yst".
-    pub when: String,
-    pub messages: Vec<ChatMessage>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RunState {
-    Idle,
-    Working,
-}
-
-impl RunState {
-    pub fn label(self) -> &'static str {
-        match self {
-            RunState::Idle => "Idle",
-            RunState::Working => "Working",
-        }
-    }
-}
-
-pub struct ChatState {
-    /// Which of the project's conversations the panel is showing.
-    ///
-    /// A *view* onto a conversation the host owns, never the conversation itself: closing the
-    /// panel or selecting another leaves every one of them running. `None` means nothing is
-    /// selected yet, which is what an empty project looks like.
-    pub selected: Option<AgentId>,
-    pub chats: Vec<Chat>,
-    pub active: usize,
-    pub run: RunState,
-    pub tokens: f32,
-    pub collapsed: bool,
-    pub attachment: bool,
-    /// Mirror of the composer's textarea, so rendering never has to read the entity.
-    pub draft: String,
-    next_id: usize,
-}
-
-impl ChatState {
-    pub fn new(chats: Vec<Chat>, tokens: f32) -> Self {
-        let next_id = chats.iter().map(|c| c.id + 1).max().unwrap_or(1);
-        Self {
-            selected: None,
-            chats,
-            active: 0,
-            run: RunState::Idle,
-            tokens,
-            collapsed: true,
-            attachment: false,
-            draft: String::new(),
-            next_id,
-        }
-    }
-
-    pub fn active_chat(&self) -> Option<&Chat> {
-        self.chats.get(self.active)
-    }
-
-    pub fn active_chat_mut(&mut self) -> Option<&mut Chat> {
-        self.chats.get_mut(self.active)
-    }
-
-    /// Percentage of the context window in use, for the token pill's ring.
-    pub fn context_pct(&self) -> u8 {
-        ((self.tokens / CONTEXT_TOKENS) * 100.0)
-            .round()
-            .clamp(0.0, 100.0) as u8
-    }
-
-    pub fn new_chat(&mut self) {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.chats.insert(
-            0,
-            Chat {
-                id,
-                title: "New chat".to_string(),
-                when: "now".to_string(),
-                messages: Vec::new(),
-            },
-        );
-        self.active = 0;
-    }
-
-    /// Toggle one tool block, addressed by its position in the active chat.
-    pub fn toggle_tool(&mut self, message: usize, block: usize) {
-        if let Some(chat) = self.chats.get_mut(self.active)
-            && let Some(ChatMessage::Assistant(blocks)) = chat.messages.get_mut(message)
-            && let Some(Block::Tool(tool)) = blocks.get_mut(block)
-        {
-            tool.expanded = !tool.expanded;
-        }
-    }
-
-    /// Append the draft as a user turn plus a canned reply. There is no agent behind this yet, so
-    /// the reply reports the composer's own selection and stops.
-    pub fn send(&mut self) {
-        let text = self.draft.trim().to_string();
-        if text.is_empty() {
-            return;
-        }
-
-        let reply =
-            "Queued. No harness is attached to this pane yet, so the turn ends here.".to_string();
-
-        // An empty chat takes its title from the first thing said in it.
-        let title = first_line(&text);
-        if let Some(chat) = self.chats.get_mut(self.active) {
-            if chat.messages.is_empty() {
-                chat.title = title;
-                chat.when = "now".to_string();
-            }
-            chat.messages.push(ChatMessage::User(text));
-            chat.messages
-                .push(ChatMessage::Assistant(vec![Block::Markdown(reply)]));
-        }
-
-        self.draft.clear();
-        self.attachment = false;
-        self.run = RunState::Idle;
-    }
-}
-
-fn first_line(text: &str) -> String {
-    let line = text.lines().next().unwrap_or(text).trim();
-    if line.chars().count() > 48 {
-        let head: String = line.chars().take(47).collect();
-        format!("{head}\u{2026}")
-    } else {
-        line.to_string()
+    AttachChoices {
+        items,
+        disabled,
+        selected,
     }
 }

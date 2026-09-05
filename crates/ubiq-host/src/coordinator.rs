@@ -750,8 +750,9 @@ impl Coordinator {
             Message::BeginHarnessLogin {
                 agent_type,
                 account,
+                probe,
             } => {
-                self.begin_harness_login(client, agent_type, account);
+                self.begin_harness_login(client, agent_type, account, probe);
             }
             Message::CheckHarnessLogin {
                 agent_type,
@@ -1809,7 +1810,17 @@ impl Coordinator {
     /// changes no project's count and closing it is not closing a workspace. What makes it a
     /// login is the entry in `logins` — read when the pane ends, and the only thing that
     /// turns an exited process into a captured account.
-    fn begin_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
+    ///
+    /// `probe` runs a plain shell under the login's own policy instead of the harness — a
+    /// diagnostic for inspecting what that sandbox permits, not a way to sign in. It reaches
+    /// [`Self::login_gone`], which is what actually refuses to treat its exit as an outcome.
+    fn begin_harness_login(
+        &mut self,
+        client: ClientId,
+        agent_type: String,
+        account: String,
+        probe: bool,
+    ) {
         let refuse = |coordinator: &mut Self, error: String| {
             tracing::warn!(harness = %agent_type, account = %account, "login refused: {error}");
             coordinator.host.send(
@@ -1822,7 +1833,7 @@ impl Coordinator {
             );
         };
 
-        let pending = match self.agents.begin_login(&agent_type, &account) {
+        let pending = match self.agents.begin_login(&agent_type, &account, probe) {
             Ok(pending) => pending,
             Err(error) => return refuse(self, format!("{error:#}")),
         };
@@ -1875,10 +1886,24 @@ impl Coordinator {
     /// credential appeared and is fresh, so the account exists; it was left untouched, so the
     /// harness exited without logging anyone in; or it is not there, so the flow was
     /// abandoned — which is exactly what pressing abort does, and is not an error.
+    ///
+    /// A probe pane is none of those three: it never ran the harness, so its credential (if
+    /// any) never moved, and reading that as an outcome would be answering a question nobody
+    /// asked. Its exit records no account and gets no `HarnessLoginCaptured`/`HarnessLoginFailed`
+    /// — the window already knows its own pane closed from the ordinary `PaneExited` it just
+    /// forwarded as `CloseWorkspace`, and reads that as done by itself.
     fn login_gone(&mut self, client: ClientId, pane_id: PaneId) {
         let Some(pending) = self.logins.remove(&pane_id) else {
             return;
         };
+        if pending.probe {
+            tracing::info!(
+                harness = %pending.agent_type,
+                account = %pending.account,
+                "probe shell closed; nothing captured"
+            );
+            return;
+        }
         let agent_type = pending.agent_type.clone();
         let account = pending.account.clone();
 
@@ -2428,6 +2453,48 @@ mod tests {
                 .live_agent_names(project_id)
                 .contains(&"fake".to_string()),
             "a delete takes the WorkAgent with it"
+        );
+    }
+
+    // ── probe logins ──────────────────────────────────────────────────
+
+    /// A probe pane's exit must never be read as a login outcome. The fixture is built so a
+    /// real login *would* have captured — a fresh credential, and `captured_before: None` (a
+    /// first-ever login, the case `finish_login`'s mtime rule always lets through) — precisely
+    /// so this proves the skip is `pending.probe`'s doing, not an accident of the fixture.
+    #[test]
+    fn a_probes_exit_records_no_account_and_sends_no_login_outcome() {
+        let (mut coordinator, client) = test_coordinator();
+        let home = tempfile::TempDir::new().unwrap();
+        let cred = PathBuf::from("cred.json");
+        std::fs::write(home.path().join(&cred), b"fresh").unwrap();
+
+        let pane_id = PaneId::generate();
+        let pending = PendingLogin::for_test(
+            "work",
+            "claude-code",
+            home.path().to_path_buf(),
+            vec![cred],
+            None,
+            true,
+        );
+        coordinator.logins.insert(pane_id, pending);
+
+        coordinator.login_gone(client.id(), pane_id);
+
+        assert!(
+            !coordinator.logins.contains_key(&pane_id),
+            "the pending entry is consumed either way"
+        );
+        assert!(
+            coordinator.agents.accounts().unwrap().is_empty(),
+            "a probe must never record an account, even though this fixture would have \
+             captured one"
+        );
+        let messages = drain_all(&client);
+        assert!(
+            messages.is_empty(),
+            "a probe sends neither HarnessLoginCaptured nor HarnessLoginFailed: {messages:?}"
         );
     }
 }

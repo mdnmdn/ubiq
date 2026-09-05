@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-05
 verified: 2026-09-05
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -23,8 +23,8 @@ Three properties shape how UI code reads:
 
 **Views are structs that render.** A type implementing `Render` owns its state and produces an
 element tree from it. `AppState` in `crates/ubiq/src/app/mod.rs` is the root: it owns the window's own
-state — the dock, the chat, the console, the emulators — and one `OpenProject` per project the
-window holds, carrying that project's tree, files and panes. Its render delegates to
+state — the dock, the console, the emulators — and one `OpenProject` per project the window holds,
+carrying that project's tree, files, panes and open chat tabs. Its render delegates to
 `crates/ubiq/src/ui/shell.rs`.
 
 **`AppState` is the only owner of state, and not the only view.** The window's arrangement is a
@@ -330,7 +330,22 @@ them are matched by position. `kit::Picker` may carry a filter field of its own,
 `field(...)` shape `project_menu.rs`'s hand-rolled search uses. The picker never filters: the caller
 narrows `items` and keeps a parallel values list in lockstep before building the picker, so
 `on_pick(index)` stays correct by construction, and an empty result after filtering draws one muted
-"No matches" row rather than a panel with nothing in it.
+"No matches" row rather than a panel with nothing in it. `.disabled(indices)` marks rows drawn but
+not pickable — a conversation already attached to another chat tab, say — in the same faint,
+click-less style the context menu's own disabled label uses; a disabled row is never dropped from
+`items`, because a row that vanishes reads as gone rather than taken, and a picker's own selected row
+stays pickable even if the caller also passed its index to `.disabled(...)`. `.separators(indices)`
+draws the same hairline the context menu's own separator does at those rows instead of text, so a
+searchable picker can carry group headings — themselves plain `.disabled(...)` rows — in the one
+`items` list a caller builds and a pick indexes into, the way the agents screen's column `+` groups
+the bench from what is already on screen elsewhere.
+
+The state dot itself is what the shared conversation view's lifecycle glyph is, beside its
+three-dots menu — no primitive of its own. `ui::conversation::lifecycle` derives one `Lifecycle` from
+the conversation's own fields (Starting, Ready, Working carrying an `Activity`, Idle, Unloaded,
+Ended); the glyph colours a `status_dot` from it — `activity_colour` while a turn runs, the same
+tokens the bucket colours use otherwise — and says the word in a tooltip, one or two of them, never a
+sentence.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two

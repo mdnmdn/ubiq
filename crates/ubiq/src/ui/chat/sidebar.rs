@@ -1,139 +1,115 @@
-//! The chat panel's head: the control that starts a conversation, and the list of them.
+//! The chat tab's own head: what it is attached to, and the two controls that start something
+//! new.
 //!
-//! "New chat" only opens the menu; the menu itself is painted by [`crate::ui::shell`], which is
-//! what lets this panel and the agents screen share one — see
-//! [`crate::ui::agents::new_agent_menu`].
+//! *New chat* starts a conversation, through the same menu the agents screen uses, and attaches
+//! this tab to it. *New tab* starts nothing — it opens another view, attached to nothing, beside
+//! this one. One adds a harness to have a view on; the other adds the view.
 
-use gpui::{
-    AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, px,
-};
-use gpui_component::{Icon, IconName, Sizable as _, Size};
+use gpui::{Context, ElementId, Focusable, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui_component::IconName;
 
 use crate::app::AppState;
-use crate::theme;
-use crate::ui::kit::{HARNESS_GLYPH, ghost_button, mono, section_label};
+use crate::state::{ChatId, attach_choices};
+use crate::ui::kit::{Picker, ghost_button};
+use crate::ui::{handler, indexed};
 
-pub fn header(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+/// The row of controls above a chat tab's transcript: what it is attached to, on the left, and
+/// the two ways to start something new, on the right.
+pub fn header(
+    app: &AppState,
+    id: ChatId,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
     div()
         .h(px(38.))
-        .px_3()
+        .px_2()
         .flex()
         .flex_none()
         .items_center()
         .justify_between()
         .gap_2()
+        .child(attach_picker(app, id, window, cx))
         .child(
             div()
-                .id("chat-collapse")
                 .flex()
+                .flex_none()
                 .items_center()
-                .gap_2()
-                .px_1()
-                .cursor_pointer()
-                .hover(|this| this.bg(theme::hover()))
-                .child(
-                    Icon::new(if app.chat.collapsed {
-                        IconName::ChevronRight
-                    } else {
-                        IconName::ChevronDown
-                    })
-                    .with_size(Size::XSmall)
-                    .text_color(theme::text_muted()),
-                )
-                .child(section_label("Chats"))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.chat.collapsed = !this.chat.collapsed;
-                    cx.notify();
-                })),
+                .gap_1()
+                .child(ghost_button(
+                    "chat-new",
+                    Some(IconName::Plus),
+                    "New chat",
+                    cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                        let at = event.position();
+                        this.new_chat(id, (at.x.into(), at.y.into()), cx);
+                    }),
+                ))
+                .child(ghost_button(
+                    "chat-new-tab",
+                    Some(IconName::Copy),
+                    "New tab",
+                    cx.listener(|this, _, _, cx| this.new_chat_tab(cx)),
+                )),
         )
-        .child(ghost_button(
-            "chat-new",
-            Some(IconName::Plus),
-            "New chat",
-            cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
-                let at = event.position();
-                this.new_chat((at.x.into(), at.y.into()), cx);
-            }),
-        ))
 }
 
-/// The project's conversations, newest activity first as the host reports them.
+/// What this tab is attached to, and the picker that changes it.
 ///
-/// The same set the agents screen lists in its own sidebar — one registry, two views — so a row
-/// here names a conversation that exists whether or not this panel is open.
-pub fn chat_list(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let selected = app.chat.selected;
-    // One registry, two views: this is the same set the agents screen's sidebar lists.
-    let Some(work) = app.work(cx) else {
-        return div().flex().flex_none().flex_col();
+/// The picker's items are the project's conversations — the same registry the agents sidebar
+/// lists. A row already attached to a *different* chat tab draws disabled and cannot be picked;
+/// this tab's own current row stays selectable, and no row is ever dropped from the list, because
+/// a row that vanishes reads as a conversation that ended rather than one taken.
+fn attach_picker(
+    app: &AppState,
+    id: ChatId,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
+    let entity = cx.entity();
+    let picker_open = app
+        .open_project(cx)
+        .and_then(|open| open.chats.iter().find(|tab| tab.id == id))
+        .is_some_and(|tab| tab.picker_open);
+
+    let query = app.picker_search.read(cx).value().to_string();
+    let search_focused = app
+        .picker_search
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    let choices = match (app.open_project(cx), app.work(cx)) {
+        (Some(open), Some(work)) => attach_choices(&open.chats, id, &work.agents, &query),
+        _ => attach_choices(&[], id, &[], &query),
     };
+    let names: Vec<String> = choices.items.iter().map(|(_, name)| name.clone()).collect();
+    let agent_ids: Vec<_> = choices.items.iter().map(|(agent, _)| *agent).collect();
+    let label = choices
+        .selected
+        .and_then(|ix| choices.items.get(ix))
+        .map(|(_, name)| name.clone())
+        .unwrap_or_else(|| "Attach a conversation".to_string());
 
-    let mut rows: Vec<AnyElement> = Vec::new();
-    for agent in &work.agents {
-        let id = agent.id;
-        let is_active = selected == Some(id);
-        let mut row = div()
-            .id(ElementId::Name(format!("chat-row-{id}").into()))
-            .h(px(38.))
-            .px_3()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::hover()))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_size(px(13.))
-                    .text_color(if is_active {
-                        theme::text()
-                    } else {
-                        theme::text_muted()
-                    })
-                    .child(SharedString::from(agent.name.clone())),
-            )
-            // Which harness and identity, rather than a timestamp: two rows of the same name are
-            // told apart by what they run as, and the host reports no time.
-            .child(
-                mono(
-                    if agent.account.is_empty() {
-                        HARNESS_GLYPH.to_string()
-                    } else {
-                        format!("{HARNESS_GLYPH} · {}", agent.account)
-                    },
-                    theme::text_faint(),
-                )
-                .text_size(px(11.)),
-            );
-
-        if is_active {
-            row = row
-                .bg(theme::accent_soft())
-                .border_l(px(theme::ACCENT_EDGE))
-                .border_color(theme::accent());
-        }
-
-        rows.push(
-            row.on_click(cx.listener(move |this, _, _, cx| this.select_chat(id, cx)))
-                .into_any_element(),
-        );
+    let mut picker = Picker::new(ElementId::Name(format!("chat-attach-{id}").into()), label)
+        .icon(IconName::Asterisk)
+        .items(names)
+        .disabled(choices.disabled)
+        .open(picker_open)
+        .search(&app.picker_search, search_focused);
+    if let Some(index) = choices.selected {
+        picker = picker.selected(index);
     }
-
-    if rows.is_empty() {
-        rows.push(
-            div()
-                .px_3()
-                .py_2()
-                .text_size(px(12.))
-                .text_color(theme::text_faint())
-                .child(SharedString::from("Nothing running in this project."))
-                .into_any_element(),
-        );
-    }
-
-    div().flex().flex_none().flex_col().children(rows)
+    picker
+        .on_toggle(handler(&entity, move |this, window, cx| {
+            this.toggle_chat_picker(id, window, cx)
+        }))
+        .on_pick(indexed(&entity, move |this, index, _, cx| {
+            if let Some(agent) = agent_ids.get(index).copied() {
+                this.attach_chat(id, Some(agent), cx);
+            }
+        }))
+        .on_dismiss(handler(&entity, move |this, _, cx| {
+            this.dismiss_chat_picker(id, cx)
+        }))
 }

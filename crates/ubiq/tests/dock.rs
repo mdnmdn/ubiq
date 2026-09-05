@@ -5,9 +5,12 @@
 //! in, where one dropped somewhere else goes back to, and the names a saved layout is rebuilt
 //! from — which may never change, because they are the keys.
 
-use ubiq::state::dock::{PanelKind, Region, Visibility};
+use ubiq::state::dock::{ChatId, PanelKind, Region, Visibility};
 use ubiq::state::editor::ViewLayout;
-use ubiq::ui::dock::{file_from_payload, file_payload, pane_from_payload, pane_payload};
+use ubiq::ui::dock::{
+    chat_from_payload, chat_payload, file_from_payload, file_payload, pane_from_payload,
+    pane_payload,
+};
 use ubiq_proto::ids::PaneId;
 
 const REGIONS: [Region; 4] = [Region::Centre, Region::Left, Region::Right, Region::Bottom];
@@ -17,7 +20,7 @@ fn every_kind() -> Vec<PanelKind> {
         PanelKind::Terminal(PaneId::generate()),
         PanelKind::Logs,
         PanelKind::Explorer,
-        PanelKind::Chat,
+        PanelKind::Chat(ChatId::generate()),
         PanelKind::Centre,
         PanelKind::File("crates/ubiq/src/app.rs".to_string()),
     ]
@@ -30,33 +33,36 @@ fn nothing() -> Visibility {
     Visibility::default()
 }
 
-/// The rule that keeps the explorer and the chat on a border: two homes, not four. An Edge panel
-/// dragged over the centre or the bottom is refused and returns.
+/// The rule that keeps the explorer on a border: one home, not four. An Edge panel dragged over
+/// the centre or the bottom is refused and returns.
 #[test]
 fn an_edge_panel_lives_on_a_border_and_nowhere_else() {
-    for kind in [PanelKind::Explorer, PanelKind::Chat] {
-        assert!(kind.class().allows(Region::Left), "{kind:?} in the left");
-        assert!(kind.class().allows(Region::Right), "{kind:?} in the right");
-        assert!(
-            !kind.class().allows(Region::Centre),
-            "{kind:?} in the centre"
-        );
-        assert!(
-            !kind.class().allows(Region::Bottom),
-            "{kind:?} in the bottom"
-        );
-    }
+    let kind = PanelKind::Explorer;
+    assert!(kind.class().allows(Region::Left), "{kind:?} in the left");
+    assert!(kind.class().allows(Region::Right), "{kind:?} in the right");
+    assert!(
+        !kind.class().allows(Region::Centre),
+        "{kind:?} in the centre"
+    );
+    assert!(
+        !kind.class().allows(Region::Bottom),
+        "{kind:?} in the bottom"
+    );
 }
 
-/// A terminal and the console go where the user puts them, as long as it is somewhere a terminal
-/// is worth reading: the centre or the bottom.
+/// A terminal, the console and a chat tab go wherever the user puts them: nothing about any of
+/// the three is tied to a border or to the centre, so every region is fair game.
 #[test]
-fn a_free_panel_takes_the_centre_or_the_bottom() {
-    for kind in [PanelKind::Terminal(PaneId::generate()), PanelKind::Logs] {
-        assert!(kind.class().allows(Region::Centre));
-        assert!(kind.class().allows(Region::Bottom));
-        assert!(!kind.class().allows(Region::Left));
-        assert!(!kind.class().allows(Region::Right));
+fn a_free_panel_takes_any_region() {
+    for kind in [
+        PanelKind::Terminal(PaneId::generate()),
+        PanelKind::Logs,
+        PanelKind::Search,
+        PanelKind::Chat(ChatId::generate()),
+    ] {
+        for region in REGIONS {
+            assert!(kind.class().allows(region), "{kind:?} in {region:?}");
+        }
     }
 }
 
@@ -127,7 +133,7 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     );
     assert_eq!(PanelKind::Logs.name(), "ubiq.logs");
     assert_eq!(PanelKind::Explorer.name(), "ubiq.explorer");
-    assert_eq!(PanelKind::Chat.name(), "ubiq.chat");
+    assert_eq!(PanelKind::Chat(ChatId::generate()).name(), "ubiq.chat");
     assert_eq!(PanelKind::Centre.name(), "ubiq.centre");
     assert_eq!(PanelKind::File("justfile".to_string()).name(), "ubiq.file");
 }
@@ -143,14 +149,15 @@ fn a_file_panel_s_name_is_the_same_for_every_file() {
     assert_eq!(PanelKind::from_name("ubiq.file"), None);
 }
 
-/// Every panel a saved layout can carry is rebuilt from its name — except a terminal, which is
-/// dropped on purpose: layout persists, harnesses do not.
+/// Every panel a saved layout can carry is rebuilt from its name — except a terminal, a file and
+/// a chat tab, each rebuilt from the payload beside it instead: a terminal because a saved one
+/// names no pane this build can trust, a file and a chat tab because their name is the same for
+/// every one of them.
 #[test]
-fn every_name_but_a_terminal_s_rebuilds() {
+fn every_name_but_a_terminal_a_file_and_a_chat_rebuilds() {
     for kind in every_kind() {
         match kind {
-            // A terminal is dropped on purpose, and a file is rebuilt from its payload instead.
-            PanelKind::Terminal(_) | PanelKind::File(_) => {
+            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Chat(_) => {
                 assert_eq!(PanelKind::from_name(kind.name()), None, "{kind:?}")
             }
             kind => assert_eq!(PanelKind::from_name(kind.name()), Some(kind)),
@@ -162,16 +169,25 @@ fn every_name_but_a_terminal_s_rebuilds() {
     );
 }
 
-/// Closing a tab means killing a harness, closing a file, or putting the console away. The
-/// explorer, the chat and the centre are the window's own furniture: they are hidden and brought
-/// back, never closed.
+/// Closing a tab means killing a harness, closing a file, closing a chat tab, or putting the
+/// console away. The explorer and the centre are the window's own furniture: they are hidden and
+/// brought back, never closed.
 #[test]
-fn a_pane_a_file_and_the_console_close_and_nothing_else_does() {
+fn a_pane_a_file_a_chat_tab_and_the_console_close_and_nothing_else_does() {
     for kind in every_kind() {
-        let closes =
-            matches!(kind, PanelKind::Logs) || kind.pane().is_some() || kind.tab_key().is_some();
+        let closes = matches!(kind, PanelKind::Logs)
+            || kind.pane().is_some()
+            || kind.tab_key().is_some()
+            || kind.chat_id().is_some();
         assert_eq!(kind.closable(), closes, "{kind:?}");
     }
+}
+
+/// Closing a chat tab is never refused for being the last one — there is no last-tab guard
+/// anywhere in this tree, and a chat tab is no exception.
+#[test]
+fn a_chat_tab_is_closable_even_as_the_last_one() {
+    assert!(PanelKind::Chat(ChatId::generate()).closable());
 }
 
 /// A terminal panel writes down which pane it draws, which is what lets a rebuilt arrangement put
@@ -200,6 +216,27 @@ fn a_terminal_panel_writes_down_the_pane_it_draws() {
     assert_eq!(PanelKind::Terminal(pane_id).name(), PanelKind::TERMINAL);
 }
 
+/// A chat tab's id round-trips through the dock's payload exactly the way a terminal's pane does
+/// — carried in the payload rather than the name, because the name below is the same for every
+/// chat tab there is.
+#[test]
+fn a_chat_tab_s_id_round_trips_through_the_payload() {
+    let id = ChatId::generate();
+    let payload = chat_payload(id);
+    assert_eq!(chat_from_payload(&payload), Some(PanelKind::Chat(id)));
+
+    // A payload from a build that wrote none, or one naming something that is not an id, names no
+    // tab — and a leaf that names no tab is dropped rather than drawn empty.
+    assert_eq!(chat_from_payload(&serde_json::json!({})), None);
+    assert_eq!(
+        chat_from_payload(&serde_json::json!({ "chat": "not-an-id" })),
+        None
+    );
+
+    assert_eq!(PanelKind::CHAT, "ubiq.chat");
+    assert_eq!(PanelKind::Chat(id).name(), PanelKind::CHAT);
+}
+
 /// The explorer and the chat leave with IDE mode; the chat also wants a project. A terminal is
 /// hidden while its project is not the one on screen — hidden, so it keeps its place and its
 /// harness keeps running. The console is always drawn.
@@ -216,16 +253,17 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
         ..nothing()
     }));
 
-    assert!(PanelKind::Chat.is_drawn(Visibility {
+    let chat = PanelKind::Chat(ChatId::generate());
+    assert!(chat.is_drawn(Visibility {
         is_ide: true,
         has_project: true,
         ..nothing()
     }));
-    assert!(!PanelKind::Chat.is_drawn(Visibility {
+    assert!(!chat.is_drawn(Visibility {
         is_ide: true,
         ..nothing()
     }));
-    assert!(!PanelKind::Chat.is_drawn(Visibility {
+    assert!(!chat.is_drawn(Visibility {
         has_project: true,
         ..nothing()
     }));

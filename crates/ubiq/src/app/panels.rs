@@ -49,7 +49,14 @@ impl AppState {
         if now_empty {
             match region {
                 Region::Bottom => self.spawn_pane(None, Vec::new(), cx),
-                Region::Right => self.pending_panels.push(PanelEdit::Open(PanelKind::Chat)),
+                Region::Right => {
+                    // The one place the window has to decide *which* chat tab an empty region
+                    // opens onto: a fresh one, attached to nothing.
+                    if let Some(id) = self.open_chat_tab(cx) {
+                        self.pending_panels
+                            .push(PanelEdit::Open(PanelKind::Chat(id)));
+                    }
+                }
                 Region::Left | Region::Centre => {}
             }
         }
@@ -124,6 +131,38 @@ impl AppState {
         }
         for key in wanted {
             let kind = PanelKind::File(key);
+            if !self.panels.contains_key(&kind) {
+                self.pending_panels.push(PanelEdit::Open(kind));
+            }
+        }
+    }
+
+    /// Make the dock's chat panels the tabs of one project, the same way [`Self::sync_file_panels`]
+    /// squares the file panels.
+    ///
+    /// **This is a chat tab's real population**, not `dock::restore` or `dock::default_layout` —
+    /// both of those only ever draw scaffolding or reattach an id this window already held, since
+    /// a chat id is minted fresh every process and never the host's to confirm. Called whenever a
+    /// project is entered — including the first time, right after [`OpenProject::new`] has seeded
+    /// its one default tab — and again at the end of [`Self::settle_layout`], so a restore that
+    /// dropped an unknown id or fell back to scaffolding is squared with the truth immediately
+    /// rather than left a frame behind.
+    pub(super) fn sync_chat_panels(&mut self, project: ProjectId) {
+        let wanted: Vec<ChatId> = self
+            .projects
+            .get(&project)
+            .map(|open| open.chats.iter().map(|tab| tab.id).collect())
+            .unwrap_or_default();
+
+        for kind in self.panels.keys() {
+            if let Some(id) = kind.chat_id()
+                && !wanted.contains(&id)
+            {
+                self.pending_panels.push(PanelEdit::Close(kind.clone()));
+            }
+        }
+        for id in wanted {
+            let kind = PanelKind::Chat(id);
             if !self.panels.contains_key(&kind) {
                 self.pending_panels.push(PanelEdit::Open(kind));
             }
@@ -220,11 +259,16 @@ impl AppState {
         let mut layouts: Vec<(String, ViewLayout)> = Vec::new();
         {
             let mut build = |kind: PanelKind, cx: &mut App| {
-                // **A terminal panel is never built here.** A saved leaf names a pane, and a pane
-                // exists only because the coordinator says so — one this window does not hold is
-                // a pane from another session, and the leaf is dropped rather than drawn as a
-                // terminal with no stream behind it.
-                if kind.pane().is_some() && !panels.contains_key(&kind) && !kept.contains_key(&kind)
+                // **A terminal or a chat panel is never built here unless it is already known.**
+                // A saved leaf names a pane or a chat id, and neither is this window's to trust on
+                // its say-so alone: a pane exists because the coordinator says so, and a chat id
+                // is minted fresh every process — so one this window did not already hold, this
+                // run or the last, is dropped rather than rebuilt from a stale name. A chat tab's
+                // *real* population is `Self::sync_chat_panels`, driven by `OpenProject::chats`,
+                // not this restore.
+                if (kind.pane().is_some() || kind.chat_id().is_some())
+                    && !panels.contains_key(&kind)
+                    && !kept.contains_key(&kind)
                 {
                     return None;
                 }
@@ -270,14 +314,19 @@ impl AppState {
         self.panels = kept;
         // A file panel's payload carries the layout its viewer was left in, which belongs on the
         // file rather than on the panel: the panel only repeats it, the way it repeats visibility.
-        if let Some(project) = self.project(cx)
-            && let Some(open) = self.projects.get_mut(&project)
-        {
-            for (key, layout) in layouts {
-                if let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key) {
-                    file.set_layout(layout);
+        if let Some(project) = self.project(cx) {
+            if let Some(open) = self.projects.get_mut(&project) {
+                for (key, layout) in layouts {
+                    if let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key) {
+                        file.set_layout(layout);
+                    }
                 }
             }
+            // A chat leaf this rebuild dropped for naming an id the window did not already hold
+            // (or a fallback default's own throwaway scaffold, when the restore failed outright)
+            // is cleaned up the same way `Self::enter_project` gets the first one in: by squaring
+            // the tree with `OpenProject::chats`, which is the tab's actual source of truth.
+            self.sync_chat_panels(project);
         }
         cx.notify();
     }

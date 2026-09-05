@@ -833,8 +833,12 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
             choosing_footer(agent_type.is_some(), app, cx),
         ),
         LoginStep::Starting { agent_type } => (
-            "Signing in",
-            starting(app, agent_type),
+            if login.probe {
+                "Starting shell"
+            } else {
+                "Signing in"
+            },
+            starting(app, agent_type, login.probe),
             div()
                 .flex()
                 .items_center()
@@ -848,8 +852,8 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
                 .into_any_element(),
         ),
         LoginStep::Running { pane } => (
-            "Signing in",
-            running(app, *pane, &login.links, cx),
+            if login.probe { "Shell" } else { "Signing in" },
+            running(app, *pane, &login.links, login.probe, cx),
             div()
                 .flex()
                 .items_center()
@@ -863,7 +867,9 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
                 .into_any_element(),
         ),
         LoginStep::Done { captured, message } => (
-            if *captured {
+            if login.probe {
+                "Shell closed"
+            } else if *captured {
                 "Signed in"
             } else {
                 "Not signed in"
@@ -988,8 +994,12 @@ fn choosing(
         .into_any_element()
 }
 
-/// Step one's footer. Confirm is dead until a harness is picked, because the other half of
-/// what it needs — the name — is in a field this function cannot read without a window.
+/// Step one's footer. Both actions are dead until a harness is picked, because the other half
+/// of what they need — the name — is in a field this function cannot read without a window.
+///
+/// `Shell` sits beside `Sign in` rather than replacing it: it is a diagnostic, not another way
+/// to sign in, which is why it wears the ghost treatment and a tooltip rather than the primary
+/// button's weight.
 fn choosing_footer(picked: bool, _app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
@@ -1001,6 +1011,22 @@ fn choosing_footer(picked: bool, _app: &AppState, cx: &mut Context<AppState>) ->
             "Cancel",
             cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
         ))
+        .child(
+            ghost_button(
+                "app-settings-login-shell",
+                None,
+                "Shell",
+                cx.listener(|this, _, _, cx| this.start_harness_shell(cx)),
+            )
+            .when(!picked, |button| button.opacity(0.5))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(
+                    "A shell inside this login's sandbox \u{2014} for checking what it can \
+                     reach. Signs nobody in.",
+                )
+                .build(window, cx)
+            }),
+        )
         .child(
             primary_button(
                 "app-settings-login-start",
@@ -1016,14 +1042,16 @@ fn choosing_footer(picked: bool, _app: &AppState, cx: &mut Context<AppState>) ->
 /// Between `Choosing` and `Running`: `BeginHarnessLogin` is on its way and nothing has
 /// answered yet. Without this step the picker — or, for a re-authentication, nothing at all —
 /// sat on screen after the button was pressed, reading as though the click had done nothing.
-fn starting(app: &AppState, agent_type: &str) -> AnyElement {
-    div()
-        .pt_3()
-        .child(modal_note(&format!(
-            "Starting {}\u{2026}",
+fn starting(app: &AppState, agent_type: &str, probe: bool) -> AnyElement {
+    let text = if probe {
+        format!(
+            "Starting a shell in {}'s sandbox\u{2026}",
             harness_label(app, agent_type)
-        )))
-        .into_any_element()
+        )
+    } else {
+        format!("Starting {}\u{2026}", harness_label(app, agent_type))
+    };
+    div().pt_3().child(modal_note(&text)).into_any_element()
 }
 
 /// Step two: the harness's own login, in a real terminal.
@@ -1043,8 +1071,15 @@ fn running(
     app: &AppState,
     pane: PaneId,
     links: &[String],
+    probe: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    let note = if probe {
+        "A shell inside this login's sandbox \u{2014} for checking what it can reach. Signs \
+         nobody in."
+    } else {
+        "Finish the sign-in below. It may open a browser; come back here when it is done."
+    };
     let mut body = div()
         .flex()
         .flex_col()
@@ -1052,9 +1087,7 @@ fn running(
         .min_h(px(0.))
         .gap_3()
         .pt_3()
-        .child(modal_note(
-            "Finish the sign-in below. It may open a browser; come back here when it is done.",
-        ))
+        .child(modal_note(note))
         .child(
             div()
                 .flex_1()

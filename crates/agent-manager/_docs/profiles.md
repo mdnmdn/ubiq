@@ -236,6 +236,16 @@ replace it on other platforms). Either way the two axes compose cleanly:
   adds a short list of well-known runtime-manager roots (`mise`, `nvm`, `volta`, …) under the
   real home — every entry existence-guarded, so a machine without a given manager pays
   nothing.
+- **A login's policy can be inspected empirically, by running something other than the login
+  in it.** `login_confined`'s grants are computed from `plan.launch.program` — never from what a
+  caller actually execs — so a caller may build the `Confined` from the harness's real
+  `LoginPlan`, call `confined_launch` exactly as for a real login, and then swap the argv that
+  follows `-p <policy>` for a plain shell (interactive, `-i`) before spawning it. The rendered
+  policy is untouched by the swap, so a person can run `which node`, `ls
+  ~/.local/share/mise`, etc. inside the *exact* sandbox a login would have run under — which is
+  how Ubiq's harness-settings `Shell` button was verified against a login that failed inside the
+  sandbox for reasons only reachable this way. See `crates/ubiq-host/src/agent.rs`'s
+  `shell_probe_launch`.
 
 ## 9. Materializing the overlay (symlink-else-copy, GC, Windows)
 

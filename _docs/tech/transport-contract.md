@@ -710,7 +710,7 @@ one comes into being and how the interface learns which exist.
 |---|---|---|---|
 | `ListAccounts` | UI → host | — | `Accounts` |
 | `Accounts` | host → UI | `accounts` | — |
-| `BeginHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
+| `BeginHarnessLogin` | UI → host | `agent_type`, `account`, `probe` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
 | `HarnessLoginStarted` | host → UI | `pane_id`, `agent_type`, `account`, `cols`, `rows` | — |
 | `HarnessLoginCaptured` | host → UI | `agent_type`, `account` | — |
 | `HarnessLoginFailed` | host → UI | `agent_type`, `account`, `error` | — |
@@ -770,6 +770,16 @@ does not remove it from the stream. The pane still shows the harness's real outp
 **Re-authentication is an ordinary login.** There is no separate message: `BeginHarnessLogin`
 naming an account that already exists re-runs the harness's flow, and the mtime rule that decides
 capture (above) already distinguishes a fresh credential from the old one.
+
+**`probe` swaps what runs, never what it runs under.** The policy rendered for a login is the
+harness's own — computed from its program's symlink and shebang chain, see `agent_manager::
+isolate::login_confined` — and `probe: true` only replaces the argv exec'd *after* that policy is
+resolved with the user's plain shell, so a human can inspect exactly what the login sandbox
+permits. It answers with the same `HarnessLoginStarted`/`HarnessLoginFailed` pair, but a probe
+pane's exit is never treated as a login outcome: nothing is written to the credential's mtime, so
+the host records no account and sends neither `HarnessLoginCaptured` nor `HarnessLoginFailed` for
+it — the pane simply closes, which the UI reads for itself from `PaneExited` rather than waiting on
+a host answer that will not come.
 
 ## The command-line family
 

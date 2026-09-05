@@ -13,7 +13,7 @@
 //! **The one claim worth stating twice**: closing a tab benches an agent and never ends it. Nothing
 //! in this file sends anything, because the arrangement is the interface's own fact.
 
-use ubiq::state::agents::{AgentsView, COLUMNS_MAX};
+use ubiq::state::agents::{AgentsView, BenchRow, COLUMNS_MAX};
 use ubiq::state::work::WorkProjection;
 use ubiq_proto::ids::SessionId;
 use ubiq_proto::work::{Activity, AgentId, Bucket, WorkAgent, WorkSession};
@@ -372,4 +372,114 @@ fn a_session_folds_and_starts_open() {
 
     f.view.toggle_session(f.refit);
     assert!(!f.view.is_collapsed(f.refit));
+}
+
+// ── the column `+` menu's rows ───────────────────────────────────────
+
+/// A column with nothing on the bench and nothing on screen anywhere else gets no rows at all —
+/// not even an empty heading. `+` reads the same emptiness the control itself hides on.
+#[test]
+fn nothing_on_the_bench_or_elsewhere_yields_no_rows() {
+    let solo = SessionId::generate();
+    let alone = AgentId::generate();
+    let mut work = WorkProjection::empty();
+    work.replace_all(
+        vec![session(solo, "main", false)],
+        vec![agent(alone, solo, "Solo", Activity::Writing)],
+        Vec::new(),
+    );
+    let mut view = AgentsView::default();
+    view.arrange(&work);
+    assert!(view.bench_rows(0, &work, "").is_empty());
+}
+
+/// A benched agent and one already on screen in the other column produce both headings, the
+/// separator between them, and the elsewhere agent drawn — present, but disabled. The index of
+/// each real row still names the agent it drew once the decorations are counted in.
+#[test]
+fn split_across_both_groups_gets_both_headings_the_separator_and_a_disabled_row() {
+    let mut f = seeded();
+    f.view.bench(f.builder);
+
+    let rows = f.view.bench_rows(0, &f.work, "");
+    assert_eq!(
+        rows,
+        vec![
+            BenchRow::Label("Bench"),
+            BenchRow::Agent {
+                id: f.builder,
+                disabled: false
+            },
+            BenchRow::Separator,
+            BenchRow::Label("On screen elsewhere"),
+            BenchRow::Agent {
+                id: f.spec,
+                disabled: true
+            },
+        ]
+    );
+
+    // A pick is this same list, indexed — the rule every position-matched menu in the window
+    // follows. Only an `Agent` row that is not disabled resolves to anything.
+    let pick = |ix: usize| match rows.get(ix) {
+        Some(BenchRow::Agent {
+            id,
+            disabled: false,
+        }) => Some(*id),
+        _ => None,
+    };
+    assert_eq!(pick(1), Some(f.builder), "the benched agent's own row");
+    assert_eq!(
+        pick(4),
+        None,
+        "present, but disabled — already on screen elsewhere"
+    );
+    assert_eq!(pick(0), None, "a heading is drawn, never picked");
+    assert_eq!(pick(2), None, "a separator is drawn, never picked");
+}
+
+/// The column showing `spec` and `builder` has nothing benched and nothing elsewhere but the
+/// fixer, so it draws one heading and no separator — there is nothing above it to separate.
+#[test]
+fn one_group_alone_gets_its_heading_and_no_separator() {
+    let f = seeded();
+    let rows = f.view.bench_rows(1, &f.work, "");
+    assert_eq!(
+        rows,
+        vec![
+            BenchRow::Label("On screen elsewhere"),
+            BenchRow::Agent {
+                id: f.fixer,
+                disabled: true
+            },
+        ]
+    );
+}
+
+/// The search is the same lowercase-substring filter every picker in the window uses, and it
+/// narrows both groups: a heading with nothing left under it is dropped along with its rows.
+#[test]
+fn the_search_filters_both_groups_by_name() {
+    let mut f = seeded();
+    f.view.bench(f.builder);
+
+    let rows = f.view.bench_rows(0, &f.work, "SPEC");
+    assert_eq!(
+        rows,
+        vec![
+            BenchRow::Label("On screen elsewhere"),
+            BenchRow::Agent {
+                id: f.spec,
+                disabled: true
+            },
+        ],
+        "the benched Builder no longer matches, so the whole Bench heading goes with it"
+    );
+
+    assert!(
+        f.view
+            .bench_rows(0, &f.work, "nothing matches this")
+            .is_empty(),
+        "a query matching nobody leaves no rows and no headings"
+    );
 }

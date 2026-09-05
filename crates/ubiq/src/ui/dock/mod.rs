@@ -45,7 +45,7 @@ use ubiq_proto::ids::PaneId;
 
 use crate::app::AppState;
 use crate::state::RailMode;
-use crate::state::dock::{PanelKind, Region};
+use crate::state::dock::{ChatId, PanelKind, Region};
 use crate::state::editor::ViewLayout;
 use crate::theme;
 use crate::ui::{
@@ -198,10 +198,22 @@ impl WorkbenchPanel {
                 label: "Explorer".into(),
                 ..TabInfo::default()
             },
-            PanelKind::Chat => TabInfo {
-                label: "Chat".into(),
-                ..TabInfo::default()
-            },
+            // A chat tab's label names what it is attached to, the way a file's names what it
+            // holds — an unattached tab says so rather than repeating "Chat" on every tab.
+            PanelKind::Chat(id) => {
+                let attached = app
+                    .open_project(cx)
+                    .and_then(|open| open.chats.iter().find(|tab| tab.id == *id))
+                    .and_then(|tab| tab.attached);
+                let label = match attached.and_then(|agent| app.work(cx)?.agent(agent)) {
+                    Some(agent) => agent.name.clone(),
+                    None => "New chat".to_string(),
+                };
+                TabInfo {
+                    label: label.into(),
+                    ..TabInfo::default()
+                }
+            }
             PanelKind::Centre => TabInfo {
                 label: centre_title(app.workbench.rail_mode).into(),
                 ..TabInfo::default()
@@ -375,7 +387,7 @@ impl BasePanel for WorkbenchPanel {
     fn on_removed(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.attached = false;
         let kind = self.kind.clone();
-        if kind.pane().is_none() && kind.tab_key().is_none() {
+        if kind.pane().is_none() && kind.tab_key().is_none() && kind.chat_id().is_none() {
             return;
         }
         let app = self.app.clone();
@@ -390,6 +402,7 @@ impl BasePanel for WorkbenchPanel {
             _ = app.update(cx, |app, cx| match &kind {
                 PanelKind::Terminal(pane_id) => app.close_pane(*pane_id, cx),
                 PanelKind::File(key) => app.closed_file_panel(key, cx),
+                PanelKind::Chat(id) => app.closed_chat_tab(*id, cx),
                 _ => {}
             });
         });
@@ -409,6 +422,9 @@ impl BasePanel for WorkbenchPanel {
         }
         if let Some(pane_id) = self.kind.pane() {
             state.info = PanelInfo::panel(pane_payload(pane_id));
+        }
+        if let Some(id) = self.kind.chat_id() {
+            state.info = PanelInfo::panel(chat_payload(id));
         }
         state
     }
@@ -474,7 +490,7 @@ fn body(
         PanelKind::Logs => logs::render(app, cx),
         PanelKind::Search => search::render(app, window, cx),
         PanelKind::Explorer => explorer::render(app, window, cx),
-        PanelKind::Chat => chat::render(app, window, cx).into_any_element(),
+        PanelKind::Chat(id) => chat::render(app, *id, window, cx).into_any_element(),
         PanelKind::Centre => drop_target(centre(app, window, cx), cx),
         PanelKind::File(key) => drop_target(editor::render_file(app, key, cx), cx),
     }
@@ -550,10 +566,13 @@ pub fn default_layout(
     window: &mut Window,
     cx: &mut App,
 ) {
-    // Only a terminal is ever refused, and none of these is one.
+    // Only a terminal is ever refused, and none of these is one. The chat tab's id is minted
+    // here, fresh, and is pure scaffolding: `AppState::sync_chat_panels` swaps it for the
+    // project's own tab — from `OpenProject::chats`, the id's actual source of truth — the moment
+    // a project is entered, which for this arrangement is always about to happen.
     let (Some(explorer), Some(chat), Some(centre)) = (
         panel(PanelKind::Explorer, cx),
-        panel(PanelKind::Chat, cx),
+        panel(PanelKind::Chat(ChatId::generate()), cx),
         panel(PanelKind::Centre, cx),
     ) else {
         return;
@@ -923,6 +942,13 @@ fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<P
         };
         return pane_from_payload(payload);
     }
+    if state.panel_name == PanelKind::CHAT {
+        let PanelInfo::Panel(payload) = &state.info else {
+            // A chat panel from a build that wrote no payload names no tab.
+            return None;
+        };
+        return chat_from_payload(payload);
+    }
     if state.panel_name != PanelKind::File(String::new()).name() {
         return PanelKind::from_name(&state.panel_name);
     }
@@ -957,6 +983,18 @@ pub fn pane_payload(pane_id: PaneId) -> serde_json::Value {
 pub fn pane_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
     let pane_id = payload.get("pane")?.as_str()?.parse::<PaneId>().ok()?;
     Some(PanelKind::Terminal(pane_id))
+}
+
+/// What a chat panel writes into the dock's saved layout: its own id, the way a terminal writes
+/// its pane's.
+pub fn chat_payload(id: ChatId) -> serde_json::Value {
+    serde_json::json!({ "chat": id.to_string() })
+}
+
+/// The same payload read back, or nothing for a payload that names no tab.
+pub fn chat_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
+    let id = payload.get("chat")?.as_str()?.parse::<ChatId>().ok()?;
+    Some(PanelKind::Chat(id))
 }
 
 /// The same payload read back. A payload with no key names no tab and rebuilds to nothing; one

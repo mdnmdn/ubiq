@@ -1013,6 +1013,35 @@ nothing today evicts it early. And a harness whose `--version` cannot be read at
 cache entirely, in both directions: no read, no write, a fresh probe on every launch. Both are
 judged cheaper than a wrong catalogue silently served from a stale entry.
 
+### D61 — A chat tab is a view onto a host-owned conversation, exclusive per IDE surface only
+
+The chat panel used to be one instance per window, holding a selection over the project's
+conversations. It is now editor-like tabs: `PanelKind::Chat(ChatId)` carries an id the way
+`PanelKind::File`'s carries a tab key, so many may be open at once, each free to move to any
+dockable region. A tab's attachment — which conversation it is looking at, or none — lives on
+`state::chat::ChatTab`, in `OpenProject::chats`, not on the conversation itself: the conversation is
+the host's, a tab is Ubiq's own arrangement over it, and closing a tab ends nothing.
+
+A conversation already attached to a chat tab draws disabled in every other chat tab's attach
+picker and cannot be picked there, so the same conversation is never shown as two tabs on this one
+surface. The rule stops at the surface's edge: the agents workbench may show the same conversation
+in a column at the same time a chat tab is attached to it, and the host is never told either way,
+because a view was never the workspace.
+
+A `ChatId` is minted the way `AgentId::generate` mints one, but locally — it is UI arrangement the
+host never hears about, not a fact worth a wire type. It is also not meant to survive a restart: a
+saved dock leaf naming one this window did not already mint is dropped, the same as a saved
+terminal leaf naming a pane that has gone. What does survive a restart is the tab, if the incoming
+project already holds one — `OpenProject::new` seeds a fresh unattached tab exactly once per
+project a window ever takes, and `AppState::sync_chat_panels` is what squares the dock's own tree
+with it on every entry.
+
+**Cost:** an arrangement of several chat tabs, each attached to a particular conversation, does not
+survive a window restart — the project comes back with one fresh, unattached tab, the same loss a
+multi-pane terminal arrangement already accepts. And the composer pool is now `COLUMNS_MAX +
+CHATS_MAX` fields built before the first frame rather than `COLUMNS_MAX + 1`, so a ninth chat tab
+finds no slot the same way a ninth column already does not.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

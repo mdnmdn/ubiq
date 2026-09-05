@@ -21,6 +21,65 @@ impl AppState {
         cx.notify();
     }
 
+    // ── a column's `+` menu ───────────────────────────────────────────
+
+    /// Open one column's `+` menu, with a fresh search field — the same "clear on open" rule
+    /// every menu sharing `picker_search` follows, so it never opens holding what was typed into
+    /// a different one.
+    pub fn open_agent_bench_menu(
+        &mut self,
+        column: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::AgentBench(column));
+        let picker_search = self.picker_search.clone();
+        picker_search.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Pick a row of a column's `+` menu: the same [`AgentsView::bench_rows`] list the menu drew,
+    /// filtered by whatever is typed into the search field, so an index here names the row the
+    /// user actually saw. A pick landing on a `Label`, a `Separator`, or an agent already on
+    /// screen elsewhere — drawn disabled — does nothing.
+    pub fn pick_agent_bench_menu(
+        &mut self,
+        column: usize,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let query = self.picker_search.read(cx).value().to_string();
+        let picked = match (self.agents(cx), self.work(cx)) {
+            (Some(agents), Some(work)) => {
+                match agents.bench_rows(column, work, &query).get(index) {
+                    Some(BenchRow::Agent {
+                        id,
+                        disabled: false,
+                    }) => Some(*id),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        self.close_menu(cx);
+        self.clear_picker_search(window, cx);
+        if let Some(id) = picked {
+            self.group_agent_into(column, id, cx);
+        }
+    }
+
+    pub fn dismiss_agent_bench_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+        self.clear_picker_search(window, cx);
+    }
+
     /// Take an agent off the field. **The agent keeps running** — a column tab is a view onto a
     /// conversation, not the harness's screen — so this benches it and the sidebar still lists it.
     pub fn bench_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
@@ -104,13 +163,18 @@ impl AppState {
 
     /// Which agent slot `slot` is currently addressed at.
     ///
-    /// The chat panel's own selection for [`CHAT_SLOT`]; otherwise the active tab of whichever
-    /// column owns the slot. The one place this is answered, so the Enter-key path and the
-    /// click-based Send/Enqueue button resolve the same agent for the same slot on every surface
-    /// that hosts a composer.
+    /// A chat tab's own attachment for a slot in the upper range; otherwise the active tab of
+    /// whichever column owns a slot in the lower one. The one place this is answered, so the
+    /// Enter-key path and the click-based Send/Enqueue button resolve the same agent for the same
+    /// slot on every surface that hosts a composer.
     pub fn agent_for_slot(&self, slot: usize, cx: &App) -> Option<AgentId> {
-        if slot == CHAT_SLOT {
-            return self.chat.selected;
+        if slot >= COLUMNS_MAX {
+            return self
+                .open_project(cx)?
+                .chats
+                .iter()
+                .find(|tab| tab.slot == slot)
+                .and_then(|tab| tab.attached);
         }
         self.agents(cx)?
             .columns
@@ -578,12 +642,18 @@ impl AppState {
             agent_type: agent.id.clone(),
             account,
         });
+        // The id is minted client-side above, so there is no round trip to wait on: whichever
+        // chat tab's own *New chat* opened this menu — if any did — is attached right away.
+        if let Some(chat_id) = self.pending_chat_attach.take() {
+            self.attach_chat(chat_id, Some(agent_id), cx);
+        }
         cx.notify();
     }
 
     pub fn dismiss_new_agent_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.new_agent_menu = None;
+        self.pending_chat_attach = None;
         cx.notify();
     }
 

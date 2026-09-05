@@ -6,7 +6,7 @@ status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
 updated: 2026-09-04
-verified: 2026-09-04
+verified: 2026-09-05
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/lib.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -79,9 +79,9 @@ said into a buffer nobody asked for. What is logged about a pane is its lifecycl
 started, stream ended, exited, failed.
 
 **The console is a panel.** It has its own tab, its own toolbar and its own place in the
-arrangement, so it is dragged, tabbed beside a terminal, split, zoomed and moved between the centre
-and the pane region like anything else in the dock, which is what lets a pane and the console be
-read at once. **It is opened on demand and closes like anything else.** A fresh window's arrangement does not
+arrangement, so it is dragged, tabbed beside a terminal, split, zoomed and moved to any region of
+the dock like anything else in it, which is what lets a pane and the console be read at once. **It
+is opened on demand and closes like anything else.** A fresh window's arrangement does not
 hold it: the `Logs` row on the new-pane control's menu is what puts it on screen — the region it
 sits in opens and its tab comes to the front — and its tab's × takes it away again. That row is
 drawn whether or not a project is open, which is the state the console is most worth reaching in. A

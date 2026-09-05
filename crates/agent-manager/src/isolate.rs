@@ -738,9 +738,6 @@ mod tests {
         assert!(parents.contains(&dir_c.path().to_path_buf()));
     }
 
-    // 12. A well-known root that does not exist on this machine must contribute nothing, or
-    // every login pays for every runtime manager whether or not it is installed.
-    #[test]
     // A relative symlink target joins as `<dir>/../lib/...`. isol8 renders a grant as a
     // literal subpath and the process opens the resolved path, so a grant that still carries
     // `..` matches nothing and denies without saying so — which is how a working-looking
@@ -767,6 +764,9 @@ mod tests {
         assert!(grants.contains(&want), "{want:?} missing from {grants:?}");
     }
 
+    // 12. A well-known root that does not exist on this machine must contribute nothing, or
+    // every login pays for every runtime manager whether or not it is installed.
+    #[test]
     fn login_runtime_grants_skips_absent_well_known_roots() {
         let dir = TempDir::new().expect("bin dir");
         let bin = dir.path().join("claude");

@@ -214,6 +214,7 @@ impl AppState {
             account: String::new(),
             step: LoginStep::Choosing { agent_type: None },
             links: Vec::new(),
+            probe: false,
         });
         self.workbench.settings.error = None;
         cx.notify();
@@ -230,11 +231,26 @@ impl AppState {
     }
 
     /// Start the harness's own login flow. The host answers with the pane it runs in.
+    pub fn start_harness_login(&mut self, cx: &mut Context<Self>) {
+        self.begin_harness_login(false, cx);
+    }
+
+    /// Open a plain shell under this login's own sandbox instead of running the harness — the
+    /// same harness and identity the `Sign in` button would use, but a diagnostic rather than a
+    /// way to sign in: it never captures a credential, and the host never treats its exit as a
+    /// login outcome. See `Message::BeginHarnessLogin`'s `probe` field.
+    pub fn start_harness_shell(&mut self, cx: &mut Context<Self>) {
+        self.begin_harness_login(true, cx);
+    }
+
+    /// The shared core of [`Self::start_harness_login`] and [`Self::start_harness_shell`]: same
+    /// harness and account selection, same `Starting` transition, and the same message —
+    /// `probe` is the only thing that differs.
     ///
     /// The account name is read here rather than tracked per keystroke: it is only needed at
     /// the moment the flow starts, and a field the interface mirrors into its own state is a
     /// second copy that can disagree with the one on screen.
-    pub fn start_harness_login(&mut self, cx: &mut Context<Self>) {
+    fn begin_harness_login(&mut self, probe: bool, cx: &mut Context<Self>) {
         let account = self.login_account_input.read(cx).value().trim().to_string();
         let Some(login) = &mut self.workbench.settings.login else {
             return;
@@ -253,12 +269,14 @@ impl AppState {
 
         let agent_type = agent_type.clone();
         login.account = account.clone();
+        login.probe = probe;
         login.step = LoginStep::Starting {
             agent_type: agent_type.clone(),
         };
         self.bus.send(Message::BeginHarnessLogin {
             agent_type,
             account,
+            probe,
         });
         cx.notify();
     }
@@ -299,11 +317,22 @@ impl AppState {
             return;
         }
 
+        // `Starting`'s own `LoginState` already carries whether this is a probe; read it before
+        // it is replaced rather than defaulting to false, or a probe's running step would draw
+        // as an ordinary sign-in.
+        let probe = self
+            .workbench
+            .settings
+            .login
+            .as_ref()
+            .is_some_and(|login| login.probe);
+
         self.open_terminal(pane_id, cols, rows, theme::TERMINAL_FONT_SIZE, cx);
         self.workbench.settings.login = Some(LoginState {
             account,
             step: LoginStep::Running { pane: pane_id },
             links: Vec::new(),
+            probe,
         });
         self.pending_focus = Some(pane_id);
         self.bus.send(Message::Focus { pane_id });
@@ -403,10 +432,12 @@ impl AppState {
                 agent_type: agent_type.clone(),
             },
             links: Vec::new(),
+            probe: false,
         });
         self.bus.send(Message::BeginHarnessLogin {
             agent_type,
             account,
+            probe: false,
         });
         cx.notify();
     }

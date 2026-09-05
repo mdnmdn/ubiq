@@ -115,6 +115,21 @@ delete does not.
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
 so an agent the host stops reporting stops being listed with nothing to clean up.
 
+**A column's own `+` groups a second agent in, and the list it opens is `AgentsView::bench_rows`** —
+one `BenchRow` per row the menu draws, `Agent`, `Label` or `Separator`, matched by position the same
+way `HarnessChoice` is above: a heading and its separator are rows like any other, disabled and
+unpickable, and `AppState::pick_agent_bench_menu` re-reads the same list before resolving a click so
+an index can never name a different agent than the one drawn there. Two groups only, because that is
+the one honest split the record supports today: agents free on the bench, and agents already on
+screen in some other column — shown, disabled rather than dropped from the list, because a row that
+vanished would read as an agent that had ended, and `AgentsView::open_in` already refuses to draw one
+twice. Neither group is split further by role or task: `WorkAgent` carries both, but neither is filled
+from a real run yet, so a grouping built from them would be drawing real groups over invented values
+— see the backlog row on grouping by role, task or team once a `Profile` fills them in. The list is
+searchable exactly the way every other filter in the window is: a lowercase substring typed into the
+shared `picker_search` field, narrowing both groups at once and dropping a heading whole once nothing
+under it still matches.
+
 **The screen lays itself out once, and every listing after that only prunes.** The first `WorkList`
 gives one column per session that has an agent in it, holding every agent in that session in the
 order the host listed them: each column is a piece of work, and a session running several agents
@@ -124,18 +139,19 @@ host has forgotten, and the columns that empties, and does nothing else — an a
 changed is not something an arriving record may undo. An arriving agent is listed on the bench rather
 than put in a column.
 
-**A column owns a composer for its life.** The window holds a fixed pool of `COMPOSER_SLOTS` text
-areas — one per column plus `CHAT_SLOT`, the chat panel's own slot past the last column's — because
-one is built before the first frame and its subscription is held for the window's life. A column is
-given a **slot** when it opens and keeps it, so what was typed at one agent never moves into a field
-addressed at another, and a freed slot's draft is cleared because the slot is handed to the next
-column that opens. The placeholder names the agent the column is showing. Enter sends, Shift-Enter
-inserts a newline, and cmd/ctrl+Enter sends too — the same `secondary-enter` binding a multi-line
-`submit_on_enter` field already answers the same way as a bare Enter, so there is nothing extra to
-wire, only a hint to show for it. `AppState::agent_for_slot` is what "sends" resolves the agent
-through on every surface — the chat panel's own selection for `CHAT_SLOT`, a column's active tab
-otherwise — so the Enter key and the composer's own button never disagree about who a slot is
-addressed at.
+**A column, or a chat tab, owns a composer for its life.** The window holds a fixed pool of
+`COMPOSER_SLOTS` text areas, split into two ranges — `0..COLUMNS_MAX` for columns and
+`COLUMNS_MAX..COLUMNS_MAX + CHATS_MAX` for chat tabs, see [`chat.md`](./chat.md) — because one is
+built before the first frame and its subscription is held for the window's life. A column or a chat
+tab is given a **slot** from its own range when it opens and keeps it, so what was typed at one
+agent never moves into a field addressed at another, and a freed slot's draft is cleared because the
+slot is handed to the next column or chat tab that opens. The placeholder names the agent the column
+is showing. Enter sends, Shift-Enter inserts a newline, and cmd/ctrl+Enter sends too — the same
+`secondary-enter` binding a multi-line `submit_on_enter` field already answers the same way as a
+bare Enter, so there is nothing extra to wire, only a hint to show for it. `AppState::agent_for_slot`
+is what "sends" resolves the agent through on every surface — a chat tab's own attachment for a slot
+in the chat range, a column's active tab for one in the column range — so the Enter key and the
+composer's own button never disagree about who a slot is addressed at.
 
 **One control does Send, Stop or Enqueue, depending on the turn.** Idle sends, exactly as
 `prompt_agent` always has. A turn already running with the draft empty offers Stop, which cancels
@@ -451,7 +467,7 @@ window holding nothing is a window waiting for a project, not an error to be tid
 
 **The empty state is two panels and a strip.** The centre panel says no project is open and offers
 to add one; the explorer keeps its place in the arrangement and its size, with one muted line in it
-rather than a tree; the chat is hidden, because a conversation about nothing is a fiction. The `+`
+rather than a tree; every chat tab is hidden, because a conversation about nothing is a fiction. The `+`
 at the end of the pane region's tab strip is not offered, because there is no folder to start a
 harness in — but the chevron beside it is, and its menu offers the console: the one panel a window
 with no project has a reason to show.
@@ -540,24 +556,24 @@ whatever it is displaying and gives it back. The window fixes no arrangement —
 titlebar, the rail, the dock and the status bar, and what is inside the dock is the user's answer.
 
 **Every area in the dock is a panel.** One per pane for the terminals, one per open file in IDE
-mode, and one each for the explorer, the chat, the log console — which is
-[`logs.md`](./logs.md) — and the centre.
+mode, one per open chat tab — see [`chat.md`](./chat.md) — and one each for the explorer, the log
+console — which is [`logs.md`](./logs.md) — and the centre.
 
-**Placement is a property of the kind of panel, not a special case.** The explorer and the chat sit
-in the left or the right region and nowhere else, because an explorer squeezed into the bottom is a
-sixty-pixel tree and a chat in a centre column stops being a conversation. A terminal and the
-console take the centre or the bottom. The centre panel takes the centre. A panel dropped where its
-class forbids is moved back to its home region on the same edit, so the drop reads as refused rather
-than half-taken. A file takes the centre, like the centre panel: the open files *are* the centre in
-IDE mode, so a file dragged to a border would leave nothing behind it.
+**Placement is a property of the kind of panel, not a special case.** The explorer sits in the left
+or the right region and nowhere else, because an explorer squeezed into the bottom is a sixty-pixel
+tree. A terminal, the console and a chat tab may sit in any region at all — a chat tab moves to any
+dockable region the same way a terminal already could. The centre panel takes the centre. A panel
+dropped where its class forbids is moved back to its home region on the same edit, so the drop reads
+as refused rather than half-taken. A file takes the centre, like the centre panel: the open files
+*are* the centre in IDE mode, so a file dragged to a border would leave nothing behind it.
 
 **There is no top region.** The dock has a centre and three edges — left, right and bottom — so
 "docked above the editor" is a split at the top of the centre rather than a region of its own.
 
 **A panel with nothing to show is hidden, not removed.** It keeps its place in the tree and its tab
-slot, and comes back where it was left. The explorer and the chat leave with IDE mode, the chat also
-wanting a project; a terminal is hidden while its project is not the one on screen, so its harness
-goes on running and keeps its scrollback; a file panel is hidden while its tab is not one the
+slot, and comes back where it was left. The explorer and every chat tab leave with IDE mode, a chat
+tab also wanting a project; a terminal is hidden while its project is not the one on screen, so its
+harness goes on running and keeps its scrollback; a file panel is hidden while its tab is not one the
 project on screen holds. The console is always drawn, and **the centre panel steps aside in IDE mode
 for as long as a file is open** — the same machinery, which is what brings it back where it was left
 when the last tab closes rather than rebuilding it somewhere else.
@@ -568,7 +584,7 @@ region — is closed the same way the switch would: the switch reads it as close
 closed, not merely because it looks it. The
 left and right switches are drawn only in IDE mode, because the side regions are IDE furniture and
 hide in place in every other mode; the bottom switch is offered in every rail mode. **Opening an
-edge region with nothing in it fills it**: the bottom starts a pane, the right opens the chat, and a
+edge region with nothing in it fills it**: the bottom starts a pane, a fresh chat tab opens in the right, and a
 switch that gave the user a bar of nothing would not have answered what was asked. The left is the
 exception — its only furniture, the explorer, is already on screen in every IDE window, so an empty
 left is the user's own doing and the switch leaves it be. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
@@ -688,6 +704,18 @@ wants the whole of the user's attention for the half-minute it takes, and a logi
 away behind a pane is a login nobody finishes. Abort is always available and always safe — a flow
 that wrote no credential captured nothing, and the host says so rather than recording a half-made
 account, so starting again is free.
+
+**A `Shell` button beside `Sign in` runs a plain shell under the login's own sandbox, and signs
+nobody in.** Same harness and identity picker, but the pane it opens runs the user's shell rather
+than the harness — under byte-for-byte the same policy the harness's login would get, computed the
+same way, from the harness's own program rather than the shell. This exists so a human can
+empirically check what that sandbox actually permits (`which node`, `ls ~/.local/share/mise`, …)
+instead of only reasoning about it — a real Codex login failure inside the sandbox is what this
+diagnostic was built to let someone see for themselves. Its button wears the ghost treatment
+rather than the primary one, with a tooltip saying so, and the running/starting/done steps say
+"shell" rather than "signing in" while a probe is up. A probe never writes a credential, never
+records an account, and its pane's close is read entirely from the ordinary `PaneExited` a real
+login also gets — the host answers a probe with nothing else at all.
 
 The host scans the login pane's own output for a URL and offers each one as a row below the
 terminal — a button carrying the URL itself (truncated so a long one cannot widen the modal, the
@@ -1321,8 +1349,9 @@ records — which column an agent's conversation is drawn in, and where a card s
 is a delta rather than a record, so the transcript is a fold the window keeps and the host never
 re-sends; the family's payloads and its ordering rule belong to the transport contract.
 
-One fixture is left. `crates/ubiq/src/state/sample.rs` holds the chat, the one screen with no
-transport family behind it: its composer sends to nothing and its reply is canned, which is
+One fixture is left. `crates/ubiq/src/state/sample.rs` holds the Git screen's branch list, tags,
+stashes, submodules and commit log — the one set of rows with no transport family behind them. Every
+chat tab speaks the conversation family above, the same as a column does, which is
 [`chat.md`](./chat.md)'s. The terminals have a family of their own, in
 [`panes-and-terminals.md`](./panes-and-terminals.md).
 
@@ -1346,7 +1375,7 @@ The panels, each one a `PanelKind` in `state/dock.rs`:
 | Panel | Module | Class | Opens in | State |
 |---|---|---|---|---|
 | Explorer | `ui/explorer.rs` | Edge | Left, at `EXPLORER_WIDTH` | `ExplorerState`, one per project the window holds |
-| Chat | `ui/chat/` | Edge | Right, at `CHAT_WIDTH` | `ChatState` |
+| Chat | `ui/chat/` | Free | Right, at `CHAT_WIDTH`, or wherever it is dragged | One `ChatTab` per open instance, in `OpenProject::chats` — see [`chat.md`](./chat.md) |
 | Centre | `ui/dock/mod.rs`, `centre()` | Centre | The centre | `WorkbenchState::rail_mode`, and whatever the screen it draws owns |
 | File | `ui/editor.rs` | Centre | The centre, one per open tab | The `OpenFile` its tab key names, and that file's own `Entity<EditorState>` |
 | Terminal | `ui/terminal.rs` | Free | Bottom, at `DOCK_HEIGHT` | The pane it names, and the window's emulator for it |
@@ -1400,9 +1429,9 @@ A window is one `AppState`, and inside it one `OpenProject` per project open in 
 split between them is the feature's spine. **A project owns what is about that project** — its
 explorer tree, its open files and their buffers, its panes, which of them holds the keyboard, the
 furniture it was last left in, the work the host last described to it, the repository as the host
-last described it, and the graph's, the columns', the board's and the Git screen's own views of
-those. **The window owns what is about the window** — the dock and one
-panel per kind in it, the palette, the chat, the log console, and one flat map from pane id to
+last described it, its chat tabs, and the graph's, the columns', the board's and the Git screen's own
+views of those. **The window owns what is about the window** — the dock and one
+panel per kind in it, the palette, the log console, and one flat map from pane id to
 emulator, because an emulator does not care which list draws it.
 
 The task panel's four fields, the board's filter, the Git screen's search and commit box and the
@@ -1437,9 +1466,10 @@ project is open in one window at a time.
 ## Implementation
 
 `AppState` in `crates/ubiq/src/app/mod.rs` is the root view. It owns the window's own state — the dock
-and the panels in it, the chat, the console, the emulators, the component library's `TextareaState`
+and the panels in it, the console, the emulators, the component library's `TextareaState`
 and `InputState` entities and the subscriptions that keep them mirrored — and a map of `OpenProject`
-keyed by `ProjectId` holding everything that belongs to a project. Every mutator ends in
+keyed by `ProjectId` holding everything that belongs to a project, chat tabs among them. Every
+mutator ends in
 `cx.notify()`.
 
 `sync_projects()` is the one place the map is reconciled against the registry, and it is idempotent:
@@ -1568,7 +1598,7 @@ serialisation.
 `AppState` holds the dock's half of that. `dock()` hands it to the shell; `regions_open()` and
 `toggle_region()` are the titlebar's three switches, both going through the dock rather than a flag
 beside it; `panel()` builds a kind's panel the first time it is asked for. Opening an empty region
-is the gesture that fills it: the bottom starts a pane and the right opens the chat, because a
+is the gesture that fills it: the bottom starts a pane and a fresh chat tab opens in the right, because a
 region that opens onto a bar of nothing is not what the switch was asked for — the left is the
 exception, since the explorer is already on screen in every IDE window and an empty left is the
 user's own doing. A panel reaches the dock
@@ -1800,20 +1830,23 @@ outside every column. `ui/board/mod.rs` is the toolbar, the columns and the card
 `ui/board/detail.rs` is the report and `ui/board/form.rs` the controls, drawn into the same column.
 The form is not an area of its own and has no row in the table above: the rule about adding an area
 is about something that occupies new space, and this fills the panel that has a row and a
-`TASK_PANEL_WIDTH` of its own. It is a second file for the reason `ui/chat/` keeps its transcript
-apart from its composer — the report and the controls are two jobs. `title()` and `description()` are
+`TASK_PANEL_WIDTH` of its own. It is a second file for the reason `ui/chat/sidebar.rs` sits apart
+from `ui/chat/mod.rs` — the report and the controls are two jobs, the same way a tab's head and its
+frame are. `title()` and `description()` are
 the two fields that open, `pills()` is priority and shape, `session()` is the picker behind
 `MenuId::TaskSession`, `step_controls()`, `step_field()` and `new_step()` belong to the sub-task
 list, `delete()` is the two-click question, and `refusal()` is where `WorkbenchState::work_error` is
 said.
 
-`state/sample.rs` is down to `chat()`. Projects, the file tree, a file's bytes, the panes and the
-work all come from the host, and the constructors that invented them are gone.
+`state/sample.rs` is down to the Git screen's own fixtures — `git_refs()` and `git_history()`.
+Projects, the file tree, a file's bytes, the panes, the work and the chat's conversations all come
+from the host, and the constructors that invented them are gone.
 
 `state/sink.rs` is the kitchen sink's fixtures and the small state its pages carry, and it is the one
 other place a constant stands in for what the host would send — deliberately, and for the opposite
-reason `sample.rs` does. The chat's fixture is a screen waiting for a transport family; the sink's is
-a screen that will never have one, because a test bench with a project behind it would be testing the
+reason `sample.rs` does. The Git screen's fixture is a screen waiting for a transport family; the
+sink's is a screen that will never have one, because a test bench with a project behind it would be
+testing the
 project. It holds four documents as `&'static str`, each under the name that picks its viewer,
 `SinkSection` for the page strip, `SinkState` for the layouts and the style reference's controls,
 `SinkModal` for which of the three shapes is up, `SettingsDemo` for the application settings page
@@ -1975,7 +2008,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A region is closed while it holds the console | The console goes with the region and comes back where it was left. Nothing leaves the tree |
 | The console's tab is closed | It leaves the arrangement, and the new-pane menu's `Logs` row is what brings it back |
 | The user empties a region by closing its last panel or dragging it out | The region closes itself; the titlebar's switch for it reads as closed |
-| The user opens an empty right region from the titlebar | The chat opens in it |
+| The user opens an empty right region from the titlebar | A fresh chat tab, attached to nothing, opens in it |
 | The user opens an empty left region from the titlebar | It stays open and empty — the explorer left it on purpose |
 | A panel is dropped in a region its class forbids | It is moved back to its home region on the same edit, so the drop reads as refused |
 | A saved arrangement is from another version, or is unreadable | It is discarded whole and the window opens on the default arrangement |
@@ -2057,7 +2090,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 ## Related docs
 
 - [`panes-and-terminals.md`](./panes-and-terminals.md) — what a terminal panel actually is
-- [`chat.md`](./chat.md) — the panel that survives every mode switch
+- [`chat.md`](./chat.md) — the chat tabs, which survive every mode switch
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the component conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — who owns which state, and why the interface asks
 - [`../tech/decisions.md`](../tech/decisions.md) — `D47`, why the agents and the work are two screens, and `D42`, the dock they are panels in

@@ -131,6 +131,10 @@ pub enum Message {
     BeginHarnessLogin {
         agent_type: String,
         account: String,
+        /// Run a plain shell under this login's policy instead of the harness itself, and
+        /// capture nothing. A diagnostic: it is how a human checks what the login sandbox
+        /// actually permits, which no test can answer, and it must never record an account.
+        probe: bool,
     },
     /// The login is running in this pane. The pane carries bytes and takes keystrokes like
     /// any other, and it belongs to no project — closing it abandons the login.

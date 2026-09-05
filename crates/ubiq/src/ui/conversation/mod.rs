@@ -23,7 +23,7 @@ use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::conversation::{ConfigChoice, ConfigValue, ToolContent, ToolKind, ToolStatus};
-use ubiq_proto::work::AgentId;
+use ubiq_proto::work::{Activity, AgentId};
 
 use crate::app::AppState;
 use crate::state::MenuId;
@@ -32,8 +32,9 @@ use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
     ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, field,
-    ghost_button, mono, pill, progress_ring, state_chip,
+    ghost_button, mono, pill, progress_ring, state_chip, status_dot,
 };
+use crate::ui::work::activity_colour;
 use crate::ui::{handler, indexed};
 
 /// What differs between the surfaces that host a conversation.
@@ -125,6 +126,71 @@ pub fn render(
     root.into_any_element()
 }
 
+/// The conversation's state, as one glyph reads it — derived rather than stored, so `Conversation`
+/// carries no field for it beside `launched`, `run`, `blocks` and `accepts_input`: those are the one
+/// source of truth, and [`lifecycle`] is the one place that reads them into a single answer.
+///
+/// **`Unloaded` and `Starting` are both `!launched`.** What tells them apart is `blocks`, not a flag
+/// of its own — a harness that is gone still leaves what it said; a harness never started leaves
+/// nothing. That is why [`lifecycle`] tests the transcript rather than adding a second flag next to
+/// `launched`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lifecycle {
+    /// A harness is being chosen: nothing has run, and its config has not arrived yet.
+    Starting,
+    /// Config is in hand and nothing blocks the next turn from launching one.
+    Ready,
+    /// A turn is in flight. Carries which kind, so the glyph reads Thinking, Writing, Tools or
+    /// Needs you rather than flattening every turn to one look.
+    Working(Activity),
+    /// Loaded, and waiting on the next turn.
+    Idle,
+    /// The harness is gone; the transcript is not.
+    Unloaded,
+    /// Takes no more turns.
+    Ended,
+}
+
+impl Lifecycle {
+    /// The one or two words the tooltip says. Never a sentence — the whole point of a glyph
+    /// standing in for the prose P7 drew above the composer.
+    pub fn label(self) -> String {
+        match self {
+            Lifecycle::Starting => "Starting".to_string(),
+            Lifecycle::Ready => "Ready".to_string(),
+            Lifecycle::Working(activity) => format!("Working \u{b7} {}", activity.label()),
+            Lifecycle::Idle => "Idle".to_string(),
+            Lifecycle::Unloaded => "Unloaded".to_string(),
+            Lifecycle::Ended => "Ended".to_string(),
+        }
+    }
+}
+
+/// Read the conversation's own fields into the one state the glyph draws.
+///
+/// Order matters: ended outranks everything (a harness taking no more turns is not "working" just
+/// because a race left `run` behind), a turn in flight outranks idle, and only once neither applies
+/// does whether it has ever launched — and, if not, whether it has a transcript — decide the rest.
+pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
+    if conversation.run == Run::Ended || !conversation.accepts_input {
+        return Lifecycle::Ended;
+    }
+    if conversation.run == Run::Working {
+        return Lifecycle::Working(conversation.activity());
+    }
+    if conversation.launched {
+        return Lifecycle::Idle;
+    }
+    if !conversation.blocks.is_empty() {
+        return Lifecycle::Unloaded;
+    }
+    if conversation.config.is_empty() {
+        Lifecycle::Starting
+    } else {
+        Lifecycle::Ready
+    }
+}
+
 /// Which of the four lifecycle-menu rows apply, in the order the menu draws them — Stop, Unload,
 /// Resume, Delete. A pure reading of the conversation's own state, pulled out of [`lifecycle_header`]
 /// so the enable/disable rule is testable on its own: Stop only while a turn is running, Unload
@@ -186,8 +252,10 @@ fn lifecycle_header(
         .flex()
         .flex_none()
         .items_center()
+        .gap_1p5()
         .border_b_1()
         .border_color(theme::border())
+        .child(lifecycle_glyph(conversation, view))
         .child(button);
 
     if app.workbench.open_menu == Some(MenuId::ConversationLifecycle(id)) {
@@ -204,6 +272,37 @@ fn lifecycle_header(
     }
 
     row.into_any_element()
+}
+
+/// The one glyph that says what P7's muted sentence used to say in prose — beside the three-dots
+/// menu rather than above the composer, and the word itself moved into the tooltip.
+///
+/// No new kit primitive: a `status_dot` is what every other state mark in the window already is —
+/// a tab's dot, the sidebar's dot — so this is that same mark, coloured and captioned by
+/// [`Lifecycle`].
+fn lifecycle_glyph(conversation: &Conversation, view: &ConversationView) -> AnyElement {
+    let state = lifecycle(conversation);
+    let colour = lifecycle_colour(state);
+    let label = state.label();
+    div()
+        .id(view.eid("lifecycle-glyph"))
+        .child(status_dot(colour, theme::pane_bg()))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+        })
+        .into_any_element()
+}
+
+/// The colour a lifecycle glyph draws. `Working` carries `Activity`'s own reading rather than
+/// flattening every turn to one colour; the rest borrow the same tokens the bucket colours already
+/// use, so a glyph never invents a fourth meaning for a colour the window already assigns one.
+fn lifecycle_colour(state: Lifecycle) -> Rgba {
+    match state {
+        Lifecycle::Starting | Lifecycle::Ended => theme::text_faint(),
+        Lifecycle::Ready | Lifecycle::Idle => theme::info(),
+        Lifecycle::Working(activity) => activity_colour(activity),
+        Lifecycle::Unloaded => theme::warning(),
+    }
 }
 
 /// What has been said, oldest first.
@@ -839,24 +938,9 @@ fn composer(
         })
     };
 
-    // Said once, above the config row, for a conversation that was unloaded rather than never
-    // launched — the two look the same to `config_row` (both have `launched == false`), but only
-    // one of them has a transcript above it that a fresh harness will not remember.
-    let unloaded_notice = (!conversation.launched && !conversation.blocks.is_empty()).then(|| {
-        div()
-            .px_2()
-            .pb(px(2.))
-            .child(
-                mono(
-                    "Unloaded. The next turn starts a new harness, which will not remember what \
-                     is above.",
-                    theme::text_faint(),
-                )
-                .text_size(px(11.)),
-            )
-            .into_any_element()
-    });
-
+    // "Unloaded" is said once already — the glyph beside the three-dots menu, top left of the
+    // view, with the word itself in its tooltip. A composer that also spelled it out in prose
+    // would be saying the same fact twice, once as a mark and once as a sentence.
     let field_el = field(theme::accent(), focused)
         .flex_none()
         .flex_col()
@@ -879,7 +963,6 @@ fn composer(
                     input.update(cx, |state, cx| state.focus(window, cx));
                 })),
         )
-        .children(unloaded_notice)
         .child(controls.child(action));
 
     let mut extras: Vec<AnyElement> = Vec::new();

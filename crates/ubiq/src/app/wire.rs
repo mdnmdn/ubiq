@@ -234,8 +234,23 @@ impl AppState {
                 // the host would never be told the pane is over — and being told is what makes
                 // it look for the credential. Ending it here is the whole of the successful
                 // path: a harness that finishes its own sign-in exits by itself.
+                //
+                // A probe never writes a credential, so the host's `login_gone` sends nothing
+                // back for it — no `HarnessLoginCaptured`/`HarnessLoginFailed` will ever arrive
+                // to drive `login_ended`. This exit is the only signal a probe gets, so it is
+                // read here, locally, instead of waiting on an answer that is never coming.
                 if self.login_pane() == Some(pane_id) {
-                    self.bus.send(Message::CloseWorkspace { pane_id });
+                    let probe = self
+                        .workbench
+                        .settings
+                        .login
+                        .as_ref()
+                        .is_some_and(|login| login.probe);
+                    if probe {
+                        self.login_ended(false, "The shell exited.".to_string(), cx);
+                    } else {
+                        self.bus.send(Message::CloseWorkspace { pane_id });
+                    }
                     return None;
                 }
                 if let Some(project_id) = project {
@@ -826,10 +841,9 @@ impl AppState {
                 open.agents.prune(&open.work);
                 // Unlike an agent that merely changed, this one was asked for: the user pressed
                 // New agent a moment ago, so it comes on the field rather than onto the bench.
+                // A chat tab's own *New chat* attaches to it separately, synchronously, the
+                // moment the id is minted — see `AppState::pick_new_agent_menu`.
                 open.agents.reveal(id);
-                // And the chat panel shows it, for the same reason: whichever surface asked, what
-                // was asked for is the conversation the user now wants to be looking at.
-                self.chat.selected = Some(id);
                 self.refill_columns = true;
                 cx.notify();
             }

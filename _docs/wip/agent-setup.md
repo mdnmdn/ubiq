@@ -439,6 +439,13 @@ so a half-finished login leaves nothing to clean up, and creating an account *is
 credential bytes are stored and none cross the bus. The family is in
 `_docs/tech/transport-contract.md`.
 
+**A `Shell` button beside `Sign in` runs a plain shell under the login's rendered policy instead
+of the harness**, so a trap like the `mise` one below can be *seen*, not just reasoned about:
+`isolate::login_confined` is called with the harness's own `LoginPlan` exactly as a real login
+would be, and only the argv that `confined_launch` renders after `-p <policy>` is swapped for the
+shell — the policy itself never changes. A probe writes no credential and is never read as a login
+outcome; see `_docs/tech/transport-contract.md`'s `probe` note.
+
 **Still open here:** the pasted-key form (a reference by construction — `Account.api_key_env` holds
 an env-var *name*, so no secret need cross the bus); deleting or renaming an account, since a
 mistyped one is currently permanent from the UI; and the **copy-back gap**, where a token the

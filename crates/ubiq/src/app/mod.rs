@@ -1,7 +1,7 @@
 //! `AppState`: everything the window knows, and the root of its element tree.
 //!
-//! It owns the window's own chrome — which rail mode is active, which panels are open, what the
-//! chat is showing — and one [`OpenProject`] for every project it holds. No process handle and no
+//! It owns the window's own chrome — which rail mode is active, which panels are open — and one
+//! [`OpenProject`] for every project it holds. No process handle and no
 //! pseudo-terminal reaches this far: a pane is an ID, a title, and an emulator reading one end of
 //! the bus.
 //!
@@ -20,8 +20,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::state::agents::{AgentsView, CHAT_SLOT, COMPOSER_SLOTS};
+use crate::state::agents::{AgentsView, BenchRow, COLUMNS_MAX, COMPOSER_SLOTS};
 use crate::state::board::{BoardState, Field};
+use crate::state::chat::free_chat_slot;
 use crate::state::conversation::{Conversation, Run};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
@@ -42,7 +43,7 @@ use crate::state::viewport::{Content, Viewport};
 use crate::state::vim::VimState;
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ActiveSearch, ChatState, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
+    ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
     ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, HarnessChoice,
     LogState, MenuId, NewPaneRow, OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode,
     RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs, sample,
@@ -217,6 +218,10 @@ pub struct OpenProject {
     /// transcript outlives the harness, so an entry stays after its agent has ended and goes only
     /// with the project.
     pub conversations: HashMap<AgentId, Conversation>,
+    /// The IDE's own chat tabs: one entry per open instance, each attached to a conversation of
+    /// this project or to none. Per project, the way `agents` and `graph` are — a tab's
+    /// arrangement is about one project and switching away must not lose it.
+    pub chats: Vec<ChatTab>,
     /// The graph's view of that work: what is selected in it, which states it is showing, and where
     /// its cards sit. Per project, because a selection and an arrangement are about one project's
     /// agents and switching away must not lose either.
@@ -253,7 +258,21 @@ pub struct OpenProject {
 
 impl OpenProject {
     /// A project this window has just taken, in the furniture it was last left in.
+    ///
+    /// **Runs exactly once per project this window ever holds** — later re-entries look this
+    /// instance up rather than rebuild it — which is what makes seeding one chat tab here safe:
+    /// a tab closed later stays closed on every re-entry, because this is not on that path again.
     fn new(prefs: prefs::ViewPrefs) -> Self {
+        let chats = free_chat_slot(&[])
+            .map(|slot| {
+                vec![ChatTab {
+                    id: ChatId::generate(),
+                    slot,
+                    attached: None,
+                    picker_open: false,
+                }]
+            })
+            .unwrap_or_default();
         Self {
             panes: Vec::new(),
             focused_pane: None,
@@ -262,6 +281,7 @@ impl OpenProject {
             work: WorkProjection::empty(),
             agents: AgentsView::default(),
             conversations: HashMap::new(),
+            chats,
             graph: GraphView::default(),
             board: BoardState::default(),
             prefs,
@@ -380,7 +400,11 @@ pub struct AppState {
     region_had_content: (bool, bool, bool),
 
     pub workbench: WorkbenchState,
-    pub chat: ChatState,
+    /// Which chat tab's own *New chat* is waiting on [`Message::StartConversation`]'s round trip,
+    /// so [`Self::pick_new_agent_menu`] knows which tab to attach the freshly minted conversation
+    /// to. Cleared on dismiss and consumed on pick, so a start from anywhere else — the agents
+    /// screen's own *New agent* — never attaches to a stale tab.
+    pending_chat_attach: Option<ChatId>,
     /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
     /// the window rather than to a project, because the sink has no project behind it.
     pub sink: SinkState,
@@ -432,12 +456,13 @@ pub struct AppState {
 
     /// The component library's own state entities. Each open file owns its buffer, so none of
     /// them is the editor's.
-    pub chat_input: Entity<TextareaState>,
-    /// The inspector's composer on the orchestration screen. A field of its own rather than the
-    /// chat's, because the two are two conversations and a shared draft would leak between them.
+    ///
+    /// The inspector's composer on the orchestration screen. A field of its own rather than a
+    /// chat tab's, because the two are two conversations and a shared draft would leak between
+    /// them.
     pub agent_input: Entity<TextareaState>,
-    /// One composer per slot that hosts a conversation — every column on the agents screen,
-    /// plus the chat panel's — [`COMPOSER_SLOTS`] of them.
+    /// One composer per slot that hosts a conversation — every column on the agents screen, plus
+    /// every chat tab's — [`COMPOSER_SLOTS`] of them.
     ///
     /// A fixed pool rather than one entity per live column: an entity is created with a `Window`
     /// and columns open from handlers that have one, but the *subscription* that mirrors what is
@@ -515,7 +540,6 @@ pub struct AppState {
     pub sink_project_name: Entity<InputState>,
     pub sink_project_about: Entity<TextareaState>,
     pub sink_project_hex: Entity<InputState>,
-    pub chat_scroll: ScrollHandle,
     /// The file picker's rows. It is what a keyboard cursor moved past the last drawn row is
     /// brought back into view with.
     pub picker_scroll: ScrollHandle,

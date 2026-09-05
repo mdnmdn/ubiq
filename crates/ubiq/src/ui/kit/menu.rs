@@ -34,6 +34,13 @@ pub struct Picker {
     icon: Option<IconName>,
     label: SharedString,
     items: Vec<SharedString>,
+    /// Rows drawn but not pickable — a conversation already attached to another chat tab, say.
+    /// Never a reason to drop a row from `items`: a row that vanishes reads as gone, not taken.
+    disabled: Vec<usize>,
+    /// Rows drawn as a hairline instead of text — a heading's own group line. Still occupies its
+    /// index in `items`, the same rule `ContextItem::separator()` follows, so a caller building a
+    /// list of decorations and real rows together need not renumber either.
+    separators: Vec<usize>,
     selected: Option<usize>,
     open: bool,
     anchor: Anchor,
@@ -53,6 +60,8 @@ impl Picker {
             icon: None,
             label: label.into(),
             items: Vec::new(),
+            disabled: Vec::new(),
+            separators: Vec::new(),
             selected: None,
             open: false,
             anchor: Anchor::TopLeft,
@@ -79,6 +88,22 @@ impl Picker {
 
     pub fn selected(mut self, index: usize) -> Self {
         self.selected = Some(index);
+        self
+    }
+
+    /// Mark rows drawn but not pickable, by index into `items`. The selected row stays pickable
+    /// even if it is also passed here — a picker's own current value is never the one row it
+    /// disables.
+    pub fn disabled(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
+        self.disabled = indices.into_iter().collect();
+        self
+    }
+
+    /// Mark rows drawn as a hairline instead of text, by index into `items` — a group heading's
+    /// own separator, in the same list as the rows it groups. What `item` holds at that index is
+    /// never read for it.
+    pub fn separators(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
+        self.separators = indices.into_iter().collect();
         self
     }
 
@@ -130,6 +155,8 @@ impl RenderOnce for Picker {
             icon,
             label,
             items,
+            disabled,
+            separators,
             selected,
             open,
             anchor,
@@ -188,7 +215,8 @@ impl RenderOnce for Picker {
 
         if open {
             trigger = trigger.child(menu_panel(
-                panel_id, anchor, items, selected, on_pick, on_dismiss, search,
+                panel_id, anchor, items, disabled, separators, selected, on_pick, on_dismiss,
+                search,
             ));
         }
 
@@ -196,10 +224,16 @@ impl RenderOnce for Picker {
     }
 }
 
+// Nine render inputs, each one a distinct thing the panel draws or answers. A struct to carry
+// them would be ceremony around a private helper with exactly one caller, which builds them
+// inline anyway.
+#[allow(clippy::too_many_arguments)]
 fn menu_panel(
     id: ElementId,
     anchor: Anchor,
     items: Vec<SharedString>,
+    disabled: Vec<usize>,
+    separators: Vec<usize>,
     selected: Option<usize>,
     on_pick: Option<IndexedAction>,
     on_dismiss: Option<Action>,
@@ -224,9 +258,22 @@ fn menu_panel(
             .into_iter()
             .enumerate()
             .map(|(ix, item)| {
+                if separators.contains(&ix) {
+                    return div()
+                        .id(("menu-separator", ix))
+                        .my_1()
+                        .h(px(1.))
+                        .flex_none()
+                        .bg(theme::border())
+                        .into_any_element();
+                }
                 let is_selected = selected == Some(ix);
+                // A picker's own current value is never the row it disables, whatever the caller
+                // passed — the one row a picker cannot let you leave unpicked is the one already
+                // picked.
+                let is_disabled = !is_selected && disabled.contains(&ix);
                 let pick = on_pick.clone();
-                div()
+                let mut row = div()
                     .id(("menu-row", ix))
                     .h(px(28.))
                     .px_2()
@@ -234,13 +281,13 @@ fn menu_panel(
                     .items_center()
                     .gap_2()
                     .text_size(px(12.5))
-                    .text_color(if is_selected {
+                    .text_color(if is_disabled {
+                        theme::text_faint()
+                    } else if is_selected {
                         theme::text()
                     } else {
                         theme::text_muted()
                     })
-                    .cursor_pointer()
-                    .hover(|this| this.bg(theme::hover()).text_color(theme::text()))
                     .child(div().w(px(12.)).flex().flex_none().justify_center().child(
                         if is_selected {
                             Icon::new(IconName::Check)
@@ -251,13 +298,18 @@ fn menu_panel(
                             div().into_any_element()
                         },
                     ))
-                    .child(item)
-                    .on_click(move |_, window, cx| {
-                        if let Some(pick) = pick.clone() {
-                            pick(ix, window, cx);
-                        }
-                    })
-                    .into_any_element()
+                    .child(item);
+                if !is_disabled {
+                    row = row
+                        .cursor_pointer()
+                        .hover(|this| this.bg(theme::hover()).text_color(theme::text()))
+                        .on_click(move |_, window, cx| {
+                            if let Some(pick) = pick.clone() {
+                                pick(ix, window, cx);
+                            }
+                        });
+                }
+                row.into_any_element()
             })
             .collect()
     };

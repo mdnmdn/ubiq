@@ -1,44 +1,147 @@
 use super::*;
 
 impl AppState {
-    pub fn send_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.chat.draft.trim().is_empty() {
-            return;
-        }
-        self.chat.send();
+    /// Mint a fresh chat tab, attached to nothing, and give it a composer slot of its own.
+    /// `None` only when there is no project on screen or every chat slot is already taken.
+    ///
+    /// This never puts the tab in the dock — the two callers that mint one (a `+` in the panel's
+    /// own header, and [`Self::toggle_region`] filling an empty right region) each decide how it
+    /// reaches the tree.
+    pub(super) fn open_chat_tab(&mut self, cx: &mut Context<Self>) -> Option<ChatId> {
+        let project = self.project(cx)?;
+        let open = self.projects.get_mut(&project)?;
+        let slot = free_chat_slot(&open.chats)?;
+        let id = ChatId::generate();
+        open.chats.push(ChatTab {
+            id,
+            slot,
+            attached: None,
+            picker_open: false,
+        });
+        Some(id)
+    }
 
-        let input = self.chat_input.clone();
-        input.update(cx, |state, cx| {
+    /// The `+` beside *New chat*: a new **view**, attached to nothing, beside whatever tabs are
+    /// already open. Distinct from [`Self::new_chat`], which starts a new **harness** — one adds
+    /// a perspective, the other adds a conversation to have one on.
+    pub fn new_chat_tab(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.open_chat_tab(cx) {
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::Chat(id)));
+        }
+        cx.notify();
+    }
+
+    /// Attach one chat tab to a conversation, or to nothing. The one place this is done, so the
+    /// picker's pick and a freshly started conversation's own attach both go through it.
+    pub fn attach_chat(&mut self, id: ChatId, agent: Option<AgentId>, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
+        {
+            tab.attached = agent;
+            tab.picker_open = false;
+        }
+        cx.notify();
+    }
+
+    /// Open or shut one chat tab's own attach picker. Per tab, like a conversation's own
+    /// pre-launch config picker: several may be down at once.
+    pub fn toggle_chat_picker(&mut self, id: ChatId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
+        {
+            tab.picker_open = !tab.picker_open;
+        }
+        // A fresh search on every open, the way every searchable picker in the window starts one.
+        let picker_search = self.picker_search.clone();
+        picker_search.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.focus(window, cx);
         });
-        self.chat_scroll.scroll_to_bottom();
         cx.notify();
     }
 
-    /// Show one of the project's conversations in the chat panel.
-    ///
-    /// Selecting is a change of view and nothing else: the one leaving the panel keeps running,
-    /// because the conversation is the host's and the panel is a perspective on it. Selecting also
-    /// closes the list — a pick, whether the list was open to make it or already closed, leaves it
-    /// closed.
-    pub fn select_chat(&mut self, id: AgentId, cx: &mut Context<Self>) {
-        self.chat.selected = Some(id);
-        self.chat.collapsed = true;
-        self.chat_scroll.scroll_to_bottom();
+    /// Dismiss one chat tab's attach picker without picking — an outside click.
+    pub fn dismiss_chat_picker(&mut self, id: ChatId, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
+        {
+            tab.picker_open = false;
+        }
         cx.notify();
     }
 
-    /// Start a conversation from the chat panel, through the same menu the agents screen uses.
+    /// Start a conversation from one chat tab's own *New chat*, through the same menu the agents
+    /// screen uses.
     ///
-    /// One menu for one question. What the panel adds is that the conversation it starts becomes
-    /// the one it is showing — which the agents screen does too, by revealing a column for it.
-    pub fn new_chat(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+    /// One menu for one question. What the tab adds is that the conversation it starts becomes
+    /// the one it shows — `AppState::pending_chat_attach` carries which tab asked across the round
+    /// trip to [`Self::pick_new_agent_menu`], which is where the attach actually happens.
+    pub fn new_chat(&mut self, id: ChatId, at: (f32, f32), cx: &mut Context<Self>) {
+        self.pending_chat_attach = Some(id);
         self.open_new_agent_menu(at, cx);
     }
 
-    pub fn toggle_tool(&mut self, message: usize, block: usize, cx: &mut Context<Self>) {
-        self.chat.toggle_tool(message, block);
+    /// Close a chat tab, panel and all — the gesture, as opposed to
+    /// [`Self::closed_chat_tab`], which is what the dock calls back once a tab has already gone.
+    ///
+    /// The tab goes here and its panel leaves through a `Window` this does not have — so the
+    /// panel edit queues, exactly as [`Self::close_editor_tab`] queues a file's. **The state has
+    /// to be dropped here rather than left to the callback**: `PanelEdit::Close` takes the panel
+    /// entity out before the dock removes the leaf, and `on_removed`'s deferred answer reads that
+    /// entity to tell a close from a displacement — a dead one reads as displaced, so
+    /// `closed_chat_tab` never runs for a close this method started. `closed_chat_tab` stays the
+    /// path for a close the dock itself began, and is idempotent, so the two never collide.
+    ///
+    /// Closing the last one is allowed: there is no last-tab guard anywhere in this tree, and a
+    /// chat tab is a view — the conversation it was looking at is the host's and outlives it.
+    pub fn close_chat_tab(&mut self, id: ChatId, cx: &mut Context<Self>) {
+        let slot = self.project(cx).and_then(|project| {
+            let open = self.projects.get_mut(&project)?;
+            let at = open.chats.iter().position(|tab| tab.id == id)?;
+            Some(open.chats.remove(at).slot)
+        });
+        if let Some(slot) = slot
+            && let Some(agents) = self.agents_mut(cx)
+        {
+            agents.clear_draft(slot);
+        }
+        self.pending_panels
+            .push(PanelEdit::Close(PanelKind::Chat(id)));
+        cx.notify();
+    }
+
+    /// A chat panel left the dock for good. The conversation it was attached to, if any, is the
+    /// host's and keeps running — only the tab and its composer slot go.
+    pub fn closed_chat_tab(&mut self, id: ChatId, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            self.panels.remove(&PanelKind::Chat(id));
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            self.panels.remove(&PanelKind::Chat(id));
+            return;
+        };
+        let Some(at) = open.chats.iter().position(|tab| tab.id == id) else {
+            // The tab belonged to a project this window has since switched away from — the panel
+            // simply follows it out, the way an unmatched key lets a file panel's.
+            self.panels.remove(&PanelKind::Chat(id));
+            return;
+        };
+        let slot = open.chats.remove(at).slot;
+        self.panels.remove(&PanelKind::Chat(id));
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.clear_draft(slot);
+        }
         cx.notify();
     }
 }

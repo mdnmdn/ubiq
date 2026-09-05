@@ -32,7 +32,7 @@ use ubiq_proto::work::{AgentId, Speaker, WorkAgent};
 
 use crate::app::AppState;
 use crate::state::MenuId;
-use crate::state::agents::COLUMN_MIN_WIDTH;
+use crate::state::agents::{BenchRow, COLUMN_MIN_WIDTH};
 use crate::state::work;
 use crate::theme;
 use crate::ui::agents::DraggedTab;
@@ -102,7 +102,7 @@ pub fn render(
         .border_color(theme::border())
         .children(tabs)
         .child(div().flex_1().min_w(px(0.)))
-        .child(add_tab(app, column, cx));
+        .child(add_tab(app, column, window, cx));
 
     let root = root
         .child(strip)
@@ -211,29 +211,66 @@ fn tab(
         .into_any_element()
 }
 
-/// The `+` at the end of a strip: which benched agent to group into this column.
+/// The `+` at the end of a strip: which agent to group into this column — from the bench, or
+/// already on screen in some other column, where it draws disabled rather than dropped from the
+/// list (see [`crate::state::agents::AgentsView::open_in`], which never leaves an agent in two
+/// columns).
 ///
-/// Offered only while there is something to add. A `+` that opens an empty menu is a control that
-/// says the bench is empty in the least direct way available.
-fn add_tab(app: &AppState, column: usize, cx: &mut Context<AppState>) -> AnyElement {
+/// Offered only while there is something to add at all — checked unfiltered, so narrowing a
+/// search to nothing does not make the control itself vanish. A `+` that opens an empty menu is a
+/// control that says the bench is empty in the least direct way available.
+fn add_tab(
+    app: &AppState,
+    column: usize,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let view = cx.entity();
     let Some((work, agents)) = app.work(cx).zip(app.agents(cx)) else {
         return div().into_any_element();
     };
-    let bench = agents.benched(work);
-    if bench.is_empty() {
+    if agents.bench_rows(column, work, "").is_empty() {
         return div().into_any_element();
     }
-    // Each row names its session as well as the agent. Two sessions may be running an agent by
-    // the same name, and a menu that could not tell them apart would open the wrong conversation.
-    let names: Vec<String> = bench
+
+    let query = app.picker_search.read(cx).value().to_string();
+    let search_focused = app
+        .picker_search
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    let rows = agents.bench_rows(column, work, &query);
+
+    // Each agent row names its session as well as the agent. Two sessions may be running an
+    // agent by the same name, and a menu that could not tell them apart would open the wrong
+    // conversation.
+    let names: Vec<String> = rows
         .iter()
-        .map(|agent| match work.session(agent.session) {
-            Some(session) => format!("{} \u{b7} {}", agent.name, session.name),
-            None => agent.name.clone(),
+        .map(|row| match row {
+            BenchRow::Agent { id, .. } => match work.agent(*id) {
+                Some(agent) => match work.session(agent.session) {
+                    Some(session) => format!("{} \u{b7} {}", agent.name, session.name),
+                    None => agent.name.clone(),
+                },
+                None => String::new(),
+            },
+            BenchRow::Label(text) => text.to_string(),
+            BenchRow::Separator => String::new(),
         })
         .collect();
-    let ids: Vec<AgentId> = bench.iter().map(|agent| agent.id).collect();
+    let disabled: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, row)| match row {
+            BenchRow::Agent { disabled: true, .. } | BenchRow::Label(_) => Some(ix),
+            _ => None,
+        })
+        .collect();
+    let separators: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, row)| matches!(row, BenchRow::Separator).then_some(ix))
+        .collect();
 
     div()
         .px_2()
@@ -245,17 +282,19 @@ fn add_tab(app: &AppState, column: usize, cx: &mut Context<AppState>) -> AnyElem
                 .icon(IconName::Plus)
                 .style(PickerStyle::Chip)
                 .items(names)
+                .disabled(disabled)
+                .separators(separators)
+                .search(&app.picker_search, search_focused)
                 .open(app.workbench.open_menu == Some(MenuId::AgentBench(column)))
-                .on_toggle(handler(&view, move |this, _, cx| {
-                    this.open_menu(MenuId::AgentBench(column), cx)
+                .on_toggle(handler(&view, move |this, window, cx| {
+                    this.open_agent_bench_menu(column, window, cx)
                 }))
-                .on_pick(indexed(&view, move |this, index, _, cx| {
-                    if let Some(id) = ids.get(index).copied() {
-                        this.group_agent_into(column, id, cx);
-                    }
-                    this.close_menu(cx);
+                .on_pick(indexed(&view, move |this, index, window, cx| {
+                    this.pick_agent_bench_menu(column, index, window, cx);
                 }))
-                .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx))),
+                .on_dismiss(handler(&view, move |this, window, cx| {
+                    this.dismiss_agent_bench_menu(window, cx)
+                })),
         )
         .into_any_element()
 }

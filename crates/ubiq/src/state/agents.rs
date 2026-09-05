@@ -34,20 +34,44 @@ use super::work::WorkProjection;
 /// other side.
 pub const COLUMNS_MAX: usize = 8;
 
-/// The composer slot the chat panel types into.
+/// The most chat tabs the window hosts at once.
 ///
-/// The panel is a surface that hosts a conversation like a column does, so it needs a field from
-/// the same pool — and it is not a column, so it cannot be allocated one by
-/// [`AgentsView::free_slot`]. It gets the slot past the last column's, permanently.
-pub const CHAT_SLOT: usize = COLUMNS_MAX;
+/// Same ceiling, for the same reason: a chat tab is a surface that hosts a conversation like a
+/// column does, so it needs a composer from the same fixed pool — see [`COMPOSER_SLOTS`] — and
+/// the pool is sized before the first frame.
+pub const CHATS_MAX: usize = 8;
 
-/// How many composer fields the window builds before its first frame: one per column, plus the
-/// chat panel's. Every pool indexed by a slot is this long.
-pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + 1;
+/// How many composer fields the window builds before its first frame: one per column, plus one
+/// per chat tab. Every pool indexed by a slot is this long. Columns allocate from the low range,
+/// `0..COLUMNS_MAX` — see [`AgentsView::free_slot`] — and chat tabs from the range above it, see
+/// `state::chat::free_chat_slot`. The two never collide because neither ever crosses into the
+/// other's half.
+pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX;
 
 /// The narrowest a column is drawn. Below this a transcript is a word per line, so the row scrolls
 /// sideways rather than squeezing further.
 pub const COLUMN_MIN_WIDTH: f32 = 360.0;
+
+/// One row of a column's `+` menu, in the order it is drawn — the same list a pick indexes into,
+/// so a click can only ever land on the row it drew, decorations counted in.
+///
+/// **Grouped by availability alone**: the bench, then whatever is already on screen in some other
+/// column. That is the one honest split [`WorkAgent`] supports today — it also carries `role` and
+/// `task`, but neither is filled from a real run yet (see the backlog row on grouping by them once
+/// a `Profile` does), and a group drawn from a mock value would read as real.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BenchRow {
+    /// An agent. Pickable unless `disabled` — already on screen in another column, shown rather
+    /// than dropped, because a row that vanished reads as an agent that ended.
+    Agent {
+        id: AgentId,
+        disabled: bool,
+    },
+    /// A heading: drawn, never picked. Occupies an index like `HarnessChoice::Label` does, for the
+    /// same reason — a menu's rows and the pick behind them are matched by position.
+    Label(&'static str),
+    Separator,
+}
 
 /// One column: an ordered set of agent tabs, and which of them is in front.
 ///
@@ -147,6 +171,52 @@ impl AgentsView {
             .iter()
             .filter(|agent| !self.on_screen(agent.id))
             .collect()
+    }
+
+    /// The rows a column's `+` menu offers: agents free on the bench, then agents already on
+    /// screen in some other column — shown disabled rather than dropped. `query` is matched the
+    /// way every filter in this window is, a lowercase substring against the agent's name; a group
+    /// left empty by it is omitted whole, heading and separator included.
+    pub fn bench_rows(&self, column: usize, work: &WorkProjection, query: &str) -> Vec<BenchRow> {
+        let query = query.to_lowercase();
+        let matches =
+            |agent: &WorkAgent| query.is_empty() || agent.name.to_lowercase().contains(&query);
+
+        let bench: Vec<AgentId> = work
+            .agents
+            .iter()
+            .filter(|agent| !self.on_screen(agent.id) && matches(agent))
+            .map(|agent| agent.id)
+            .collect();
+        let elsewhere: Vec<AgentId> = work
+            .agents
+            .iter()
+            .filter(|agent| {
+                self.holds(agent.id).is_some_and(|(col, _)| col != column) && matches(agent)
+            })
+            .map(|agent| agent.id)
+            .collect();
+
+        let mut rows = Vec::new();
+        if !bench.is_empty() {
+            rows.push(BenchRow::Label("Bench"));
+            rows.extend(bench.into_iter().map(|id| BenchRow::Agent {
+                id,
+                disabled: false,
+            }));
+        }
+        if !elsewhere.is_empty() {
+            if !rows.is_empty() {
+                rows.push(BenchRow::Separator);
+            }
+            rows.push(BenchRow::Label("On screen elsewhere"));
+            rows.extend(
+                elsewhere
+                    .into_iter()
+                    .map(|id| BenchRow::Agent { id, disabled: true }),
+            );
+        }
+        rows
     }
 
     /// How many agents are drawn across every column. Not the number the host reports — the bench

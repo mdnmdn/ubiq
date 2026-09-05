@@ -14,7 +14,42 @@
 //! [`Visibility`] — everything the window knows about itself that a panel could care about — so a
 //! new rule is a field on that struct rather than another argument threaded through the dock.
 
+use std::fmt;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use ubiq_proto::ids::PaneId;
+
+/// One chat tab's identity, minted the way [`ubiq_proto::work::AgentId::generate`] mints
+/// one — the counter is local rather than the contract's because a chat tab is UI arrangement,
+/// never a fact the host is told. Carried in the dock's payload exactly as a pane's id is, so a
+/// panel round-trips through a saved layout, but never meant to survive past the process: a leaf
+/// naming one this window never minted names nothing, the way a saved terminal leaf does.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ChatId(u64);
+
+impl ChatId {
+    /// Mint the next one. There is no `default()`: an id that was not minted is a nil id that
+    /// looks real.
+    pub fn generate() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl fmt::Display for ChatId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ChatId {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(Self)
+    }
+}
 
 /// One of the window's regions. There is no top: the component library's dock places edge regions
 /// left, right and bottom only, so "docked on top" is a split at the top of the centre.
@@ -31,7 +66,9 @@ pub enum Region {
 pub enum PanelClass {
     /// The left or right region only — what "the side panel stays on the border" turns into.
     Edge,
-    /// The centre or the bottom region.
+    /// Any region at all. A terminal was never squeezed into an edge because nothing asked for
+    /// that; a chat tab is, so this now means what its name always said and both kinds share it
+    /// rather than the chat inventing a class of its own.
     Free,
     /// The centre region only.
     Centre,
@@ -42,7 +79,7 @@ impl PanelClass {
     pub fn allows(self, region: Region) -> bool {
         match self {
             PanelClass::Edge => matches!(region, Region::Left | Region::Right),
-            PanelClass::Free => matches!(region, Region::Centre | Region::Bottom),
+            PanelClass::Free => true,
             PanelClass::Centre => region == Region::Centre,
         }
     }
@@ -66,12 +103,15 @@ pub struct Visibility {
     pub any_file_open: bool,
 }
 
-/// What one panel is. `Logs`, `Explorer`, `Chat` and `Centre` are one panel per window; a terminal
-/// is one per pane, and carries the id every message about it is keyed by; a file is one per open
-/// tab, and carries the tab's key.
+/// What one panel is. `Logs`, `Explorer` and `Centre` are one panel per window; a terminal is one
+/// per pane, and carries the id every message about it is keyed by; a file is one per open tab,
+/// and carries the tab's key; a chat is one per open tab the same way, and carries a
+/// [`ChatId`] the host never sees.
 ///
 /// **A file's key is the tab's, not the path's.** A file and its diff are two tabs looking at the
 /// same file, so `state/editor.rs`'s `tab_key` is what identifies a panel and a bare path is not.
+/// A chat tab's id is the same idea one step further: nothing about it is derived from what it is
+/// looking at, because it may be looking at nothing at all.
 ///
 /// `Centre` is the one panel whose body follows the rail mode: the columns in Agents mode, the
 /// graph in Orchestration mode, the board in Tasks mode, and the empty page otherwise. In IDE mode
@@ -82,7 +122,10 @@ pub enum PanelKind {
     Terminal(PaneId),
     Logs,
     Explorer,
-    Chat,
+    /// One chat tab, named by its id. Many may exist at once, each attached to a conversation of
+    /// its own (or to none) — see `state::chat::ChatTab`, which is where that attachment lives.
+    /// The id is what tells two tabs apart; the name below is the same for all of them.
+    Chat(ChatId),
     Centre,
     /// One open file, named by its tab key.
     File(String),
@@ -96,11 +139,17 @@ impl PanelKind {
     /// `ui::dock::leaf`.
     pub const TERMINAL: &'static str = "ubiq.terminal";
 
+    /// The name every chat panel answers, for the same reason [`Self::TERMINAL`] is a constant: a
+    /// saved leaf is recognised as a chat tab before there is an id to build one with.
+    pub const CHAT: &'static str = "ubiq.chat";
+
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
-            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => PanelClass::Free,
-            PanelKind::Explorer | PanelKind::Chat => PanelClass::Edge,
+            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search | PanelKind::Chat(_) => {
+                PanelClass::Free
+            }
+            PanelKind::Explorer => PanelClass::Edge,
             PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
         }
     }
@@ -111,7 +160,7 @@ impl PanelKind {
         match self {
             PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
             PanelKind::Explorer => Region::Left,
-            PanelKind::Chat => Region::Right,
+            PanelKind::Chat(_) => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
         }
     }
@@ -127,7 +176,7 @@ impl PanelKind {
             PanelKind::Terminal(_) => Self::TERMINAL,
             PanelKind::Logs => "ubiq.logs",
             PanelKind::Explorer => "ubiq.explorer",
-            PanelKind::Chat => "ubiq.chat",
+            PanelKind::Chat(_) => Self::CHAT,
             PanelKind::Centre => "ubiq.centre",
             PanelKind::File(_) => "ubiq.file",
             PanelKind::Search => "ubiq.search",
@@ -137,15 +186,15 @@ impl PanelKind {
     /// The kind a saved layout's panel name means, or nothing for a name this build cannot rebuild
     /// from a name alone.
     ///
-    /// Two kinds have no answer, for opposite reasons. A terminal is dropped on purpose — **layout
-    /// persists and harnesses do not**, so a saved terminal panel goes and the tree normalises
-    /// around the gap. A file is not dropped but is *not rebuilt from its name either*: it is
-    /// rebuilt from the payload beside it, which is where its tab key travels.
+    /// Three kinds have no answer. A terminal is dropped on purpose — **layout persists and
+    /// harnesses do not**, so a saved terminal panel goes and the tree normalises around the gap.
+    /// A file is not dropped but is *not rebuilt from its name either*: it is rebuilt from the
+    /// payload beside it, which is where its tab key travels. A chat tab is the same as the file:
+    /// its id travels in the payload, because the name below is the same for every one of them.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "ubiq.logs" => Some(PanelKind::Logs),
             "ubiq.explorer" => Some(PanelKind::Explorer),
-            "ubiq.chat" => Some(PanelKind::Chat),
             "ubiq.centre" => Some(PanelKind::Centre),
             "ubiq.search" => Some(PanelKind::Search),
             _ => None,
@@ -170,6 +219,14 @@ impl PanelKind {
         }
     }
 
+    /// The tab this panel is the chat instance of, if it is one.
+    pub fn chat_id(&self) -> Option<ChatId> {
+        match self {
+            PanelKind::Chat(id) => Some(*id),
+            _ => None,
+        }
+    }
+
     /// Whether a panel of this kind has anything to show, given what the window is doing.
     ///
     /// A panel with nothing to show is **hidden, not removed**: it keeps its place in the
@@ -186,7 +243,7 @@ impl PanelKind {
     pub fn is_drawn(&self, at: Visibility) -> bool {
         match self {
             PanelKind::Explorer => at.is_ide,
-            PanelKind::Chat => at.is_ide && at.has_project,
+            PanelKind::Chat(_) => at.is_ide && at.has_project,
             PanelKind::Terminal(_) => at.pane_on_screen,
             PanelKind::Logs => true,
             PanelKind::Centre => !at.is_ide || !at.any_file_open,
@@ -195,13 +252,18 @@ impl PanelKind {
         }
     }
 
-    /// Whether the panel's tab offers a close. A terminal's close kills its harness and a file's
-    /// closes its tab; every other panel is the window's own furniture and is hidden rather than
-    /// closed.
+    /// Whether the panel's tab offers a close. A terminal's close kills its harness, a file's
+    /// closes its tab, and a chat tab's closes the view — the conversation it was attached to, if
+    /// any, keeps running, because the tab was never anything but a perspective on it. Every other
+    /// panel is the window's own furniture and is hidden rather than closed.
     pub fn closable(&self) -> bool {
         matches!(
             self,
-            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Logs | PanelKind::Search
+            PanelKind::Terminal(_)
+                | PanelKind::File(_)
+                | PanelKind::Logs
+                | PanelKind::Search
+                | PanelKind::Chat(_)
         )
     }
 }

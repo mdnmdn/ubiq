@@ -169,6 +169,11 @@ pub struct LoginState {
     /// [`MAX_LOGIN_LINKS`]. Offered as buttons below the terminal, because a terminal is a
     /// poor place to click text — the bytes themselves are untouched.
     pub links: Vec<String>,
+    /// A shell in this login's sandbox rather than the harness's own flow — set from the
+    /// `Shell` button, carried through so the modal's copy stays honest about what was asked
+    /// for, and read by `PaneExited`'s handler: a probe's outcome is decided locally, since the
+    /// host sends none for it.
+    pub probe: bool,
 }
 
 /// A question asked about one account, over the harnesses section. Only one is up at a time —

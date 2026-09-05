@@ -6,7 +6,7 @@ status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-09-04
-verified: 2026-09-04
+verified: 2026-09-05
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -171,10 +171,10 @@ sixteen ANSI colours to the emulator's own defaults, because those are the colou
 choosing between.
 
 **A pane is a panel, and the user arranges it.** Panes sit in the window's dock like every other
-area: dragged into a tab beside another pane, into a row or a column beside one, into the centre
-region or the bottom. Splitting and tabbing are that one gesture, and Ubiq fixes no arrangement of
-its own. Where a pane may go is the placement rule in [`workbench.md`](./workbench.md) — the centre
-or the bottom, never a border.
+area: dragged into a tab beside another pane, into a row or a column beside one, into any region at
+all. Splitting and tabbing are that one gesture, and Ubiq fixes no arrangement of its own. Where a
+pane may go is the placement rule in [`workbench.md`](./workbench.md) — anywhere, the same freedom a
+chat tab now has.
 
 **A move does not restart the harness.** A dragged tab re-parents a panel by id, so the emulator,
 its byte stream and the pane ID all survive the move: the same view, on the same bytes, under the

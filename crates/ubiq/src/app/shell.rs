@@ -145,6 +145,7 @@ impl AppState {
             saved.show_right,
         ));
         self.sync_file_panels(project);
+        self.sync_chat_panels(project);
         // The field is the window's and the query in it is the project's, so a switch brings back
         // whatever this project was left filtering by rather than carrying the last one's over.
         // `sync_file_filter_field` writes it into the field on the next frame, which is where a
