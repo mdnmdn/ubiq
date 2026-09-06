@@ -12,7 +12,7 @@ use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Wind
 use crate::app::{AppState, FocusFileFilter, SubmitSearch, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
-use crate::ui::{rail, ribbon, settings, status_bar, titlebar};
+use crate::ui::{rail, remote_connect, ribbon, settings, status_bar, titlebar};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -199,6 +199,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .new_agent_menu
                 .is_some()
                 .then(|| crate::ui::agents::new_agent_menu(app, cx)),
+        )
+        // The remote-connect modal, raised from the titlebar rather than from settings — painted
+        // here on the same terms as the clone modal just above.
+        .children(
+            app.workbench
+                .remote_connect
+                .as_ref()
+                .map(|_| remote_connect::render(app, window, cx)),
         )
         // The build-channel ribbon, over everything: the window always says which build it is.
         .child(ribbon::render())

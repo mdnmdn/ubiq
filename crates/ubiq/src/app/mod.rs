@@ -599,6 +599,11 @@ pub struct AppState {
     // ponytail: this kit has no masked field, so a pasted token is on screen until the modal
     // closes. Add masking to `kit::field` if that ceiling ever matters.
     pub connect_secret_input: Entity<InputState>,
+    /// The remote-connect modal's two fields: an address (which absorbs a whole pasted connection
+    /// string — see `remote_connect::apply_remote_address_input`) and a token. Read at dial time
+    /// rather than mirrored, for the same reason `connect_instance_input` is.
+    pub remote_address_input: Entity<InputState>,
+    pub remote_token_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -680,6 +685,7 @@ mod nav;
 mod panels;
 mod picker;
 mod projects;
+mod remote_connect;
 mod settings;
 mod shell;
 mod sink;

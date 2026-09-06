@@ -177,6 +177,13 @@ impl AppState {
         let connect_secret_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
 
+        // The remote-connect modal's fields. `remote_address_input` doubles as the paste target
+        // for a whole connection string — see the `InputEvent::Change` subscription below.
+        let remote_address_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("192.168.1.5:7420"));
+        let remote_token_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
+
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
         let sink_harness_name = cx.new(|cx| {
@@ -403,6 +410,18 @@ impl AppState {
                         git.message = message;
                     }
                     cx.notify();
+                }
+            },
+        ));
+
+        // A paste into the address field may carry a whole connection string; this is what
+        // splits it into the two fields the moment it lands, rather than on submit.
+        subscriptions.push(cx.subscribe_in(
+            &remote_address_input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.apply_remote_address_input(window, cx);
                 }
             },
         ));
@@ -669,6 +688,8 @@ impl AppState {
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
             connect_secret_input.read(cx).focus_handle(cx),
+            remote_address_input.read(cx).focus_handle(cx),
+            remote_token_input.read(cx).focus_handle(cx),
             clone_filter_input.read(cx).focus_handle(cx),
             clone_url_input.read(cx).focus_handle(cx),
             clone_name_input.read(cx).focus_handle(cx),
@@ -706,17 +727,7 @@ impl AppState {
         // read once, here: today it names exactly the local connection just opened above, and
         // nothing yet adds a remote one after boot for this loop to miss.
         for (host, from_host) in bus.connections() {
-            cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-                while let Ok(message) = from_host.recv_async().await {
-                    if this
-                        .update(cx, |this, cx| this.receive(host, message, cx))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            })
-            .detach();
+            Self::route_host(host, from_host, cx);
         }
 
         // The log sink nudges the window when a record arrives. A nudge carries nothing: the
@@ -830,6 +841,8 @@ impl AppState {
             connect_instance_input,
             connect_client_id_input,
             connect_secret_input,
+            remote_address_input,
+            remote_token_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,
