@@ -694,23 +694,30 @@ impl AppState {
         // checkbox would be one more thing to keep in step.
         subscriptions.push(super::vim::install(window, cx));
 
-        // This window's connection to the host, which is process-wide and already running. The
-        // window never starts one: two hosts would race the catalogue and disagree about what
-        // exists.
-        let bus = BusHub::read(cx).connect();
+        // This window's connection to the local host, which is process-wide and already running.
+        // The window never starts one: two hosts would race the catalogue and disagree about what
+        // exists. `Bus` wraps it and is the room for the remote connections a later phase adds
+        // beside it — see `crates/ubiq/src/app/hosts.rs`.
+        let bus = Bus::new(BusHub::read(cx).connect());
 
-        let from_host = bus.from_host().clone();
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            while let Ok(message) = from_host.recv_async().await {
-                if this
-                    .update(cx, |this, cx| this.receive(message, cx))
-                    .is_err()
-                {
-                    break;
+        // One router task per connection, each tagging its arrivals with the `HostRef` they came
+        // from before handing them to `receive` — a message must say which host said it before
+        // `AppState` can record ownership or keep two hosts' projections apart. `connections()` is
+        // read once, here: today it names exactly the local connection just opened above, and
+        // nothing yet adds a remote one after boot for this loop to miss.
+        for (host, from_host) in bus.connections() {
+            cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                while let Ok(message) = from_host.recv_async().await {
+                    if this
+                        .update(cx, |this, cx| this.receive(host, message, cx))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
-            }
-        })
-        .detach();
+            })
+            .detach();
+        }
 
         // The log sink nudges the window when a record arrives. A nudge carries nothing: the
         // console reads the ring itself, so a burst is coalesced into one redraw and a window

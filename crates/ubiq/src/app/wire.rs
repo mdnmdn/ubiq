@@ -70,6 +70,8 @@ impl AppState {
         };
         self.bus.send(Message::CloseWorkspace { pane_id });
         self.terminals.remove(&pane_id);
+        // After the send above, which still needed to know which host owned it.
+        self.bus.forget_pane(pane_id);
 
         let showing = self.project(cx);
         // The keyboard only moves for the project on screen: a pane closed in a background
@@ -169,37 +171,43 @@ impl AppState {
 
     /// Everything the coordinator says, in the order it said it.
     ///
+    /// `host` names which of the window's connections `message` arrived on — today always
+    /// `HostRef::Local`, since the router in `boot.rs` spawns one task per connection and there is
+    /// only ever the one. It is threaded through every family so a handler can record which host a
+    /// pane or project belongs to as it first hears of one, and, from a later phase on, keep two
+    /// hosts' projections apart instead of merging a remote's answer into the local one's state.
+    ///
     /// The families are disjoint, so each helper answers with the message back when it is
     /// none of its own and the next one is offered it.
-    pub(super) fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
-        let Some(message) = self.receive_pane(message, cx) else {
+    pub(super) fn receive(&mut self, host: HostRef, message: Message, cx: &mut Context<Self>) {
+        let Some(message) = self.receive_pane(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_project(message, cx) else {
+        let Some(message) = self.receive_project(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_file(message, cx) else {
+        let Some(message) = self.receive_file(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_git(message, cx) else {
+        let Some(message) = self.receive_git(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_work(message, cx) else {
+        let Some(message) = self.receive_work(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_conversation(message, cx) else {
+        let Some(message) = self.receive_conversation(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_session(message, cx) else {
+        let Some(message) = self.receive_session(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_account(message, cx) else {
+        let Some(message) = self.receive_account(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_search(message, cx) else {
+        let Some(message) = self.receive_search(host, message, cx) else {
             return;
         };
-        let Some(message) = self.receive_repo(message, cx) else {
+        let Some(message) = self.receive_repo(host, message, cx) else {
             return;
         };
         // The rest are the window's own words, coming back the wrong way.
@@ -209,9 +217,19 @@ impl AppState {
     /// The pane family.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_pane(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_pane(
+        &mut self,
+        host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
-            Message::WorkspaceSpawned { workspace } => self.open_pane(workspace, cx),
+            Message::WorkspaceSpawned { workspace } => {
+                // Recorded before `open_pane` draws anything, so a message about this pane that
+                // arrives on the very next poll — a resize, an exit — already finds it owned.
+                self.bus.note_pane(workspace.id, host);
+                self.open_pane(workspace, cx);
+            }
 
             // Output is handed straight to the pane's emulator. Output for a pane that has gone is
             // dropped: nothing is left to draw it.
@@ -281,9 +299,20 @@ impl AppState {
     /// is idempotent by construction.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_project(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_project(
+        &mut self,
+        host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             Message::ProjectList { projects } => {
+                // Every project this catalogue answer names belongs to whichever host sent it —
+                // recorded before `sync_projects` reads the registry, so a project this window
+                // adopts as it reconciles already resolves to the right host.
+                for project in &projects {
+                    self.bus.note_project(project.record.id, host);
+                }
                 cx.global_mut::<WindowRegistry>().replace_all(projects);
                 self.adopt_if_owed(cx);
                 // A catalogue that no longer names a project this window held takes it away, so
@@ -294,6 +323,7 @@ impl AppState {
             Message::ProjectAdded { project } => {
                 let id = project.record.id;
                 let root = project.record.path.clone();
+                self.bus.note_project(id, host);
                 cx.global_mut::<WindowRegistry>().apply(project);
                 // There is no clone-success message: a finished clone is a registered project, so
                 // this is where the modal learns it worked and gets out of the way.
@@ -319,11 +349,13 @@ impl AppState {
             }
 
             Message::ProjectChanged { project } => {
+                self.bus.note_project(project.record.id, host);
                 cx.global_mut::<WindowRegistry>().apply(project);
                 cx.notify();
             }
 
             Message::ProjectForgotten { project_id } => {
+                self.bus.forget_project(project_id);
                 cx.global_mut::<WindowRegistry>().forget(project_id);
                 self.sync_projects(cx);
             }
@@ -371,7 +403,14 @@ impl AppState {
     /// switched projects lands where it belongs rather than on screen.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_file(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_file(
+        &mut self,
+        // Every file message already names its project, and today every project is Local; a
+        // later phase that keeps two hosts' files apart reads this instead of re-deriving it.
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             Message::ProjectTreeListing {
                 project_id,
@@ -593,7 +632,12 @@ impl AppState {
     /// The git family.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_git(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_git(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             Message::GitOverview {
                 project_id,
@@ -737,7 +781,12 @@ impl AppState {
     /// did not happen is stale the moment one does.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_work(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_work(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             Message::WorkList {
                 project_id,
@@ -881,6 +930,7 @@ impl AppState {
     /// Answers with the message when it belongs to another family.
     fn receive_conversation(
         &mut self,
+        _host: HostRef,
         message: Message,
         cx: &mut Context<Self>,
     ) -> Option<Message> {
@@ -1006,7 +1056,12 @@ impl AppState {
     /// The session family: what the host is, and what can be started on it.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_session(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_session(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             // What the host is. The status bar says so when the root is not the usual one.
             Message::HostInfo {
@@ -1062,7 +1117,12 @@ impl AppState {
     /// the set of identities, and one deleted elsewhere has to leave the screen.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_account(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_account(
+        &mut self,
+        host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             Message::Accounts { accounts } => {
                 // Prune whatever `statuses` and `dialog` named that this answer no longer
@@ -1093,6 +1153,9 @@ impl AppState {
                 cols,
                 rows,
             } => {
+                // A login pane belongs to no project, so this is the only place it is ever
+                // recorded as belonging to a host at all.
+                self.bus.note_pane(pane_id, host);
                 self.login_started(pane_id, agent_type, account, cols, rows, cx);
             }
             Message::HarnessLoginCaptured {
@@ -1252,7 +1315,12 @@ impl AppState {
     /// The search family.
     ///
     /// Answers with the message when it belongs to another family.
-    fn receive_search(&mut self, message: Message, cx: &mut Context<Self>) -> Option<Message> {
+    fn receive_search(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
         match message {
             Message::SearchMatches {
                 project_id,

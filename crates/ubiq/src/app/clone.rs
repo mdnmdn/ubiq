@@ -400,6 +400,9 @@ impl AppState {
     /// Answers with the message when it belongs to another family.
     pub(super) fn receive_repo(
         &mut self,
+        // A repository listing names no project yet — cloning one is what creates the project,
+        // which arrives separately as `ProjectAdded` and is recorded there.
+        _host: HostRef,
         message: Message,
         cx: &mut Context<Self>,
     ) -> Option<Message> {

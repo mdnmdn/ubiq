@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-06
 verified: 2026-09-06
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -152,6 +152,7 @@ the transport beneath the contract.
 | The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | A project's tasks, and the sessions and agents over them | `crates/ubiq-host/src/work/` | Tasks are the user's data, written down per project; sessions and agents are the host's mocks, minted per project and never written |
 | Window, panes, chrome, focus | `crates/ubiq/src/app/`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
+| The window's multiplexer over every host it is attached to | `crates/ubiq/src/app/hosts.rs` | `Bus`, `HostRef`, the UI-local `HostId`; the local host is always attached, remotes are added alongside it |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
 | Build/bundle version | `crates/ubiq/src/version.rs` | `option_env!("UBIQ_VERSION")`, baked in at compile time by the Justfile from `_devops/scripts/bundle-version.sh`, `"dev"` when unset. Read by the status bar and the web-export footer |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor, chat, agents, orchestration and board state, and the projection of a project's work. A window holds one tree, one set of open files and one projection of the work per project |
@@ -255,16 +256,40 @@ heard of Ubiq. The trade, and the shape a detached coordinator forces, are `D24`
 
 ## State ownership
 
-The coordinator is the single source of truth. The UI holds a projection of it — enough to draw —
-and never a fact the coordinator does not also hold. When the two disagree, the coordinator is
-right, and the repair is a message, not a reach-around.
+Each host a window is attached to is the single source of truth for what it hosts. The UI holds a
+projection of it — enough to draw — and never a fact that host does not also hold. When the two
+disagree, the host is right, and the repair is a message, not a reach-around.
 
 Inside the UI, `AppState` owns the panes, the focused pane, and the dock they are panels in, and
 mutates them only through methods that end in a redraw request: `spawn_pane()`, `close_pane()`, `resize_pane()`,
-`focus_pane()`. It owns the workbench's own state on the same terms. A pane is drawn when the
-coordinator answers with the workspace it started, not when the UI asked for one — asking is
-`spawn_pane()`, and the answer arrives, with everything else the coordinator says, at `receive()`,
-through a task draining the bus.
+`focus_pane()`. It owns the workbench's own state on the same terms. A pane is drawn when a host
+answers with the workspace it started, not when the UI asked for one — asking is `spawn_pane()`,
+and the answer arrives, with everything else that host says, at `receive()`.
+
+**`crates/ubiq/src/app/hosts.rs` is the window's multiplexer over every host it is attached to.**
+`Bus` replaces the bare `Client` field `AppState` held, exposing the same `send`, `send_to`,
+`sender` and `input` surface so none of the interface's call sites had to learn a message might
+have somewhere else to go. It wraps the local, in-process host — always present, connected before
+the first window and outliving every one of them — plus a `Vec<RemoteConn>` of hosts reached over a
+connection the interface opened itself, empty until a connect flow exists to fill it. `boot.rs`
+spawns one router task per connection, each tagging its arrivals with the `HostRef` they came from
+before `receive()` and its per-family handlers ever see them, so a handler can record which host a
+pane or project belongs to as it first hears of one.
+
+**Routing follows a fixed order: pane, then project, then whichever host is active.** `Bus::resolve`
+tries the message's pane first, because a pane is a running harness on one specific host and its
+input, resize or close reaching any other host does nothing to the process actually running it;
+project second, because a project is hosted on one machine even while none of its panes are open;
+and, only for a message naming neither — a fresh terminal, a fresh project — the active host, since
+there is nothing to resolve *from*. `send_to` bypasses resolution for the one case it cannot cover:
+talking to a host before any project on it exists, to browse its repositories or its filesystem.
+
+**A `HostId` is UI-local and never enters the contract.** `hosts.rs` mints it, and it never
+serialises, never crosses the bus, and is never carried in a `Message`. A host has no way to learn
+that another host exists — every connection remains, from that host's point of view, an ordinary
+single-host session — which is what keeps the listener in `remote.rs` free of any multi-host
+awareness: telling several connections apart is purely the interface's concern. `D81` records this
+as a structural choice rather than an incidental shape.
 
 ## The dependency direction
 
