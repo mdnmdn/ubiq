@@ -84,7 +84,9 @@ same `agent_id`, continuing the same message sequence rather than starting a new
 conversation with it.
 
 **An agent runs confined unless the settings say otherwise.** The policy grants the project's folder
-and that run's own directory, gives it an ephemeral `$HOME`, and denies the rest of the machine. A
+and that run's own directory and denies the rest of the machine. `$HOME` is ephemeral, discarded
+with the run — except for a conversation started from a named definition, which gets a persistent
+home keyed by that definition so its caches and its login survive to the next run. A
 harness whose toolchain lives outside the project cannot reach it, which is a gap rather than a
 design choice. A process that is itself confined cannot confine anything — a sandbox does not nest —
 and says so once at startup rather than as an error on every pane.

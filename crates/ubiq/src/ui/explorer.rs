@@ -448,8 +448,8 @@ fn line(
         font_size,
     ));
 
-    if let Some(status) = row.git {
-        line = line.child(badge(status.badge(), git_colour(row.git)));
+    if let Some(text) = row.git.and_then(GitStatus::badge) {
+        line = line.child(badge(text, git_colour(row.git)));
     }
 
     if row.loading && row.expanded {

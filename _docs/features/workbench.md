@@ -1179,12 +1179,13 @@ directory refreshes the overview and the working-tree map, the same refresh a sa
 Nothing is redrawn from the message itself — it names paths and carries no content, so the window
 asks for what it wants the ordinary way.
 
-**The explorer states git position by colour and by badge.** Modified, untracked, conflicted, staged
-and ignored each take a colour from the status group and a single-letter badge, the colour so it
-reads at a glance and the badge so it does not rely on colour alone. The badge sits at the row's
-right edge, aligned under its fellows by a spacer after the name, with no separate status dot — the
-badge already says with colour whatever a dot would. The host's working-tree map
-fills those in: a path in the map gets a status, a path not in it is clean, and until a map has
+**The explorer states git position by colour and by badge.** Modified, untracked, conflicted and
+staged each take a colour from the status group and a single-letter badge, the colour so it
+reads at a glance and the badge so it does not rely on colour alone. Ignored takes the faint colour
+and no badge: it marks a path git is not tracking, not a change to act on. The badge sits at the
+row's right edge, aligned under its fellows by a spacer after the name, with no separate status dot
+— the badge already says with colour whatever a dot would. The host's working-tree map fills those
+in: a path in the map gets a status, a path not in it is clean, and until a map has
 arrived every row is unmarked because nothing has been read. An untracked or ignored directory
 paints every child the same, because git does not look inside and a child not in the map is not
 clean. Clean and unread draw the same on the row; the status bar's branch is how a repository is

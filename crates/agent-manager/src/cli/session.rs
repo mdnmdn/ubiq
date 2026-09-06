@@ -166,7 +166,7 @@ fn cmd_resume(id: &str) -> Result<()> {
     };
 
     let templates = crate::harness::FsTemplateStore::from_default();
-    let provisioned = crate::provision::provision(harness.as_ref(), &spec, &templates)?;
+    let mut provisioned = crate::provision::provision(harness.as_ref(), &spec, &templates)?;
     let new_sessions_root = session::sessions_root(None);
 
     // `output` only matters for `--io structured`; there's no `--output`
@@ -178,7 +178,7 @@ fn cmd_resume(id: &str) -> Result<()> {
     super::run::run_provisioned(
         harness.as_ref(),
         &spec,
-        &provisioned,
+        &mut provisioned,
         &meta.cwd,
         super::run::RunTail {
             output: super::OutputMode::Events,

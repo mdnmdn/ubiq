@@ -45,14 +45,15 @@ pub enum GitStatus {
 }
 
 impl GitStatus {
-    /// The badge shown at the end of the row.
-    pub fn badge(self) -> &'static str {
+    /// The badge shown at the end of the row. An ignored path carries none: the faint colour
+    /// already says it.
+    pub fn badge(self) -> Option<&'static str> {
         match self {
-            GitStatus::Modified => "M",
-            GitStatus::Untracked => "U",
-            GitStatus::Conflict => "!",
-            GitStatus::Staged => "S",
-            GitStatus::Ignored => "ignored",
+            GitStatus::Modified => Some("M"),
+            GitStatus::Untracked => Some("U"),
+            GitStatus::Conflict => Some("!"),
+            GitStatus::Staged => Some("S"),
+            GitStatus::Ignored => None,
         }
     }
 

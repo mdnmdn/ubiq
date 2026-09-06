@@ -404,17 +404,19 @@ pub fn describe(confined: &Confined) -> Result<isol8::DryRun> {
         .context("rendering the isolation policy for this run")
 }
 
-/// The [`Launch`] that runs `confined`'s command under the OS policy, for a
-/// caller that spawns argv itself — a host that owns a pseudo-terminal.
+/// The [`Launch`] that runs `confined`'s command under the OS policy, for any
+/// caller that spawns argv itself — a host that owns a pseudo-terminal, or a
+/// structured bridge that owns pipes.
 ///
-/// **This is a stopgap.** isol8 spawns with inherited stdio and keeps every
-/// `SandboxChild` constructor private, so a host cannot hand it a terminal;
-/// until it grows that seam (`refs/isol8-pty-seam-update.md`), macOS is served
-/// by rendering the policy here and exec'ing `sandbox-exec` — which is what
-/// isol8 itself does, and which `execve`s in place, so the harness is still one
-/// process. Linux has no equivalent: Landlock is applied inside the target
-/// process between `fork` and `exec`, and no rendered form of it exists to
-/// hand anyone.
+/// isol8 spawns with inherited stdio and keeps every `SandboxChild`
+/// constructor private, so a caller cannot hand it descriptors of its own. On
+/// macOS that costs nothing: the policy renders to text and `sandbox-exec`
+/// `execve`s in place — the same thing isol8 does internally — so the harness
+/// is still one process, whatever is on its descriptors. Linux has no
+/// equivalent: Landlock is applied inside the target process between `fork`
+/// and `exec`, and no rendered form of it exists to hand anyone, so this
+/// errors there until isol8 grows the seam
+/// (`refs/isol8-pty-seam-update.md`).
 pub fn confined_launch(confined: &Confined) -> Result<Launch> {
     // Rendering the policy ourselves bypasses the guard `isol8::Sandbox::spawn`
     // applies, so it is applied here: a sandbox cannot nest, and the honest
@@ -445,7 +447,7 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
     }
 
     Err(anyhow!(
-        "isolating a run in a caller-owned terminal needs isol8's pseudo-terminal seam, \
+        "isolating a run whose descriptors the caller owns needs isol8's stdio seam, \
          which this platform has no substitute for. Run without --isolate, or see \
          refs/isol8-pty-seam-update.md"
     ))

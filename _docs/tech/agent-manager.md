@@ -72,8 +72,8 @@ shell is.
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
 overrides exactly three fields of what comes back: the configuration directory (Ubiq owns where a
 run's state lives), the I/O mode (Ubiq owns which face the workspace wears), and the isolation
-(Ubiq's own settings own the toggle, and a conversation is never confined). Everything else —
-which account, which model, which skills and MCP servers, which config overlays — is the library's
+(Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane).
+Everything else — which account, which model, which skills and MCP servers, which config overlays — is the library's
 answer, read from the profile that names them. So an account reaches a pane without `agent.rs`
 learning what an account is, and a harness that grows a new composition knob needs no change here.
 

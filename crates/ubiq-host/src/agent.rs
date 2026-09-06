@@ -558,14 +558,14 @@ impl Agents {
     /// the bridge its events come out of.
     ///
     /// The conversation face of the same thing [`compose`](Self::compose)
-    /// builds. Two differences, both forced rather than chosen:
+    /// builds. One difference, forced rather than chosen: the id is the
+    /// agent's rather than a pane's, because a conversation has no pane. It is
+    /// the day `WorkspaceId` and `PaneId` come apart.
     ///
-    /// - The run is **never confined**, whatever the setting says. A bridge
-    ///   spawns its own child with pipes on its descriptors, and the sandbox
-    ///   needs those descriptors to hand it a policy; the library refuses the
-    ///   combination outright, and producing it quietly here would be worse.
-    /// - The id is the agent's rather than a pane's, because a conversation
-    ///   has no pane. It is the day `WorkspaceId` and `PaneId` come apart.
+    /// Confinement applies here exactly as it does to a pane. The policy is
+    /// rendered into an argv (`sandbox-exec -p <policy> -- <harness>`) which
+    /// the bridge spawns with pipes of its own, so nothing about the sandbox
+    /// needs to own the descriptors.
     #[allow(clippy::too_many_arguments)]
     pub fn converse(
         &self,
@@ -580,7 +580,7 @@ impl Agents {
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
-        let composed = self.compose_run(
+        let mut composed = self.compose_run(
             &agent.to_string(),
             agent_type,
             cwd,
@@ -616,10 +616,38 @@ impl Agents {
             }
         }
 
+        // What the bridge spawns is what a pane would spawn: the harness under its policy when
+        // the run is confined, the harness itself when it is not. Resolving it here rather than
+        // at composition is what materializes the run's home.
+        composed.provisioned.launch = composed.exec()?;
+
         let bridge = harness
             .structured_bridge(&composed.provisioned, cwd)
             .with_context(|| format!("starting a {agent_type} conversation"))?;
         Ok((composed, bridge))
+    }
+
+    /// A profile id as a single path segment isol8 will accept for a managed home: no
+    /// separator, no `..`, nothing empty.
+    ///
+    /// The library's CLI keeps its own copy of this. Sharing one would mean exporting a name
+    /// across a feature gate the `cli` module sits behind, for four lines.
+    fn home_id(profile: &str) -> String {
+        let cleaned: String = profile
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        if cleaned.is_empty() {
+            "default".to_string()
+        } else {
+            cleaned
+        }
     }
 
     // As many arguments as `Message::StartConversation` has fields to route through: composing
@@ -676,12 +704,12 @@ impl Agents {
 
         // The three answers that are Ubiq's rather than the library's: which directory this
         // run's configuration lives in, which face it wears, and whether it is confined.
-        // The last one replaces whatever a profile asked for, because a conversation is
-        // never confined (see `converse`) and the toggle belongs to Ubiq's own settings.
+        // The last one replaces whatever a profile asked for, because the toggle belongs to
+        // Ubiq's own settings and applies to both faces alike.
         let structured = io == IoModes::Structured;
         spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
         spec.io = io;
-        spec.isolation = if self.isolate && !structured {
+        spec.isolation = if self.isolate {
             Isolation::Sandboxed(String::new())
         } else {
             Isolation::None
@@ -692,13 +720,18 @@ impl Agents {
             .with_context(|| format!("composing a {agent_type} run"))?;
         Self::resolve_program(&mut provisioned.launch);
 
-        let confined = isolate::plan(
-            &provisioned.launch,
-            &spec,
-            &provisioned.dir,
-            &IsolateOptions::new(self.root.join("isol8")),
-        )
-        .with_context(|| format!("resolving the policy for a {agent_type} run"))?;
+        // A *defined* agent gets a home that outlives the run, keyed by the definition it came
+        // from: a second run of the same profile finds its caches, its indexes and its logins
+        // where it left them. An ad-hoc run has no definition to key on and stays ephemeral,
+        // which is also what a pane gets. The home lives under `<root>/isol8/homes/`, outside
+        // the `<root>/runs/` tree teardown deletes, which is what makes it persist at all.
+        let mut options = IsolateOptions::new(self.root.join("isol8"));
+        if let Some(profile) = &flags.profile {
+            options.home = isolate::HomeMode::Managed(Self::home_id(profile));
+        }
+
+        let confined = isolate::plan(&provisioned.launch, &spec, &provisioned.dir, &options)
+            .with_context(|| format!("resolving the policy for a {agent_type} run"))?;
 
         // The session record, written now rather than at teardown: a run that
         // crashes is exactly the one whose record is worth keeping, and
@@ -954,6 +987,88 @@ mod tests {
 
         agents.retire(pane);
         assert!(!composed.dir.exists());
+    }
+
+    /// G92: a conversation is confined by the same setting a pane is. The argv the policy
+    /// renders into is `confined_launch`'s job and is asserted where it can actually be
+    /// rendered (`agent-manager`'s `tests/confined_bridge.rs`) — a sandbox cannot nest, and
+    /// these tests may themselves be running inside one. What is Ubiq's own answer, and so
+    /// what is asserted here, is that the structured face plans a policy at all.
+    #[test]
+    fn a_structured_run_is_confined_when_isolation_is_on() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), true);
+
+        let composed = agents
+            .compose_run(
+                "agent-1",
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                IoModes::Structured,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("composing a structured claude-code run");
+
+        assert!(
+            composed.is_confined(),
+            "a conversation follows the isolation setting, same as a pane"
+        );
+    }
+
+    /// P6: a defined agent — one whose conversation named a profile — gets a home keyed by
+    /// that definition, so its second run finds the caches its first left. An ad-hoc run has
+    /// nothing to key on and stays ephemeral. The rendered policy's home path is the proof,
+    /// and rendering one spawns nothing.
+    #[test]
+    fn a_profile_gets_a_persistent_home_and_an_ad_hoc_run_does_not() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        given_an_account(root.path(), "work.setup", "work");
+        let agents = Agents::new(root.path(), true);
+
+        let compose = |profile: Option<String>| {
+            agents
+                .compose_run(
+                    "agent-1",
+                    "claude-code",
+                    cwd.path(),
+                    Vec::new(),
+                    IoModes::Structured,
+                    None,
+                    None,
+                    None,
+                    None,
+                    profile,
+                )
+                .expect("composing a structured claude-code run")
+        };
+
+        let defined = compose(Some("work.setup".to_string()));
+        let home = isolate::describe(defined.confined.as_ref().unwrap())
+            .unwrap()
+            .home_path;
+        assert_eq!(
+            home,
+            root.path().join("isol8/homes/work-setup"),
+            "a profile's home is keyed by its (sanitised) id, and sits outside the runs tree \
+             teardown deletes"
+        );
+
+        let ad_hoc = compose(None);
+        let home = isolate::describe(ad_hoc.confined.as_ref().unwrap())
+            .unwrap()
+            .home_path;
+        assert!(
+            !home.starts_with(root.path().join("isol8/homes")),
+            "an ad-hoc run starts clean, at {}",
+            home.display()
+        );
     }
 
     /// Write a profile naming an account, and the account's own captured-login home,
