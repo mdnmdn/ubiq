@@ -238,6 +238,9 @@ impl AppState {
         let Some(message) = self.receive_repo(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_host_browse(host, message, cx) else {
+            return;
+        };
         // The rest are the window's own words, coming back the wrong way.
         tracing::warn!("the window was sent a message only it may send: {message:?}");
     }

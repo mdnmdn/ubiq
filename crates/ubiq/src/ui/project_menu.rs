@@ -207,7 +207,10 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
     }
 
     // Always drawn, because on a first run it is the only thing there is to do.
-    body = body.child(add_row(cx)).child(clone_row(cx));
+    body = body
+        .child(add_row(cx))
+        .child(clone_row(cx))
+        .child(remote_row(app, cx));
 
     deferred(
         anchored()
@@ -501,6 +504,55 @@ fn clone_row(cx: &mut Context<AppState>) -> impl IntoElement {
                 .child("Clone a project\u{2026}"),
         )
         .on_click(cx.listener(|this, _, window, cx| this.open_clone(None, window, cx)))
+}
+
+/// The third way in: a folder on a host reached over the network rather than sitting on this
+/// machine.
+///
+/// **Always drawn, never disabled.** A row that vanishes or greys out until a host is attached
+/// would leave a user who has never connected one with no visible path to the feature at all — the
+/// row itself is the only place a first-time user learns this exists. So a click with nothing
+/// attached opens the connect modal instead of the folder browser: the obvious next step is
+/// finishing what the row asked for, not a dead end explaining why it cannot be done yet. Once
+/// dialled, the click goes straight to the folder browser.
+///
+/// **More than one remote picks the first.** Choosing *which* host to browse is Phase 5's
+/// saved-hosts list; until then this is the one place in the interface that has to decide anyway,
+/// and picking deterministically (attach order) beats refusing to act at all.
+fn remote_row(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let remotes = app.remote_hosts();
+    let label = match remotes.first() {
+        Some((_, label)) => format!("Open a project on {label}\u{2026}"),
+        None => "Open remote project\u{2026}".to_string(),
+    };
+
+    div()
+        .id("project-remote")
+        .h(px(34.))
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .border_t_1()
+        .border_color(theme::border())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(IconName::Network)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_muted()),
+        )
+        .child(
+            div()
+                .text_size(px(12.5))
+                .text_color(theme::text_muted())
+                .child(label),
+        )
+        .on_click(cx.listener(move |this, _, window, cx| match this.remote_hosts().first() {
+            Some((host, label)) => this.open_remote_project_picker(*host, label.clone(), window, cx),
+            None => this.open_remote_connect(window, cx),
+        }))
 }
 
 /// What the host last refused to do. Dismissible, because it is history the moment it is read.

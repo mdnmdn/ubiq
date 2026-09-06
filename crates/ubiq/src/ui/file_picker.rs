@@ -18,7 +18,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, Context, CursorStyle, Focusable, InteractiveElement, IntoElement, KeyBinding,
+    AnyElement, Context, CursorStyle, Focusable, InteractiveElement, IntoElement, KeyBinding,
     MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
 };
@@ -155,6 +155,7 @@ pub fn render(
             .border_color(theme::accent())
             .shadow_lg()
             .child(header(picker, cx))
+            .children(host_browse_banner(app, cx))
             .child(field(app, picker, window, cx))
             .child(
                 div()
@@ -259,39 +260,126 @@ fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
+/// What a host last refused, shown until the next answer clears it — the same shape
+/// `ui::project_menu`'s own banner gives a refused `AddProject`, drawn here instead because the
+/// dialog that answer is about is this one, not the project picker sitting behind it.
+fn host_browse_banner(app: &AppState, _cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let error = app.host_browse.as_ref()?.error.clone()?;
+    Some(
+        div()
+            .px_3()
+            .py_2()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .bg(theme::danger_soft())
+            .border_l(px(theme::ACCENT_EDGE))
+            .border_color(theme::danger())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_size(px(11.5))
+                    .text_color(theme::text())
+                    .child(error),
+            )
+            .into_any_element(),
+    )
+}
+
 /// The filter field, the prefilter it is on top of, and the name of the arrangement below it.
 ///
 /// One field over both views on purpose: what was typed survives the toggle, because a user who
 /// cannot find something in the tree switches to the list to look for the same thing.
-fn field(app: &AppState, picker: &FilePickerState, window: &Window, cx: &App) -> impl IntoElement {
+///
+/// A host-project picker adds two things no local one needs: a way up past the folder it opened
+/// on — [`AppState::walk_picker_up`], greyed out at the filesystem root where `parent` is `None` —
+/// and the absolute path currently at the top of the tree, so a user several folders deep can
+/// still tell where they are without counting indent levels.
+fn field(
+    app: &AppState,
+    picker: &FilePickerState,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
     let focused = app
         .picker_filter
         .read(cx)
         .focus_handle(cx)
         .is_focused(window);
-    filter_bar(
-        Input::new(&app.picker_filter).appearance(false),
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_1()
-            .children(picker.request.pattern.clone().map(|pattern| {
-                mono(pattern, theme::text_faint())
-                    .text_size(px(10.5))
-                    .flex_none()
-                    .px_1()
-                    .bg(theme::surface_raised())
-            }))
+    let browse = app.host_browse.as_ref();
+    let can_go_up = browse.is_some_and(|browse| browse.parent.is_some());
+
+    let mut trailing = div().flex().flex_none().items_center().gap_1();
+
+    if let Some(browse) = browse {
+        trailing = trailing
             .child(
-                mono(picker.view.label(), theme::text_faint())
-                    .text_size(px(10.5))
+                div()
+                    .id("file-picker-up")
+                    .flex()
                     .flex_none()
-                    .px_1()
-                    .bg(theme::surface_raised()),
-            ),
-        focused,
-    )
+                    .items_center()
+                    .justify_center()
+                    .size(px(20.))
+                    .when(can_go_up, |this| {
+                        this.cursor_pointer()
+                            .hover(|this| this.bg(theme::hover()))
+                            .on_click(cx.listener(|this, _, _, cx| this.walk_picker_up(cx)))
+                    })
+                    .child(
+                        Icon::new(IconName::ArrowUp)
+                            .with_size(Size::XSmall)
+                            .text_color(if can_go_up {
+                                theme::text_muted()
+                            } else {
+                                theme::text_faint()
+                            }),
+                    ),
+            )
+            .child(
+                mono(
+                    browse.root.clone().unwrap_or_else(|| "\u{2026}".to_string()),
+                    theme::text_faint(),
+                )
+                .text_size(px(10.5))
+                .flex_none()
+                .max_w(px(220.))
+                .truncate(),
+            )
+            // The root's own listing was cut short by the host's entry ceiling — the one
+            // truncation a row can never say for itself, since no row draws the root.
+            .children(browse.root_truncated.then(|| {
+                mono("+", theme::text_faint())
+                    .text_size(px(11.))
+                    .flex_none()
+            }));
+    }
+
+    trailing = trailing
+        .child(icon_button(
+            "file-picker-hidden",
+            IconName::Eye,
+            picker.show_hidden(),
+            cx.listener(|this, _, _, cx| this.toggle_picker_hidden(cx)),
+        ))
+        .children(picker.request.pattern.clone().map(|pattern| {
+            mono(pattern, theme::text_faint())
+                .text_size(px(10.5))
+                .flex_none()
+                .px_1()
+                .bg(theme::surface_raised())
+        }))
+        .child(
+            mono(picker.view.label(), theme::text_faint())
+                .text_size(px(10.5))
+                .flex_none()
+                .px_1()
+                .bg(theme::surface_raised()),
+        );
+
+    filter_bar(Input::new(&app.picker_filter).appearance(false), trailing, focused)
 }
 
 /// One row: what it is, what it is called, and what it says at its far end.
@@ -319,7 +407,9 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
         ROW_FONT,
     );
 
-    if tree && row.is_dir {
+    // An unreadable folder draws no twisty at all — there is nothing a click on it could open, and
+    // a twisty that always fails is worse than one that is not there.
+    if tree && row.is_dir && row.readable {
         let folder = row.path.clone();
         line = line.child(twisty(
             eid("picker-twisty", &row.path),
@@ -360,6 +450,24 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
             },
             13.0,
         ));
+
+    // A folder a host is still filling — see `PickerRow::loading` — says so with the same mark
+    // `ui::explorer` gives the same wait, and a folder whose listing came back cut short says so
+    // with the same `+` explorer gives a truncated one.
+    if row.loading {
+        line = line.child(
+            mono("\u{2026}", theme::text_faint())
+                .text_size(px(11.))
+                .flex_none(),
+        );
+    }
+    if row.truncated {
+        line = line.child(
+            mono("+", theme::text_faint())
+                .text_size(px(11.))
+                .flex_none(),
+        );
+    }
 
     if !row.trailing.is_empty() {
         line = line.child(

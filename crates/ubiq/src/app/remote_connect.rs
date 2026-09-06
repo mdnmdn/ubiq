@@ -392,7 +392,7 @@ impl AppState {
         match outcome {
             Ok(client) => {
                 let label = self.remote_address_input.read(cx).value().to_string();
-                self.attach_remote(client, cx);
+                self.attach_remote(client, label.clone(), cx);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
                 }
@@ -413,8 +413,11 @@ impl AppState {
     /// Reuses [`Self::route_host`] rather than duplicating `boot.rs`'s router loop — a message
     /// arriving over this connection has to reach `receive` tagged with its `HostRef` exactly as a
     /// local one does, and that tagging is all a router task is.
-    fn attach_remote(&mut self, client: Client, cx: &mut Context<Self>) {
-        let (host_id, from_host) = self.bus.register_remote(client);
+    ///
+    /// `label` is the address the user reached it by — the only name this connection has until
+    /// Phase 5's saved-hosts list gives it a better one.
+    fn attach_remote(&mut self, client: Client, label: String, cx: &mut Context<Self>) {
+        let (host_id, from_host) = self.bus.register_remote(client, label);
         Self::route_host(HostRef::Remote(host_id), from_host, cx);
     }
 }
