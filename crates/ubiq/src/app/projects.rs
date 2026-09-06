@@ -559,6 +559,13 @@ impl AppState {
                 .map(|entry| entry.record.name.clone())
                 .unwrap_or_default(),
         };
+        let path = match &settings.mode {
+            ProjectSettingsMode::Create { path } => path.clone(),
+            ProjectSettingsMode::Edit { project } => WindowRegistry::read(cx)
+                .project(*project)
+                .map(|entry| entry.record.path.clone())
+                .unwrap_or_default(),
+        };
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             settings.colour.seed_hsv();
         }
@@ -569,6 +576,14 @@ impl AppState {
         });
         let about = self.project_form_about.clone();
         about.update(cx, |input, cx| input.set_value("", window, cx));
+        let path_input = self.project_path_input.clone();
+        path_input.update(cx, |input, cx| {
+            input.set_value(
+                crate::ui::sink::project::home_abbreviated(&path),
+                window,
+                cx,
+            );
+        });
         self.sync_project_form_hex(window, cx);
     }
 

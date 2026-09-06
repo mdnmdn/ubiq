@@ -96,6 +96,27 @@ fn form_path(app: &AppState, form: Form, cx: &gpui::App) -> String {
     }
 }
 
+/// Abbreviate a path under the user's home directory to `~`, the way a shell prompt does.
+/// Only the home directory itself, or a path under it, is rewritten — `/Users/mdnother` is not
+/// mistaken for a child of `/Users/mdn` by a naive prefix check. Display-only: nothing stored or
+/// sent is ever the abbreviated form.
+pub fn home_abbreviated(path: &str) -> String {
+    let Ok(home) = std::env::var("HOME") else {
+        return path.to_string();
+    };
+    let home = home.trim_end_matches('/');
+    if home.is_empty() {
+        return path.to_string();
+    }
+    if path == home {
+        return "~".to_string();
+    }
+    match path.strip_prefix(home) {
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => path.to_string(),
+    }
+}
+
 fn form_mark(app: &AppState, form: Form, cx: &gpui::App) -> String {
     match form {
         Form::Sink => PROJECT_MARK.to_string(),
@@ -517,7 +538,6 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
     let prefix = form.prefix();
     let name_input = form_name(app, form);
     let about_input = form_about(app, form);
-    let path = form_path(app, form, cx);
     let path_note = match form {
         Form::Sink => "Set when the project was opened. Move it from the project switcher.",
         Form::Live => "Set when the folder was chosen. It cannot be changed here.",
@@ -646,11 +666,22 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 ),
         )
         .child(setting_row(
-            "Repository path",
+            "Project path",
             path_note,
-            mono(path, theme::text())
-                .text_size(px(12.5))
-                .into_any_element(),
+            framed_active(
+                theme::border(),
+                input_on(&app.project_path_input, window, cx),
+            )
+            .h(px(30.))
+            .w(px(320.))
+            .items_center()
+            .child(
+                Input::new(&app.project_path_input)
+                    .appearance(false)
+                    .readonly(true)
+                    .text_size(px(12.5)),
+            )
+            .into_any_element(),
         ))
         .children(form_project(app, form, cx).and_then(|project| index_row(app, project, cx)))
         .children(

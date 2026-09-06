@@ -14,7 +14,7 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use gpui_component::input::InputEvent;
-use ubiq::app::{AppState, BusHub};
+use ubiq::app::{AppState, BusHub, CloseEditor};
 use ubiq::state::{FileDialog, WindowRegistry};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, PathOp};
@@ -669,6 +669,69 @@ fn an_unsaved_tab_is_asked_about_before_it_closes(cx: &mut TestAppContext) {
     assert!(open_paths(&fixture, cx).is_empty(), "the tab was dropped");
 }
 
+/// A tab that lands on a Markdown preview by a close — not a click — still answers `cmd-w`.
+///
+/// Before the fix, the buffer nobody drew (`Preview` shows no `Input`) still took the window's
+/// focus, which put it on a node this frame never painted. GPUI's key dispatch falls back to the
+/// window's own root when that happens, and the app's whole `"Workbench"` key context — every
+/// binding in it, `CloseEditor` included — is unreachable from there.
+#[gpui::test]
+fn closing_a_tab_still_lets_the_markdown_tab_behind_it_close(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    for (path, bytes) in [
+        ("src/main.rs", &b"fn main() {}\n"[..]),
+        ("docs/notes.md", b"# Notes\n"),
+        ("justfile", b"default:\n\techo hi\n"),
+    ] {
+        fixture.with(cx, |state, _, cx| state.select_file(path.to_string(), cx));
+        fixture.deliver(
+            Message::ProjectFileContents {
+                project_id: fixture.project,
+                rel_path: path.to_string(),
+                contents: ubiq_proto::files::FileContents {
+                    bytes: bytes.to_vec(),
+                    len: bytes.len() as u64,
+                    truncated: false,
+                    is_binary: false,
+                    version: Some(ubiq_proto::files::FileVersion {
+                        len: bytes.len() as u64,
+                        modified: None,
+                    }),
+                },
+            },
+            cx,
+        );
+    }
+    assert_eq!(
+        open_paths(&fixture, cx),
+        vec![
+            "src/main.rs".to_string(),
+            "docs/notes.md".to_string(),
+            "justfile".to_string(),
+        ]
+    );
+
+    // "justfile" is the active tab; closing it lands the editor back on "docs/notes.md" by the
+    // close itself, exactly the way the bug was reported — never by a click on that tab.
+    fixture.with(cx, |state, _, cx| state.close_editor_tab(2, cx));
+    assert_eq!(
+        fixture.with(cx, |state, _, cx| state
+            .editor(cx)
+            .and_then(|editor| editor.active_file())
+            .map(|file| file.path.clone())),
+        Some("docs/notes.md".to_string()),
+        "the close itself put the Markdown tab in front"
+    );
+
+    // `cmd-w`, from here, still closes it — the same dispatch a real keystroke takes.
+    cx.dispatch_action(fixture.window.into(), CloseEditor);
+    assert_eq!(
+        open_paths(&fixture, cx),
+        vec!["src/main.rs".to_string()],
+        "the Markdown preview tab closed like any other"
+    );
+}
+
 /// "Exclude from search" adds the folder to the project's own excludes and sends the whole list,
 /// touching nothing else on the record; picking it again is now offered as "Add to search".
 #[gpui::test]
@@ -764,4 +827,31 @@ fn project_settings_search_exclude_field_adds_then_removes_a_pattern(cx: &mut Te
         _ => None,
     });
     assert_eq!(sent, Some(Vec::new()), "the pattern was removed");
+}
+
+/// The project settings dialog's path field abbreviates the user's home directory to `~`, the way
+/// a shell prompt does — but only the home directory itself, or a path under it. A sibling whose
+/// name merely starts with the same characters is not a child of it.
+#[test]
+fn home_abbreviated_replaces_only_the_home_directory_prefix() {
+    let home = std::env::var("HOME")
+        .expect("HOME must be set to run this test")
+        .trim_end_matches('/')
+        .to_string();
+
+    assert_eq!(ubiq::ui::sink::project::home_abbreviated(&home), "~");
+    assert_eq!(
+        ubiq::ui::sink::project::home_abbreviated(&format!("{home}/code/ubiq")),
+        "~/code/ubiq"
+    );
+    assert_eq!(
+        ubiq::ui::sink::project::home_abbreviated("/var/empty/not-home"),
+        "/var/empty/not-home"
+    );
+    let false_prefix = format!("{home}other");
+    assert_eq!(
+        ubiq::ui::sink::project::home_abbreviated(&false_prefix),
+        false_prefix,
+        "a sibling that merely starts with the home path is not a child of it"
+    );
 }

@@ -958,9 +958,6 @@ impl AppState {
             // A reload's cursor and scroll were saved off the buffer this one replaces; put them
             // back now so a background tab's refresh lands where the user left it rather than at
             // the top. Nothing to restore for a tab that was never reloaded.
-            if let Some(range) = goto {
-                file.set_restore(range, gpui::Point::default());
-            }
             let restore = file.take_restore();
             file.attach(
                 buffer.clone(),
@@ -974,6 +971,12 @@ impl AppState {
                     state.set_selected_range(selection, cx);
                     state.set_scroll_offset(scroll, cx);
                 });
+            }
+            // The goto lands last: a restore's `set_scroll_offset` would otherwise put the view
+            // back where the tab was, leaving the caret on the asked-for line off screen — the
+            // reason a search hit used to need a second click to be seen.
+            if let Some(range) = goto {
+                buffer.update(cx, |state, cx| state.set_selected_range(range, cx));
             }
         }
         // The bytes are here, so what this file's bookmarks now point at can be answered.

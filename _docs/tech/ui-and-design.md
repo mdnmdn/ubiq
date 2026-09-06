@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-05
-verified: 2026-09-06
+updated: 2026-09-07
+verified: 2026-09-07
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -243,6 +243,18 @@ outside click and by its own close**, through `on_mouse_down_out` on the panel, 
 dropdown is, so the two behave the same way and neither uses the scrim as a click target. And **the
 scrim occludes the mouse**, so nothing behind a modal can be clicked while it is up. It sits above
 the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
+
+**Escape is the window's, not the modal's.** A `kit::overlay` modal is a function returning an
+element: it holds no focus, so a key never arrives at it, and a `key_context` per modal would be one
+more answer to a question the window answers. The key is bound once — `Workbench` and `Input`,
+by the late-registration device below — and `AppState::cancel_dialog` in `app/shell.rs` reads the
+paint order from the top to decide which layer it takes. **It peels one layer**: a dropdown open over
+a modal closes and the modal stays, because dropping a half-filled form because a menu was down loses
+everything typed into it. With nothing up it calls `cx.propagate()`, so a bare Escape is still the
+explorer's, the terminal's and the search panel's; a surface that binds Escape at its own depth — the
+file picker, the navigator, the explorer's filter — still wins, because a deeper binding fires first.
+A modal raised in `ui::shell` without a rung in that list is a modal Escape walks past, which is what
+`crates/ubiq/tests/dismiss.rs` asserts.
 
 **A modal's body is not always static.** The harness login modal embeds a live `TerminalView` in
 its running step — a pane with a real byte stream, resized and focused exactly as a dock pane is.

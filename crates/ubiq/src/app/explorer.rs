@@ -692,16 +692,6 @@ impl AppState {
         self.confirm_file_dialog(window, cx);
     }
 
-    /// Escape on the dialog that is up, handed back the same way when there is none — a bare
-    /// Escape is the explorer's, the terminal's and the search panel's.
-    pub fn cancel_dialog(&mut self, _: &DialogCancel, _: &mut Window, cx: &mut Context<Self>) {
-        if self.workbench.file_dialog.is_none() {
-            cx.propagate();
-            return;
-        }
-        self.close_file_dialog(cx);
-    }
-
     pub fn close_file_dialog(&mut self, cx: &mut Context<Self>) {
         self.workbench.file_dialog = None;
         cx.notify();

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-06
-verified: 2026-09-06
+updated: 2026-09-07
+verified: 2026-09-07
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -578,8 +578,11 @@ left under that root by a crash are swept at startup, after the catalogue has lo
 which of them no record names.
 
 **A 3-dot next to the title chip opens project settings for the project this window is showing.**
-The path stays as it is. Documentation and Integrations are drawn and disabled. Save writes the
-name and colour through `UpdateProject`.
+The path stays as it is: "Project path" is a read-only field rather than a plain label, so a long
+path can be scrolled and selected instead of overflowing, and the home directory is abbreviated to
+`~` for display (`ui/sink/project.rs::home_abbreviated`; nothing stored or sent is ever the
+abbreviated form). Documentation and Integrations are drawn and disabled. Save writes the name and
+colour through `UpdateProject`.
 
 **General carries the project's rail modes, as the rail's own icons.** One tile per mode, lit when
 the mode is on screen and flat when it is not, flipped by a click — it takes effect at once and is
@@ -1134,7 +1137,9 @@ non-blank and different from what is already there. **Enter confirms and Escape 
 one of them: Enter reaches a field's dialog as the field's own key rather than as a binding, since
 taking Enter at the depth a text box holds focus would take it from the chat composer too, and both
 keys are handed straight back when no dialog is up so a bare Escape still reaches the explorer and
-the panes. Enter refuses exactly what the dimmed button refuses, so it can never do what the button
+the panes. Escape is not this dialog's own binding — it is the window's one handler,
+`AppState::cancel_dialog`, which takes whichever overlay is topmost and peels a dropdown before the
+modal under it; `_docs/tech/ui-and-design.md` holds the rule and the order. Enter refuses exactly what the dimmed button refuses, so it can never do what the button
 will not. A new file opens in the editor once the host
 says it exists, because a file made and not shown is a gesture with no visible effect.
 
@@ -2281,7 +2286,14 @@ are the other direction — the dock deciding which tab is in front and which ha
 editor learns from it rather than the other way round. Contents cannot become a buffer where they
 arrive, because a buffer needs a window and a message does not come with one, so they queue and
 `attach_arrived_files()` drains them in `render` — the same device the dock's own edits and the
-pending focus use, and the one `fill_task_form()` uses for the task panel's fields. It exists for
+pending focus use, and the one `fill_task_form()` uses for the task panel's fields. `take_editor_focus()`
+is where that pending focus lands: a tab whose viewer draws nothing for the layout on screen —
+Markdown or Mermaid in `Preview`, Excalidraw always, per `ViewerKind::shows_buffer()` — has no buffer
+to hand the keyboard to, so it goes to `workbench_focus` instead, a handle `track_focus`ed on the
+workbench root beside the `Workbench` key context. Skipping that and leaving focus on the previous
+tab's now-unmounted buffer is not merely stale: GPUI's key dispatch falls back to the window's own
+root when the focused node was not painted this frame, and the whole `Workbench` context —
+`close_active_editor()` included — is unreachable from there until some other tab takes focus. It exists for
 that reason and no other: `set_value` needs a window and a message does not come with one, so a
 selection change, a project switch and a `TaskChanged` for the open task each leave a flag for the
 next frame to drain. Its guard is what stops it writing over what is being typed on every frame, and
@@ -2309,10 +2321,13 @@ project — handing the whole destination to another window's `AppState` and rai
 it is the one holding the project — sets the rail mode, calls one `reveal_*`, and keeps the
 project's recents, which is why they are kept in exactly one place. `settle_nav()` runs once a frame
 from `Render` beside `settle_board()` and is the single push site, with no `cx.notify()` of its own
-or the frame spins. `reveal_ide()` brings a tab forward and drives the buffer's
-`set_selected_range` — the same call every vim motion scrolls its caret in with — stashing
-`pending_goto` for a file whose bytes have not landed, which `app/editor.rs` drains through
-`OpenFile::set_restore()` as the contents arrive. `mark_bookmarks()` runs on the same arrival,
+or the frame spins. `reveal_ide()` brings a tab forward, turns a markdown tab's layout from
+Preview to Source when the locus names a `Line` or a `Span` — an `Anchor` is left alone, since a
+heading slug is what the preview itself draws — and drives the buffer's `set_selected_range` — the
+same call every vim motion scrolls its caret in with — stashing `pending_goto` for a file whose
+bytes have not landed. `app/editor.rs` applies that goto once the contents arrive, after any
+reload restore rather than folded into it, so the asked-for line wins the caret instead of being
+scrolled back by the restore. `mark_bookmarks()` runs on the same arrival,
 re-stamps what moved and lights what it found through one `TextDecorationCollection` per buffer.
 `show_task_in_graph()` and `open_task_chat()` in `app/board.rs` are two `navigate()` calls.
 `ViewPrefs` carries `bookmarks` and `recents`, both defaulted and written through `store_prefs()`;

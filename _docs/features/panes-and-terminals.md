@@ -6,7 +6,7 @@ status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-09-06
-verified: 2026-09-06
+verified: 2026-09-07
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly

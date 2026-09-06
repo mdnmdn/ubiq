@@ -344,6 +344,67 @@ impl AppState {
         cx.notify();
     }
 
+    /// Escape: take away the topmost thing that is up, and nothing else.
+    ///
+    /// **One handler, in paint order, top first.** Every overlay in the window is raised from
+    /// `WorkbenchState` and painted by `ui::shell` in a fixed order, so which one Escape means is
+    /// not a question each surface answers for itself — it is this list, read from the end. That
+    /// is what makes the key behave the same over a confirm in settings as over the file dialog,
+    /// and it is why `ui::kit::overlay` binds nothing: a modal there is a function returning an
+    /// element, with no focus of its own for a key to arrive at.
+    ///
+    /// **Escape peels one layer.** A dropdown open over a modal closes first and the modal stays,
+    /// because dropping a half-filled form because a menu was down loses everything typed into it.
+    /// The clone modal used to be the only surface that knew this; now every one of them does.
+    ///
+    /// Handed back when nothing is up: a bare Escape then belongs to the explorer, the terminal
+    /// and the search panel, and swallowing it here would take it from all three. The surfaces
+    /// that bind Escape at their own depth — the file picker, the navigator, the explorer's
+    /// filter — still win, because a deeper binding fires before this one ever runs.
+    pub fn cancel_dialog(&mut self, _: &DialogCancel, window: &mut Window, cx: &mut Context<Self>) {
+        // A menu is drawn over whatever raised it, so it is peeled before anything else.
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+            return;
+        }
+        let settings = &self.workbench.settings;
+        if self.workbench.remote_connect.is_some() {
+            self.cancel_remote_connect(window, cx);
+        } else if self.workbench.file_dialog.is_some() {
+            self.close_file_dialog(cx);
+        } else if self.workbench.clone_project.is_some() {
+            self.close_clone(cx);
+        } else if settings.cert.is_some() {
+            self.cancel_certificate(cx);
+        } else if settings.connector.is_some() {
+            self.close_connector_dialog(cx);
+        } else if settings.app_form.is_some() {
+            self.close_app_form(window, cx);
+        } else if settings.connect.is_some() {
+            self.cancel_connect(window, cx);
+        } else if settings.dialog.is_some() {
+            self.close_account_dialog(cx);
+        } else if settings.profile_form.is_some() {
+            self.close_profile_form(cx);
+        } else if settings.login.is_some() {
+            // Only reached while the login is *not* running: a running one draws a live terminal
+            // that takes the keyboard, and a bare Escape belongs to the harness inside it.
+            self.close_harness_login(cx);
+        } else if settings.open {
+            self.close_settings(cx);
+        } else if self.workbench.project_settings.is_some() {
+            self.close_project_settings(cx);
+        } else if self.workbench.confirm_end_conversation.is_some() {
+            // Raised from a dock panel rather than the window root, so it is under everything
+            // above — and the destructive one that had no Escape at all.
+            self.dismiss_end_conversation_confirm(cx);
+        } else if self.sink.modal.is_some() {
+            self.close_sink_modal(cx);
+        } else {
+            cx.propagate();
+        }
+    }
+
     pub fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.file_tab_menu = None;

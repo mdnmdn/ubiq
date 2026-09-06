@@ -35,9 +35,12 @@ pub fn scan_file(
         |line_number: u64, line_text: &str| -> Result<bool, std::io::Error> {
             let ranges = match_ranges(matcher, line_text);
             if !ranges.is_empty() {
+                // The searcher hands us the line with its terminator still on: a `LineHit` is
+                // the line, not the line plus the byte that ends it, so drop it here rather than
+                // carrying it into a row the interface has to draw as one line.
                 lines.push(LineHit {
                     line: line_number as u32,
-                    text: line_text.to_string(),
+                    text: line_text.trim_end_matches(['\n', '\r']).to_string(),
                     ranges,
                 });
             }
@@ -145,5 +148,32 @@ impl State {
 impl Default for State {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// `grep-searcher` hands the sink each line with its terminator still attached — verified
+    /// directly against the crate, not assumed. A `LineHit` is the line the interface draws as
+    /// one row; a stray `\n` reaching `StyledText` shapes as a second, empty line and doubles the
+    /// row's height, which is exactly the offset the search panel showed.
+    #[test]
+    fn a_hit_s_text_carries_no_line_terminator() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file, "before").unwrap();
+        writeln!(file, "the match is here").unwrap();
+        writeln!(file, "after").unwrap();
+        file.flush().unwrap();
+
+        let matcher = grep_regex::RegexMatcher::new("match").unwrap();
+        let hit = scan_file(&matcher, file.path(), "fixture".to_string()).unwrap();
+
+        assert_eq!(hit.lines.len(), 1);
+        let text = &hit.lines[0].text;
+        assert_eq!(text, "the match is here");
+        assert!(!text.ends_with('\n') && !text.ends_with('\r'));
     }
 }

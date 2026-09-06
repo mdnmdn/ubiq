@@ -1767,6 +1767,17 @@ impl AppState {
         if file.key() != key {
             return;
         }
+        // Nothing in the tab body to focus — Markdown/Mermaid showing only their preview,
+        // Excalidraw's scene — hands the keyboard to the workbench root instead. Focusing the
+        // buffer's `InputState` here anyway would leave the window's focus on a node this frame
+        // never painted; GPUI's key dispatch then falls back to the window's own root, which
+        // carries none of the app's key contexts, and the whole "Workbench" context — including
+        // `CloseEditor` — goes unreachable until something else takes focus.
+        if !file.viewer.shows_buffer(file.layout) {
+            self.pending_editor_focus = None;
+            self.workbench_focus.focus(window, cx);
+            return;
+        }
         let editor = match &file.body {
             crate::state::FileBody::Text { state, .. } => state.clone(),
             _ => return,

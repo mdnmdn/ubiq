@@ -22,6 +22,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .size_full()
         .relative()
         .key_context("Workbench")
+        // A fallback keyboard rest: see [`AppState::take_editor_focus`] for why a tab with
+        // nothing focusable of its own hands the keyboard here rather than leaving it on
+        // whatever the previous tab left behind.
+        .track_focus(&app.workbench_focus)
         .on_action(cx.listener(AppState::save_active_file))
         .on_action(cx.listener(AppState::new_untitled_file))
         .on_action(cx.listener(AppState::close_active_editor))

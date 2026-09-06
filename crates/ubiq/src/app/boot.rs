@@ -110,6 +110,13 @@ impl AppState {
         let project_form_hex = cx.new(|cx| InputState::new(window, cx).placeholder("#RRGGBB"));
         let project_exclude_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("*.log, **/build\u{2026}"));
+        // Seeded from the sink's fixture path so the kitchen sink shows it filled; the live dialog
+        // overwrites it in `fill_project_form`, on the same beat as the name and colour fields.
+        let project_path_input = cx.new(|cx| {
+            InputState::new(window, cx).default_value(crate::ui::sink::project::home_abbreviated(
+                crate::state::sink::PROJECT_PATH,
+            ))
+        });
 
         // The kitchen sink's fixtures become buffers here, where there is a window to build one
         // with. They are constants, so this is the whole of their lifecycle: nothing arrives late,
@@ -720,6 +727,7 @@ impl AppState {
             project_form_about.read(cx).focus_handle(cx),
             project_form_hex.read(cx).focus_handle(cx),
             project_exclude_input.read(cx).focus_handle(cx),
+            project_path_input.read(cx).focus_handle(cx),
             picker_search.read(cx).focus_handle(cx),
         ] {
             subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
@@ -845,6 +853,7 @@ impl AppState {
             project_form_about,
             project_form_hex,
             project_exclude_input,
+            project_path_input,
             sink_buffers,
             sink_input,
             sink_textarea,
@@ -876,6 +885,7 @@ impl AppState {
             nav_settling: false,
             bookmark_marks: HashMap::new(),
             explorer_focus: cx.focus_handle(),
+            workbench_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,
             md_reflow: 0,
