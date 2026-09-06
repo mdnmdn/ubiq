@@ -3,7 +3,7 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, command-line, connector and repository families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, connector and repository families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-06
 verified: 2026-09-06
@@ -504,7 +504,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -639,14 +639,14 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Thirty-two records travel inside payloads.
+Thirty-three records travel inside payloads.
 
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `available` |
+| `AgentTypeInfo` | `id`, `label`, `available`, `modes[]` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
@@ -670,6 +670,7 @@ Thirty-two records travel inside payloads.
 | `RateLimitRecord` | `five_hour_pct?`, `five_hour_resets_at?`, `seven_day_pct?`, `seven_day_resets_at?`, `status` |
 | `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
 | `ConfigChoice` | `value`, `name`, `description?`, `group?` |
+| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -867,9 +868,40 @@ the host records no account and sends neither `HarnessLoginCaptured` nor `Harnes
 it — the pane simply closes, which the UI reads for itself from `PaneExited` rather than waiting on
 a host answer that will not come.
 
+## The profile family
+
+The thirteenth family, and the account family's neighbour. A **profile** is a saved setup — which
+harness, as whom, with which model and which permission mode — and this family is how one is
+listed and written. It is deliberately three messages: profiles are stored beside accounts by the
+harness library, so they fail the same way and share `AccountError` rather than minting a second
+error variant.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListProfiles` | UI → host | — | `Profiles` |
+| `Profiles` | host → UI | `profiles` | — |
+| `SaveProfile` | UI → host | `profile` | `Profiles`, or `AccountError` |
+
+**There is no delete.** A profile is a saved setup, and a stale one costs a row in a list — not a
+credential on disk, which is what makes deleting an account worth a message and deleting a profile
+not.
+
+**References only, like the account family.** `ProfileInfo` names an account, a model and a mode by
+id; nothing here is credential material or a path. `None` on a field means the profile does not
+mention that axis and a lower layer decides, which is the library's replace-by-default rule
+crossing the bus intact.
+
+**A profile named on `StartConversation` seeds the picker, it does not bypass it.** The host reads
+the profile's record and copies its model and mode into the pending conversation's picks, so the
+`ConfigOptions` the window draws show the profile's choices and a launch that nobody touched
+sends them. It has to work this way round: the host passes the picks as flags, and a flag outranks
+the profile inside the library's `resolve`, so a profile left unseeded would be displayed wrong and
+then launched over. `account` on the same message stays separate and still wins over the profile's,
+which is what "the user picked this one" means.
+
 ## The command-line family
 
-The tenth family, and the smallest: one request and one answer, about the `ubiq` script on the
+The tenth family by position, and the smallest: one request and one answer, about the `ubiq` script on the
 shell's `PATH`. It names no project, no pane and no account, because what it is about is the
 machine.
 

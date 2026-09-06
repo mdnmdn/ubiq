@@ -84,6 +84,7 @@ impl AppState {
             // harness list is: an account logged in from elsewhere should appear without a
             // restart, and the answer is cheap.
             self.bus.send(Message::ListAccounts);
+            self.bus.send(Message::ListProfiles);
             self.bus.send(Message::ListAgentTypes);
             // Same reasoning, for the other half of the identities: a connection made in
             // another window should be here without a restart.
@@ -603,6 +604,95 @@ impl AppState {
     /// Dismiss the last refusal the host reported for an account action.
     pub fn dismiss_account_error(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    // ── Profiles ────────────────────────────────────────────────────
+
+    /// Raise the profile form. `profile` is `None` for a new setup, or the one being edited —
+    /// the id is what the host overwrites by, so editing keeps it and typing a new one saves a
+    /// second profile rather than renaming the first.
+    ///
+    /// The two typed fields are seeded here, the way the rename dialog seeds its own: they are
+    /// read back only at save time, so nothing mirrors them per keystroke.
+    pub fn open_profile_form(
+        &mut self,
+        profile: Option<ProfileInfo>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let profile = profile.unwrap_or(ProfileInfo {
+            id: String::new(),
+            agent_type: String::new(),
+            account: None,
+            model: None,
+            mode: None,
+        });
+        self.profile_id_input
+            .update(cx, |state, cx| state.set_value(&profile.id, window, cx));
+        self.profile_model_input.update(cx, |state, cx| {
+            state.set_value(profile.model.as_deref().unwrap_or(""), window, cx)
+        });
+        self.workbench.settings.profile_form = Some(profile);
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn close_profile_form(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.profile_form = None;
+        cx.notify();
+    }
+
+    /// Pick which harness the setup is for. The mode goes with it: the choices come from the
+    /// harness's own list, so one kept across a switch would name a mode the new harness has
+    /// never heard of.
+    pub fn pick_profile_harness(&mut self, agent_type: String, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.profile_form
+            && form.agent_type != agent_type
+        {
+            form.agent_type = agent_type;
+            form.mode = None;
+            // The account may not be signed in to the new harness either.
+            form.account = None;
+            cx.notify();
+        }
+    }
+
+    /// Pick the identity, or clear it by picking the one already chosen.
+    pub fn pick_profile_account(&mut self, account: Option<String>, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.profile_form {
+            form.account = account;
+            cx.notify();
+        }
+    }
+
+    pub fn pick_profile_mode(&mut self, mode: Option<String>, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.profile_form {
+            form.mode = mode;
+            cx.notify();
+        }
+    }
+
+    /// Write the setup down. The host answers with `Profiles`, or with `AccountError` when the
+    /// id is not a name it can file — profiles are stored beside accounts and fail the same way.
+    pub fn save_profile(&mut self, cx: &mut Context<Self>) {
+        let id = self.profile_id_input.read(cx).value().trim().to_string();
+        let model = self.profile_model_input.read(cx).value().trim().to_string();
+        let Some(form) = self.workbench.settings.profile_form.take() else {
+            return;
+        };
+        // Both are required and the button is disabled without them: belt to its braces.
+        if id.is_empty() || form.agent_type.is_empty() {
+            self.workbench.settings.profile_form = Some(form);
+            return;
+        }
+        self.bus.send(Message::SaveProfile {
+            profile: ProfileInfo {
+                id,
+                model: (!model.is_empty()).then_some(model),
+                ..form
+            },
+        });
         cx.notify();
     }
 

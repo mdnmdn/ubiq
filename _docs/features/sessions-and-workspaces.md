@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-05
-verified: 2026-09-05
-code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -61,6 +61,18 @@ for that run, and the harness is launched against it with the environment the li
 the user's own `~/.claude` and its siblings are read-only for the duration. The directory belongs to
 the pane: it is named by it, and it is deleted when the pane closes, credentials seeded into it
 included. One left behind by a process that was killed is deleted at the next start.
+
+**The record outlives the run directory.** A run is recorded under Ubiq's own root the moment it is
+composed — one directory per run, named by the pane's or the agent's id, holding the metadata of
+what was launched, where, as whom and in which face. Before that run directory is deleted — on a
+pane close, on a conversation being retired, and on the startup sweep of what a killed process left
+— the harness's own transcript is copied in beside that metadata and the record is stamped as
+finished. So a conversation's full record survives the pane it was held in, and a run that crashed
+leaves one too: its finish time is the sweep's, and its exit code is unknown rather than invented.
+Which files are a harness's record is the harness library's answer, not Ubiq's, and a harness that
+does not answer leaves metadata alone.
+The record is data, not a resume: nothing replays it into a harness, and nothing deletes it. Both
+are gaps in the backlog.
 
 **Unload is not delete.** A conversation's harness can be killed without ending the conversation —
 `UnloadConversation`, answered by `ConversationUnloaded` — and unlike a pane close or

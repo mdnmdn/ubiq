@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests.
 read_when: you are picking up this work, or you need to know which parts of it have been seen working and which have only been reasoned about
-updated: 2026-09-05
-verified: 2026-09-05
+updated: 2026-09-06
+verified: 2026-09-06
 code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs]
 depends_on: [wip-agent-setup, tech-agent-manager, feat-chat, feat-workbench]
 review_cycle: monthly
@@ -138,9 +138,10 @@ its own tests, because verification had been scoped to the crates that owned the
 ## Next steps
 
 - Complete a real Codex login, and use the shell probe to record what the policy actually reaches.
-- Close `G120`: a resumed harness has no memory of the transcript above it. This needs the session
-  record `agent-setup.md`'s P2c describes; `spec.resume` and the session id on `Started` already
-  exist, so the remaining work is small but unverified under structured I/O.
+- Close `G120`: a resumed harness has no memory of the transcript above it. The session record
+  `agent-setup.md`'s P2c describes exists — the harness's own transcript is copied out of a run
+  directory before it is deleted — and `spec.resume` and the session id on `Started` do too, so
+  what remains is handing that record to a fresh harness, and it is unverified under structured I/O.
 - Close `G121`: `Conversation::stop` joins the pump on the coordinator's thread, so a bridge that
   will not drain freezes every window. It was true of ending before; a menu item makes it reachable.
 - Fill the agent-definition half `agent-setup.md`'s P4 leaves open. `WorkAgent` already carries

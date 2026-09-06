@@ -636,6 +636,7 @@ impl AppState {
         // installed or an account signed in since the window opened is offered without a
         // restart. The harness list already worked this way.
         self.bus.send(Message::ListAccounts);
+        self.bus.send(Message::ListProfiles);
         cx.notify();
     }
 
@@ -650,21 +651,51 @@ impl AppState {
         self.workbench.new_agent_menu = None;
         // The same list the menu drew, so an index cannot mean one row on screen and another
         // here — the rule every position-matched menu in the window follows.
-        let rows = self
-            .workbench
-            .harness_choices(&self.workbench.settings.accounts);
-        let (harness, account) = match rows.get(index) {
-            Some(HarnessChoice::Harness(harness)) => (*harness, None),
-            Some(HarnessChoice::Pair { harness, account }) => (*harness, Some(account.clone())),
+        let rows = self.workbench.harness_choices(
+            &self.workbench.settings.accounts,
+            &self.workbench.settings.profiles,
+        );
+        // A profile names its harness by id rather than by position, so all three rows resolve to
+        // the same triple before anything is checked.
+        let picked = match rows.get(index) {
+            Some(HarnessChoice::Harness(harness)) => self
+                .workbench
+                .agent_types
+                .get(*harness)
+                .map(|agent| (agent.id.clone(), None, None)),
+            Some(HarnessChoice::Pair { harness, account }) => self
+                .workbench
+                .agent_types
+                .get(*harness)
+                .map(|agent| (agent.id.clone(), Some(account.clone()), None)),
+            Some(HarnessChoice::Profile(profile)) => self
+                .workbench
+                .settings
+                .profiles
+                .get(*profile)
+                .map(|profile| {
+                    (
+                        profile.agent_type.clone(),
+                        profile.account.clone(),
+                        Some(profile.id.clone()),
+                    )
+                }),
             // A heading or a hairline is drawn, never picked — a click cannot land on one today
             // since both are disabled, but this is what stops a future reorder turning into a
             // wrong launch.
-            Some(HarnessChoice::Label(_)) | Some(HarnessChoice::Separator) | None => return,
+            Some(HarnessChoice::Label(_)) | Some(HarnessChoice::Separator) | None => None,
         };
-        let Some(agent) = self.workbench.agent_types.get(harness) else {
+        let Some((agent_type, account, profile)) = picked else {
             return;
         };
-        if !agent.available {
+        // A profile whose harness is not installed here is drawn disabled, the same as a bare
+        // harness row, so this is the belt to those braces.
+        if !self
+            .workbench
+            .agent_types
+            .iter()
+            .any(|info| info.id == agent_type && info.available)
+        {
             return;
         }
         let Some(project_id) = self.project(cx) else {
@@ -676,8 +707,9 @@ impl AppState {
             project_id,
             session_id: self.session,
             rel_path: None,
-            agent_type: agent.id.clone(),
+            agent_type,
             account,
+            profile,
         });
         // The id is minted client-side above, so there is no round trip to wait on: whichever
         // chat tab's own *New chat* opened this menu — if any did — is attached right away.

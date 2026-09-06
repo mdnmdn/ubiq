@@ -529,6 +529,11 @@ pub trait Harness {
             requires_home_relocation: false,
         }
     }
+    /// Files the harness wrote as its own record of the conversation, inside a
+    /// relocated config dir. Empty = this harness's record is not portable yet.
+    fn transcripts(&self, _config_dir: &Path) -> Vec<PathBuf> {
+        Vec::new()
+    }
     /// User-editable JSON template files merged into `dir` on every run —
     /// see [`apply_templates`]. Default: none. Overridden by harnesses with
     /// preference-style defaults that should live in an editable file under

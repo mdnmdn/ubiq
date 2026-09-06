@@ -174,6 +174,10 @@ struct PendingConversation {
     project_id: ProjectId,
     agent_type: String,
     account: Option<String>,
+    /// The saved setup this conversation was started from, passed through to the library's
+    /// `resolve` at launch. Its model and mode are *also* copied into the `chosen_*` fields
+    /// below, because those outrank a profile inside `resolve`.
+    profile: Option<String>,
     cwd: PathBuf,
     /// Set by a `SetAgentConfig{config_id: "model", ..}` before launch. `None`, or an empty
     /// string, both mean "whatever this harness defaults to" — no `--model` flag at all.
@@ -413,7 +417,7 @@ fn thinking_config_option(
 /// Grok today), an absent picker rather than an empty one. `current` is always empty: no mode
 /// is a harness default the way a model or a reasoning level is, so nothing is preselected —
 /// leaving it unset is what tells `launch_pending` to pass no mode flag at all.
-fn mode_config_option(agent_type: &str) -> Option<ConfigOption> {
+fn mode_config_option(agent_type: &str, chosen: &str) -> Option<ConfigOption> {
     let modes = agent_manager::harness::resolve(agent_type)?.modes();
     if modes.is_empty() {
         return None;
@@ -424,7 +428,7 @@ fn mode_config_option(agent_type: &str) -> Option<ConfigOption> {
         description: None,
         category: Some(ConfigCategory::Mode),
         value: ConfigValue::Select {
-            current: String::new(),
+            current: chosen.to_string(),
             choices: modes
                 .into_iter()
                 .map(|mode| ConfigChoice {
@@ -459,7 +463,7 @@ fn config_options_after_model_pick(
     picked: &str,
 ) -> Option<Vec<ConfigOption>> {
     let shown = thinking_config_option(models, shown_model, shown_thinking);
-    let options = build_config_options(agent_type, models, picked, "");
+    let options = build_config_options(agent_type, models, picked, "", "");
     (options.iter().find(|option| option.id == "thinking") != shown.as_ref()).then_some(options)
 }
 
@@ -491,9 +495,10 @@ fn build_config_options(
     models: &[CachedModel],
     chosen_model: &str,
     chosen_thinking: &str,
+    chosen_mode: &str,
 ) -> Vec<ConfigOption> {
     let mut options = vec![model_config_option(models, chosen_model)];
-    options.extend(mode_config_option(agent_type));
+    options.extend(mode_config_option(agent_type, chosen_mode));
     options.extend(thinking_config_option(
         models,
         chosen_model,
@@ -1012,6 +1017,18 @@ impl Coordinator {
             Message::ListAccounts => {
                 self.send_accounts(client);
             }
+            Message::ListProfiles => {
+                self.send_profiles(client);
+            }
+            Message::SaveProfile { profile } => match self.agents.save_profile(profile) {
+                Ok(()) => self.send_profiles(client),
+                Err(error) => self.host.send(
+                    To::Client(client),
+                    Message::AccountError {
+                        error: format!("{error:#}"),
+                    },
+                ),
+            },
             Message::BeginHarnessLogin {
                 agent_type,
                 account,
@@ -1403,9 +1420,11 @@ impl Coordinator {
                 rel_path,
                 agent_type,
                 account,
+                profile,
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
+                    profile,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -1575,6 +1594,7 @@ impl Coordinator {
         rel_path: Option<String>,
         agent_type: String,
         account: Option<String>,
+        profile: Option<String>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
@@ -1651,16 +1671,32 @@ impl Coordinator {
         // `account` is inert in `discover_models` today, but it is already the cache key's
         // identity leg — captured before `account` moves into the pending record below.
         let account_key = account.clone().unwrap_or_default();
+        // A profile's model and mode are seeded into the picks rather than left to `resolve`:
+        // `launch_picks` fills `flags.model` from the catalogue's default when `chosen_model`
+        // is empty, and a flag outranks the profile — so a profile left unseeded would be
+        // shown wrong by the picker *and* launched over. One read, both problems.
+        let record = profile.as_deref().and_then(|name| {
+            self.agents
+                .profiles()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|record| record.id == name)
+        });
+        let chosen_model = record.as_ref().and_then(|record| record.model.clone());
+        let chosen_mode = record.and_then(|record| record.mode.clone());
+        let seeded_model = chosen_model.clone();
+        let seeded_mode = chosen_mode.clone().unwrap_or_default();
         self.pending_conversations.insert(
             agent_id,
             PendingConversation {
                 project_id,
                 agent_type: agent_type.clone(),
                 account,
+                profile,
                 cwd,
-                chosen_model: None,
+                chosen_model,
                 chosen_thinking: None,
-                chosen_mode: None,
+                chosen_mode,
                 catalogue: Vec::new(),
                 // The discovery thread below always sends the first message this agent_id will
                 // ever see, and always as seq 1 — nothing else can race ahead of it.
@@ -1699,9 +1735,18 @@ impl Coordinator {
                         Vec::new()
                     });
                 let (last_model, last_thinking) = cache.last_used(&agent_type).unwrap_or_default();
-                let chosen_model = advertised_model(&models, None, &last_model);
-                let options =
-                    build_config_options(&agent_type, &models, &chosen_model, &last_thinking);
+                let chosen_model = advertised_model(
+                    &models,
+                    seeded_model.as_deref().filter(|model| !model.is_empty()),
+                    &last_model,
+                );
+                let options = build_config_options(
+                    &agent_type,
+                    &models,
+                    &chosen_model,
+                    &last_thinking,
+                    &seeded_mode,
+                );
                 discovery_mailbox.send(Message::ConversationUpdate {
                     agent_id,
                     seq: 1,
@@ -1748,6 +1793,7 @@ impl Coordinator {
             model.clone(),
             thinking.clone(),
             mode,
+            pending.profile.clone(),
         ) {
             Ok(started) => started,
             Err(error) => {
@@ -2322,6 +2368,25 @@ impl Coordinator {
         }
     }
 
+    /// Tell one window which profiles exist. References only, the same rule as
+    /// [`Self::send_accounts`] — a profile names an account, it never carries one.
+    fn send_profiles(&mut self, client: ClientId) {
+        match self.agents.profiles() {
+            Ok(profiles) => self
+                .host
+                .send(To::Client(client), Message::Profiles { profiles }),
+            Err(error) => {
+                tracing::warn!("the profiles could not be read: {error:#}");
+                self.host.send(
+                    To::Client(client),
+                    Message::Profiles {
+                        profiles: Vec::new(),
+                    },
+                );
+            }
+        }
+    }
+
     /// Open a pane running a harness's own login flow, and remember what finishing it means.
     ///
     /// A login pane is a pane in every respect but one: it belongs to no project, so it
@@ -2764,12 +2829,12 @@ mod tests {
 
     #[test]
     fn mode_config_option_is_none_for_a_harness_with_no_modes() {
-        assert!(mode_config_option("opencode").is_none());
+        assert!(mode_config_option("opencode", "").is_none());
     }
 
     #[test]
     fn mode_config_option_carries_claude_codes_modes() {
-        let option = mode_config_option("claude-code").expect("claude-code has modes");
+        let option = mode_config_option("claude-code", "").expect("claude-code has modes");
         assert_eq!(option.id, "mode");
         assert_eq!(option.category, Some(ConfigCategory::Mode));
         let ConfigValue::Select { current, choices } = option.value else {
@@ -2782,7 +2847,7 @@ mod tests {
     #[test]
     fn build_config_options_includes_mode_and_thinking_when_the_harness_and_model_offer_them() {
         let models = [model_with_levels("sonnet", true)];
-        let options = build_config_options("claude-code", &models, "sonnet", "");
+        let options = build_config_options("claude-code", &models, "sonnet", "", "");
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert!(ids.contains(&"model"));
         assert!(ids.contains(&"mode"));
@@ -2792,7 +2857,7 @@ mod tests {
     #[test]
     fn build_config_options_omits_thinking_for_a_model_with_no_levels() {
         let models = [model_without_levels("gpt-5-chat-latest")];
-        let options = build_config_options("codex", &models, "gpt-5-chat-latest", "");
+        let options = build_config_options("codex", &models, "gpt-5-chat-latest", "", "");
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert!(ids.contains(&"model"));
         assert!(ids.contains(&"mode"));
@@ -2853,7 +2918,7 @@ mod tests {
     #[test]
     fn build_config_options_omits_mode_for_a_harness_with_none() {
         let models = [model_without_levels("some-model")];
-        let options = build_config_options("opencode", &models, "some-model", "");
+        let options = build_config_options("opencode", &models, "some-model", "", "");
         let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
         assert!(ids.contains(&"model"));
         assert!(!ids.contains(&"mode"));
@@ -2944,6 +3009,7 @@ mod tests {
                 project_id,
                 agent_type: "not-a-real-harness".to_string(),
                 account: None,
+                profile: None,
                 cwd: std::path::PathBuf::from("."),
                 chosen_model: None,
                 chosen_thinking: None,

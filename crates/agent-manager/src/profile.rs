@@ -70,6 +70,11 @@ pub struct Profile {
     /// isolation axis; a lower-precedence layer or per-run `--isolate` decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub isolate: Option<ProfileIsolate>,
+    /// Default permission mode for runs of this profile (the harness-native
+    /// mode id, e.g. `"plan"`). `None` means the profile doesn't mention the
+    /// axis; a per-run `--permission-mode` outranks it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
 
 /// The `[defaults]` sub-table of a profile: the composition a run overlays.
@@ -430,6 +435,9 @@ pub fn flatten(chain: &[Profile]) -> Profile {
         }
         if profile.isolate.is_some() {
             acc.isolate = profile.isolate.clone();
+        }
+        if profile.mode.is_some() {
+            acc.mode = profile.mode.clone();
         }
         acc.defaults.overlay(&profile.defaults);
     }

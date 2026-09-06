@@ -105,6 +105,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::login(app, window, cx)),
         )
+        // The profile form, painted beside the login modal: both are raised from the harnesses
+        // section, and only one is ever up.
+        .children(
+            app.workbench
+                .settings
+                .profile_form
+                .as_ref()
+                .map(|_| settings::profile_form(app, window, cx)),
+        )
         // The accounts section's rename, delete or sign-out question — painted after the login
         // modal for the same reason that one is painted after the settings page: each can be up
         // over what raised it and has to be on top.

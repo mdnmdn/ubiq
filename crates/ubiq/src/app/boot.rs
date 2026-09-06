@@ -148,6 +148,13 @@ impl AppState {
         let login_account_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
 
+        // Seeded whenever the profile form opens: empty for a new setup, the profile's own
+        // values when one is being edited.
+        let profile_id_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("reviewer, planner\u{2026}"));
+        let profile_model_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("gpt-5, sonnet\u{2026}"));
+
         // Seeded fresh with the account's current id whenever the rename dialog opens, so this
         // construction-time placeholder is only ever seen ahead of that.
         let account_rename_input =
@@ -656,6 +663,8 @@ impl AppState {
             sink_textarea.read(cx).focus_handle(cx),
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
+            profile_id_input.read(cx).focus_handle(cx),
+            profile_model_input.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
@@ -805,6 +814,8 @@ impl AppState {
             sink_textarea,
             sink_modal_input,
             login_account_input,
+            profile_id_input,
+            profile_model_input,
             account_rename_input,
             clone_filter_input,
             clone_url_input,

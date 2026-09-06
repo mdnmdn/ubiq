@@ -5,9 +5,9 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-05
-verified: 2026-09-05
-code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
 ---
@@ -54,7 +54,7 @@ false are deleted rather than annotated: this is what is true now.
 | **A thinking / reasoning-effort catalog exists in Rust for two of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses. opencode, Copilot CLI and Grok CLI still answer the empty default — none of the three exposes a reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is still a *label on an option*, not wired to this catalog | The library-side catalog exists for the two harnesses that support reasoning effort; nothing in the UI or bridge layer consumes it yet, so "thinking budget" is still not a picker anyone can draw |
 | **No bridge emits `ConfigOptionUpdate`, and all four reject `SetConfigOption`.** `AgentEvent::ConfigOptionUpdate` (`io/model.rs:623`) has zero producers; `Message::SetAgentConfig` is fully plumbed host-side (`coordinator.rs:647`) and fails one layer down | The config-option mechanism is a shape with nothing behind it. A model chosen at launch works; a model changed mid-turn cannot |
 | `Policy` carries an opaque `permission_mode` string, passed through per harness. Claude's `init` event already reports `permissionMode`, and the bridge surfaces it as `SessionStarted.mode` | The mode is the one item of the three that is free — it is already on the wire as `ConvUpdate::Started` |
-| **Ubiq never touches `agent_manager::session`.** No `SessionStore`, no `sessions_root`, no transcript. Ubiq's own sessions and agents are in-memory (`ubiq-host/src/work/mod.rs`), and only tasks persist | Nothing survives a restart, and no session record is written for an embedded run — the CLI writes one on every run, Ubiq on none |
+| **Ubiq writes a session record of its own.** `crates/ubiq-host/src/agent.rs` calls `agent_manager::session::save` the moment a run is composed, into `<ubiq root>/sessions` — a directory it passes explicitly, so `AM_SESSIONS` cannot redirect a user's Ubiq transcripts — and copies the harness's own transcript in at teardown. Ubiq's sessions and agents are otherwise in-memory (`ubiq-host/src/work/mod.rs`), and only tasks persist | A run's record and the harness's own file outlive the run directory. `am session ls` reads the library's store and so does not list Ubiq's runs; and the record is metadata plus a harness file, not an `AgentEvent` transcript. The live conversation state still does not survive a restart |
 | `to_acp` is a **stateless one-event mapper** that drops `ApprovalRequest`, `Usage`, `Result` and `SessionStarted`, and emits no JSON-RPC envelope, no session id and no turn brackets | There is no ACP endpoint today. The vocabulary is right; the protocol is not implemented |
 | `WorkAgent.thread` is `Vec<Turn>` of `{ from, text }`, replaced whole on every `AgentChanged` | A token stream would re-send the entire conversation per token |
 | The library cannot kill a process **group** — it is `#![forbid(unsafe_code)]` with no `libc` | A cancelled turn can leave grandchildren. multica solves this with process groups; we cannot copy that directly |
@@ -285,32 +285,57 @@ the camelCase mismatch in the bridge, and the hard-coded context window in the i
 **Done when** a column's footer reports the real model, the real tokens and a ring computed from
 that model's real context window.
 
-### P2c — The session record, made portable, harness by harness
+### P2c — The session record, made portable, harness by harness — **landed**
 
 A harness writes its own transcript to disk, and it is richer than anything it streams: Claude's
 session file carries the sidechain flag, per-message uuids, the parent tool-use id, timestamps and
-full tool payloads — the whole record, not the projection the wire carries.
+full tool payloads — the whole record, not the projection the wire carries. Claude keeps those
+transcripts under `projects/<hash>/` *inside* its configuration directory, which the library
+relocates into the throwaway run directory the pane deletes on close. So the record has to be
+copied out before that deletion, and it is.
 
-**And Ubiq is currently destroying it**, twice over. Claude keeps those transcripts under
-`projects/<hash>/` *inside* its configuration directory, which the library relocates into the
-throwaway run directory the pane deletes on close — correct for configuration, wrong for the record,
-invisible until someone looks for a conversation that should still exist. And Ubiq writes no
-`SessionMeta` either, so an embedded run leaves no record where a CLI run leaves one.
+**Which files are the record is the harness's answer.** `Harness::transcripts(config_dir)`
+(`crates/agent-manager/src/harness/mod.rs`, beside `config_anchor`) answers the files a harness
+wrote as its own record inside a relocated configuration directory. It is defaulted to empty, and
+an empty answer means exactly one thing: *this harness's record is not portable yet*. `Claude`
+(`crates/agent-manager/src/harness/claude.rs`) is the one override — every `*.jsonl` directly under
+`<config_dir>/projects/*/`. Adding a harness to this is a change there, never a path literal in
+Ubiq.
 
-So: at teardown, before the sweep, copy the harness's own transcript into the library's session
-store beside a `SessionMeta`. `ConfigAnchor` already knows where each harness keeps its files, which
-is why this is a per-harness step worth doing one harness at a time, starting with P1's.
+**Ubiq writes the metadata at composition and the transcript at teardown.**
+`crates/ubiq-host/src/agent.rs` builds a `SessionMeta` and calls `agent_manager::session::save` —
+which creates `<root>/<id>/` and writes `meta.json` and nothing else — right after a run is
+provisioned. It is deliberately not the library's `session::start`, which would also create an
+empty `transcript.jsonl` that `read_transcript` would report back as an empty `AgentEvent`
+transcript: a lie, because Ubiq's record is the harness's own file rather than `AgentEvent` lines.
+The meta's `id` is the pane's or the agent's ULID, because that is what a teardown has in hand and
+the harness's own session id never reaches this process. Writing it at composition rather than at
+the end is what makes a crashed run recoverable. It is best effort throughout: a sessions root that
+cannot be written never fails a spawn.
 
-That record is what makes statistics possible — tokens, cost, duration and turn count per session,
-per model and per definition, over conversations that outlive the pane — and it is the precondition
-for stopping an idle agent and recovering it later, which is otherwise just a kill.
+`Agents::archive(key)` is the teardown half. It loads the meta — returning silently when there is
+none, which is a plain shell pane and the common case — resolves the harness, copies each file
+`transcripts(run_dir)` names into `<sessions>/<key>/harness/<name>`, stamps `finished_at` and
+re-saves. `retire`, `retire_agent` and `sweep` all call it first, `sweep` per entry: a run that
+crashed is exactly the one whose record matters most, and its `finished_at` is then the sweep's own
+time with `exit_code` left `None` — an honest "we do not know how it ended".
 
-**Watch for:** a captured transcript holds prompts, file contents and tool output. It is the user's
-data, it belongs under Ubiq's own root rather than in a project, and deleting a session has to mean
-deleting it.
+**The store is Ubiq's, not the library's.** `Agents::sessions_dir()` is `<ubiq root>/sessions`
+(`~/.config/ubiq/sessions`), passed explicitly rather than resolved through
+`session::sessions_root`, so `AM_SESSIONS` cannot redirect a user's Ubiq transcripts into the `am`
+CLI's store. The consequence is deliberate and worth knowing: `am session ls` does not list Ubiq's
+runs.
 
-**Done when** a conversation's full record survives closing its pane, and a second run of the same
-agent definition can be compared with the first on tokens, cost and duration.
+Nothing on the wire changed — no message, no `ubiq-proto` type, no coordinator or conversation
+code. The record is a host-side file, and the surfaces that would read it are what comes next.
+
+**What this unblocks and does not deliver.** A conversation's record survives closing its pane,
+which is the precondition for per-session statistics and for resuming a stopped agent — but nothing
+replays it yet, so a resumed harness still starts with no memory of the transcript above it
+(`G120`). And nothing deletes a session record either: the store grows one directory per
+conversation, and a captured transcript holds prompts, file contents and tool output. It is the
+user's data, it belongs under Ubiq's own root rather than in a project, and deleting a session has
+to mean deleting it (`G164`).
 
 ### P2d — The host stops building its own `RunSpec`, and one view draws every conversation — **landed**
 
@@ -477,8 +502,8 @@ UI asks. Honour ACP's four option kinds (allow once, allow always, reject once, 
 
 Skills and MCP composition on the wire (`G31`, `G78`); Ubiq's own MCP surface so a hosted agent can
 call back into the window (`G7`, with the library's in-process MCP as the mechanism); agents on
-remote hosts. None block P1 to P6. Resuming a conversation after a restart is no longer deferred so
-much as blocked on P2c, which is what would give it a record to resume from.
+remote hosts. None block P1 to P6. Resuming a conversation after a restart has its record — P2c
+wrote it — and waits only on the replay that hands it to a fresh harness (`G120`).
 
 ## Traps
 
@@ -502,8 +527,10 @@ much as blocked on P2c, which is what would give it a record to resume from.
 - **An empty string still draws a pill.** A pill is a box with a border, so a record field nobody
   filled renders as a small empty box that reads as a value the interface failed to show. Every
   footer pill is now guarded; new ones must be.
-- **Ubiq persists no session and no transcript.** It never touches `agent_manager::session`, so
-  nothing survives a restart — see the inventory, and P2c for what closing that costs.
+- **A surviving transcript is not a resumable conversation.** P2c leaves the harness's own record
+  under `<ubiq root>/sessions/<id>/harness/`, but nothing replays it: a restart, and a resume under
+  the same `agent_id`, both start a harness that remembers nothing. The record is the input a
+  replay needs, not the replay — `G120`.
 - **A confined structured run is not possible yet.** `--isolate` with `--io structured` is refused,
   because a bridge spawns its own piped child and isol8 needs the descriptors. The seam now exists
   in isol8 as a stdio entry point, so this becomes a small change to how a bridge is handed its
@@ -548,8 +575,8 @@ much as blocked on P2c, which is what would give it a record to resume from.
    `UnloadConversation`/`ConversationUnloaded`, and `ResumeConversation` to start it again under the
    same `agent_id` — so a harness someone is not actively driving no longer has to be killed outright
    to reclaim it. What is still open is *when* — nothing today unloads one on the user's behalf after
-   a while of disuse, and a resumed harness starts with no memory of the transcript above it until
-   the resumable record (P2c) exists for it to replay from.
+   a while of disuse, and a resumed harness starts with no memory of the transcript above it. P2c
+   gives it a record to replay from; nothing replays it (`G120`).
 
 ## Related docs
 

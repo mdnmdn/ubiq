@@ -14,7 +14,7 @@
 
 use gpui::SharedString;
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ShellInfo};
+use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::work::AgentId;
 
 use crate::state::clone::CloneState;
@@ -211,6 +211,9 @@ pub enum HarnessChoice {
         /// The account id, which is what crosses the wire.
         account: String,
     },
+    /// A saved setup, by its index in [`crate::state::settings::SettingsState::profiles`]. It
+    /// names its own harness, identity, model and mode — everything the start needs.
+    Profile(usize),
     /// A heading or a hairline: drawn, never picked. It holds an index because a menu's rows and
     /// the actions behind them are matched by position, which is what keeps `on_pick(index)`
     /// honest once the list has groups.
@@ -400,7 +403,13 @@ impl WorkbenchState {
     /// Unavailable harnesses keep their row in `Default`, disabled, so the menu says a tool is
     /// missing rather than silently omitting it — the same rule the flat list followed before
     /// identities.
-    pub fn harness_choices(&self, accounts: &[AccountInfo]) -> Vec<HarnessChoice> {
+    /// Saved setups add a third, `Defined` group below the other two, omitted heading and all
+    /// when there are none — the rule `Configured` already follows.
+    pub fn harness_choices(
+        &self,
+        accounts: &[AccountInfo],
+        profiles: &[ProfileInfo],
+    ) -> Vec<HarnessChoice> {
         let defaults = (0..self.agent_types.len()).map(HarnessChoice::Harness);
 
         let pairs: Vec<HarnessChoice> = self
@@ -418,15 +427,22 @@ impl WorkbenchState {
             })
             .collect();
 
-        if pairs.is_empty() {
+        if pairs.is_empty() && profiles.is_empty() {
             return defaults.collect();
         }
 
         let mut rows: Vec<HarnessChoice> = vec![HarnessChoice::Label("Default".into())];
         rows.extend(defaults);
-        rows.push(HarnessChoice::Separator);
-        rows.push(HarnessChoice::Label("Configured".into()));
-        rows.extend(pairs);
+        if !pairs.is_empty() {
+            rows.push(HarnessChoice::Separator);
+            rows.push(HarnessChoice::Label("Configured".into()));
+            rows.extend(pairs);
+        }
+        if !profiles.is_empty() {
+            rows.push(HarnessChoice::Separator);
+            rows.push(HarnessChoice::Label("Defined".into()));
+            rows.extend((0..profiles.len()).map(HarnessChoice::Profile));
+        }
         rows
     }
 
@@ -447,6 +463,7 @@ mod tests {
             id: id.to_string(),
             label: id.to_string(),
             available,
+            modes: Vec::new(),
         }
     }
 
@@ -454,6 +471,16 @@ mod tests {
         AccountInfo {
             id: id.to_string(),
             logged_in: logged_in.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn profile(id: &str, agent_type: &str) -> ProfileInfo {
+        ProfileInfo {
+            id: id.to_string(),
+            agent_type: agent_type.to_string(),
+            account: None,
+            model: None,
+            mode: None,
         }
     }
 
@@ -471,7 +498,7 @@ mod tests {
         let state = with(vec![harness("claude-code", true), harness("codex", true)]);
 
         assert_eq!(
-            state.harness_choices(&[]),
+            state.harness_choices(&[], &[]),
             vec![HarnessChoice::Harness(0), HarnessChoice::Harness(1)]
         );
     }
@@ -489,7 +516,7 @@ mod tests {
         ];
 
         assert_eq!(
-            state.harness_choices(&accounts),
+            state.harness_choices(&accounts, &[]),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),
@@ -523,7 +550,7 @@ mod tests {
         ];
 
         assert_eq!(
-            state.harness_choices(&accounts),
+            state.harness_choices(&accounts, &[]),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),
@@ -552,7 +579,7 @@ mod tests {
         let accounts = [account("mdn", &["claude-code"])];
 
         assert_eq!(
-            state.harness_choices(&accounts),
+            state.harness_choices(&accounts, &[]),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),
@@ -567,6 +594,27 @@ mod tests {
         );
     }
 
+    /// A saved setup adds a third, "Defined" group — and it appears with no account signed in at
+    /// all, since a profile carries its own identity. `Configured` stays absent in that case:
+    /// an empty heading is worse than none, which is the rule this group inherits.
+    #[test]
+    fn profiles_add_a_defined_group_of_their_own() {
+        let state = with(vec![harness("codex", true)]);
+        let profiles = [profile("reviewer", "codex"), profile("writer", "codex")];
+
+        assert_eq!(
+            state.harness_choices(&[], &profiles),
+            vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Defined".into()),
+                HarnessChoice::Profile(0),
+                HarnessChoice::Profile(1),
+            ]
+        );
+    }
+
     /// The whole point of matching by position: once the decorations are counted in, a `Pair`'s
     /// index in the full list still names the same `(harness, account)` the row shows.
     #[test]
@@ -574,7 +622,7 @@ mod tests {
         let state = with(vec![harness("claude-code", true), harness("codex", true)]);
         let accounts = [account("mdn", &["codex"])];
 
-        let rows = state.harness_choices(&accounts);
+        let rows = state.harness_choices(&accounts, &[]);
         assert_eq!(
             rows[5],
             HarnessChoice::Pair {

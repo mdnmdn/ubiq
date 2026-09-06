@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
 use ubiq_proto::ids::{ConnectId, ConnectionId, OauthAppId, PaneId};
-use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus};
+use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
 use ubiq_proto::settings::HostSettings;
 
 use crate::state::editor::ViewLayout;
@@ -359,6 +359,12 @@ pub struct SettingsState {
     /// The accounts the host holds. References only — an id and the harnesses it covers — and
     /// only ever what the host last said, like `host` above.
     pub accounts: Vec<AccountInfo>,
+    /// The saved setups the host holds — a harness plus the identity, model and mode to start it
+    /// with. References only, like `accounts`, and only ever what the host last said.
+    pub profiles: Vec<ProfileInfo>,
+    /// The profile form, while one is up. It carries the profile being edited; the id and model
+    /// are read out of their fields at save time, the way the login modal reads its name.
+    pub profile_form: Option<ProfileInfo>,
     /// The login modal, while one is up.
     pub login: Option<LoginState>,
     /// The rename, delete or sign-out question over one account, while one is up.
@@ -417,6 +423,8 @@ impl Default for SettingsState {
             ui: UiSettings::default(),
             host: HostSettings::default(),
             accounts: Vec::new(),
+            profiles: Vec::new(),
+            profile_form: None,
             bundled: Vec::new(),
             app_form: None,
             pending_secret: None,

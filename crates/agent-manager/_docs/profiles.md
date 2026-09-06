@@ -168,7 +168,8 @@ profiles/<name>/
 │   ├── account       = "<id>"               <relocated config dir> (ephemeral)
 │   ├── harness       = "claude"  (optional)  ├── (seeded identity from base/)
 │   ├── mcps/skills/hooks/model/instructions  ├── mcp.json    ← composition
-│   └── isolate       = false | "<policy>"    ├── skills/     ← composition
+│   ├── mode          = "<permission mode>"   ├── skills/     ← composition
+│   └── isolate       = false | "<policy>"
 ```
 
 A run resolves as: **profile → materialize overlay (seed base + write
@@ -201,8 +202,13 @@ CLI flag  >  --profile <name>  >  [defaults].profile  >  implicit "default"
   (`am profile use <name>` → `[defaults].profile`), not a bare default account.
   One knob for "what runs by default"; the account default is just a field of
   that profile.
-- Per-run flags (`--mcps`, `--model`, `--account`, `--isolate`) still override
-  the profile's fields, so a profile is a *default*, never a straitjacket.
+- Per-run flags (`--mcps`, `--model`, `--account`, `--permission-mode`,
+  `--isolate`) still override the profile's fields, so a profile is a *default*,
+  never a straitjacket.
+- **`mode`** is the harness-native permission mode (e.g. `mode = "plan"`), a
+  policy axis like `isolate` rather than a composition default — it lands on
+  `spec.policy.permission_mode`, under `--permission-mode` and above nothing
+  else.
 
 ## 8. Isolation is an orthogonal axis
 

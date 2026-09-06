@@ -324,6 +324,7 @@ fn cmd_create(opts: CreateOpts) -> Result<()> {
             ..Default::default()
         },
         isolate: None,
+        mode: None,
     };
 
     let path = store.save(&profile)?;

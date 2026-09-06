@@ -17,7 +17,7 @@ use ubiq_proto::connectors::{
     TrustedCert, origin,
 };
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus};
+use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileInfo};
 use ubiq_proto::projects::IndexLevel;
 
 use crate::app::AppState;
@@ -445,9 +445,16 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "Add harness",
                 cx.listener(|this, _, window, cx| this.open_harness_login(window, cx)),
             ))
+            .child(ghost_button(
+                "app-settings-add-profile",
+                Some(IconName::Plus),
+                "Add profile",
+                cx.listener(|this, _, window, cx| this.open_profile_form(None, window, cx)),
+            ))
             .into_any_element(),
     );
     rows.push(accounts(app, cx));
+    rows.push(profiles(app, cx));
     column(rows)
 }
 
@@ -674,6 +681,103 @@ fn accounts(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .map(|account| account_block(app, account, now_ms, cx)),
         )
         .into_any_element()
+}
+
+/// The saved setups, one row each: what it is called, and what it starts.
+///
+/// Empty draws nothing at all — the `Add profile` button above already says the list can grow,
+/// and a second empty-state beside the accounts' one would be two notices about one section.
+fn profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    if app.workbench.settings.profiles.is_empty() {
+        return div().into_any_element();
+    }
+    let profiles = app.workbench.settings.profiles.clone();
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(section_label("Profiles"))
+        .children(profiles.iter().map(|profile| profile_row(app, profile, cx)))
+        .into_any_element()
+}
+
+/// One saved setup: `reviewer — Codex · gpt-5 · plan`, and the way back into its form.
+///
+/// Every field after the harness is optional and an empty one is left out rather than drawn as an
+/// empty pill. A profile naming a harness this machine does not have reads faint, the same way a
+/// harness row that is not installed does.
+fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>) -> AnyElement {
+    let available = app
+        .workbench
+        .agent_types
+        .iter()
+        .any(|info| info.id == profile.agent_type && info.available);
+
+    let mut parts = vec![harness_label(app, &profile.agent_type).to_string()];
+    parts.extend(profile.account.clone().filter(|it| !it.is_empty()));
+    parts.extend(profile.model.clone().filter(|it| !it.is_empty()));
+    parts.extend(
+        profile
+            .mode
+            .as_deref()
+            .filter(|it| !it.is_empty())
+            .map(|mode| mode_label(app, &profile.agent_type, mode).to_string()),
+    );
+
+    let edit = profile.clone();
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .py_1()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .min_w(px(0.))
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .text_color(if available {
+                            theme::text()
+                        } else {
+                            theme::text_faint()
+                        })
+                        .child(SharedString::from(profile.id.clone())),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::text_muted())
+                        .child(SharedString::from(format!(
+                            "\u{2014} {}",
+                            parts.join(" \u{b7} ")
+                        ))),
+                ),
+        )
+        .child(ghost_button(
+            ElementId::Name(format!("app-settings-profile-{}-edit", profile.id).into()),
+            None,
+            "Edit",
+            cx.listener(move |this, _, window, cx| {
+                this.open_profile_form(Some(edit.clone()), window, cx)
+            }),
+        ))
+        .into_any_element()
+}
+
+/// A mode's display name, through the harness's own list — falling back to the raw value when
+/// the harness is gone or no longer offers it.
+fn mode_label<'a>(app: &'a AppState, agent_type: &str, mode: &'a str) -> &'a str {
+    app.workbench
+        .agent_types
+        .iter()
+        .find(|info| info.id == agent_type)
+        .and_then(|info| info.modes.iter().find(|choice| choice.value == mode))
+        .map(|choice| choice.name.as_str())
+        .unwrap_or(mode)
 }
 
 /// The harness's display name, resolved through what the host offers — falling back to the
@@ -936,6 +1040,210 @@ pub fn account_dialog(
 /// This is a modal rather than a tab on purpose: an OAuth flow wants the whole of the user's
 /// attention for the half-minute it takes, and a login that scrolled away behind a pane is a
 /// login nobody finishes.
+/// The profile form: a name, a harness, and the three references a start can carry.
+///
+/// Built like the login modal because it asks the same kind of question — one screen, pills for
+/// what is chosen from a list, fields for what is typed. The model is one of those fields rather
+/// than a picker: the harness's true model list is only known once a conversation is up, and that
+/// is where it is offered.
+pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(form) = app.workbench.settings.profile_form.clone() else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let chosen = app
+        .workbench
+        .agent_types
+        .iter()
+        .find(|it| it.id == form.agent_type);
+    let named = !app.profile_id_input.read(cx).value().trim().is_empty();
+    let ready = named && chosen.is_some();
+
+    let accounts = app.workbench.settings.accounts_for(&form.agent_type);
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "A saved setup: which harness, as whom, on which model and in which mode. Starting \
+             one from New agent skips every question.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Name",
+                    "What to call this setup. Saving over an existing name replaces it.",
+                ))
+                .child(
+                    field(
+                        theme::border(),
+                        app.profile_id_input
+                            .read(cx)
+                            .focus_handle(cx)
+                            .is_focused(window),
+                    )
+                    .h(px(30.))
+                    .px_2()
+                    .child(Input::new(&app.profile_id_input).appearance(false)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block("Harness", "Which tool this setup runs."))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
+                        // Only what is installed here, the same rule the login picker follows.
+                        .children(
+                            app.workbench
+                                .agent_types
+                                .iter()
+                                .filter(|it| it.available)
+                                .map(|agent_type| {
+                                    let id = agent_type.id.clone();
+                                    choice_pill(
+                                        ElementId::Name(
+                                            format!("app-settings-profile-harness-{id}").into(),
+                                        ),
+                                        &agent_type.label,
+                                        form.agent_type == agent_type.id,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.pick_profile_harness(id.clone(), cx)
+                                        }),
+                                    )
+                                }),
+                        ),
+                ),
+        )
+        // Only identities signed in to the chosen harness, and nothing at all when there are
+        // none — an empty row of pills is a question with no answers.
+        .when(!accounts.is_empty(), |body| {
+            let pills: Vec<_> = accounts
+                .iter()
+                .map(|account| {
+                    let id = account.id.clone();
+                    let active = form.account.as_deref() == Some(account.id.as_str());
+                    choice_pill(
+                        ElementId::Name(format!("app-settings-profile-account-{id}").into()),
+                        &account.id,
+                        active,
+                        cx.listener(move |this, _, _, cx| {
+                            // Picking the chosen one again clears it: there is no other way back
+                            // to "whatever the library would use".
+                            this.pick_profile_account((!active).then(|| id.clone()), cx)
+                        }),
+                    )
+                })
+                .collect();
+            body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(label_block(
+                        "Account",
+                        "Which identity it runs as. Leave it off to let the harness decide.",
+                    ))
+                    .child(div().flex().flex_wrap().gap_2().children(pills)),
+            )
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Model",
+                    "The model id this setup asks for, as the harness names it.",
+                ))
+                .child(
+                    field(
+                        theme::border(),
+                        app.profile_model_input
+                            .read(cx)
+                            .focus_handle(cx)
+                            .is_focused(window),
+                    )
+                    .h(px(30.))
+                    .px_2()
+                    .child(Input::new(&app.profile_model_input).appearance(false)),
+                ),
+        )
+        // A harness that advertises no modes draws no mode picker — several do not have any.
+        .when(chosen.is_some_and(|it| !it.modes.is_empty()), |body| {
+            let pills: Vec<_> = chosen
+                .map(|it| it.modes.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .map(|mode| {
+                    let value = mode.value.clone();
+                    let active = form.mode.as_deref() == Some(mode.value.as_str());
+                    choice_pill(
+                        ElementId::Name(format!("app-settings-profile-mode-{}", mode.value).into()),
+                        &mode.name,
+                        active,
+                        cx.listener(move |this, _, _, cx| {
+                            this.pick_profile_mode((!active).then(|| value.clone()), cx)
+                        }),
+                    )
+                })
+                .collect();
+            body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(label_block(
+                        "Mode",
+                        "The permission mode it starts in. Leave it off for the harness's own.",
+                    ))
+                    .child(div().flex().flex_wrap().gap_2().children(pills)),
+            )
+        })
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-profile-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, _, cx| this.close_profile_form(cx)),
+        ))
+        .child(
+            primary_button(
+                "app-settings-profile-save",
+                None,
+                "Save",
+                cx.listener(|this, _, _, cx| this.save_profile(cx)),
+            )
+            .when(!ready, |button| button.opacity(0.5)),
+        )
+        .into_any_element();
+
+    modal(
+        "app-settings-profile",
+        theme::accent(),
+        "Profile",
+        body,
+        footer,
+        crate::ui::handler(&view, |this, _, cx| this.close_profile_form(cx)),
+        window,
+    )
+}
+
 pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(login) = &app.workbench.settings.login else {
         return div().into_any_element();

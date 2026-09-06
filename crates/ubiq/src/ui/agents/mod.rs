@@ -206,7 +206,10 @@ pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement 
     let view = cx.entity();
     let items: Vec<kit::ContextItem> = app
         .workbench
-        .harness_choices(&app.workbench.settings.accounts)
+        .harness_choices(
+            &app.workbench.settings.accounts,
+            &app.workbench.settings.profiles,
+        )
         .iter()
         .filter_map(|row| {
             let (harness, account) = match row {
@@ -214,6 +217,19 @@ pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement 
                     return Some(kit::ContextItem::new(text.clone()).disabled());
                 }
                 HarnessChoice::Separator => return Some(kit::ContextItem::separator()),
+                // A profile draws under its own name rather than the harness's — "reviewer" is
+                // what the user called this setup — and reads disabled when the harness it names
+                // is not installed here, the same as a bare harness row.
+                HarnessChoice::Profile(index) => {
+                    let profile = app.workbench.settings.profiles.get(*index)?;
+                    let item = kit::ContextItem::new(SharedString::from(profile.id.clone()));
+                    let available = app
+                        .workbench
+                        .agent_types
+                        .iter()
+                        .any(|info| info.id == profile.agent_type && info.available);
+                    return Some(if available { item } else { item.disabled() });
+                }
                 HarnessChoice::Harness(harness) => (*harness, None),
                 HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
             };

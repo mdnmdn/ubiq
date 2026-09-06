@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-03
-verified: 2026-09-03
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -36,6 +36,8 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | What a run is composed of — skills, MCPs, account, instructions, hooks | the library |
 | Which accounts exist and how credentials are referenced | the library |
 | Session history and resume, as the *harness* understands it | the library |
+| Which files are a harness's own record of a conversation, and the on-disk shape a record is written in | the library |
+| Where a run's record is kept, under whose id, and when it is written | Ubiq |
 | How a harness's I/O is bridged into structured events, and what those events are called | the library |
 | The one translation from those events onto the bus | Ubiq |
 | What a policy grants, and how the operating system enforces it | the library |
@@ -117,6 +119,29 @@ look. See `D52`. And **a conversation is confined by nothing**, whatever the set
 bridge owns its child's descriptors and a sandbox needs them; every bridge answers each tool
 approval itself for the same reason. That is `G92` in [`../backlog.md`](../backlog.md), deliberate
 for the first end-to-end slice.
+
+**A run's record is written through the library and kept by Ubiq.** Two library entry points carry
+it. `Harness::transcripts(config_dir)` in `crates/agent-manager/src/harness/mod.rs` answers the
+files a harness wrote as its own record inside a relocated configuration directory — defaulted to
+empty, which means that harness's record is not portable yet, and overridden today only by
+`Claude`. That defaulted method is the reason rule 1 survives this feature: Ubiq copies a file whose
+path it was told, and a `projects/<hash>/*.jsonl` literal in `crates/ubiq-host/src/` would be the
+boundary crossed. `agent_manager::session::save` in `crates/agent-manager/src/session.rs` writes the
+`SessionMeta` — and only `meta.json`, deliberately not the library's `session::start`, which would
+leave an empty `transcript.jsonl` that `read_transcript` would report back as an empty
+`AgentEvent` transcript, when Ubiq's record is the harness's own file rather than `AgentEvent` lines.
+
+The three answers around them are Ubiq's. **Where the store lives**: `Agents::sessions_dir()` is
+`<root>/sessions`, passed to every call explicitly rather than resolved through
+`session::sessions_root`, so `AM_SESSIONS` cannot redirect a user's Ubiq transcripts into the store
+the `am` CLI manages — with the consequence, deliberate, that `am session ls` does not list Ubiq's
+runs. **Which id names a record**: the pane's or the agent's ULID, because that is what a teardown
+holds and the harness's own session id never reaches this process. **When it is written**: the
+metadata when a run is composed, so a run that crashes still has a record; the harness's files at
+teardown, in `Agents::archive`, which every path that deletes a run directory calls first — the
+startup sweep included, where the finish time is the sweep's own and the exit code stays unknown.
+All of it is best effort: a record that cannot be written is never a reason to fail a spawn or a
+close, and a run with no metadata is a plain shell pane rather than an error.
 
 Confining a run in a terminal Ubiq owns is macOS-only. isol8 spawns with inherited stdio and keeps
 its child handle private, so no host can hand it a pseudo-terminal; `isolate::confined_launch`

@@ -1326,6 +1326,7 @@ fn start_conversation(
         rel_path: None,
         agent_type: agent_type.to_string(),
         account: account.map(str::to_string),
+        profile: None,
     });
     agent_id
 }

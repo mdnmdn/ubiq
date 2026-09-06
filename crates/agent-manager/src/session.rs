@@ -310,6 +310,20 @@ pub fn load(root: &Path, id: &str) -> Result<SessionMeta> {
     Ok(meta)
 }
 
+/// Write one session's `meta.json` under `root`, creating its directory.
+///
+/// The write half of [`load`], for a recorder-less caller that owns its own
+/// record of the conversation (an embedder archiving the harness's own
+/// transcript files). Deliberately not [`start`]: that also creates an empty
+/// `transcript.jsonl`, which [`read_transcript`] would then report as an empty
+/// event transcript rather than as "there are no AgentEvents here".
+pub fn save(root: &Path, meta: &SessionMeta) -> Result<()> {
+    let dir = root.join(&meta.id);
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creating session dir {}", dir.display()))?;
+    write_meta(&dir, meta)
+}
+
 /// Path to a session's transcript file (may not exist, e.g. passthrough
 /// runs which record metadata only).
 pub fn transcript_path(root: &Path, id: &str) -> PathBuf {

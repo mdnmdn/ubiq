@@ -77,7 +77,7 @@ use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{
     ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId,
 };
-use ubiq_proto::messages::{CliShortcutAction, Message, Secret, WorkspaceInfo};
+use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
@@ -575,6 +575,11 @@ pub struct AppState {
     /// rather than a shared one, for the reason every other pair here is split: two
     /// states drawn at once would be one field in two places.
     pub login_account_input: Entity<InputState>,
+    /// The profile form's two typed fields: what the setup is called, and which model it picks.
+    /// The model is free text rather than a picker — the conversation's own model list is the
+    /// harness's answer, and it is offered where a conversation starts.
+    pub profile_id_input: Entity<InputState>,
+    pub profile_model_input: Entity<InputState>,
     /// The accounts section's rename dialog field, seeded with the account's current id when
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.

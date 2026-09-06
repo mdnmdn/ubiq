@@ -1024,6 +1024,9 @@ impl AppState {
                 // per account, so an empty account list would offer the harness alone and start
                 // it as nobody in particular.
                 self.bus.send(Message::ListAccounts);
+                // And the setups built on top of them, for the same reason: the menu offers a
+                // row per profile.
+                self.bus.send(Message::ListProfiles);
                 cx.notify();
             }
 
@@ -1073,6 +1076,14 @@ impl AppState {
                         })
                     });
                 self.workbench.settings.accounts = accounts;
+                cx.notify();
+            }
+            // The saved setups, replaced whole for the reason the accounts are: the host's
+            // answer is the list. It also closes the form, since a `Profiles` right after a
+            // `SaveProfile` is what says the write landed.
+            Message::Profiles { profiles } => {
+                self.workbench.settings.profiles = profiles;
+                self.workbench.settings.profile_form = None;
                 cx.notify();
             }
             Message::HarnessLoginStarted {

@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
-use crate::conversation::{ConvUpdate, StopReason};
+use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
@@ -232,6 +232,25 @@ pub enum Message {
     /// sentence, never a credential and never a path.
     AccountError {
         error: String,
+    },
+
+    // ── Profile family: the saved setups a conversation starts from ──
+    /// Which profiles exist. Answered with [`Message::Profiles`].
+    ListProfiles,
+    /// The profiles the host holds. A profile names an account, a model and a mode — every
+    /// field a reference, the same rule as [`Message::Accounts`].
+    Profiles {
+        profiles: Vec<ProfileInfo>,
+    },
+    /// Write a profile, creating it when its id names none. Answered with
+    /// [`Message::Profiles`], or [`Message::AccountError`] when the id is empty or not a
+    /// name a directory can carry — profiles are stored beside accounts and fail the same
+    /// way, which is why they share the error rather than minting a second one.
+    ///
+    /// There is deliberately no delete: a profile is a saved setup, and a stale one costs a
+    /// row in a list.
+    SaveProfile {
+        profile: ProfileInfo,
     },
 
     // ── Connector family: the identities an external *service* runs as ──
@@ -979,6 +998,10 @@ pub enum Message {
         /// somebody, and a conversation that changed identity halfway would be two
         /// conversations wearing one transcript.
         account: Option<String>,
+        /// Which saved setup to start from, from [`ProfileInfo`]. Absent is a bare start with
+        /// no profile at all. `account` above still wins where both name one — the profile is
+        /// the default, the pick is the user saying otherwise.
+        profile: Option<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -1222,6 +1245,10 @@ pub struct AgentTypeInfo {
     /// Whether the harness's own binary was found, so a row that cannot start says so before it is
     /// picked rather than failing as a spawn the user has to interpret.
     pub available: bool,
+    /// The permission modes this harness advertises, as the library reports them. Empty when
+    /// the harness has no such axis — a mode is not a universal concept, it is whatever this
+    /// particular harness named.
+    pub modes: Vec<ConfigChoice>,
 }
 
 /// One account, as the UI is told about it.
@@ -1240,6 +1267,26 @@ pub struct AccountInfo {
     /// present — so one account can serve several harnesses, and an empty list means the
     /// account is a reference to an environment variable rather than a captured session.
     pub logged_in: Vec<String>,
+}
+
+/// One profile, as the UI is told about it.
+///
+/// A profile is a saved setup: which harness, as whom, with which model and which permission
+/// mode. Like [`AccountInfo`] every field is a reference — an id the library resolves — and
+/// nothing here is credential material or a path. `None` on a field means the profile does not
+/// mention that axis, and a lower layer decides.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileInfo {
+    /// What the user named this setup, e.g. `review`.
+    pub id: String,
+    /// The library's harness id this profile is for, from [`AgentTypeInfo`].
+    pub agent_type: String,
+    /// Which identity it runs as, from [`AccountInfo`].
+    pub account: Option<String>,
+    /// The model id it picks, from the harness's own model list.
+    pub model: Option<String>,
+    /// The permission mode it picks, from [`AgentTypeInfo::modes`].
+    pub mode: Option<String>,
 }
 
 /// Secret material as it crosses the bus.

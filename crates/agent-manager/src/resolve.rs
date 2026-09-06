@@ -386,10 +386,15 @@ pub fn resolve(
     // `--permission-mode` overrides only the mode a `--safe` preset expanded into `spec.policy`
     // (or creates a bare `Policy` naming just the mode, when there was none) — everything else
     // the preset set (allow/ask/deny) is untouched.
-    if let Some(mode) = &flags.permission_mode {
+    // The profile's `mode` sits one layer below the flag, same as every other axis.
+    if let Some(mode) = flags
+        .permission_mode
+        .clone()
+        .or_else(|| profile.as_ref().and_then(|p| p.mode.clone()))
+    {
         spec.policy
             .get_or_insert_with(crate::spec::Policy::default)
-            .permission_mode = Some(mode.clone());
+            .permission_mode = Some(mode);
     }
     spec.model = flags
         .model
@@ -712,6 +717,41 @@ mod tests {
         assert_eq!(policy.permission_mode.as_deref(), Some("plan"));
         // Everything else the preset set survives untouched.
         assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+    }
+
+    #[test]
+    fn permission_mode_precedence_flag_then_profile_then_none() {
+        let reg = test_registry();
+        let settings = Settings::default();
+
+        let mut work = prof("work");
+        work.mode = Some("plan".to_string());
+        let store = || TestProfileStore {
+            profiles: vec![work.clone()],
+        };
+
+        // none: no flag, no profile mode -> no policy at all.
+        let f = flags("claude");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        assert!(spec.policy.is_none());
+
+        // profile: the profile's mode applies.
+        let mut f = flags("claude");
+        f.profile = Some("work".to_string());
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &store()).expect("resolve");
+        assert_eq!(
+            spec.policy.expect("policy").permission_mode.as_deref(),
+            Some("plan")
+        );
+
+        // flag: outranks the profile.
+        f.permission_mode = Some("acceptEdits".to_string());
+        let spec = resolve(&f, &settings, &reg, &EmptyAccountStore, &store()).expect("resolve");
+        assert_eq!(
+            spec.policy.expect("policy").permission_mode.as_deref(),
+            Some("acceptEdits")
+        );
     }
 
     #[test]

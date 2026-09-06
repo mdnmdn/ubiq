@@ -74,6 +74,28 @@ impl Harness for Claude {
         }
     }
 
+    /// Claude Code writes one JSONL transcript per conversation under
+    /// `<config-dir>/projects/<slugged-cwd>/<session-uuid>.jsonl`. Everything
+    /// directly under a project dir that ends in `.jsonl` is one such record.
+    fn transcripts(&self, config_dir: &Path) -> Vec<std::path::PathBuf> {
+        let Ok(projects) = std::fs::read_dir(config_dir.join("projects")) else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        for project in projects.flatten() {
+            let Ok(files) = std::fs::read_dir(project.path()) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let path = file.path();
+                if path.extension().is_some_and(|ext| ext == "jsonl") {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
     /// Live model list via headless stream-json + the `/model` slash command.
     ///
     /// Claude Code has no dedicated list/JSON CLI. The preferred path (see
@@ -754,6 +776,20 @@ mod tests {
     use std::path::PathBuf;
 
     super::super::shared::harness_conformance_tests!(Claude, "claude-code");
+
+    /// The harness's own record is what an embedder archives, so it must find
+    /// the per-project JSONL files and nothing else that shares the directory.
+    #[test]
+    fn transcripts_finds_project_jsonl_and_ignores_other_files() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let project = config_dir.path().join("projects/-tmp-project");
+        std::fs::create_dir_all(&project).unwrap();
+        let transcript = project.join("2f0c1e6a-0000-4000-8000-000000000000.jsonl");
+        std::fs::write(&transcript, b"{}\n").unwrap();
+        std::fs::write(project.join("notes.txt"), b"not a transcript").unwrap();
+
+        assert_eq!(Claude.transcripts(config_dir.path()), vec![transcript]);
+    }
 
     #[test]
     fn provision_writes_mcp_json_skills_and_launch_without_touching_home() {

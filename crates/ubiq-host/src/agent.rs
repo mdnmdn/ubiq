@@ -19,15 +19,17 @@ use agent_manager::account::{AccountStore, FsAccountStore, login_validity};
 use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
-use agent_manager::profile::FsProfileStore;
+use agent_manager::profile::{FsProfileStore, Profile, ProfileDefaults, ProfileStore};
 use agent_manager::provision;
 use agent_manager::registry::FsRegistry;
 use agent_manager::resolve;
+use agent_manager::session;
 use agent_manager::settings::Settings;
 use agent_manager::spec::{ConfigStrategy, IoModes, Isolation};
 use anyhow::{Context, Result, anyhow, bail};
+use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus};
+use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus, ProfileInfo};
 use ubiq_proto::work::AgentId;
 
 /// The agent types this machine can run, and the composer behind them.
@@ -198,6 +200,16 @@ impl Agents {
                 id: harness.id(),
                 label: harness.display_name().to_string(),
                 available: crate::shells::locate(harness.command()).is_some(),
+                modes: harness
+                    .modes()
+                    .into_iter()
+                    .map(|mode| ConfigChoice {
+                        value: mode.id,
+                        name: mode.label,
+                        description: mode.description,
+                        group: None,
+                    })
+                    .collect(),
             })
             .collect()
     }
@@ -268,6 +280,53 @@ impl Agents {
                 })
             })
             .collect()
+    }
+
+    /// The profile store, over Ubiq's own root. Built per call, for the same reason
+    /// [`account_store`](Self::account_store) is.
+    fn profile_store(&self) -> FsProfileStore {
+        FsProfileStore::new(self.root.join("profiles"))
+    }
+
+    /// Every profile Ubiq knows: a saved setup, flattened to the four references the
+    /// interface shows. A profile with no harness pin is skipped — the interface offers
+    /// profiles per harness row, and one that names none belongs to no row.
+    pub fn profiles(&self) -> Result<Vec<ProfileInfo>> {
+        Ok(self
+            .profile_store()
+            .profiles()
+            .context("reading the profiles Ubiq knows")?
+            .into_iter()
+            .filter_map(|profile| {
+                Some(ProfileInfo {
+                    id: profile.id,
+                    agent_type: profile.harness?,
+                    account: profile.account,
+                    model: profile.defaults.model,
+                    mode: profile.mode,
+                })
+            })
+            .collect())
+    }
+
+    /// Write a profile, creating it when its id names none. Overwrites in place: a saved
+    /// setup is edited, not versioned.
+    pub fn save_profile(&self, profile: ProfileInfo) -> Result<()> {
+        let record = Profile {
+            id: profile.id,
+            harness: Some(profile.agent_type),
+            account: profile.account,
+            defaults: ProfileDefaults {
+                model: profile.model,
+                ..Default::default()
+            },
+            mode: profile.mode,
+            ..Default::default()
+        };
+        self.profile_store()
+            .save(&record)
+            .with_context(|| format!("saving profile '{}'", record.id))?;
+        Ok(())
     }
 
     /// Whether `account` has a usable, current credential for `agent_type`, as the credential
@@ -491,6 +550,7 @@ impl Agents {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -516,6 +576,7 @@ impl Agents {
         model: Option<String>,
         thinking: Option<String>,
         mode: Option<String>,
+        profile: Option<String>,
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -529,6 +590,7 @@ impl Agents {
             model,
             thinking,
             mode,
+            profile,
         )?;
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
@@ -574,6 +636,7 @@ impl Agents {
         model: Option<String>,
         thinking: Option<String>,
         mode: Option<String>,
+        profile: Option<String>,
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -597,6 +660,9 @@ impl Agents {
             model,
             thinking,
             permission_mode: mode,
+            // The saved setup the picks sit on top of. `None` is a bare start, and the
+            // library then falls back to whatever profile it resolves on its own.
+            profile,
             ..Default::default()
         };
         let mut spec = resolve::resolve(
@@ -634,6 +700,31 @@ impl Agents {
         )
         .with_context(|| format!("resolving the policy for a {agent_type} run"))?;
 
+        // The session record, written now rather than at teardown: a run that
+        // crashes is exactly the one whose record is worth keeping, and
+        // `archive` needs a meta to find it by. Best effort, like the library's
+        // own CLI recorder — a sessions root that cannot be written must never
+        // fail a spawn.
+        let mut meta = session::SessionMeta::new(
+            spec.harness.clone(),
+            cwd.to_path_buf(),
+            std::iter::once(provisioned.launch.program.clone())
+                .chain(provisioned.launch.args.iter().cloned())
+                .collect(),
+            spec.account.as_ref().map(|a| a.id.clone()),
+            if structured {
+                "structured".to_string()
+            } else {
+                "passthrough".to_string()
+            },
+            provisioned.dir.clone(),
+        );
+        // The pane's (or agent's) own id, not the library's `<millis>-<pid>`:
+        // it is what a teardown has in hand, and the harness's own session id
+        // never reaches this process.
+        meta.id = key.to_string();
+        let _ = session::save(&self.sessions_dir(), &meta);
+
         Ok(Composed {
             launch: provisioned.launch.clone(),
             confined,
@@ -641,6 +732,49 @@ impl Agents {
             provisioned,
             spec_account: spec.account.as_ref().map(|a| a.id.clone()),
         })
+    }
+
+    /// Ubiq's own session store: one directory per run, under Ubiq's config
+    /// root. Always passed explicitly, never resolved through
+    /// `session::sessions_root` — `AM_SESSIONS` must not be able to redirect a
+    /// user's Ubiq transcripts into the library's store.
+    fn sessions_dir(&self) -> PathBuf {
+        self.root.join("sessions")
+    }
+
+    /// Copy the harness's own record of the conversation out of a run
+    /// directory, before that directory is deleted.
+    ///
+    /// Which files those are is the harness's answer, not Ubiq's — a path
+    /// literal here would be the boundary this module's header names. Entirely
+    /// best effort: this runs on teardown paths, and no session that cannot be
+    /// archived is a reason to fail a close. A run with no meta is a plain
+    /// shell pane, which is the common case rather than an error.
+    fn archive(&self, key: &str) {
+        let sessions = self.sessions_dir();
+        let Ok(mut meta) = session::load(&sessions, key) else {
+            return;
+        };
+        let Some(harness) = harness::resolve(&meta.harness) else {
+            return;
+        };
+
+        let dest = sessions.join(key).join("harness");
+        for src in harness.transcripts(&self.run_dir_for(key)) {
+            let Some(name) = src.file_name() else {
+                continue;
+            };
+            let _ = std::fs::create_dir_all(&dest);
+            let _ = std::fs::copy(&src, dest.join(name));
+        }
+
+        meta.finished_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        );
+        let _ = session::save(&sessions, &meta);
     }
 
     /// Whether anything that makes a session logged in landed in `dir`.
@@ -659,6 +793,7 @@ impl Agents {
     /// cannot be deleted is a stale directory, not a reason to fail a close the
     /// user already saw happen.
     pub fn retire(&self, pane: PaneId) {
+        self.archive(&pane.to_string());
         let _ = std::fs::remove_dir_all(self.run_dir(pane));
     }
 
@@ -674,6 +809,9 @@ impl Agents {
             return;
         };
         for entry in entries.flatten() {
+            // A crashed run is where the record matters most, and its meta was
+            // written when the run was composed, so this works verbatim here.
+            self.archive(&entry.file_name().to_string_lossy());
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
@@ -690,6 +828,7 @@ impl Agents {
 
     /// Remove what an agent's conversation left behind.
     pub fn retire_agent(&self, agent: AgentId) {
+        self.archive(&agent.to_string());
         let _ = std::fs::remove_dir_all(self.agent_dir(agent));
     }
 
