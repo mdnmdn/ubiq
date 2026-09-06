@@ -79,12 +79,19 @@ fn is_typable(value: &str) -> bool {
 impl std::fmt::Display for ConnectFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConnectFailure::Unreachable(reason) => write!(f, "could not reach that address: {reason}"),
+            ConnectFailure::Unreachable(reason) => {
+                write!(f, "could not reach that address: {reason}")
+            }
             ConnectFailure::TokenRejected => write!(f, "that host rejected the token"),
-            ConnectFailure::Refused(reason) => write!(f, "that host did not answer as a Ubiq host: {reason}"),
+            ConnectFailure::Refused(reason) => {
+                write!(f, "that host did not answer as a Ubiq host: {reason}")
+            }
             ConnectFailure::Io(reason) => write!(f, "the connection failed: {reason}"),
             ConnectFailure::Untypable(part) => {
-                write!(f, "that {part} contains a character an address cannot carry")
+                write!(
+                    f,
+                    "that {part} contains a character an address cannot carry"
+                )
             }
         }
     }
@@ -118,7 +125,11 @@ fn parse_status_code(status_line: &str) -> Option<u16> {
 /// the header block's end in one underlying read, and everything past the blank line that ends
 /// the response is the first wire frame once the upgrade lands. Swallowing any of it into a buffer
 /// this function is about to drop would desync the two ends from the very first message.
-fn read_capped_line(stream: &mut TcpStream, line: &mut String, budget: usize) -> io::Result<Option<usize>> {
+fn read_capped_line(
+    stream: &mut TcpStream,
+    line: &mut String,
+    budget: usize,
+) -> io::Result<Option<usize>> {
     let mut byte = [0u8; 1];
     let mut read = 0usize;
     loop {
@@ -149,7 +160,11 @@ fn read_response_status(stream: &mut TcpStream) -> Result<u16, ConnectFailure> {
         let read = read_capped_line(stream, &mut line, MAX_HEADER - total)
             .map_err(|error| ConnectFailure::Io(error.to_string()))?;
         match read {
-            None => return Err(ConnectFailure::Refused("response header too large".to_string())),
+            None => {
+                return Err(ConnectFailure::Refused(
+                    "response header too large".to_string(),
+                ));
+            }
             Some(0) => {
                 return Err(ConnectFailure::Io(
                     "the connection closed during the handshake".to_string(),
@@ -165,7 +180,8 @@ fn read_response_status(stream: &mut TcpStream) -> Result<u16, ConnectFailure> {
             break;
         }
     }
-    let status_line = status_line.ok_or_else(|| ConnectFailure::Refused("empty response".to_string()))?;
+    let status_line =
+        status_line.ok_or_else(|| ConnectFailure::Refused("empty response".to_string()))?;
     parse_status_code(&status_line).ok_or(ConnectFailure::Refused(status_line))
 }
 
@@ -291,6 +307,32 @@ impl AppState {
         cx.notify();
     }
 
+    /// Raise the connect modal for a saved-but-unattached host from the Hosts section, with the
+    /// address filled in and the token left for the user to type — see
+    /// [`crate::state::settings::HostSettings::remote_hosts`] for why the token was never kept to
+    /// fill in for them.
+    ///
+    /// Reuses [`Self::open_remote_connect`]'s modal and [`Self::try_connect_remote`]'s dial
+    /// rather than a second path, on the task's own instruction: a saved host is just this same
+    /// flow with the address already known.
+    pub fn reconnect_saved_host(
+        &mut self,
+        name: String,
+        address: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.clear_remote_connect_inputs(window, cx);
+        self.remote_address_input.update(cx, |state, cx| {
+            state.set_value(&address, window, cx);
+        });
+        self.workbench.remote_connect = Some(RemoteConnectState {
+            step: RemoteConnectStep::Editing,
+            saved_name: Some(name),
+        });
+        cx.notify();
+    }
+
     /// Close the modal. A dial still running in the background is left to finish — it holds no
     /// reference back to this state — and its answer is discarded on arrival because nothing
     /// still names its `AttemptId`. See [`Self::land_remote_connect`].
@@ -319,7 +361,11 @@ impl AppState {
     /// alongside it and rewrites the address field down to just the address — the one paste a
     /// user reaching for this modal actually has in their clipboard, made to work without asking
     /// them to split it themselves first.
-    pub(super) fn apply_remote_address_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn apply_remote_address_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let typed = self.remote_address_input.read(cx).value().to_string();
         let parsed = crate::state::remote::parse_connection_string(&typed);
         if parsed.address == typed.trim() && parsed.token.is_none() {
@@ -341,7 +387,12 @@ impl AppState {
     /// believed, and runs [`dial`] on the background executor so this call returns immediately —
     /// the modal redraws itself in the `Connecting` step while the socket work happens elsewhere.
     pub fn try_connect_remote(&mut self, cx: &mut Context<Self>) {
-        let address = self.remote_address_input.read(cx).value().trim().to_string();
+        let address = self
+            .remote_address_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
         let token = self.remote_token_input.read(cx).value().trim().to_string();
         if address.is_empty() || token.is_empty() {
             return;
@@ -357,7 +408,9 @@ impl AppState {
         let outcome = cx.background_spawn(async move { dial(&dial_address, &token) });
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let outcome = outcome.await;
-            let _ = this.update(cx, |this, cx| this.land_remote_connect(attempt, outcome, cx));
+            let _ = this.update(cx, |this, cx| {
+                this.land_remote_connect(attempt, outcome, cx)
+            });
         })
         .detach();
     }
@@ -389,15 +442,36 @@ impl AppState {
             return;
         }
 
+        let address = self
+            .remote_address_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let saved_name = self
+            .workbench
+            .remote_connect
+            .as_ref()
+            .and_then(|state| state.saved_name.clone());
+
         match outcome {
             Ok(client) => {
-                let label = self.remote_address_input.read(cx).value().to_string();
+                // A reconnect keeps the name the host was saved under; a fresh dial has none yet,
+                // so the address it just proved reachable at becomes its name — the same thing
+                // `RemoteConn::label` already showed for it before there was a saved-hosts list.
+                let label = saved_name.clone().unwrap_or_else(|| address.clone());
                 self.attach_remote(client, label.clone(), cx);
+                self.save_remote_host(label.clone(), address.clone(), cx);
+                self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
                 }
             }
             Err(failure) => {
+                // Recorded even for a first-time dial, harmlessly: `host_menu_rows` only ever
+                // consults this set for an address that is also in `remote_hosts`, and this
+                // address is not there until a dial to it succeeds.
+                self.workbench.settings.failed_hosts.insert(address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Failed {
                         reason: failure.to_string(),
@@ -414,8 +488,8 @@ impl AppState {
     /// arriving over this connection has to reach `receive` tagged with its `HostRef` exactly as a
     /// local one does, and that tagging is all a router task is.
     ///
-    /// `label` is the address the user reached it by — the only name this connection has until
-    /// Phase 5's saved-hosts list gives it a better one.
+    /// `label` is the saved host's own name for a reconnect, or the bare address for a fresh
+    /// dial — see [`Self::land_remote_connect`], the only caller.
     fn attach_remote(&mut self, client: Client, label: String, cx: &mut Context<Self>) {
         let (host_id, from_host) = self.bus.register_remote(client, label);
         Self::route_host(HostRef::Remote(host_id), from_host, cx);
@@ -455,7 +529,10 @@ mod tests {
 
     #[test]
     fn status_code_is_pulled_out_of_the_status_line() {
-        assert_eq!(parse_status_code("HTTP/1.1 101 Switching Protocols"), Some(101));
+        assert_eq!(
+            parse_status_code("HTTP/1.1 101 Switching Protocols"),
+            Some(101)
+        );
         assert_eq!(parse_status_code("HTTP/1.1 401 Unauthorized"), Some(401));
     }
 

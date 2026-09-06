@@ -42,6 +42,74 @@ impl AppState {
         });
     }
 
+    /// Save or update one remote host's name and address, keyed by address. Called the moment a
+    /// dial to that address succeeds — whether it was typed fresh into the titlebar modal or
+    /// started as a reconnect from the Hosts section — so a host is durable the first time it is
+    /// ever reached, with no separate "save" step for the user to remember. See
+    /// [`ubiq_proto::settings::HostSettings::remote_hosts`] for why this never carries the token,
+    /// and why this rides `SetSettings` whole rather than a dedicated message the way
+    /// `oauth_apps` does.
+    pub(super) fn save_remote_host(
+        &mut self,
+        name: String,
+        address: String,
+        cx: &mut Context<Self>,
+    ) {
+        let hosts = &mut self.workbench.settings.host.remote_hosts;
+        match hosts.iter_mut().find(|host| host.address == address) {
+            Some(existing) => existing.name = name,
+            None => hosts.push(SavedRemoteHost { name, address }),
+        }
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Drop a saved host record. Only ever the record — a live connection under that address, if
+    /// this window still has one, is untouched; forgetting is about what the *next* window sees
+    /// on open, not about the one open right now.
+    pub fn forget_remote_host(&mut self, address: String, cx: &mut Context<Self>) {
+        self.workbench
+            .settings
+            .host
+            .remote_hosts
+            .retain(|host| host.address != address);
+        self.workbench.settings.failed_hosts.remove(&address);
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Toggle the Hosts section's dropdown.
+    pub fn toggle_host_picker(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.host_picker_open = !self.workbench.settings.host_picker_open;
+        cx.notify();
+    }
+
+    /// Pick one row from the Hosts section's dropdown.
+    ///
+    /// `Local` and an already-attached remote just move `Bus::active` — the default destination
+    /// for a message naming neither a pane nor a project, and nothing else; no pane or project
+    /// moves with it, on `Bus::set_active`'s own contract. A saved-but-unattached row instead
+    /// raises the connect modal on that address, reusing [`Self::reconnect_saved_host`] rather
+    /// than dialling here directly.
+    pub fn pick_host_menu_entry(
+        &mut self,
+        entry: super::HostEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use super::HostEntry;
+        self.workbench.settings.host_picker_open = false;
+        match entry {
+            HostEntry::Local => self.bus.set_active(HostRef::Local),
+            HostEntry::Remote { host, .. } => self.bus.set_active(HostRef::Remote(host)),
+            HostEntry::Saved { name, address } => {
+                self.reconnect_saved_host(name, address, window, cx);
+                return;
+            }
+        }
+        cx.notify();
+    }
+
     pub(super) fn apply_settings(
         &mut self,
         layer: SettingsLayer,

@@ -26,12 +26,13 @@
 //! is what it is anyway; `bus.rs` was the name suggested before that collision turned up.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ubiq_proto::bus::{Client, Outbox, PaneInput};
 use ubiq_proto::ids::{PaneId, ProjectId};
 use ubiq_proto::messages::Message;
+use ubiq_proto::settings::SavedRemoteHost;
 
 /// Which host something is about: the one every window is always attached to, or one of the
 /// (currently zero) remote ones attached beside it.
@@ -67,10 +68,12 @@ pub struct HostId(u64);
 pub struct RemoteConn {
     pub id: HostId,
     pub client: Client,
-    /// What the user typed or pasted to reach it — the address, exactly as
-    /// `app::remote_connect::land_remote_connect` had it when the dial succeeded. Not a saved
-    /// host's name (there is no saved-hosts list yet, see Phase 5) — just enough for a screen that
-    /// lists several remotes, like the "Open remote project…" row, to say which is which.
+    /// What a screen listing several remotes, like the "Open remote project…" row, calls this
+    /// one — the saved host's own name when this connection was dialled from one (a fresh dial or
+    /// a reconnect from the Hosts section), or the bare address otherwise. Set once, at
+    /// `app::remote_connect::land_remote_connect`'s landing, and never updated afterwards even if
+    /// the saved record behind it is later renamed or forgotten — this is a live connection's own
+    /// label, not a view onto `HostSettings::remote_hosts`.
     pub label: String,
 }
 
@@ -211,7 +214,12 @@ impl Bus {
     /// falling back to `active` for a pane this `Bus` was never told about, which today never
     /// happens, since every pane is recorded when its workspace is drawn.
     pub fn input(&self, pane_id: PaneId) -> PaneInput {
-        let host = self.panes.borrow().get(&pane_id).copied().unwrap_or(self.active);
+        let host = self
+            .panes
+            .borrow()
+            .get(&pane_id)
+            .copied()
+            .unwrap_or(self.active);
         self.client_for(host).input(pane_id)
     }
 
@@ -227,11 +235,12 @@ impl Bus {
     /// the first.
     pub fn connections(&self) -> Vec<(HostRef, flume::Receiver<Message>)> {
         let mut out = vec![(HostRef::Local, self.local.from_host().clone())];
-        out.extend(
-            self.remotes
-                .iter()
-                .map(|remote| (HostRef::Remote(remote.id), remote.client.from_host().clone())),
-        );
+        out.extend(self.remotes.iter().map(|remote| {
+            (
+                HostRef::Remote(remote.id),
+                remote.client.from_host().clone(),
+            )
+        }));
         out
     }
 
@@ -302,6 +311,123 @@ impl Bus {
             .iter()
             .map(|remote| (remote.id, remote.label.as_str()))
     }
+}
+
+/// Whether the settings page's host dropdown can offer a row, and how it draws it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HostStatus {
+    /// A live connection this window can send messages over right now — the local host, always,
+    /// or a remote this session has dialled.
+    Attached,
+    /// A saved host with no live connection. Picking it dials it, exactly as typing its address
+    /// into the connect modal would.
+    NotAttached,
+    /// A saved host the last dial to this address ended in `RemoteConnectStep::Failed`. Still
+    /// pickable — picking it tries again — drawn differently only so the list says why nothing
+    /// happened last time.
+    Failed,
+}
+
+/// One row the host dropdown offers, and what picking it means.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum HostEntry {
+    /// Always first, always [`HostStatus::Attached`] — see [`HostRef::Local`].
+    Local,
+    /// A live remote connection, named by the [`HostId`] `set_active` takes.
+    Remote { host: HostId, label: String },
+    /// A saved host with nothing live behind it yet — see
+    /// [`ubiq_proto::settings::HostSettings::remote_hosts`]. Named by its address rather than a
+    /// `HostId`, because it has none until it is dialled.
+    Saved { name: String, address: String },
+}
+
+impl HostEntry {
+    /// What the row is called, before [`HostStatus`] is folded in.
+    pub fn name(&self) -> &str {
+        match self {
+            HostEntry::Local => "Local",
+            HostEntry::Remote { label, .. } => label,
+            HostEntry::Saved { name, .. } => name,
+        }
+    }
+}
+
+/// Build the host dropdown's rows: `Local`, then every remote this window is attached to, then
+/// every saved host with no live connection of its own.
+///
+/// **A saved host already attached is not listed twice.** A live remote is only ever known by the
+/// address it was dialled under — [`RemoteConn::label`] — so a saved row is folded into the
+/// attached one it matches by address rather than drawn again underneath it; the alternative,
+/// showing both, would let the same host answer to two rows with two different fates for a pick.
+///
+/// `failed` is the set of addresses a reconnect attempt from this list most recently ended in
+/// [`RemoteConnectStep::Failed`](crate::state::remote::RemoteConnectStep::Failed) for — cleared the
+/// moment that address attaches, so a stale failure never outlives the connection that fixed it.
+pub fn host_menu_rows(
+    remotes: &[(HostId, String)],
+    saved: &[SavedRemoteHost],
+    failed: &HashSet<String>,
+) -> Vec<(HostEntry, HostStatus)> {
+    let mut rows = vec![(HostEntry::Local, HostStatus::Attached)];
+    rows.extend(remotes.iter().map(|(host, label)| {
+        (
+            HostEntry::Remote {
+                host: *host,
+                label: label.clone(),
+            },
+            HostStatus::Attached,
+        )
+    }));
+    for host in saved {
+        if remotes.iter().any(|(_, label)| *label == host.address) {
+            continue;
+        }
+        let status = if failed.contains(&host.address) {
+            HostStatus::Failed
+        } else {
+            HostStatus::NotAttached
+        };
+        rows.push((
+            HostEntry::Saved {
+                name: host.name.clone(),
+                address: host.address.clone(),
+            },
+            status,
+        ));
+    }
+    rows
+}
+
+/// Which attached remote "Open remote project…" should offer, now that the Hosts section gives
+/// the user a way to say which one that is.
+///
+/// `active` when it names an attached remote — an explicit choice made from the Hosts section
+/// rather than an accident of dial order, and the same field every other unaddressed message
+/// already resolves against. Falling back to the first attached remote when `active` is `Local`
+/// (the common case, since nothing points it anywhere else until the dropdown is used) keeps this
+/// usable the moment a single remote is attached; the ambiguity this replaces only bites once a
+/// *second* remote is attached, which is exactly when the dropdown becomes the way to resolve it.
+pub fn preferred_remote(active: HostRef, remotes: &[(HostId, String)]) -> Option<(HostId, String)> {
+    if let HostRef::Remote(active) = active
+        && let Some((id, label)) = remotes.iter().find(|(id, _)| *id == active)
+    {
+        return Some((*id, label.clone()));
+    }
+    remotes.first().cloned()
+}
+
+/// How one row reads in the dropdown: the name alone for `Local` — it is always attached, so
+/// saying so would be noise — and the name plus its state for everything else.
+pub fn host_row_label(entry: &HostEntry, status: HostStatus) -> String {
+    if matches!(entry, HostEntry::Local) {
+        return entry.name().to_string();
+    }
+    let state = match status {
+        HostStatus::Attached => "attached",
+        HostStatus::NotAttached => "not attached",
+        HostStatus::Failed => "failed",
+    };
+    format!("{} \u{2014} {state}", entry.name())
 }
 
 #[cfg(test)]
@@ -430,7 +556,10 @@ mod tests {
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Local);
 
-        bus.send_to(HostRef::Remote(remote), Message::RefreshProject { project_id });
+        bus.send_to(
+            HostRef::Remote(remote),
+            Message::RefreshProject { project_id },
+        );
 
         assert!(matches!(
             remote_end.said().try_recv(),
@@ -440,5 +569,205 @@ mod tests {
             })
         ));
         assert!(local_end.said().try_recv().is_err());
+    }
+
+    fn a_saved_host(name: &str, address: &str) -> SavedRemoteHost {
+        SavedRemoteHost {
+            name: name.to_string(),
+            address: address.to_string(),
+        }
+    }
+
+    /// With nothing attached and nothing saved, the dropdown is `Local` alone.
+    #[test]
+    fn with_nothing_else_the_list_is_local_alone() {
+        let rows = host_menu_rows(&[], &[], &HashSet::new());
+        assert_eq!(rows, vec![(HostEntry::Local, HostStatus::Attached)]);
+    }
+
+    /// Local first, then every attached remote, then every saved host with no live connection —
+    /// in that order, whatever order the inputs themselves came in.
+    #[test]
+    fn rows_are_ordered_local_then_attached_then_saved() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _) =
+            bus.register_remote(ubiq_proto::bus::detached().0, "10.0.0.4:7420".to_string());
+
+        let saved = vec![a_saved_host("build box", "build.internal:7420")];
+        let rows = host_menu_rows(
+            &[(remote, "10.0.0.4:7420".to_string())],
+            &saved,
+            &HashSet::new(),
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (HostEntry::Local, HostStatus::Attached),
+                (
+                    HostEntry::Remote {
+                        host: remote,
+                        label: "10.0.0.4:7420".to_string()
+                    },
+                    HostStatus::Attached
+                ),
+                (
+                    HostEntry::Saved {
+                        name: "build box".to_string(),
+                        address: "build.internal:7420".to_string()
+                    },
+                    HostStatus::NotAttached
+                ),
+            ]
+        );
+    }
+
+    /// A saved host already reached over a live connection is folded into that attached row
+    /// rather than drawn a second time as "not attached".
+    #[test]
+    fn a_saved_host_that_is_attached_is_not_listed_twice() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _) =
+            bus.register_remote(ubiq_proto::bus::detached().0, "10.0.0.4:7420".to_string());
+
+        let saved = vec![a_saved_host("office desktop", "10.0.0.4:7420")];
+        let rows = host_menu_rows(
+            &[(remote, "10.0.0.4:7420".to_string())],
+            &saved,
+            &HashSet::new(),
+        );
+
+        assert_eq!(rows.len(), 2);
+        assert!(
+            !rows
+                .iter()
+                .any(|(entry, _)| matches!(entry, HostEntry::Saved { .. }))
+        );
+    }
+
+    /// A saved host whose address is in the failed set is drawn `Failed`, and one that is not
+    /// stays `NotAttached` — the only two states a saved-but-unattached row can be in.
+    #[test]
+    fn a_failed_address_is_marked_failed_others_are_not_attached() {
+        let saved = vec![
+            a_saved_host("flaky box", "flaky.internal:7420"),
+            a_saved_host("build box", "build.internal:7420"),
+        ];
+        let failed: HashSet<String> = ["flaky.internal:7420".to_string()].into_iter().collect();
+        let rows = host_menu_rows(&[], &saved, &failed);
+
+        assert_eq!(
+            rows,
+            vec![
+                (HostEntry::Local, HostStatus::Attached),
+                (
+                    HostEntry::Saved {
+                        name: "flaky box".to_string(),
+                        address: "flaky.internal:7420".to_string()
+                    },
+                    HostStatus::Failed
+                ),
+                (
+                    HostEntry::Saved {
+                        name: "build box".to_string(),
+                        address: "build.internal:7420".to_string()
+                    },
+                    HostStatus::NotAttached
+                ),
+            ]
+        );
+    }
+
+    /// `Local` reads bare; every other row carries its state as a suffix.
+    #[test]
+    fn labels_carry_state_for_everything_but_local() {
+        assert_eq!(
+            host_row_label(&HostEntry::Local, HostStatus::Attached),
+            "Local"
+        );
+        assert_eq!(
+            host_row_label(
+                &HostEntry::Saved {
+                    name: "build box".to_string(),
+                    address: "build.internal:7420".to_string()
+                },
+                HostStatus::Failed
+            ),
+            "build box \u{2014} failed"
+        );
+    }
+
+    /// `set_active` changes only what an unaddressed message resolves to. A pane and a project
+    /// already recorded under one host stay routed there after `active` moves to a different
+    /// host entirely — the Hosts section's dropdown must never look like it just relocated
+    /// something that was already open.
+    #[test]
+    fn set_active_does_not_move_an_existing_pane_or_project() {
+        let (local, local_end) = ubiq_proto::bus::detached();
+        let (remote_client, remote_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _from_host) = bus.register_remote(remote_client, "test-remote".to_string());
+
+        let project_id = a_project_id();
+        bus.note_project(project_id, HostRef::Local);
+        let pane_id = PaneId::generate();
+        bus.note_pane(pane_id, HostRef::Local);
+
+        // Move `active` to the remote — the dropdown's whole effect.
+        bus.set_active(HostRef::Remote(remote));
+        assert_eq!(bus.active(), HostRef::Remote(remote));
+
+        // The project and the pane, both recorded under Local before `active` moved, still
+        // resolve there.
+        bus.send(Message::RefreshProject { project_id });
+        bus.send(Message::Focus { pane_id });
+
+        let mut local_messages = Vec::new();
+        while let Ok(ubiq_proto::bus::FromClient::Said { message, .. }) =
+            local_end.said().try_recv()
+        {
+            local_messages.push(message);
+        }
+        assert!(matches!(local_messages[0], Message::RefreshProject { .. }));
+        assert!(matches!(local_messages[1], Message::Focus { .. }));
+        assert!(remote_end.said().try_recv().is_err());
+    }
+
+    /// With nothing attached, there is nothing to prefer.
+    #[test]
+    fn preferred_remote_is_none_with_nothing_attached() {
+        assert_eq!(preferred_remote(HostRef::Local, &[]), None);
+    }
+
+    /// `active` naming an attached remote is preferred over the first one by attach order.
+    #[test]
+    fn preferred_remote_is_active_when_active_is_a_remote() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (first, _) = bus.register_remote(ubiq_proto::bus::detached().0, "first".to_string());
+        let (second, _) = bus.register_remote(ubiq_proto::bus::detached().0, "second".to_string());
+        let remotes = vec![(first, "first".to_string()), (second, "second".to_string())];
+
+        assert_eq!(
+            preferred_remote(HostRef::Remote(second), &remotes),
+            Some((second, "second".to_string()))
+        );
+    }
+
+    /// `active` is `Local` — the common case — so this falls back to the first attached remote,
+    /// exactly the attach-order rule the old stopgap used before there was a choice to make.
+    #[test]
+    fn preferred_remote_falls_back_to_the_first_attached_when_active_is_local() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (first, _) = bus.register_remote(ubiq_proto::bus::detached().0, "first".to_string());
+        let remotes = vec![(first, "first".to_string())];
+
+        assert_eq!(
+            preferred_remote(HostRef::Local, &remotes),
+            Some((first, "first".to_string()))
+        );
     }
 }

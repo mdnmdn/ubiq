@@ -20,8 +20,8 @@
 
 use std::collections::HashSet;
 
-use ubiq_proto::files::{HostDirEntry, HostPathError};
 use ubiq_proto::files::EntryKind;
+use ubiq_proto::files::{HostDirEntry, HostPathError};
 
 use crate::state::file_picker::{
     Commit, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest, PickerView,
@@ -156,11 +156,26 @@ impl AppState {
     /// project…" row — the only reader, and the reason this returns owned strings rather than the
     /// borrowed `&str` [`Bus::remotes`] itself hands back: a menu row is built from `&AppState`
     /// and holds no borrow of it once drawn.
+    /// Which host a message naming neither a pane nor a project currently reaches — for the Hosts
+    /// section's dropdown to show as selected, and nothing else: painting a control from `Bus`
+    /// state is not the same as `Bus` itself crossing into UI code, which stays exactly as
+    /// forbidden as ever.
+    pub fn active_host(&self) -> HostRef {
+        self.bus.active()
+    }
+
     pub fn remote_hosts(&self) -> Vec<(HostId, String)> {
         self.bus
             .remotes()
             .map(|(id, label)| (id, label.to_string()))
             .collect()
+    }
+
+    /// Which attached remote "Open remote project…" should offer. See
+    /// [`crate::app::hosts::preferred_remote`], the pure function this delegates to, for the
+    /// reasoning; this is only the plumbing that reads `Bus` state for it.
+    pub fn preferred_remote_host(&self) -> Option<(HostId, String)> {
+        crate::app::hosts::preferred_remote(self.active_host(), &self.remote_hosts())
     }
 
     /// Raise the folder picker over a remote host's own filesystem, to open whatever folder is
@@ -176,12 +191,16 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         self.host_browse = Some(HostBrowseState::new(host, label.clone()));
-        self.bus.send_to(HostRef::Remote(host), Message::BrowseHostDir { path: None });
+        self.bus
+            .send_to(HostRef::Remote(host), Message::BrowseHostDir { path: None });
 
-        let request = PickerRequest::new(PickerOwner::HostProject, format!("Open a project on {label}"))
-            .kind(PickKind::Folders)
-            .count(PickerCount::Single)
-            .commit(Commit::OnButton);
+        let request = PickerRequest::new(
+            PickerOwner::HostProject,
+            format!("Open a project on {label}"),
+        )
+        .kind(PickKind::Folders)
+        .count(PickerCount::Single)
+        .commit(Commit::OnButton);
         self.open_file_picker(request, Vec::new(), PickerView::Tree, window, cx);
     }
 
@@ -197,8 +216,10 @@ impl AppState {
         };
         browse.pending_roots.insert(parent.clone());
         browse.error = None;
-        self.bus
-            .send_to(HostRef::Remote(browse.host), Message::BrowseHostDir { path: Some(parent) });
+        self.bus.send_to(
+            HostRef::Remote(browse.host),
+            Message::BrowseHostDir { path: Some(parent) },
+        );
         cx.notify();
     }
 
@@ -226,8 +247,10 @@ impl AppState {
         }
         let host = browse.host;
         for path in asks {
-            self.bus
-                .send_to(HostRef::Remote(host), Message::BrowseHostDir { path: Some(path) });
+            self.bus.send_to(
+                HostRef::Remote(host),
+                Message::BrowseHostDir { path: Some(path) },
+            );
         }
     }
 
@@ -316,7 +339,9 @@ impl AppState {
                 entries,
                 truncated,
             } => self.apply_host_dir_listing(host, path, parent, entries, truncated, cx),
-            Message::HostDirError { path, error } => self.apply_host_dir_error(host, path, error, cx),
+            Message::HostDirError { path, error } => {
+                self.apply_host_dir_error(host, path, error, cx)
+            }
             other => return Some(other),
         }
         None
@@ -378,7 +403,9 @@ mod tests {
         let (host, _) = two_hosts();
         let mut browse = HostBrowseState::new(host, "example".to_string());
         browse.classify(HostRef::Remote(host), Some("/home/mdn"));
-        browse.pending_folders.insert("/home/mdn/projects".to_string());
+        browse
+            .pending_folders
+            .insert("/home/mdn/projects".to_string());
 
         assert_eq!(
             browse.classify(HostRef::Remote(host), Some("/home/mdn/projects")),
@@ -420,6 +447,9 @@ mod tests {
 
         let mut answered = HostBrowseState::new(host, "example".to_string());
         answered.classify(HostRef::Remote(host), Some("/home"));
-        assert_eq!(answered.classify(HostRef::Remote(host), None), Arrival::Stale);
+        assert_eq!(
+            answered.classify(HostRef::Remote(host), None),
+            Arrival::Stale
+        );
     }
 }

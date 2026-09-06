@@ -79,7 +79,7 @@ use ubiq_proto::ids::{
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
-use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
+use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SavedRemoteHost, SettingsLayer};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
 /// How much of a file the interface asks for. The host has a ceiling of its own and this never
@@ -685,7 +685,10 @@ mod graph;
 mod host_browse;
 mod hosts;
 pub use host_browse::HostBrowseState;
-pub use hosts::{Bus, HostId, HostRef, RemoteConn};
+pub use hosts::{
+    Bus, HostEntry, HostId, HostRef, HostStatus, RemoteConn, host_menu_rows, host_row_label,
+    preferred_remote,
+};
 mod nav;
 mod panels;
 mod picker;
