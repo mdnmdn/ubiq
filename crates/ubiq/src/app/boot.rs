@@ -792,6 +792,7 @@ impl AppState {
             sink: SinkState::default(),
             stats: StatsState::default(),
             file_picker: None,
+            host_browse: None,
             navigator: None,
             logs: LogState::default(),
             search: SearchState::new(search_query.clone()),

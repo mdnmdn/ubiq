@@ -456,6 +456,9 @@ pub struct AppState {
     /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
     /// who is owed the answer.
     pub file_picker: Option<FilePickerState>,
+    /// Which host the picker above is browsing, and the walk it has done so far — set only while
+    /// `file_picker` is a host-project one, and torn down alongside it. See `app::host_browse`.
+    pub host_browse: Option<HostBrowseState>,
     /// The ⌘K navigator, when it is up. Beside the picker rather than inside it: the two are
     /// siblings — flat and single-select against a forest with a picked set — and either may be
     /// raised without the other.
@@ -679,7 +682,9 @@ pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 mod git;
 mod graph;
+mod host_browse;
 mod hosts;
+pub use host_browse::HostBrowseState;
 pub use hosts::{Bus, HostId, HostRef, RemoteConn};
 mod nav;
 mod panels;

@@ -67,6 +67,11 @@ pub struct HostId(u64);
 pub struct RemoteConn {
     pub id: HostId,
     pub client: Client,
+    /// What the user typed or pasted to reach it — the address, exactly as
+    /// `app::remote_connect::land_remote_connect` had it when the dial succeeded. Not a saved
+    /// host's name (there is no saved-hosts list yet, see Phase 5) — just enough for a screen that
+    /// lists several remotes, like the "Open remote project…" row, to say which is which.
+    pub label: String,
 }
 
 /// The pane-family variants that name a pane directly.
@@ -271,10 +276,14 @@ impl Bus {
     /// spawn a router task for it — see `AppState::route_host` — and [`Bus::connections`] cannot
     /// be asked again for just this one without re-handing out every connection that already has
     /// a router draining it, which would spawn a second one racing the first.
-    pub fn register_remote(&mut self, client: Client) -> (HostId, flume::Receiver<Message>) {
+    pub fn register_remote(
+        &mut self,
+        client: Client,
+        label: String,
+    ) -> (HostId, flume::Receiver<Message>) {
         let id = HostId(self.next_host_id.fetch_add(1, Ordering::Relaxed));
         let from_host = client.from_host().clone();
-        self.remotes.push(RemoteConn { id, client });
+        self.remotes.push(RemoteConn { id, client, label });
         (id, from_host)
     }
 
@@ -283,6 +292,15 @@ impl Bus {
     /// the same "nowhere to send it" outcome a dropped host implies either way.
     pub fn remove_remote(&mut self, id: HostId) {
         self.remotes.retain(|remote| remote.id != id);
+    }
+
+    /// Every remote this window is attached to beside the local host, with the label it was
+    /// dialled under. Empty in every build before Phase 3b's connect flow lands a `Client` — and,
+    /// even after, empty until the user has actually connected to something.
+    pub fn remotes(&self) -> impl Iterator<Item = (HostId, &str)> {
+        self.remotes
+            .iter()
+            .map(|remote| (remote.id, remote.label.as_str()))
     }
 }
 
@@ -323,7 +341,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _from_host) = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client, "test-remote".to_string());
 
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Remote(remote));
@@ -348,7 +366,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _from_host) = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client, "test-remote".to_string());
 
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Local);
@@ -385,7 +403,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _from_host) = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client, "test-remote".to_string());
         bus.set_active(HostRef::Remote(remote));
 
         bus.send(Message::ListProjects);
@@ -407,7 +425,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _from_host) = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client, "test-remote".to_string());
 
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Local);

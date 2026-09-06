@@ -548,3 +548,154 @@ fn a_folder_is_a_folder_even_when_there_is_nothing_in_it() {
     assert!(empty.children().is_empty());
     assert!(!PickerNode::file("main.rs", "src/main.rs", 10).is_dir());
 }
+
+// ── a forest filled lazily from a host ──────────────────────────────
+
+fn host_request() -> PickerRequest {
+    PickerRequest::new(PickerOwner::HostProject, "Open a project on example")
+        .kind(PickKind::Folders)
+        .count(PickerCount::Single)
+        .commit(Commit::OnButton)
+}
+
+/// A folder nobody has walked into yet still needs loading, whether or not it happens to be
+/// empty — that is exactly what tells the two apart.
+#[test]
+fn an_unfetched_folder_needs_loading_until_it_is_filled() {
+    let unfetched = PickerNode::dir_unfetched("home", "/home", true, false);
+    assert!(unfetched.needs_load());
+
+    let listed = PickerNode::dir("home", "/home", Vec::new());
+    assert!(!listed.needs_load());
+
+    // A folder the host marked unreadable is never asked about, however unfetched it looks.
+    let locked = PickerNode::dir_unfetched("root", "/root", false, false);
+    assert!(!locked.needs_load());
+}
+
+/// A picker opened with no forest at all — the state before a host's first answer has landed —
+/// shows nothing rather than a folder it has no news about.
+#[test]
+fn a_host_picker_opens_empty_before_the_first_listing_lands() {
+    let picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    assert!(picker.rows().is_empty());
+}
+
+/// `set_forest` is what a root listing becomes: the whole top level, at once.
+#[test]
+fn set_forest_replaces_the_top_level() {
+    let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    picker.set_forest(vec![
+        PickerNode::dir_unfetched("projects", "/home/mdn/projects", true, false),
+        PickerNode::dir_unfetched(".config", "/home/mdn/.config", true, true),
+    ]);
+
+    // Hidden by default: the dotfile is not drawn until asked for.
+    assert_eq!(names(&picker.rows()), vec!["projects"]);
+    picker.set_show_hidden(true);
+    assert_eq!(names(&picker.rows()), vec!["projects", ".config"]);
+}
+
+/// A folder the user expands still needs loading — nothing here fetches on its own — until
+/// `fill_node` gives it real children, at which point it is drawn and does not need asking about
+/// again.
+#[test]
+fn fill_node_gives_an_expanded_folder_its_children_exactly_once() {
+    let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    picker.set_forest(vec![PickerNode::dir_unfetched(
+        "projects",
+        "/home/mdn/projects",
+        true,
+        false,
+    )]);
+
+    assert!(picker.expanded_needing_load().is_empty(), "not expanded yet");
+    picker.toggle_folder("/home/mdn/projects");
+    assert_eq!(
+        picker.expanded_needing_load(),
+        vec!["/home/mdn/projects".to_string()]
+    );
+
+    picker.fill_node(
+        "/home/mdn/projects",
+        vec![PickerNode::dir("ubiq", "/home/mdn/projects/ubiq", Vec::new())],
+        false,
+    );
+
+    assert!(picker.expanded_needing_load().is_empty(), "answered once");
+    assert_eq!(names(&picker.rows()), vec!["projects", "ubiq"]);
+}
+
+/// The host's entry ceiling cutting a folder's own listing short is drawn on that folder's row —
+/// never on rows above or below it.
+#[test]
+fn a_truncated_folder_says_so_on_its_own_row_only() {
+    let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    picker.set_forest(vec![PickerNode::dir_unfetched(
+        "projects",
+        "/home/mdn/projects",
+        true,
+        false,
+    )]);
+    picker.toggle_folder("/home/mdn/projects");
+    picker.fill_node("/home/mdn/projects", Vec::new(), true);
+
+    let rows = picker.rows();
+    let projects = rows.iter().find(|row| row.name == "projects").unwrap();
+    assert!(projects.truncated);
+}
+
+/// A listing for a path this forest does not hold — the user has since walked away from it, or
+/// re-rooted the whole tree — is dropped rather than inventing a place to put it.
+#[test]
+fn filling_a_path_that_is_no_longer_in_the_forest_does_nothing() {
+    let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    picker.set_forest(vec![PickerNode::dir_unfetched(
+        "projects",
+        "/home/mdn/projects",
+        true,
+        false,
+    )]);
+
+    // No panic, and the forest is exactly as it was.
+    picker.fill_node("/nowhere", vec![PickerNode::file("x", "/nowhere/x", 1)], false);
+    assert_eq!(names(&picker.rows()), vec!["projects"]);
+}
+
+/// A folder the host marked unreadable draws with no twisty to open it and is never picked either
+/// — a click on it does nothing, rather than failing against a listing that was never going to
+/// answer.
+#[test]
+fn an_unreadable_folder_is_neither_opened_nor_picked() {
+    let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    picker.set_forest(vec![PickerNode::dir_unfetched("root", "/root", false, false)]);
+
+    let row = &picker.rows()[0];
+    assert!(!row.readable);
+    assert!(!row.pickable, "an unreadable folder is not a valid answer");
+
+    assert!(!picker.click("/root"), "never commits");
+    assert!(picker.picked().is_empty());
+
+    // Even forced open — say, by a stray keyboard toggle — an unreadable folder is never asked
+    // about: there would be nothing a listing of it could answer.
+    picker.toggle_folder("/root");
+    assert!(!picker.expanded_needing_load().contains(&"/root".to_string()));
+}
+
+/// The complement: a readable folder in a folders-only picker is picked by a click on its row —
+/// the twisty, not the row, is what walks into it.
+#[test]
+fn a_readable_folder_is_picked_by_clicking_its_row() {
+    let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
+    picker.set_forest(vec![PickerNode::dir_unfetched(
+        "projects",
+        "/home/mdn/projects",
+        true,
+        false,
+    )]);
+
+    // `Commit::OnButton` means the click picks it without closing the dialog on the spot.
+    assert!(!picker.click("/home/mdn/projects"));
+    assert_eq!(picker.picked(), &["/home/mdn/projects".to_string()]);
+}
