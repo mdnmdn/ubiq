@@ -34,6 +34,9 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | Where a harness stores its config, and in what format | the library |
 | How to launch a harness, and with which arguments | the library |
 | What a run is composed of — skills, MCPs, account, instructions, hooks | the library |
+| What a saved definition can pin, how it inherits, and where it is stored | the library |
+| The permission modes a harness has (`Harness::modes`), and how `Profile.mode` reaches a policy | the library |
+| Which definition a conversation starts from, and the form that writes one | Ubiq |
 | Which accounts exist and how credentials are referenced | the library |
 | Session history and resume, as the *harness* understands it | the library |
 | Which files are a harness's own record of a conversation, and the on-disk shape a record is written in | the library |
@@ -83,9 +86,22 @@ answer — which leaves `resolve`'s precedence as flags, then the profile.
 
 **A configured harness entry is a `Profile`.** The pair a user thinks of as "Claude Code, work
 account" is `agent_manager::profile::Profile` with its `harness` and `account` set, and the agent
-layer that comes later is the same type with `defaults.instructions` filled. Ubiq therefore writes
-no persistence and no resolution code for either, and the profile named `default` is what a run with
-no explicit selection resolves to.
+layer that comes later is the same type with `defaults.instructions` filled. A `Profile` also
+carries a `mode` beside its `isolate` — the harness-native permission mode, which `resolve` reads
+into `spec.policy.permission_mode` under a flag and above nothing, so it sits on the profile rather
+than in `ProfileDefaults`: it is a policy axis, not a composition input. The profile named `default`
+is what a run with no explicit selection resolves to.
+
+**Ubiq writes the form over profiles and none of the mechanism behind them.**
+`crates/ubiq-host/src/agent.rs` reads and writes them through an `FsProfileStore` rooted at
+`<root>/profiles` — `profiles()` projects each into a `ProfileInfo` for the wire, skipping any that
+pins no harness, and `save_profile()` folds one back into a `Profile` and calls
+`FsProfileStore::save`. The store owns the on-disk shape, the id and the resolution; the host owns
+only where the root is. There is no delete, because the library offers none: adding a `remove_dir_all`
+here rather than a `delete` there is exactly the shape rule 1 forbids — [`../backlog.md`](../backlog.md).
+The four fields the interface can set are the harness, the account, the model and the mode; the
+skills, MCP servers, hooks, instructions, isolation and `extends` chain a `Profile` can carry are
+still written by hand, because nothing lists the catalog on the wire.
 
 **A workspace has two faces, and `agent.rs` composes both.** `Agents::compose` is the terminal one:
 `IoModes::Passthrough`, and a launch to exec under a pseudo-terminal. `Agents::converse` is the
@@ -166,8 +182,10 @@ is where the edge belongs: the host owns configuration and processes, and the in
 either. `just host` and `just ui` are the mechanical checks that this stayed true, and `just core`
 is the check that the host only ever reaches for the library's ungated core — `cli` and `pty` are
 absent from this build, so the CLI's own helpers are not available to it and the host builds its
-stores itself. Letting the *user* choose a composition — which account, which model — still needs a
-selection on the wire, and is tracked in [`../backlog.md`](../backlog.md).
+stores itself. Letting the *user* choose a composition is on the wire: `StartConversation` carries a
+profile id beside the account, and a profile's own fields are read by `resolve` under any flag the
+launch passes. What a composition can still not name from the interface — the catalog's skills and
+MCP servers — is tracked in [`../backlog.md`](../backlog.md).
 
 ## The rules
 

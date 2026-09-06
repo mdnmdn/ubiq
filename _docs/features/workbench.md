@@ -79,12 +79,18 @@ does, not `EndConversation` — and is shown only when there is something on scr
 with no columns gets no button rather than one that would silently do nothing. `New
 agent` reads the harness library's agent types, the same `ListAgentTypes` answer the new-pane menu
 reads so the two lists cannot disagree, plus the accounts signed in. `WorkbenchState::harness_choices`
-groups what it offers into two: every available harness bare, under a `Default` heading, and — only
-when at least one account is signed in — a `Configured` heading below a separator with one row per
-`(harness, account)` pair. Signing in adds the second group; it never removes a harness's `Default`
-row, because which identity a conversation runs as is fixed the moment it starts and is worth
-choosing explicitly, and the library still has an answer — a profile, or the user's own home — for
-what a bare pick runs as. Both headings and the separator are rows like any other `HarnessChoice`,
+groups what it offers into three: every available harness bare, under a `Default` heading; then —
+only when at least one account is signed in — a `Configured` heading below a separator with one row
+per `(harness, account)` pair; then, on the same terms, a `Defined` heading with one row per saved
+profile, `HarnessChoice::Profile(usize)` indexing the list settings holds. A group with nothing in
+it is omitted whole, heading and separator together, rather than drawn empty. Signing in or defining
+a profile adds a group; neither removes a harness's `Default` row, because which identity and which
+setup a conversation runs as are fixed the moment it starts and are worth choosing explicitly, and
+the library still has an answer — the profile called `default`, or the user's own home — for what a
+bare pick runs as. A `Defined` row carries the profile id on `StartConversation` beside the account,
+and the host seeds the pending conversation's pickers from that profile, so the model and the mode
+it names are what the composer shows before the first turn rather than a surprise at launch. All
+headings and separators are rows like any other `HarnessChoice`,
 disabled and unpickable, because the menu and the pick behind it read one list matched by position;
 `AppState::pick_new_agent_menu` returns rather than acting when a pick lands on one. A pick sends
 `StartConversation` at once, in the same turn — no prompt sits between choosing a harness and the
@@ -126,8 +132,10 @@ the one honest split the record supports today: agents free on the bench, and ag
 screen in some other column — shown, disabled rather than dropped from the list, because a row that
 vanished would read as an agent that had ended, and `AgentsView::open_in` already refuses to draw one
 twice. Neither group is split further by role or task: `WorkAgent` carries both, but neither is filled
-from a real run yet, so a grouping built from them would be drawing real groups over invented values
-— see the backlog row on grouping by role, task or team once a `Profile` fills them in. The list is
+from a real run yet, so a grouping built from them would be drawing real groups over invented values.
+A profile is now a real thing a conversation can start from, and it still does not help here — it
+pins a harness, an account, a model and a mode, and carries no role and no task — so the backlog row
+on grouping by role, task or team waits on those fields existing rather than on definitions. The list is
 searchable exactly the way every other filter in the window is: a lowercase substring typed into the
 shared `picker_search` field, narrowing both groups at once and dropping a heading whole once nothing
 under it still matches.
@@ -810,7 +818,7 @@ single click opens a preview tab, and the two folders a clone lands in — the d
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
 default as a placeholder rather than a path the interface invented), **Editor** (whether a new markdown file opens in preview or
 source), **Harnesses** (whether an agent is confined to its project, over the accounts
-registered here and an Add button that signs a new one in), and **Command line** (the `ubiq`
+registered here, the profiles defined here, and an Add button for each), and **Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 
@@ -884,6 +892,28 @@ not take the harness's sign-in with it. Its pane belongs to no project and gets 
 modal is the only thing that draws it, which is also what keeps one emulator from being rendered in
 two places at once. The rename, delete and sign-out questions are painted the same way, over
 whatever raised them, for the same reason.
+
+**A Profiles block sits below the accounts, and it is where a conversation's setup gets a name.**
+One row per saved profile, read as `reviewer — Codex · syn · gpt-5 · Plan`: the id, then whichever
+of the harness, the account, the model and the mode that profile pins, the mode drawn by its label
+rather than its harness-native id. A row whose harness is not installed on this machine is drawn
+faint, the same way a harness type is in the New-agent menu, because a definition survives a machine
+that cannot run it. Clicking a row opens it for editing; `+ Add profile` opens the same form empty.
+Nothing here deletes or renames — see [`../backlog.md`](../backlog.md) — so correcting a profile
+means saving over its id, and typing a different name saves a second profile beside the first.
+
+**The profile form is a modal built like the login one**, and asks five questions in the order the
+answers constrain each other. A name, typed. A harness, as `choice_pill`s over the installed ones.
+An account, as pills over the identities signed in to *that* harness — the row is absent rather than
+empty when there are none. A model, as free text, because no message lists a harness's models
+outside a conversation's own discovery; the picker a conversation start draws is still the place a
+model is chosen from a real list. And a mode, as pills over what the host reported for that harness
+in `AgentTypeInfo`, drawn only when that list is non-empty, since a harness with no permission modes
+should ask no question. Re-clicking a chosen account or mode clears it, because "no answer" is a
+real answer a profile can hold and a pill row otherwise has no way back to it. Switching the harness
+clears both the mode and the account, since both are scoped to a harness and neither would still
+mean anything. Save is dimmed until the profile is named and a harness is chosen; everything else
+may be left unset.
 
 **The isolation toggle is the one setting the host acts on**, so it is the only row that writes the
 Host layer rather than the interface's own — an agent runs under a policy, and the half that spawns

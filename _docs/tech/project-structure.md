@@ -64,6 +64,13 @@ project's own folder — `D30`.
 ├── cache/
 │   └── harness-models.toml  each harness's model + reasoning-level answers, keyed on its own
 │                            version string — a cache, not a catalogue: safe to delete
+├── catalog/                 the harness catalogue the library resolves against
+├── harness-templates/       template workspaces a run is provisioned from
+├── accounts/                one identity per folder: its record, and its HOME-shaped login capture
+├── profiles/                agent definitions — the composition a conversation starts from
+├── runs/                    one live workspace per run, deleted when the run ends
+├── sessions/                what a finished run left behind: its meta, and the harness's transcript
+├── isol8/                   the sandbox's own state, managed homes among it
 └── projects/
     └── <project ulid>/
         ├── tasks.toml       that project's tasks, the user's data

@@ -19,9 +19,10 @@ review_cycle: monthly
 A workspace is composed by the library and confined by default: `RunSpec` → provision → `Launch` →
 pseudo-terminal, and a pane shows the harness's own screen. That is the **passthrough** half. The
 conversation half runs too: a Claude conversation streams end to end (P1), an identity can be
-signed in from inside Ubiq and chosen when a conversation starts (P5 and half of P4), and the chat
-panel and the agents column draw one conversation through one component. What remains is the
-vocabulary picked *within* a conversation — the model, the thinking level, the mode.
+signed in from inside Ubiq and saved into a named definition that a conversation starts from (P4 and
+P5), the model and the mode are picked before the harness launches (P3), and the chat panel and the
+agents column draw one conversation through one component. What remains is the thinking level,
+permissions (P7) and a persistent home for a defined agent (P6) — both waiting on `G92`.
 
 **Two corrections to earlier notes in this tree, both load-bearing.**
 
@@ -69,12 +70,12 @@ Three words, decided:
 
 **For now the interface's "harness" means the pair** (Claude Code + a specific account); the agent
 layer is deferred. That is a labelling decision rather than a data-model one, because all three
-collapse onto one library type: a **`Profile`** (`crates/agent-manager/src/profile.rs:48`) is
-`{ id, extends, account, harness, defaults: { mcps, skills, model, hooks, instructions }, isolate }`.
-Today's pair is a `Profile` with `harness` and `account` set; tomorrow's agent is the same
+collapse onto one library type: a **`Profile`** (`crates/agent-manager/src/profile.rs`) is
+`{ id, extends, account, harness, defaults: { mcps, skills, model, hooks, instructions }, isolate,
+mode }`. Today's pair is a `Profile` with `harness` and `account` set; tomorrow's agent is the same
 `Profile` with `defaults.instructions` filled. So the split, when it comes, is a rename in
-`crates/ubiq` and no migration — and Ubiq writes neither persistence nor resolution for either,
-because `FsProfileStore::save` and `resolve` already do both.
+`crates/ubiq` and no migration — and the persistence and the resolution are the library's, through
+`FsProfileStore::save` and `resolve`, with Ubiq holding only the form over them.
 
 ## The shape: one workspace, two faces
 
@@ -127,9 +128,11 @@ are `none|minimal|low|medium|high|xhigh`, `xhigh` is Opus-only, `max` is session
 opencode's can be extended by local config. What the user picks has to **round-trip exactly**
 through the harness's own vocabulary, so a shared enum would either lie or lose entries — and the
 catalog is **per model, not per harness**, and worth caching against the binary's version, because
-an upgrade changes the answer. The same holds for modes: Claude's `--permission-mode` takes
-`default|acceptEdits|plan|bypassPermissions`, and "Plan / Edit / Ask" is a label set the UI
-invented.
+an upgrade changes the answer. Modes are the one exception, and only because they are few and
+fixed: `Harness::modes()` is a hard-coded per-harness list — six for Claude, three for Codex, empty
+for the rest — rather than a probe, so no cache is involved. It is still the harness's own
+vocabulary and never a shared enum; "Plan / Edit / Ask" is a label set the UI invented and does not
+use.
 
 **ACP reached the same conclusion and settled it as one generic mechanism**: a session advertises
 its config options, each an id, a name, an optional description, a category, and either a current
@@ -289,67 +292,31 @@ that model's real context window.
 
 A harness writes its own transcript to disk, and it is richer than anything it streams: Claude's
 session file carries the sidechain flag, per-message uuids, the parent tool-use id, timestamps and
-full tool payloads — the whole record, not the projection the wire carries. Claude keeps those
-transcripts under `projects/<hash>/` *inside* its configuration directory, which the library
-relocates into the throwaway run directory the pane deletes on close. So the record has to be
-copied out before that deletion, and it is.
-
-**Which files are the record is the harness's answer.** `Harness::transcripts(config_dir)`
-(`crates/agent-manager/src/harness/mod.rs`, beside `config_anchor`) answers the files a harness
-wrote as its own record inside a relocated configuration directory. It is defaulted to empty, and
-an empty answer means exactly one thing: *this harness's record is not portable yet*. `Claude`
-(`crates/agent-manager/src/harness/claude.rs`) is the one override — every `*.jsonl` directly under
-`<config_dir>/projects/*/`. Adding a harness to this is a change there, never a path literal in
-Ubiq.
-
-**Ubiq writes the metadata at composition and the transcript at teardown.**
-`crates/ubiq-host/src/agent.rs` builds a `SessionMeta` and calls `agent_manager::session::save` —
-which creates `<root>/<id>/` and writes `meta.json` and nothing else — right after a run is
-provisioned. It is deliberately not the library's `session::start`, which would also create an
-empty `transcript.jsonl` that `read_transcript` would report back as an empty `AgentEvent`
-transcript: a lie, because Ubiq's record is the harness's own file rather than `AgentEvent` lines.
-The meta's `id` is the pane's or the agent's ULID, because that is what a teardown has in hand and
-the harness's own session id never reaches this process. Writing it at composition rather than at
-the end is what makes a crashed run recoverable. It is best effort throughout: a sessions root that
-cannot be written never fails a spawn.
-
-`Agents::archive(key)` is the teardown half. It loads the meta — returning silently when there is
-none, which is a plain shell pane and the common case — resolves the harness, copies each file
-`transcripts(run_dir)` names into `<sessions>/<key>/harness/<name>`, stamps `finished_at` and
-re-saves. `retire`, `retire_agent` and `sweep` all call it first, `sweep` per entry: a run that
-crashed is exactly the one whose record matters most, and its `finished_at` is then the sweep's own
-time with `exit_code` left `None` — an honest "we do not know how it ended".
-
-**The store is Ubiq's, not the library's.** `Agents::sessions_dir()` is `<ubiq root>/sessions`
-(`~/.config/ubiq/sessions`), passed explicitly rather than resolved through
-`session::sessions_root`, so `AM_SESSIONS` cannot redirect a user's Ubiq transcripts into the `am`
-CLI's store. The consequence is deliberate and worth knowing: `am session ls` does not list Ubiq's
-runs.
+full tool payloads — the whole record, not the projection the wire carries. Claude keeps it *inside*
+its configuration directory, which the library relocates into the throwaway run directory the pane
+deletes on close, so the record has to be copied out before that deletion. It is, and the whole
+mechanism — `Harness::transcripts` as the harness's own answer to which files are the record,
+`session::save` for the metadata at composition, `Agents::archive` for the files at teardown, and
+the three ownership answers that are Ubiq's rather than the library's — is stated once in
+[`../tech/agent-manager.md`](../tech/agent-manager.md).
 
 Nothing on the wire changed — no message, no `ubiq-proto` type, no coordinator or conversation
 code. The record is a host-side file, and the surfaces that would read it are what comes next.
 
 **What this unblocks and does not deliver.** A conversation's record survives closing its pane,
 which is the precondition for per-session statistics and for resuming a stopped agent — but nothing
-replays it yet, so a resumed harness still starts with no memory of the transcript above it
-(`G120`). And nothing deletes a session record either: the store grows one directory per
-conversation, and a captured transcript holds prompts, file contents and tool output. It is the
-user's data, it belongs under Ubiq's own root rather than in a project, and deleting a session has
-to mean deleting it (`G164`).
+replays it (`G120`), and nothing deletes one either, so the store grows one directory per
+conversation holding prompts, file contents and tool output (`G164`).
 
 ### P2d — The host stops building its own `RunSpec`, and one view draws every conversation — **landed**
 
 Two changes that together are what made an identity reachable at all.
 
 **`compose_run` calls `resolve`.** `crates/ubiq-host/src/agent.rs` no longer hand-sets five fields
-of a `RunSpec`; it calls `agent_manager::resolve::resolve` and overrides exactly three — the
-configuration directory, the I/O face and the isolation, the three answers that are Ubiq's rather
-than the library's. Everything else comes from the profile, so an account reaches a pane without
-`agent.rs` learning what an account is. The stores are the filesystem defaults under Ubiq's own
-config root (`<root>/{accounts,profiles,catalog}`), and a missing directory is an empty store
-rather than an error. The library's own settings file is deliberately not read — Ubiq's settings
-are the settings surface, and a second file would be a second answer — leaving `resolve`'s
-precedence as flags, then profile. An unknown id fails the spawn with the fuzzy suggestions
+of a `RunSpec`; it calls `agent_manager::resolve::resolve` and overrides only the three answers that
+are Ubiq's — see [`../tech/agent-manager.md`](../tech/agent-manager.md), which owns that division and
+the stores behind it. Everything else comes from the profile, so an account reaches a pane without
+`agent.rs` learning what an account is. An unknown id fails the spawn with the fuzzy suggestions
 `resolve` already produces, because a misconfigured account must say so rather than starting
 unauthenticated.
 
@@ -396,7 +363,7 @@ a `chosen: BTreeMap<String, String>` (keyed by `config_id`) the composer's own p
 since the host does not echo a `SetAgentConfig` sent before launch. While `launched` is false,
 `composer()` (`crates/ubiq/src/ui/conversation/mod.rs`) draws one `Picker` chip per option present
 in `conversation.config` — or a "Discovering models…" note before any has arrived — instead of the
-footer's read-only pills, and a pick sends `AppState::pick_agent_config`. P6 generalised this from a
+footer's read-only pills, and a pick sends `AppState::pick_agent_config`. P3 generalised this from a
 single hard-coded `model` picker to any of the (up to) three ids the host may mint — see
 [`../tech/decisions.md`](../tech/decisions.md) and
 [`../features/workbench.md`](../features/workbench.md).
@@ -416,24 +383,61 @@ free: Claude's `init` already reports `permissionMode`.
 **Done when** a conversation started from either surface offers that harness's real models before
 its first turn, and the harness launches with the one picked.
 
-### P4 — Agent definitions — **half landed**
+### P4 — Agent definitions — **landed**
 
-**What shipped: the identity half.** The settings overlay's Harnesses section lists the accounts
-Ubiq holds, each showing which harnesses it can start; `+ Add harness` signs a new one in. Starting
-a conversation offers one row per harness *and identity* — `HarnessChoice`, a flat list because the
-kit has no submenu and a pick is an index, read by both New agent and New chat so one question has
-one answer. The identity is chosen once and read-only in the footer after, because a turn already
-taken was taken as somebody.
+**The identity half.** The settings overlay's Harnesses section lists the accounts Ubiq holds, each
+showing which harnesses it can start; `+ Add harness` signs a new one in. Starting a conversation
+offers one row per harness *and identity* — `HarnessChoice`, a flat list because the kit has no
+submenu and a pick is an index, read by both New agent and New chat so one question has one answer.
+The identity is chosen once and read-only in the footer after, because a turn already taken was
+taken as somebody.
 
-**What remains is the definition half**: a UI over `FsProfileStore` that creates and edits profiles
-pinning a harness, an account, a model and a mode, persisted as `<root>/<id>/profile.toml` by
-`FsProfileStore::save`, which exists. `StartConversation` then carries a profile id beside the
-account it already carries, and `compose_run` passes it through as `RunFlags.profile`. The one field
-a definition needs and `Profile` lacks is a **mode**, which belongs beside its isolation default
-rather than in a parallel store Ubiq invents.
+**The definition half.** A `Profile` carries a `mode` beside its `isolate`, because a permission
+mode is a policy axis rather than a composition input — it lands in `spec.policy.permission_mode`,
+not in the overlay `ProfileDefaults` describes, so `ProfileDefaults` is the wrong home for it.
+`resolve` reads it as `flags.permission_mode.or_else(profile.mode)`, which makes the precedence flag,
+then profile, then nothing at all — no `Policy` is minted when neither answers. Nothing else in the
+library was needed: `FsProfileStore::save` and `ProfileStore::profiles()` already existed, and the
+mode's vocabulary was already `Harness::modes()`, a fixed per-harness list — six for Claude, three
+for Codex, empty for opencode, Copilot and Grok, which is how a harness says it has no such concept.
 
-**Done when** a user defines "reviewer — codex, gpt-5, plan mode, work account" in settings and
-starts it from either surface.
+`ProfileInfo { id, agent_type, account, model, mode }` crosses the bus, `AgentTypeInfo` gained the
+`modes` a picker draws from, and the profile family is `ListProfiles` / `Profiles` / `SaveProfile`
+— documented in [`../tech/transport-contract.md`](../tech/transport-contract.md). `account` stays
+beside `profile` on `StartConversation` rather than being folded into it: a bare harness row starts
+with no profile at all, and `resolve` puts `flags.account` above the profile's, which is the "the
+user picked this one" rule. Host-side, `crates/ubiq-host/src/agent.rs` grows `profiles()` and
+`save_profile()` over an `FsProfileStore` rooted at `<ubiq root>/profiles` — a profile that pins no
+harness is skipped, since a row with no `agent_type` names nothing that can be started — and
+`compose_run` and `converse` thread the id through to `RunFlags.profile`. The pane path passes
+`None`: P4 is conversation-only.
+
+**The trap, and it is P3's ordering coming back.** A launch passes the picked model as
+`flags.model`, which outranks the profile inside `resolve` — so if the pending conversation's
+pickers started empty, a profile's model would be silently launched over. `start_conversation`
+therefore seeds `chosen_model` and `chosen_mode` from the profile's record before discovery runs,
+the mode picker's `current` reads that seed, and the discovery thread hands the seeded model to
+`advertised_model` rather than a `None` that would have redrawn the picker as unset. A profile whose
+picks launch correctly while displaying as empty is the failure this shape avoids.
+
+Interface-side, `SettingsState` holds `profiles` and a `profile_form`; `harness_choices` grows a
+third group, `Defined`, omitted whole when there are none exactly as `Configured` already is, whose
+rows are `HarnessChoice::Profile(usize)`. A row reads `reviewer — Codex · syn · gpt-5 · Plan` and is
+drawn faint when that harness is not installed. The form is built like the login modal — a name
+field, `choice_pill`s for harness, account and mode, and a free-text model field — and switching
+harness clears both mode and account, because both are scoped to a harness and neither survives the
+switch meaning anything.
+
+**Cut deliberately, and each is a row in [`../backlog.md`](../backlog.md) rather than an oversight.**
+No delete or rename, because `FsProfileStore` has neither and saving over an id is the correction
+(`G165`) — a `remove_dir_all` in `agent.rs` would be rule 1 of the boundary crossed. No `extends` in
+the form: the library supports chains, and a first offering of one is a tree editor nobody asked
+for. No mcps, skills, instructions or isolate fields, which is `G78` from the catalogue's side. The
+model is free text because there is no `ListModels` message and discovery happens only inside
+`start_conversation`'s own thread (`G166`) — the conversation-start picker still shows the harness's
+real list before the first turn. No `thinking`, because `resolve` has no profile leg for one
+(`G167`). And no `suggest()` for an unknown profile id: it fails the compose, which
+`refuse_conversation` already reports.
 
 ### P5 — Credentials, through a login modal — **landed**
 
@@ -467,25 +471,13 @@ credential bytes are stored and none cross the bus. The family is in
 **A `Shell` button beside `Sign in` runs a plain shell under the login's rendered policy instead
 of the harness**, so a trap like the `mise` one below can be *seen*, not just reasoned about:
 `isolate::login_confined` is called with the harness's own `LoginPlan` exactly as a real login
-would be, and only the argv that `confined_launch` renders after `-p <policy>` is swapped for the
-shell — the policy itself never changes. A probe writes no credential and is never read as a login
-outcome; see `_docs/tech/transport-contract.md`'s `probe` note.
+would, and only the argv rendered after `-p <policy>` is swapped — the policy itself never changes.
 
 **Still open here:** the pasted-key form (a reference by construction — `Account.api_key_env` holds
 an env-var *name*, so no secret need cross the bus); deleting or renaming an account, since a
 mistyped one is currently permanent from the UI; and the **copy-back gap**, where a token the
 harness refreshes inside the run directory is discarded on close so the next run re-seeds the older
 one.
-
-### P6 — The default agent home
-
-Isolation gives every run an ephemeral `$HOME`, right for a one-off and wrong for an agent that
-should keep its caches and its login. `HomeMode::Managed` and `@managed/<id>` already exist; what is
-missing is the policy: **a defined agent gets a persistent home keyed by its definition, an ad-hoc
-run gets an ephemeral one.** It lives under Ubiq's config root, never in a project (`D30`).
-
-**Done when** a defined agent's second run finds its own cache warm, and an ad-hoc run still starts
-clean.
 
 ### P7 — Real permissions
 
@@ -498,11 +490,49 @@ UI asks. Honour ACP's four option kinds (allow once, allow always, reject once, 
 
 **Done when** a Claude run's file write waits for a click, and denying it visibly stops the tool.
 
+### P6 — The default agent home — **blocked on `G92`, and small behind it**
+
+The policy is settled — **a defined agent gets a persistent home keyed by its definition, an ad-hoc
+run gets an ephemeral one**, under Ubiq's config root and never in a project (`D30`) — and so is the
+mechanism: `isolate::HomeMode` is `Ephemeral`, setting `ephemeral_home`, or `Managed(id)`, setting
+`home` to `@managed/<id>`, which isol8 resolves to `<ubiq root>/isol8/homes/<id>` and creates at
+spawn time, since `agent.rs` hands `IsolateOptions` a state directory of `<root>/isol8`.
+
+**It is blocked because the two halves sit on different code paths.** `isolate::plan` answers `None`
+for `Isolation::None`, so an unconfined run reaches no `confined_launch`, materialises no home and
+replaces no `$HOME`: `HomeMode` is a *sandboxed*-run feature. And `compose_run`
+(`crates/ubiq-host/src/agent.rs`) confines a passthrough pane when `host_settings.isolate_agents` is
+on but sets `Isolation::None` **unconditionally for a conversation**, pre-empting the refusal the
+CLI still raises for that combination (`crates/agent-manager/src/cli/run.rs`). A conversation is the
+only thing carrying a profile after P4; a pane is confined but deliberately names no identity. So a
+conversation runs under the user's real `$HOME`, its harness state relocated only by
+`ConfigStrategy::Fixed` into the run directory that teardown deletes, and `HomeMode` is named
+nowhere in `crates/ubiq-host` or `crates/ubiq`.
+
+The prerequisite is `G92`'s stdio seam — isol8's `spawn_with_stdio`/`SandboxStdio` threaded through
+`io/jsonl.rs`, `io/codex.rs`, `io/copilot.rs`, `io/opencode.rs` and `harness::structured_bridge` so
+a bridge's piped child spawns under the policy. Behind it P6 is about ten lines and needs no new
+library API: `IsolateOptions.home` is already public, and the one awkwardness — `sanitize_segment`
+being private to the CLI — is four lines to copy rather than a name to export. Teardown needs no
+change: everything it deletes is under `<root>/runs/`, and a managed home is not.
+
+**A managed home is not P5's login capture.** `Account.home` is `<root>/accounts/<id>`, a
+HOME-shaped capture tree used as the login's `$HOME` and afterwards a read-only source copied into
+each run; a managed home is the run's own live writable `$HOME`. Pointing one at the other would
+close P5's copy-back gap and let a bad run corrupt the stored credential.
+
+**Rejected:** keying `ConfigStrategy::Fixed` by profile id rather than by run and never deleting it.
+Two conversations on one profile would share a config directory concurrently — two Claude processes
+writing one `.claude.json` — and it is a second persistence mechanism real P6 would have to unwind.
+
+**Done when** a defined agent's second run finds its own cache warm, and an ad-hoc run still starts
+clean.
+
 ## Deferred, deliberately
 
-Skills and MCP composition on the wire (`G31`, `G78`); Ubiq's own MCP surface so a hosted agent can
+Skills and MCP composition on the wire (`G78`, `G89`); Ubiq's own MCP surface so a hosted agent can
 call back into the window (`G7`, with the library's in-process MCP as the mechanism); agents on
-remote hosts. None block P1 to P6. Resuming a conversation after a restart has its record — P2c
+remote hosts. None block P1 to P7. Resuming a conversation after a restart has its record — P2c
 wrote it — and waits only on the replay that hands it to a fresh harness (`G120`).
 
 ## Traps
@@ -544,9 +574,16 @@ wrote it — and waits only on the replay that hands it to a fresh harness (`G12
   bridge and a prompt has to reach it through a channel rather than by calling it directly.
 - **A pending agent's `WorkAgent.account` is what was asked for, not what a run resolves.** Before
   P3, `composed.account()` filled it, taken from the actual run; a pending agent has no run yet, so
-  it carries the requested account (or empty) until launch, and nothing corrects it afterwards. This
-  can only differ once a `default` profile exists to silently supply an account nobody named — no UI
-  creates one yet (P4's remainder) — so the gap is accepted rather than closed.
+  it carries the requested account (or empty) until launch, and nothing corrects it afterwards. The
+  two differ whenever a profile supplies an account nobody named on the row — a `Defined` pick with
+  an account, or a profile called `default` — and the settings form can now write both, so the gap
+  is real rather than hypothetical. It is accepted: the footer reads the resolved account once the
+  run exists, and only the pending line can be wrong.
+- **A profile's pick outranks nothing — a launch flag outranks *it*.** `resolve` reads
+  `flags.model` above `profile.defaults.model` and `flags.permission_mode` above `profile.mode`, and
+  a launch always passes what the pickers hold. So a picker that failed to display the profile's
+  choice does not merely look wrong, it launches wrong; seeding the pending conversation from the
+  profile before discovery is what keeps the two the same answer. See P4.
 
 ## Open questions
 
