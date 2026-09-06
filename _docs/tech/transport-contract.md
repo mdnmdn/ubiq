@@ -545,7 +545,10 @@ built by the same mechanism: `model` (always), `thinking` (only when the chosen 
 reasoning levels), and `mode` (only when the harness offers one). Picking a model makes the host
 re-send `ConfigOptions` at the next `seq`, with `thinking` recomputed for the newly chosen model —
 a level the old model accepted may not exist under the new one, so the window drops any held pick
-the fresh options no longer back. Only the window's first `PromptAgent` launches the harness,
+the fresh options no longer back. **The re-send only happens when those levels actually differ.**
+The model and mode lists cannot change by picking a model, and `current` is the value the window
+itself just sent, so a pick that recomputes to the same picker is answered with silence rather than
+a message that redraws what is already on screen. Only the window's first `PromptAgent` launches the harness,
 carrying whatever `SetAgentConfig` last chose for each of the three — they reach a harness only as
 launch flags, so changing a pick before that first prompt costs nothing. See
 `_docs/wip/agent-setup.md`'s P3 and P6.

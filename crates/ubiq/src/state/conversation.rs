@@ -15,21 +15,85 @@ use std::collections::{BTreeMap, HashMap};
 
 use ubiq_proto::conversation::{
     ConfigOption, ConfigValue, ConvContent, ConvUpdate, PermissionOption, PlanEntry,
-    RateLimitRecord, StopReason, ToolCallPatch, ToolCallRecord, UsageRecord,
+    RateLimitRecord, StopReason, Subagent, TokenSpend, ToolCallPatch, ToolCallRecord, ToolStatus,
+    UsageRecord,
 };
 use ubiq_proto::work::{Activity, AgentId};
 
 /// One thing in a transcript, in the order it was said.
+///
+/// **Three of the four carry who said it.** A spawned subagent's prose, reasoning and tool calls
+/// all arrive on the same stream as the conversation's own, and a block that lost the attribution
+/// would be drawn as the main agent's own voice — which is exactly the transcript telling a lie
+/// about who spoke.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConvBlock {
     /// What the user said, as the harness received it.
     User(String),
-    /// Assistant prose, markdown.
-    Agent(String),
+    /// Assistant prose, markdown. `subagent` is `None` for the conversation itself.
+    Agent {
+        body: String,
+        subagent: Option<Subagent>,
+    },
     /// Reasoning.
-    Thought(String),
+    Thought {
+        body: String,
+        subagent: Option<Subagent>,
+    },
     /// A tool call and whether its detail is open.
     Tool { call: ToolCallRecord, open: bool },
+}
+
+impl ConvBlock {
+    /// Which subagent produced this block, where one did.
+    pub fn subagent(&self) -> Option<&Subagent> {
+        match self {
+            ConvBlock::User(_) => None,
+            ConvBlock::Agent { subagent, .. } | ConvBlock::Thought { subagent, .. } => {
+                subagent.as_ref()
+            }
+            ConvBlock::Tool { call, .. } => call.subagent.as_ref(),
+        }
+    }
+
+    /// Which *instance* produced it — the only identity a transcript can be filtered by, since
+    /// several subagents of one type are one type and several agents.
+    pub fn subagent_id(&self) -> Option<&str> {
+        self.subagent().map(|who| who.id.as_str())
+    }
+}
+
+/// One spawned subagent, as the switcher above the composer draws it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubagentTab {
+    /// The spawning tool call's id, which is what [`Conversation::viewing`] holds.
+    pub id: String,
+    pub name: String,
+    /// What it is doing, read off the spawning call rather than invented here. `None` where that
+    /// call is not in the transcript at all: nothing here knows what such an agent is up to, and
+    /// saying "running" would be a guess drawn as a fact.
+    pub status: Option<ToolStatus>,
+    /// The type the harness named — `"general-purpose"` — where it named one.
+    pub kind: Option<String>,
+    /// What this delegate is answering with, as the harness stamped its lines. Its own model, not
+    /// the parent's: a delegate launched on a smaller model is exactly what a reader is looking
+    /// for here.
+    pub model: Option<String>,
+    /// What effort it runs at, where the harness says. `None` on every harness today — nothing in
+    /// a stream states a per-delegate level — and drawn as nothing rather than borrowed from the
+    /// parent conversation, which would be a guess wearing a fact's clothes.
+    pub thinking: Option<String>,
+}
+
+/// Fold one report's spend into a running total. Field by field, because a flow is summed and
+/// there is no other way to sum one; saturating, because a counter that wrapped would read as a
+/// conversation that spent nothing.
+fn accumulate(into: &mut TokenSpend, add: &TokenSpend) {
+    into.input = into.input.saturating_add(add.input);
+    into.output = into.output.saturating_add(add.output);
+    into.thinking = into.thinking.saturating_add(add.thinking);
+    into.cache_read = into.cache_read.saturating_add(add.cache_read);
+    into.cache_creation = into.cache_creation.saturating_add(add.cache_creation);
 }
 
 /// A permission the agent is waiting on.
@@ -82,8 +146,18 @@ pub struct Conversation {
     /// does — `refresh_agent_record` in `app.rs` is what turns this into the name a reader
     /// actually sees (the sidebar row, the column header, the chat panel row).
     pub title: Option<String>,
-    /// Context and cost, as of the last thing the harness reported.
+    /// Context and cost, as of the last thing the harness reported **for the conversation itself**.
+    /// Occupancy is a level: it is replaced, never summed, and a subagent's report never reaches
+    /// it — a subagent repeats the parent's `used`/`size` unchanged, so applying one would move the
+    /// ring for a turn that did not touch the window.
     pub usage: Option<UsageRecord>,
+    /// Every token this conversation has billed, folded as reports arrive. A flow, so it is summed
+    /// — the opposite of [`Self::usage`]. `None` until the harness counts anything, which is what
+    /// lets the footer draw nothing rather than a zero it made up.
+    pub spend: Option<TokenSpend>,
+    /// The same total, split by who spent it: the key is the subagent type, and the empty string is
+    /// the conversation's own turns. What answers "who burned the tokens" without leaving the chat.
+    pub spend_by_subagent: BTreeMap<String, TokenSpend>,
     /// How full the user's rate-limit windows are, as of the last thing the harness reported.
     pub rate_limit: Option<RateLimitRecord>,
     pub run: Run,
@@ -115,6 +189,16 @@ pub struct Conversation {
     /// pending at once, each with its own pickers — but still one at a time per conversation, the
     /// same rule the window's menus follow.
     pub open_config: Option<String>,
+    /// Which spawned subagent's transcript is being read — its instance id — `None` being the
+    /// conversation's own turns. Beside [`Self::open_config`] and for its reason: several
+    /// conversations are on screen at once and each is read independently, so this cannot live on
+    /// the window. Read through [`Self::viewing_subagent`], which discounts an id the transcript
+    /// no longer has.
+    pub viewing: Option<String>,
+    /// Whether the subagent panel is open. Collapsed by default and per conversation, beside
+    /// [`Self::viewing`] and for its reason: several conversations are on screen at once, and each
+    /// reader opens the ones they are following.
+    pub subagents_open: bool,
     /// Prompts typed while a turn was already running, held until it ends. A stable
     /// per-conversation id per entry, so an edit or a delete names the right one even if others
     /// are added or removed around it.
@@ -143,6 +227,8 @@ impl Conversation {
             mode: None,
             title: None,
             usage: None,
+            spend: None,
+            spend_by_subagent: BTreeMap::new(),
             rate_limit: None,
             run: Run::Idle,
             stop_reason: None,
@@ -155,12 +241,112 @@ impl Conversation {
             launched: false,
             chosen: BTreeMap::new(),
             open_config: None,
+            viewing: None,
+            subagents_open: false,
             queued: Vec::new(),
             next_queued_id: 0,
             seq: 0,
             tools: HashMap::new(),
             open: None,
         }
+    }
+
+    /// What a subagent is called: the title of the `Task` call that spawned it — the bridge
+    /// titles that with the task's own description, "Formal greeting agent" — falling back to its
+    /// type when no such call is in the transcript, and to the raw id when the harness named
+    /// neither.
+    ///
+    /// The one place the join is done. Two callers resolving it apart would eventually disagree
+    /// about what the same agent is called.
+    pub fn subagent_name(&self, id: &str) -> String {
+        if let Some(ConvBlock::Tool { call, .. }) = self
+            .blocks
+            .iter()
+            .find(|block| matches!(block, ConvBlock::Tool { call, .. } if call.id == id))
+        {
+            return call.title.clone();
+        }
+        self.subagent_stamps(id)
+            .find_map(|who| who.kind.clone())
+            .unwrap_or_else(|| id.to_string())
+    }
+
+    /// Every subagent this conversation has spawned, in the order it first spoke — one tag each in
+    /// the switcher. Distinct by instance, so three `general-purpose` agents are three tags.
+    ///
+    /// Status comes from the spawning call, which is the same `ToolStatus` the transcript already
+    /// draws for it; a subagent whose spawning call is not in the transcript has no status at all,
+    /// and the row says so rather than claiming one.
+    pub fn subagents(&self) -> Vec<SubagentTab> {
+        let mut tabs: Vec<SubagentTab> = Vec::new();
+        for id in self.blocks.iter().filter_map(ConvBlock::subagent_id) {
+            if tabs.iter().any(|tab| tab.id == id) {
+                continue;
+            }
+            tabs.push(SubagentTab {
+                id: id.to_string(),
+                name: self.subagent_name(id),
+                status: self.subagent_status(id),
+                kind: self.subagent_stamps(id).find_map(|who| who.kind.clone()),
+                model: self.subagent_stamps(id).find_map(|who| who.model.clone()),
+                thinking: self
+                    .subagent_stamps(id)
+                    .find_map(|who| who.thinking.clone()),
+            });
+        }
+        tabs
+    }
+
+    /// Every stamp this delegate's own lines carry, in order — its kind, and what it was launched
+    /// to answer with.
+    ///
+    /// Each field is read from the first line that *names* it rather than from the first line
+    /// outright: the harness resolves a delegate's model once, at launch, and repeats it on every
+    /// line of that delegate, so a line that names none is simply not the one to read it from.
+    fn subagent_stamps(&self, id: &str) -> impl Iterator<Item = &Subagent> {
+        self.blocks
+            .iter()
+            .filter_map(ConvBlock::subagent)
+            .filter(move |who| who.id == id)
+    }
+
+    fn subagent_status(&self, id: &str) -> Option<ToolStatus> {
+        self.blocks.iter().find_map(|block| match block {
+            ConvBlock::Tool { call, .. } if call.id == id => Some(call.status),
+            _ => None,
+        })
+    }
+
+    /// Whether anything in the transcript was said by this subagent — which is the only
+    /// evidence the window has that the agent exists at all. What makes a delegation block a way
+    /// in to a second transcript rather than a dead label.
+    pub fn has_subagent(&self, id: &str) -> bool {
+        self.blocks
+            .iter()
+            .any(|block| block.subagent_id() == Some(id))
+    }
+
+    /// Whose transcript is on screen, once a stale id is discounted: a subagent that has gone from
+    /// the transcript — a resume, a cleared history — falls back to the main agent rather than
+    /// leaving the reader looking at nothing.
+    pub fn viewing_subagent(&self) -> Option<&str> {
+        let id = self.viewing.as_deref()?;
+        self.has_subagent(id).then_some(id)
+    }
+
+    /// The blocks to draw, for whoever is being read — with their real indices, because an
+    /// element id and the tool-toggle listener both key off a block's position in `blocks`.
+    ///
+    /// One transcript at a time: the main agent's own turns exclude every subagent's, and a
+    /// subagent's include only its own. The rule lives here so the switcher and the transcript
+    /// cannot disagree about it.
+    pub fn visible_blocks(&self) -> Vec<(usize, &ConvBlock)> {
+        let viewing = self.viewing_subagent();
+        self.blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| block.subagent_id() == viewing)
+            .collect()
     }
 
     /// The badge the sidebar and the column header draw.
@@ -181,7 +367,7 @@ impl Conversation {
             (Run::Idle, None) => Activity::Thinking,
             (Run::Idle, Some(_)) => Activity::Ended,
             (Run::Working, _) => match self.blocks.last() {
-                Some(ConvBlock::Thought(_)) => Activity::Thinking,
+                Some(ConvBlock::Thought { .. }) => Activity::Thinking,
                 Some(ConvBlock::Tool { .. }) => Activity::Tools,
                 _ => Activity::Writing,
             },
@@ -203,17 +389,31 @@ impl Conversation {
         self.usage.as_ref().and_then(|usage| usage.cost_usd)
     }
 
-    /// Every token this conversation has spent, input and output together, where the harness
-    /// counts them. Not the ring: [`Self::tokens`] is what still occupies the context window, and
-    /// this is what has gone through it. `None` means the harness reported no total, which the
-    /// footer draws as nothing rather than as a zero it made up.
+    /// Every token this conversation has spent, its subagents included, accumulated over every
+    /// report rather than read off the last one. Not the ring: [`Self::tokens`] is what still
+    /// occupies the context window, and this is what has gone through it. `None` means the harness
+    /// counted nothing, which the footer draws as nothing rather than as a zero it made up.
     pub fn total_tokens(&self) -> Option<u64> {
-        self.usage.as_ref().and_then(|usage| usage.total_tokens)
+        self.spend.map(|spend| spend.total())
     }
 
-    /// The cache read and cache creation part of that total, where it is reported.
+    /// The context-re-use part of that total, where it is reported. Cache *creation* is not in it:
+    /// that is context paid for once, not context saved.
     pub fn cached_tokens(&self) -> Option<u64> {
-        self.usage.as_ref().and_then(|usage| usage.cached_tokens)
+        self.spend.map(|spend| spend.cached())
+    }
+
+    /// What each spawned subagent type spent, biggest first, and never the conversation's own
+    /// entry — this is the breakdown beside the total, not a second copy of it.
+    pub fn subagent_spend(&self) -> Vec<(&str, u64)> {
+        let mut rows: Vec<(&str, u64)> = self
+            .spend_by_subagent
+            .iter()
+            .filter(|(name, spend)| !name.is_empty() && spend.total() > 0)
+            .map(|(name, spend)| (name.as_str(), spend.total()))
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        rows
     }
 
     /// How full the rolling five-hour rate-limit window is, where the harness reports one.
@@ -254,16 +454,18 @@ impl Conversation {
             ConvUpdate::AgentChunk {
                 content,
                 message_id,
+                subagent,
             } => {
                 self.run = Run::Working;
-                self.append(message_id, content, false);
+                self.append(message_id, content, false, subagent);
             }
             ConvUpdate::ThoughtChunk {
                 content,
                 message_id,
+                subagent,
             } => {
                 self.run = Run::Working;
-                self.append(message_id, content, true);
+                self.append(message_id, content, true, subagent);
             }
 
             ConvUpdate::ToolCall(call) => {
@@ -301,6 +503,23 @@ impl Conversation {
             ConvUpdate::Title(title) => self.title = Some(title),
 
             ConvUpdate::Usage(usage) => {
+                // Spend is a flow, and every report's flow counts — the conversation's own and
+                // each subagent's, kept apart as well as together.
+                if let Some(spend) = usage.spend {
+                    accumulate(self.spend.get_or_insert_default(), &spend);
+                    accumulate(
+                        self.spend_by_subagent
+                            .entry(usage.subagent.clone().unwrap_or_default())
+                            .or_default(),
+                        &spend,
+                    );
+                }
+                // A subagent's report repeats the parent's occupancy and names the subagent's own
+                // model. Neither is news about this conversation: it is a spend row, and it stops
+                // here rather than moving the ring or renaming the column.
+                if usage.subagent.is_some() {
+                    return;
+                }
                 // A model is only named where the harness named it: a usage
                 // report for a fallback model must not rename the column.
                 if usage.model.is_some() {
@@ -387,34 +606,52 @@ impl Conversation {
     /// A chunk with no id at all can only extend the block immediately before
     /// it, and only if that block is the same kind: a harness that numbers
     /// nothing still streams in order.
-    fn append(&mut self, message_id: Option<String>, content: ConvContent, thought: bool) {
+    ///
+    /// **Who said it is part of what makes two chunks one block.** A subagent's message id is
+    /// minted by its own turn and can collide with the parent's, so matching on id and kind alone
+    /// lands a spawned agent's greeting inside the sentence the main agent was in the middle of.
+    fn append(
+        &mut self,
+        message_id: Option<String>,
+        content: ConvContent,
+        thought: bool,
+        subagent: Option<Subagent>,
+    ) {
         let Some(text) = text_of(&content) else {
             return;
         };
 
-        let same_kind = |block: &ConvBlock| {
+        let same_block = |block: &ConvBlock| {
             matches!(
                 (block, thought),
-                (ConvBlock::Agent(_), false) | (ConvBlock::Thought(_), true)
-            )
+                (ConvBlock::Agent { .. }, false) | (ConvBlock::Thought { .. }, true)
+            ) && block.subagent_id() == subagent.as_ref().map(|who| who.id.as_str())
         };
 
         if let Some((open_id, ix)) = &self.open
             && message_id.as_ref().is_none_or(|id| id == open_id)
-            && self.blocks.get(*ix).is_some_and(same_kind)
+            && self.blocks.get(*ix).is_some_and(same_block)
         {
             match &mut self.blocks[*ix] {
-                ConvBlock::Agent(body) | ConvBlock::Thought(body) => body.push_str(&text),
-                _ => unreachable!("same_kind just matched one of these two"),
+                ConvBlock::Agent { body, .. } | ConvBlock::Thought { body, .. } => {
+                    body.push_str(&text)
+                }
+                _ => unreachable!("same_block just matched one of these two"),
             }
             return;
         }
 
         let ix = self.blocks.len();
         self.blocks.push(if thought {
-            ConvBlock::Thought(text)
+            ConvBlock::Thought {
+                body: text,
+                subagent,
+            }
         } else {
-            ConvBlock::Agent(text)
+            ConvBlock::Agent {
+                body: text,
+                subagent,
+            }
         });
         self.open = Some((message_id.unwrap_or_default(), ix));
     }
@@ -475,7 +712,217 @@ fn text_of(content: &ConvContent) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ubiq_proto::conversation::{ToolKind, ToolStatus};
+    use ubiq_proto::conversation::{TokenSpend, ToolKind, ToolStatus};
+
+    fn task_call(id: &str, title: &str, status: ToolStatus) -> ConvUpdate {
+        ConvUpdate::ToolCall(ToolCallRecord {
+            id: id.to_string(),
+            title: title.to_string(),
+            kind: ToolKind::Other,
+            status,
+            content: Vec::new(),
+            locations: Vec::new(),
+            subagent: None,
+        })
+    }
+
+    fn said_by(text: &str, id: &str, kind: Option<&str>) -> ConvUpdate {
+        ConvUpdate::AgentChunk {
+            content: ConvContent::Text(text.to_string()),
+            message_id: Some("m1".to_string()),
+            subagent: Some(Subagent {
+                id: id.to_string(),
+                kind: kind.map(str::to_string),
+                ..Default::default()
+            }),
+        }
+    }
+
+    /// Turn 2 of `_data/ubiq-tape-1788688032.jsonl`: three `general-purpose` subagents, spawned by
+    /// three `Task` calls. The type they share is not their identity — keying on it would collapse
+    /// them into one tag with their turns interleaved, which is the bug the instance id fixes.
+    fn three_greeters() -> Conversation {
+        let mut c = conversation();
+        c.apply(1, chunk("I'll delegate.", Some("m0")));
+        c.apply(
+            2,
+            task_call("t751", "Formal greeting agent", ToolStatus::Completed),
+        );
+        c.apply(
+            3,
+            task_call("t754", "Pirate-style greeting agent", ToolStatus::Failed),
+        );
+        c.apply(
+            4,
+            task_call("t759", "Poetic greeting agent", ToolStatus::InProgress),
+        );
+        c.apply(5, said_by("Good day.", "t751", Some("general-purpose")));
+        c.apply(6, said_by("Ahoy!", "t754", Some("general-purpose")));
+        c.apply(
+            7,
+            said_by("A greeting, in verse.", "t759", Some("general-purpose")),
+        );
+        c
+    }
+
+    #[test]
+    fn three_subagents_of_one_kind_stay_three_agents() {
+        let c = three_greeters();
+        let tabs = c.subagents();
+        assert_eq!(
+            tabs.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            vec!["t751", "t754", "t759"],
+            "one tag per instance, in the order each first spoke"
+        );
+        assert_eq!(
+            tabs.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            vec![
+                "Formal greeting agent",
+                "Pirate-style greeting agent",
+                "Poetic greeting agent"
+            ],
+        );
+        assert_eq!(
+            tabs.iter().map(|t| t.status).collect::<Vec<_>>(),
+            vec![
+                Some(ToolStatus::Completed),
+                Some(ToolStatus::Failed),
+                Some(ToolStatus::InProgress)
+            ],
+            "what it is doing is the spawning call's own status"
+        );
+    }
+
+    /// One transcript at a time: the main agent's excludes its delegates' turns, and each
+    /// delegate's includes only its own.
+    #[test]
+    fn the_transcript_shows_exactly_one_agent() {
+        let mut c = three_greeters();
+
+        let main: Vec<usize> = c.visible_blocks().into_iter().map(|(ix, _)| ix).collect();
+        assert_eq!(
+            main,
+            vec![0, 1, 2, 3],
+            "the prose and the three Task calls, and none of what they said"
+        );
+
+        c.viewing = Some("t754".to_string());
+        assert_eq!(
+            c.visible_blocks()
+                .into_iter()
+                .map(|(_, block)| block.clone())
+                .collect::<Vec<_>>(),
+            vec![ConvBlock::Agent {
+                body: "Ahoy!".to_string(),
+                subagent: Some(Subagent {
+                    id: "t754".to_string(),
+                    kind: Some("general-purpose".to_string()),
+                    ..Default::default()
+                }),
+            }],
+        );
+    }
+
+    /// The name is the spawning call's title, which the bridge writes from the task description.
+    /// With no such call in the transcript there is nothing to title it with, so the kind stands
+    /// in — and the raw id only where the harness named neither.
+    #[test]
+    fn a_subagents_name_falls_back_to_its_kind() {
+        let c = three_greeters();
+        assert_eq!(c.subagent_name("t751"), "Formal greeting agent");
+
+        let mut orphan = conversation();
+        orphan.apply(1, said_by("no Task call here", "t900", Some("Explore")));
+        assert_eq!(orphan.subagent_name("t900"), "Explore");
+        assert_eq!(
+            orphan.subagents()[0].status,
+            None,
+            "no spawning call, no status — not a guess at one"
+        );
+
+        let mut nameless = conversation();
+        nameless.apply(1, said_by("anonymous", "t901", None));
+        assert_eq!(nameless.subagent_name("t901"), "t901");
+    }
+
+    /// A delegation block is the entry point to another transcript — but only once there is one.
+    /// A `Task` call whose agent has not said anything yet has nothing to switch to, and the block
+    /// stays inert rather than opening an empty view.
+    #[test]
+    fn a_delegation_is_a_way_in_only_once_its_agent_has_spoken() {
+        let mut c = conversation();
+        c.apply(
+            1,
+            task_call("t751", "Formal greeting agent", ToolStatus::InProgress),
+        );
+        assert!(!c.has_subagent("t751"), "spawned, and nothing said yet");
+
+        c.apply(2, said_by("Good day.", "t751", Some("general-purpose")));
+        assert!(c.has_subagent("t751"));
+    }
+
+    /// What a delegate answers with is its own, and it reaches the tab that both the reading strip
+    /// and the panel's row tooltip read. A delegate the harness stamped no model on carries `None`
+    /// and is drawn as nothing — never as the parent's model, which is the one case worth hovering
+    /// for. `thinking` is `None` on every harness today, and the same rule applies to it.
+    #[test]
+    fn a_delegates_model_reaches_its_tab() {
+        let mut c = conversation();
+        c.apply(
+            1,
+            task_call("t751", "Formal greeting agent", ToolStatus::InProgress),
+        );
+        c.apply(
+            2,
+            ConvUpdate::AgentChunk {
+                content: ConvContent::Text("Good day.".to_string()),
+                message_id: Some("m1".to_string()),
+                subagent: Some(Subagent {
+                    id: "t751".to_string(),
+                    kind: Some("general-purpose".to_string()),
+                    model: Some("claude-haiku-4-5-20251001".to_string()),
+                    thinking: None,
+                }),
+            },
+        );
+        c.apply(3, said_by("Ahoy!", "t754", Some("general-purpose")));
+
+        let tabs = c.subagents();
+        assert_eq!(tabs[0].kind.as_deref(), Some("general-purpose"));
+        assert_eq!(
+            tabs[0].model.as_deref(),
+            Some("claude-haiku-4-5-20251001"),
+            "the delegate's own model, as its lines were stamped"
+        );
+        assert_eq!(
+            short_model_label(&c.harness, tabs[0].model.as_deref().unwrap()),
+            "haiku",
+            "shortened the way the composer's chip shortens the parent's"
+        );
+        assert_eq!(tabs[0].thinking, None, "no harness states one per delegate");
+        assert_eq!(
+            tabs[1].model, None,
+            "a delegate the harness named no model for carries none — not the parent's"
+        );
+    }
+
+    /// The panel is closed until it is asked for: a conversation's delegates are a fact worth a
+    /// line, not a list that unfolds itself.
+    #[test]
+    fn the_subagent_panel_starts_collapsed() {
+        assert!(!conversation().subagents_open);
+    }
+
+    /// A resume, or any transcript the id has gone from, must not leave the reader looking at an
+    /// empty view.
+    #[test]
+    fn a_stale_viewing_id_falls_back_to_the_main_agent() {
+        let mut c = three_greeters();
+        c.viewing = Some("t999".to_string());
+
+        assert_eq!(c.viewing_subagent(), None);
+        assert_eq!(c.visible_blocks().len(), 4, "the main agent's own turns");
+    }
 
     fn conversation() -> Conversation {
         Conversation::new(
@@ -489,6 +936,7 @@ mod tests {
         ConvUpdate::AgentChunk {
             content: ConvContent::Text(text.to_string()),
             message_id: id.map(str::to_string),
+            subagent: None,
         }
     }
 
@@ -500,7 +948,13 @@ mod tests {
         c.apply(1, chunk("Hel", Some("m1")));
         c.apply(2, chunk("lo", Some("m1")));
 
-        assert_eq!(c.blocks, vec![ConvBlock::Agent("Hello".to_string())]);
+        assert_eq!(
+            c.blocks,
+            vec![ConvBlock::Agent {
+                body: "Hello".to_string(),
+                subagent: None
+            }]
+        );
     }
 
     #[test]
@@ -512,8 +966,14 @@ mod tests {
         assert_eq!(
             c.blocks,
             vec![
-                ConvBlock::Agent("first".to_string()),
-                ConvBlock::Agent("second".to_string()),
+                ConvBlock::Agent {
+                    body: "first".to_string(),
+                    subagent: None
+                },
+                ConvBlock::Agent {
+                    body: "second".to_string(),
+                    subagent: None
+                },
             ]
         );
     }
@@ -528,11 +988,18 @@ mod tests {
             ConvUpdate::ThoughtChunk {
                 content: ConvContent::Text("pondering".to_string()),
                 message_id: Some("m1".to_string()),
+                subagent: None,
             },
         );
 
         assert_eq!(c.blocks.len(), 2);
-        assert_eq!(c.blocks[1], ConvBlock::Thought("pondering".to_string()));
+        assert_eq!(
+            c.blocks[1],
+            ConvBlock::Thought {
+                body: "pondering".to_string(),
+                subagent: None
+            }
+        );
     }
 
     #[test]
@@ -547,6 +1014,7 @@ mod tests {
                 status: ToolStatus::InProgress,
                 content: Vec::new(),
                 locations: Vec::new(),
+                subagent: None,
             }),
         );
         c.apply(
@@ -593,8 +1061,16 @@ mod tests {
                 size: 1_000_000,
                 cost_usd: Some(0.25),
                 model: Some("claude-opus-5".to_string()),
-                total_tokens: Some(240_000),
-                cached_tokens: Some(180_000),
+                spend: Some(TokenSpend {
+                    input: 40_000,
+                    output: 10_000,
+                    thinking: 10_000,
+                    cache_read: 180_000,
+                    // The expected numbers changed with the spend split: `cached_tokens` is now
+                    // cache *read* alone, and cache creation is counted separately.
+                    cache_creation: 0,
+                }),
+                subagent: None,
             }),
         );
 
@@ -603,6 +1079,98 @@ mod tests {
         assert_eq!(c.model.as_deref(), Some("claude-opus-5"));
         assert_eq!(c.total_tokens(), Some(240_000));
         assert_eq!(c.cached_tokens(), Some(180_000));
+    }
+
+    fn usage(used: u64, size: u64, spend: TokenSpend, subagent: Option<&str>) -> ConvUpdate {
+        ConvUpdate::Usage(UsageRecord {
+            used,
+            size,
+            cost_usd: None,
+            model: None,
+            spend: Some(spend),
+            subagent: subagent.map(str::to_string),
+        })
+    }
+
+    fn spend(input: u64, output: u64) -> TokenSpend {
+        TokenSpend {
+            input,
+            output,
+            ..TokenSpend::default()
+        }
+    }
+
+    /// The two rules that decide everything the footer draws: occupancy is a level and is
+    /// replaced, spend is a flow and is summed. Reading the last record's spend as the total —
+    /// which is what this used to do — under-reports every report before it.
+    #[test]
+    fn spend_accumulates_while_occupancy_is_replaced() {
+        let mut c = conversation();
+        c.apply(1, usage(10_000, 200_000, spend(1_000, 100), None));
+        c.apply(2, usage(30_000, 200_000, spend(2_000, 200), None));
+
+        assert_eq!(c.tokens(), 30_000, "occupancy is the last reading");
+        assert_eq!(c.context_pct(), Some(15));
+        assert_eq!(c.total_tokens(), Some(3_300), "spend is every reading");
+    }
+
+    /// A subagent repeats the parent's `used`/`size` unchanged, so applying one as a fresh reading
+    /// would move the ring for a turn that never touched the parent's window.
+    #[test]
+    fn a_subagents_report_spends_without_moving_the_ring() {
+        let mut c = conversation();
+        c.apply(1, usage(50_000, 200_000, spend(4_000, 400), None));
+        c.apply(
+            2,
+            usage(50_000, 200_000, spend(9_000, 900), Some("Explore")),
+        );
+        c.apply(
+            3,
+            usage(50_000, 200_000, spend(1_000, 100), Some("Explore")),
+        );
+        c.apply(4, usage(50_000, 200_000, spend(2_000, 200), Some("Plan")));
+
+        assert_eq!(
+            c.tokens(),
+            50_000,
+            "the parent still says where the ring is"
+        );
+        assert_eq!(c.context_pct(), Some(25));
+        assert_eq!(c.total_tokens(), Some(17_600));
+        assert_eq!(
+            c.subagent_spend(),
+            vec![("Explore", 11_000), ("Plan", 2_200)],
+            "biggest spender first, and the conversation's own entry is not among them"
+        );
+        assert_eq!(
+            c.spend_by_subagent[""].total(),
+            4_400,
+            "the conversation's own spend is kept apart under its own key"
+        );
+    }
+
+    /// The worst of the bugs a real capture showed: a subagent's greeting drawn inside the
+    /// sentence the main agent was in the middle of. Message ids are minted per turn and collide.
+    #[test]
+    fn a_subagents_chunk_does_not_join_the_parents_block() {
+        let mut c = conversation();
+        c.apply(1, chunk("I'll delegate. ", Some("m1")));
+        c.apply(
+            2,
+            ConvUpdate::AgentChunk {
+                content: ConvContent::Text("Hello from the subagent".to_string()),
+                message_id: Some("m1".to_string()),
+                subagent: Some(Subagent {
+                    id: "toolu_1".to_string(),
+                    kind: Some("Explore".to_string()),
+                    ..Default::default()
+                }),
+            },
+        );
+
+        assert_eq!(c.blocks.len(), 2, "two voices are two blocks");
+        assert_eq!(c.blocks[0].subagent_id(), None);
+        assert_eq!(c.blocks[1].subagent_id(), Some("toolu_1"));
     }
 
     /// The chip is short enough to read at a glance without inventing a rule for vendors whose
@@ -638,6 +1206,8 @@ mod tests {
                 seven_day_pct: Some(21),
                 seven_day_resets_at: Some(1_788_796_800),
                 status: "allowed".to_string(),
+                overage_status: None,
+                overage_reason: None,
             }),
         );
 

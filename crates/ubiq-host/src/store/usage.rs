@@ -27,7 +27,7 @@ const HOUR: i64 = 3600;
 const MINUTE: i64 = 60;
 
 /// Every schema step, in order, forever. Append only — a step's index is its version.
-const MIGRATIONS: &[&str] = &[SCHEMA_001];
+const MIGRATIONS: &[&str] = &[SCHEMA_001, SCHEMA_002];
 
 /// The two tables, which are the same table twice at two granularities.
 ///
@@ -75,8 +75,69 @@ CREATE TABLE usage_minute (
 ) WITHOUT ROWID;
 "#;
 
+/// The sixth dimension: which subagent spent it, `''` for the conversation's own spend.
+///
+/// A turn's spend splits between the conversation and the agents it spawned, and a subagent's
+/// report repeats the parent's occupancy unchanged — so the two must land in *different* rows or
+/// a subagent's tokens would be summed into the parent's bucket and lost as a breakdown.
+///
+/// SQLite cannot widen a `WITHOUT ROWID` table's primary key in place, so this is the standard
+/// create-new / copy / drop / rename. Rows already in the field carry over with `subagent = ''`,
+/// which is exactly what they are: spend nobody attributed to a subagent.
+const SCHEMA_002: &str = r#"
+CREATE TABLE usage_hour_next (
+  bucket       INTEGER NOT NULL,
+  project      TEXT    NOT NULL,
+  harness      TEXT    NOT NULL,
+  account      TEXT    NOT NULL,
+  model        TEXT    NOT NULL,
+  subagent     TEXT    NOT NULL DEFAULT '',
+  tokens_in    INTEGER NOT NULL DEFAULT 0,
+  tokens_out   INTEGER NOT NULL DEFAULT 0,
+  tokens_think INTEGER NOT NULL DEFAULT 0,
+  tokens_other INTEGER NOT NULL DEFAULT 0,
+  msgs_in      INTEGER NOT NULL DEFAULT 0,
+  msgs_out     INTEGER NOT NULL DEFAULT 0,
+  tool_calls   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, project, harness, account, model, subagent)
+) WITHOUT ROWID;
+
+INSERT INTO usage_hour_next
+SELECT bucket, project, harness, account, model, '', tokens_in, tokens_out, tokens_think,
+       tokens_other, msgs_in, msgs_out, tool_calls
+FROM usage_hour;
+
+DROP TABLE usage_hour;
+ALTER TABLE usage_hour_next RENAME TO usage_hour;
+
+CREATE TABLE usage_minute_next (
+  bucket       INTEGER NOT NULL,
+  project      TEXT    NOT NULL,
+  harness      TEXT    NOT NULL,
+  account      TEXT    NOT NULL,
+  model        TEXT    NOT NULL,
+  subagent     TEXT    NOT NULL DEFAULT '',
+  tokens_in    INTEGER NOT NULL DEFAULT 0,
+  tokens_out   INTEGER NOT NULL DEFAULT 0,
+  tokens_think INTEGER NOT NULL DEFAULT 0,
+  tokens_other INTEGER NOT NULL DEFAULT 0,
+  msgs_in      INTEGER NOT NULL DEFAULT 0,
+  msgs_out     INTEGER NOT NULL DEFAULT 0,
+  tool_calls   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, project, harness, account, model, subagent)
+) WITHOUT ROWID;
+
+INSERT INTO usage_minute_next
+SELECT bucket, project, harness, account, model, '', tokens_in, tokens_out, tokens_think,
+       tokens_other, msgs_in, msgs_out, tool_calls
+FROM usage_minute;
+
+DROP TABLE usage_minute;
+ALTER TABLE usage_minute_next RENAME TO usage_minute;
+"#;
+
 /// The columns, in the one order every statement here uses.
-const COLUMNS: &str = "bucket, project, harness, account, model, tokens_in, tokens_out, \
+const COLUMNS: &str = "bucket, project, harness, account, model, subagent, tokens_in, tokens_out, \
                        tokens_think, tokens_other, msgs_in, msgs_out, tool_calls";
 
 /// What can go wrong reaching the meter. One variant: every failure here is the database saying
@@ -137,10 +198,12 @@ impl Usage {
     /// The caller reports what was just spent once; the hour row and the minute row are this
     /// method's business, not theirs. `row.bucket` is ignored — `at` is the truth, floored twice.
     ///
-    /// Nothing calls this yet. The wiring point is `crate::conversation`'s
-    /// `AgentEvent::UsageUpdate` arm (`crates/ubiq-host/src/conversation.rs:316`), where a
-    /// harness's own usage report becomes a `ConvUpdate::Usage`: that is where a delta exists and
-    /// where the project, harness and account are all still in hand.
+    /// Called from the conversation pump, not from the coordinator — see
+    /// [`crate::conversation::UsageMeter`] for why the meter has to travel to the thread that
+    /// reads the harness.
+    ///
+    /// Only a report carrying spend reaches here: occupancy is a level, and a level is never
+    /// accumulated.
     pub fn record(&self, at: SystemTime, row: &UsageRow) -> Result<(), UsageError> {
         let now = at
             .duration_since(UNIX_EPOCH)
@@ -164,6 +227,7 @@ impl Usage {
                     row.harness,
                     row.account,
                     row.model,
+                    row.subagent,
                     row.tokens_in as i64,
                     row.tokens_out as i64,
                     row.tokens_think as i64,
@@ -207,13 +271,14 @@ impl Usage {
                     harness: r.get(2)?,
                     account: r.get(3)?,
                     model: r.get(4)?,
-                    tokens_in: r.get(5)?,
-                    tokens_out: r.get(6)?,
-                    tokens_think: r.get(7)?,
-                    tokens_other: r.get(8)?,
-                    msgs_in: r.get(9)?,
-                    msgs_out: r.get(10)?,
-                    tool_calls: r.get(11)?,
+                    subagent: r.get(5)?,
+                    tokens_in: r.get(6)?,
+                    tokens_out: r.get(7)?,
+                    tokens_think: r.get(8)?,
+                    tokens_other: r.get(9)?,
+                    msgs_in: r.get(10)?,
+                    msgs_out: r.get(11)?,
+                    tool_calls: r.get(12)?,
                 })
             })
             .map_err(wrap)?
@@ -225,11 +290,11 @@ impl Usage {
 
 /// The one write, for either table: insert the bucket, or add into the one already there. The
 /// conflict target is the whole primary key, which is what makes a second report for the same
-/// five dimensions a sum rather than a duplicate.
+/// six dimensions a sum rather than a duplicate.
 fn upsert(table: &str) -> String {
     format!(
-        "INSERT INTO {table} ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) \
-         ON CONFLICT(bucket,project,harness,account,model) DO UPDATE SET \
+        "INSERT INTO {table} ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) \
+         ON CONFLICT(bucket,project,harness,account,model,subagent) DO UPDATE SET \
          tokens_in = tokens_in + excluded.tokens_in, \
          tokens_out = tokens_out + excluded.tokens_out, \
          tokens_think = tokens_think + excluded.tokens_think, \

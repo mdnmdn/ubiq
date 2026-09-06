@@ -68,6 +68,10 @@ pub enum ToolKind {
     Think,
     Fetch,
     SwitchMode,
+    /// Spawning another agent. Its own kind rather than `Think` or `Other`: a delegation starts a
+    /// second transcript, and a reader who cannot tell one from a thought cannot tell where the
+    /// work went.
+    Delegate,
     #[default]
     Other,
 }
@@ -85,6 +89,7 @@ impl ToolKind {
             ToolKind::Think => "THINK",
             ToolKind::Fetch => "FETCH",
             ToolKind::SwitchMode => "MODE",
+            ToolKind::Delegate => "AGENT",
             ToolKind::Other => "TOOL",
         }
     }
@@ -129,6 +134,38 @@ pub struct ToolLocation {
     pub line: Option<u32>,
 }
 
+/// Which spawned subagent a line came from.
+///
+/// **An id and a kind are two different questions.** "Which subagent" is [`Self::id`] — Claude
+/// Code's `parent_tool_use_id`, which is the id of the `Task` tool call that spawned the agent, so
+/// three agents spawned in one turn are three ids however alike they are. "What kind of subagent"
+/// is [`Self::kind`] — `"general-purpose"`, which every one of those three shares. A transcript
+/// that shows one agent at a time keys off the id; anything that asks what a *type* of agent costs
+/// keys off the kind, which is why [`UsageRecord::subagent`] deliberately carries only the latter.
+///
+/// [`Self::model`] and [`Self::thinking`] answer "what is it running as", and are filled **only
+/// where the stream says so** — a delegate drawn as inheriting the parent's model or effort when
+/// the harness never stated it is a guess wearing a fact's clothes, so the field stays `None` and
+/// a reader draws nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Subagent {
+    /// The spawning tool call's id — the instance, and the join key back to that call.
+    pub id: String,
+    /// The type the harness named, where it named one.
+    pub kind: Option<String>,
+    /// The model this delegate is answering with, where the harness named it. The same for every
+    /// line of one delegate: the bridge remembers what the spawn resolved to rather than reporting
+    /// whatever the block in hand happened to carry.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The thinking or reasoning effort this delegate runs at, where the harness states it.
+    /// **No harness states it per delegate today** — Claude Code's spawn names a description, a
+    /// prompt and a subagent type, and its launch result adds only the resolved model — so this is
+    /// `None` everywhere until one does.
+    #[serde(default)]
+    pub thinking: Option<String>,
+}
+
 /// A tool call as it starts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolCallRecord {
@@ -138,6 +175,9 @@ pub struct ToolCallRecord {
     pub status: ToolStatus,
     pub content: Vec<ToolContent>,
     pub locations: Vec<ToolLocation>,
+    /// Which spawned subagent made the call; `None` is the conversation itself.
+    #[serde(default)]
+    pub subagent: Option<Subagent>,
 }
 
 /// A patch to a tool call already announced.
@@ -250,25 +290,68 @@ pub struct PermissionOption {
 
 // ── usage, and the end of a turn ───────────────────────────────────────
 
+/// What one usage report says was spent — a flow, summed over a conversation.
+///
+/// The mirror of `agent_manager::io::Spend`, and split the same way: cache
+/// *read* is context re-used and cache *creation* is context newly written,
+/// so folding them together makes any "how much was cached" reading sit at
+/// ~100% forever. `output` excludes `thinking` where the harness separates
+/// them, so [`TokenSpend::total`] counts a reasoning token once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenSpend {
+    pub input: u64,
+    pub output: u64,
+    pub thinking: u64,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+}
+
+impl TokenSpend {
+    /// Every token this report billed, however it was spent.
+    pub fn total(&self) -> u64 {
+        self.input
+            .saturating_add(self.output)
+            .saturating_add(self.thinking)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.cache_creation)
+    }
+
+    /// The part of it that was context re-used. Cache *creation* is not in
+    /// it: that is context paid for once, not context saved.
+    pub fn cached(&self) -> u64 {
+        self.cache_read
+    }
+}
+
 /// Context and money for one model.
 ///
-/// `used` over `size` **is** the context ring. Nothing in the interface holds
-/// a context-window constant: the window is per model, and the harness is the
-/// only thing that knows which model answered.
+/// **Three separate things, and conflating them is what this shape exists to
+/// prevent.** `used` over `size` is *occupancy* — the tokens sitting in the
+/// context window right now, a level that falls on compaction as legitimately
+/// as it rises — and it **is** the context ring. `spend` and `cost_usd` are
+/// *flows*: what one report billed, meant to be summed. `subagent` is
+/// *origin*: which spawned agent spent it, `None` being the conversation
+/// itself. Nothing in the interface holds a context-window constant: the
+/// window is per model, and the harness is the only thing that knows which
+/// model answered.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UsageRecord {
     pub used: u64,
     pub size: u64,
+    /// What *this* report cost, not the session's running total — a bridge
+    /// that only ever hears a cumulative figure reports the delta.
     pub cost_usd: Option<f64>,
     pub model: Option<String>,
-    /// Every token the conversation has spent, input plus output, as the
-    /// harness counts it. Not the ring: `used` is what still occupies the
-    /// context window, and this is what has gone through it in total.
+    /// What this report billed, where the harness reported spend it has not
+    /// already reported. Never occupancy.
     #[serde(default)]
-    pub total_tokens: Option<u64>,
-    /// The cache read and cache creation part of that, where it is reported.
+    pub spend: Option<TokenSpend>,
+    /// The subagent **type** that spent it, and deliberately not the instance the transcript
+    /// switches on: a bucket per instance would mint a fresh dimension value on every spawn,
+    /// forever, and "what did general-purpose subagents cost me" is the question this answers.
+    /// [`Subagent`] is where the two part company — do not unify them.
     #[serde(default)]
-    pub cached_tokens: Option<u64>,
+    pub subagent: Option<String>,
 }
 
 impl UsageRecord {
@@ -290,6 +373,13 @@ pub struct RateLimitRecord {
     pub seven_day_pct: Option<u8>,
     pub seven_day_resets_at: Option<i64>,
     pub status: String,
+    /// Whether spending past the plan is accepted — `"rejected"` where the
+    /// account has no credit line. `None` where the harness does not say.
+    #[serde(default)]
+    pub overage_status: Option<String>,
+    /// Why overage is off, where the harness gives a reason.
+    #[serde(default)]
+    pub overage_reason: Option<String>,
 }
 
 /// Why a turn stopped.
@@ -337,11 +427,17 @@ pub enum ConvUpdate {
     AgentChunk {
         content: ConvContent,
         message_id: Option<String>,
+        /// Which spawned subagent said it; `None` is the conversation itself.
+        #[serde(default)]
+        subagent: Option<Subagent>,
     },
     /// Reasoning, drawn as a thinking block.
     ThoughtChunk {
         content: ConvContent,
         message_id: Option<String>,
+        /// Which spawned subagent thought it; `None` is the conversation itself.
+        #[serde(default)]
+        subagent: Option<Subagent>,
     },
 
     ToolCall(ToolCallRecord),
@@ -388,6 +484,7 @@ mod tests {
         let update = ConvUpdate::AgentChunk {
             content: ConvContent::Text("hello".to_string()),
             message_id: Some("m1".to_string()),
+            subagent: None,
         };
         let json = serde_json::to_string(&update).unwrap();
         let back: ConvUpdate = serde_json::from_str(&json).unwrap();
@@ -413,8 +510,8 @@ mod tests {
             size: 200_000,
             cost_usd: None,
             model: None,
-            total_tokens: None,
-            cached_tokens: None,
+            spend: None,
+            subagent: None,
         };
         assert_eq!(usage.context_pct(), Some(21));
     }
@@ -428,8 +525,8 @@ mod tests {
             size: 0,
             cost_usd: None,
             model: None,
-            total_tokens: None,
-            cached_tokens: None,
+            spend: None,
+            subagent: None,
         };
         assert_eq!(usage.context_pct(), None);
     }

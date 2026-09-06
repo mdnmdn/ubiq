@@ -18,7 +18,7 @@ use crate::theme;
 use crate::ui::kit::{Action, IndexedAction, field};
 
 /// Where a dropdown is painted: above the shell, below a modal.
-const MENU_LAYER: usize = 1;
+pub const MENU_LAYER: usize = 1;
 
 /// Where a dropdown inside a modal is painted, over the modal's own overlay.
 const MODAL_MENU_LAYER: usize = 3;

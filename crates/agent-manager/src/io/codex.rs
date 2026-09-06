@@ -79,8 +79,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::{
-    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionKind, PermissionOption,
-    StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation, ToolStatus,
+    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, Origin, PermissionKind,
+    PermissionOption, StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation,
+    ToolStatus,
 };
 
 /// How long a blocking request (`initialize`, `thread/start`, `turn/start`'s
@@ -778,6 +779,7 @@ fn map_legacy_event(params: &Value) -> Vec<AgentEvent> {
                 .unwrap_or_default();
             // The legacy dialect carries no message id to group chunks by.
             vec![AgentEvent::AgentMessageChunk {
+                origin: Origin::default(),
                 content: Content::text(text),
                 message_id: None,
             }]
@@ -868,6 +870,7 @@ fn map_item(params: &Value, started: bool) -> Vec<AgentEvent> {
                 .or_else(|| item.get("content").and_then(Value::as_str))
                 .unwrap_or_default();
             vec![AgentEvent::AgentMessageChunk {
+                origin: Origin::default(),
                 content: Content::text(text),
                 message_id: id.map(str::to_string),
             }]
@@ -878,12 +881,14 @@ fn map_item(params: &Value, started: bool) -> Vec<AgentEvent> {
 
 /// Map a v2 `turn/completed` notification to the turn's end.
 ///
-/// Codex reports token counts here (under `turn.usage` / `usage` /
-/// `token_usage` / `tokens`) but never a context window size
-/// (`_docs/harness/codex.md` has no `contextWindow`-shaped field anywhere in
-/// the headless surface), so there is no denominator for a
-/// [`AgentEvent::UsageUpdate`] ring — and a ratio with an invented one is
-/// worse than no ratio. The counts are dropped rather than reported half.
+/// Against the accounting contract on [`AgentEvent::UsageUpdate`], this bridge fills **none of
+/// it**. Codex reports token counts here (under `turn.usage` / `usage` / `token_usage` /
+/// `tokens`) but never a context window size (`_docs/harness/codex.md` has no
+/// `contextWindow`-shaped field anywhere in the headless surface), so occupancy has no
+/// denominator — and a ratio with an invented one is worse than no ratio. Whether those counts are
+/// this turn's or the session's running total is not something the doc settles, so reporting them
+/// as [`super::Spend`] would be a guess; they are dropped rather than reported half. Codex spawns
+/// no subagents on this surface, so [`super::Origin`] is always the conversation's own.
 fn map_turn_completed(_params: &Value) -> Vec<AgentEvent> {
     vec![AgentEvent::TurnEnded {
         stop_reason: StopReason::EndTurn,
@@ -964,6 +969,7 @@ mod tests {
         assert_eq!(
             events,
             vec![AgentEvent::AgentMessageChunk {
+                origin: Origin::default(),
                 content: Content::text("hi from legacy"),
                 message_id: None,
             }]
@@ -1045,6 +1051,7 @@ mod tests {
         assert_eq!(
             map_notification(&v),
             vec![AgentEvent::AgentMessageChunk {
+                origin: Origin::default(),
                 content: Content::text("hi from v2"),
                 message_id: Some("i1".to_string()),
             }]

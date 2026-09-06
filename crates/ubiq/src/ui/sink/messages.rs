@@ -20,10 +20,10 @@ use gpui::{
 use gpui_component::IconName;
 
 use crate::app::AppState;
+use crate::state::agents::SINK_SLOT;
 use crate::theme;
 use crate::ui::conversation::ConversationView;
 use crate::ui::empty::empty_page;
-use crate::state::agents::SINK_SLOT;
 use crate::ui::kit::{choice_pill, ghost_button, icon_button, mono};
 use ubiq_proto::bus::{Direction, TapeEntry, tape};
 

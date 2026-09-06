@@ -585,6 +585,33 @@ otherwise silently gets nothing.** `modelUsage`'s keys are camelCase — `inputT
 `contextWindow` is the only place the model's window is stated, and it is per model: 200 000 for
 Sonnet, 1 000 000 for the extended-context variants. Verified against 2.1.259.
 
+**`modelUsage`'s keys are dated releases; an assistant line names the canonical alias.** One
+capture bills `claude-haiku-4-5-20251001` while the message that spent it says `claude-haiku-4-5`,
+and each entry states the alias it belongs to as `canonicalModel`. A window learned under the wire
+key and looked up under the message's name is never found, which leaves occupancy with no
+denominator and the context ring empty for the whole session — so a reader accounts every model
+under `canonicalModel`, falling back to the key with a trailing `-YYYYMMDD` stripped.
+
+**`modelUsage` is cumulative for the session, and it is billing rather than occupancy.** Its
+figures — and `total_cost_usd` with them — only ever grow, counting a cache read once per API call,
+so what one turn spent is the difference from the last `result`, and summing the stated figures
+over-counts every turn but the first. It is also not what sits in the context window: two
+consecutive `result` lines in one capture reported 35 436 and 218 336 for a context that never
+grew. **Occupancy comes from a per-message `usage`** instead — `input_tokens +
+cache_read_input_tokens + cache_creation_input_tokens` on an `assistant` line, against that model's
+`contextWindow`. `output_tokens` is not in it and is not usable there anyway: a streaming assistant
+line carries a stub (`1`, `2`, `3`) and the real figure arrives only in `result`, where
+`outputTokens` *includes* `thinkingTokens` rather than sitting beside it.
+
+**Every line a subagent produced carries `parent_tool_use_id`, alongside `subagent_type` and
+`task_description`.** That covers its speech, its thinking, its tool calls and its `usage` — whose
+context is the subagent's own, not the parent's, so treating it as the parent's makes occupancy
+oscillate within a single turn. Its spend is nonetheless inside the session totals `modelUsage`
+reports, so a reader that attributes subagent spend separately must subtract it from the turn's
+delta rather than count it twice. Two more shapes worth knowing: a `thinking` block can arrive with
+a `signature` and an empty `thinking` string (the reasoning withheld, the turn's real reasoning
+count still billed as `thinkingTokens`), and one session can send `system`/`init` twice.
+
 **The prompt line above is never echoed back.** The `{"type":"user",...}` shown as stdin input at
 the top of this section does not also appear on stdout — a persistent, `--input-format stream-json`
 session only emits a `"type":"user"` line on stdout for a *tool result* (the third line in the
@@ -627,6 +654,22 @@ With `--permission-mode bypassPermissions`, Claude Code still emits a `control_r
 ```
 
 `updatedInput` may rewrite the tool input before execution — e.g. forcing `run_in_background: false` so no orphaned background tool survives the parent process. A `tool_result` carrying `status:"async_launched"` signals a still-running background tool.
+
+**The launch result is also where the delegate's model is stated**: alongside `isAsync` and
+`status`, `tool_use_result` carries `resolvedModel`, plus `agentId`, `description`, `prompt` and
+`outputFile`. The spawn's own `input` names only `description`, `prompt` and `subagent_type` — no
+model override, no tool allowlist — and **nothing anywhere states a thinking or reasoning effort
+per delegate**, so a reader that wants "what is this agent running as" has the model and nothing
+else. The delegate's own lines repeat the model on every `message.model`, but the launch states it
+first, before the delegate has spoken.
+
+**Nothing later names that `tool_use_id` again.** A spawned agent's launch result — `isAsync: true`
+and `status: "async_launched"`, on the block or on the line's sibling `tool_use_result` — is the
+last word on that call: the subagent's own lines carry `parent_tool_use_id` but no final marker,
+and no second `tool_result` arrives. What does say the agents ended is the turn's `result`, which
+carries `subagent_stats: {spawned, completed, failed, …}`; a reader closes the calls it is still
+holding once `completed + failed` accounts for `spawned`, and keeps them open until then. The tally
+is per turn, not per call, so which agent failed is not knowable from the stream.
 
 ### Process lifecycle
 

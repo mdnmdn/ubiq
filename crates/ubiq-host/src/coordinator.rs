@@ -26,7 +26,7 @@ use crate::agent::{Agents, PendingLogin};
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::connectors::{Answer, Connectors};
-use crate::conversation::Conversation;
+use crate::conversation::{Conversation, UsageMeter};
 use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
@@ -163,7 +163,7 @@ struct Coordinator {
     agents_this_run: usize,
     /// What the agents have spent. `None` when the database could not be opened — an unwritable
     /// config root costs the user their token history, never their session.
-    usage: Option<Usage>,
+    usage: Option<Arc<Usage>>,
 }
 
 /// A conversation the window asked for and the harness has not yet answered — registered so the
@@ -438,6 +438,48 @@ fn mode_config_option(agent_type: &str) -> Option<ConfigOption> {
     })
 }
 
+/// What a `SetAgentConfig{"model", ..}` on a pending agent has to answer with, or `None` when it
+/// has nothing to say.
+///
+/// **The recomputed thinking picker is the only thing this re-send can tell the window.** A level
+/// is per model, so offering one the newly picked model does not accept is exactly the lie this
+/// design exists to prevent — and the level is reset to the new model's own default rather than
+/// carrying the previous model's over. But the model list and the mode list cannot change by
+/// picking a model, and `current` is the value the window itself just sent: when the levels come
+/// out identical to what `shown_model`/`shown_thinking` already put on screen, the whole message
+/// is a redundant round trip that redraws the picker already there.
+///
+/// Silent then; the *complete* set whenever anything did change, because a partial one would leave
+/// a stale picker up.
+fn config_options_after_model_pick(
+    agent_type: &str,
+    models: &[CachedModel],
+    shown_model: &str,
+    shown_thinking: &str,
+    picked: &str,
+) -> Option<Vec<ConfigOption>> {
+    let shown = thinking_config_option(models, shown_model, shown_thinking);
+    let options = build_config_options(agent_type, models, picked, "");
+    (options.iter().find(|option| option.id == "thinking") != shown.as_ref()).then_some(options)
+}
+
+/// The model id the picker is showing: the user's pick, or — before any pick — the remembered
+/// one when the catalogue still has it, and the harness's default otherwise.
+///
+/// Shared by the discovery thread's first advertisement and the `SetAgentConfig` arm that decides
+/// whether a re-advertisement would say anything new; the two must resolve it the same way or the
+/// comparison is against a picker that was never on screen.
+fn advertised_model(models: &[CachedModel], chosen: Option<&str>, last_used: &str) -> String {
+    if let Some(chosen) = chosen {
+        return chosen.to_string();
+    }
+    if models.iter().any(|model| model.id == last_used) {
+        last_used.to_string()
+    } else {
+        default_model_id(models)
+    }
+}
+
 /// The full set of `ConfigOption`s a pending agent's picker gets, for `chosen_model` (the
 /// remembered-or-default model id on the first send, the newly picked one on a
 /// `SetAgentConfig{"model", ..}` re-send) and `chosen_thinking` (the remembered level on the
@@ -535,6 +577,7 @@ impl Coordinator {
         // A meter that will not open is a stats screen with empty rows, and nothing else. Said
         // once, here, rather than on every sample.
         let usage = Usage::open(&root.path)
+            .map(Arc::new)
             .inspect_err(|error| tracing::warn!("the usage meter is not available: {error}"))
             .ok();
 
@@ -1402,41 +1445,57 @@ impl Coordinator {
                         .get_mut(&agent_id)
                         .expect("just checked above");
                     if config_id == "model" {
-                        pending.chosen_model = Some(value.clone());
                         // ponytail: re-reads the cache rather than holding the probe's result; a
                         // miss would cost one re-probe and cannot happen — the discovery thread
                         // wrote the cache before it ever sent the `ConfigOptions` that made this
                         // pick possible.
                         let account_key = pending.account.clone().unwrap_or_default();
-                        pending.catalogue =
+                        let catalogue =
                             probe_catalogue(&pending.agent_type, &account_key, &self.catalogue)
                                 .unwrap_or_default();
-                        // A level is per model: offering one the newly chosen model does not
-                        // accept is exactly the lie this design exists to prevent, so the
-                        // thinking picker is recomputed for `value`, not the previous model —
-                        // and reset to that model's own default rather than carrying over
-                        // whatever level was showing before (empty `chosen_thinking`).
-                        let options = build_config_options(
+                        // The thinking picker the window is *already* showing, rebuilt from the
+                        // same inputs that produced it: the previous pick, or — before any pick —
+                        // the remembered-or-default resolution the discovery thread used.
+                        let (last_model, last_thinking) = self
+                            .catalogue
+                            .last_used(&pending.agent_type)
+                            .unwrap_or_default();
+                        let resend = config_options_after_model_pick(
                             &pending.agent_type,
-                            &pending.catalogue,
+                            &catalogue,
+                            &advertised_model(
+                                &catalogue,
+                                pending.chosen_model.as_deref(),
+                                &last_model,
+                            ),
+                            match pending.chosen_model {
+                                // Every re-send resets thinking to the model's own default, so
+                                // that is what the last one showed.
+                                Some(_) => "",
+                                None => &last_thinking,
+                            },
                             &value,
-                            "",
                         );
-                        // Pre-increment, mirroring the pump's own `seq += 1` before it sends: the
-                        // discovery thread's message already claimed seq 1, so the first pick's
-                        // resend is seq 2, and `next_seq` still names "the last seq used" when
-                        // `launch_pending` later hands it to `Conversation::start` as the pump's
-                        // own starting point.
-                        pending.next_seq += 1;
-                        let seq = pending.next_seq;
-                        self.host
-                            .mailbox(To::Client(client))
-                            .send(Message::ConversationUpdate {
-                                agent_id,
-                                seq,
-                                update: Box::new(ConvUpdate::ConfigOptions(options)),
-                                raw: None,
-                            });
+
+                        pending.chosen_model = Some(value);
+                        pending.catalogue = catalogue;
+                        if let Some(options) = resend {
+                            // Pre-increment, mirroring the pump's own `seq += 1` before it sends:
+                            // the discovery thread's message already claimed seq 1, so a resend
+                            // is seq 2, and `next_seq` still names "the last seq used" when
+                            // `launch_pending` later hands it to `Conversation::start` as the
+                            // pump's own starting point.
+                            pending.next_seq += 1;
+                            let seq = pending.next_seq;
+                            self.host.mailbox(To::Client(client)).send(
+                                Message::ConversationUpdate {
+                                    agent_id,
+                                    seq,
+                                    update: Box::new(ConvUpdate::ConfigOptions(options)),
+                                    raw: None,
+                                },
+                            );
+                        }
                     } else if config_id == "thinking" {
                         pending.chosen_thinking = Some(value);
                     } else if config_id == "mode" {
@@ -1640,11 +1699,7 @@ impl Coordinator {
                         Vec::new()
                     });
                 let (last_model, last_thinking) = cache.last_used(&agent_type).unwrap_or_default();
-                let chosen_model = if models.iter().any(|m| m.id == last_model) {
-                    last_model
-                } else {
-                    default_model_id(&models)
-                };
+                let chosen_model = advertised_model(&models, None, &last_model);
                 let options =
                     build_config_options(&agent_type, &models, &chosen_model, &last_thinking);
                 discovery_mailbox.send(Message::ConversationUpdate {
@@ -1725,7 +1780,15 @@ impl Coordinator {
         );
 
         let mailbox = self.host.mailbox(To::Client(client));
-        let conversation = Conversation::start(agent_id, bridge, mailbox, pending.next_seq);
+        // The launch's own dimensions, resolved once: the pump stamps them on every spend it
+        // sees. Without a meter the pump simply records nothing.
+        let usage = self.usage.clone().map(|meter| UsageMeter {
+            meter,
+            project: pending.project_id.to_string(),
+            harness: pending.agent_type.clone(),
+            account: pending.account.clone().unwrap_or_default(),
+        });
+        let conversation = Conversation::start(agent_id, bridge, mailbox, pending.next_seq, usage);
         self.conversations.insert(agent_id, conversation);
         self.agents_this_run += 1;
         true
@@ -2736,6 +2799,57 @@ mod tests {
         assert!(!ids.contains(&"thinking"));
     }
 
+    /// The rule that decides whether a model pick is worth answering. A model whose reasoning
+    /// levels differ has to be re-advertised — offering the previous model's levels is the lie
+    /// this whole design exists to prevent — and the answer is the complete set, not just the
+    /// picker that changed.
+    #[test]
+    fn a_model_pick_that_changes_the_levels_is_re_advertised() {
+        let models = [
+            model_offering("thinker", &["low", "high"]),
+            model_without_levels("chatter"),
+        ];
+        let options =
+            config_options_after_model_pick("codex", &models, "thinker", "high", "chatter")
+                .expect("dropping the reasoning knob has to reach the window");
+        let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
+        assert!(
+            ids.contains(&"model"),
+            "the set has to be complete: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"thinking"),
+            "chatter has no levels, so no picker: {ids:?}"
+        );
+    }
+
+    /// And the other half: two models with the same levels leave nothing to say. The window set
+    /// `current` itself when it sent the pick, and the model and mode lists cannot change by
+    /// picking a model — so the message would only redraw the picker already on screen.
+    #[test]
+    fn a_model_pick_that_changes_nothing_says_nothing() {
+        let models = [
+            model_offering("one", &["low", "high"]),
+            model_offering("two", &["low", "high"]),
+        ];
+
+        assert!(config_options_after_model_pick("codex", &models, "one", "", "two").is_none());
+        // Confirming the model already showing is the same nothing.
+        assert!(config_options_after_model_pick("codex", &models, "one", "", "one").is_none());
+    }
+
+    /// A model change resets thinking to the new model's own default, so a pick made while a
+    /// non-default level was showing has to say so even when the level *lists* match.
+    #[test]
+    fn a_model_pick_that_resets_a_chosen_level_is_re_advertised() {
+        let models = [
+            model_offering("one", &["low", "high"]),
+            model_offering("two", &["low", "high"]),
+        ];
+
+        assert!(config_options_after_model_pick("codex", &models, "one", "high", "two").is_some());
+    }
+
     #[test]
     fn build_config_options_omits_mode_for_a_harness_with_none() {
         let models = [model_without_levels("some-model")];
@@ -2839,7 +2953,8 @@ mod tests {
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));
-        let conversation = Conversation::start(agent_id, Box::new(Idle::new()), mailbox, last_seq);
+        let conversation =
+            Conversation::start(agent_id, Box::new(Idle::new()), mailbox, last_seq, None);
         coordinator.conversations.insert(agent_id, conversation);
 
         (agent_id, project_id)

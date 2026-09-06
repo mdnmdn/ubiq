@@ -77,6 +77,31 @@ project root or a full `ubiq://` opens that place in the window, `http`, `https`
 the operating system, and anything else does nothing — see
 [`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
 
+**Delegates are a line, and a list only when asked for.** A conversation that spawned subagents
+grows one row at the top of the bottom block — above the footer, above the composer — reading
+`3 subagents`, and nothing else; a conversation that spawned none grows nothing. Opening it draws
+one row per agent *upward*, over the transcript, through the same `anchored` + `deferred` pair
+every menu in the window uses, so the composer never moves under the cursor. Each row says who and
+what it is doing, and clicking one switches the transcript to that agent; the main agent is always
+a row, because it is the way back. A subagent whose spawning call is not in the transcript reads
+`unknown` rather than being claimed to be running. **A delegate says what it is answering with**:
+the reading strip above its transcript carries its model beside its name, and its row's hover names
+its kind, its model and its thinking level where the harness stated one — the model shortened by
+`short_model_label`, the same shortener the composer's model chip uses, so one conversation never
+spells a model two ways. Both read the one `SubagentTab` field, resolved on `Conversation` beside
+`subagents`. Nothing is borrowed from the parent: a delegate the harness named no model for draws
+nothing, and `thinking` is `None` on every harness today because no stream states a per-delegate
+effort level. The `AGENT` block that spawned an agent is the
+same door: clicking it switches the transcript, and stays inert until that agent has said
+something.
+
+**`ctx` is a level, `tot` is a flow.** The footer's ring and its `ctx` count are how full the
+context window is *now* — a number that falls when the conversation is compacted — and `tot` is
+every token the conversation has ever billed, subagents included, which only grows. That is why one
+is a ring and the other a number, and every readout in the row says which it is on hover: the
+identity chip, the ring, `ctx`, `tot` with its per-way and per-subagent breakdown, and the
+composer's model, thinking and mode chips.
+
 **The status glyph and the three-dots lifecycle menu are the one exception: the tab's own header
 draws them, not the shared view.** `ConversationView::header` tells the shared view whether to draw
 its own bordered strip for them — `true` on the agents column, unchanged; `false` here, because the

@@ -216,15 +216,17 @@ fn ai(app: &AppState) -> AnyElement {
     table(rows)
 }
 
-/// The columns, in the order they are read: when, who, then what it cost.
+/// The columns, in the order they are read: when, then who — harness, model, and which
+/// subagent, if any — then what it cost.
 ///
 /// Widths are fixed rather than proportional, because a table of figures is read down a column and
 /// a column that resizes with its longest cell stops lining up. What does not fit scrolls
 /// sideways, so a narrow window makes the table reachable rather than making the page wide.
-const COLUMNS: [(&str, f32); 11] = [
+const COLUMNS: [(&str, f32); 12] = [
     ("Hour", 72.),
     ("Harness", 90.),
     ("Model", 130.),
+    ("Subagent", 110.),
     ("In", 80.),
     ("Out", 80.),
     ("Think", 80.),
@@ -302,14 +304,24 @@ fn row(usage: &UsageRow) -> AnyElement {
             theme::text_faint(),
             1.0,
         )))
-        .child(cell(usage.tokens_in, COLUMNS[3].1))
-        .child(cell(usage.tokens_out, COLUMNS[4].1))
-        .child(cell(usage.tokens_think, COLUMNS[5].1))
-        .child(cell(usage.tokens_other, COLUMNS[6].1))
-        .child(cell(usage.tokens_total(), COLUMNS[7].1))
-        .child(cell(usage.msgs_in, COLUMNS[8].1))
-        .child(cell(usage.msgs_out, COLUMNS[9].1))
-        .child(cell(usage.tool_calls, COLUMNS[10].1))
+        .child(div().w(px(COLUMNS[3].1)).child(state_chip(
+            SharedString::from(match usage.subagent.is_empty() {
+                // Empty is the conversation's own spend, not a subagent with no name — and the
+                // two must read differently or a blank cell looks like a missing answer.
+                true => "itself".to_string(),
+                false => usage.subagent.clone(),
+            }),
+            theme::info(),
+            1.0,
+        )))
+        .child(cell(usage.tokens_in, COLUMNS[4].1))
+        .child(cell(usage.tokens_out, COLUMNS[5].1))
+        .child(cell(usage.tokens_think, COLUMNS[6].1))
+        .child(cell(usage.tokens_other, COLUMNS[7].1))
+        .child(cell(usage.tokens_total(), COLUMNS[8].1))
+        .child(cell(usage.msgs_in, COLUMNS[9].1))
+        .child(cell(usage.msgs_out, COLUMNS[10].1))
+        .child(cell(usage.tool_calls, COLUMNS[11].1))
         .into_any_element()
 }
 

@@ -156,6 +156,7 @@ fn text(text: &str) -> AgentEvent {
     AgentEvent::AgentMessageChunk {
         content: Content::text(text),
         message_id: Some("m1".to_string()),
+        origin: agent_manager::io::Origin::default(),
     }
 }
 
@@ -181,7 +182,7 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None);
     let messages = drain(&client, 4);
 
     let seqs: Vec<u64> = messages
@@ -208,6 +209,7 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
         ConvUpdate::AgentChunk {
             content: ConvContent::Text("hello".to_string()),
             message_id: Some("m1".to_string()),
+            subagent: None,
         }
     );
 
@@ -238,7 +240,7 @@ fn a_tool_call_and_its_completion_keep_the_same_id() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 0);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None);
     let messages = drain(&client, 3);
 
     let Message::ConversationUpdate { update, .. } = &messages[0] else {
@@ -270,7 +272,7 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
     let (bridge, sent) = Scripted::new(Vec::new());
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 0);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None);
     assert!(conversation.accepts_input());
 
     conversation.prompt("do the thing".to_string()).unwrap();
@@ -287,7 +289,7 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
 fn a_one_shot_harness_refuses_a_second_turn() {
     let (_hub, host_end, client) = bus_pair();
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(OneShot), host, 0);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(OneShot), host, 0, None);
 
     assert!(!conversation.accepts_input());
     assert!(conversation.prompt("again".to_string()).is_err());
@@ -309,12 +311,14 @@ fn two_conversations_share_one_bus_without_interleaving() {
         Box::new(one),
         host_end.mailbox(To::Client(client.id())),
         0,
+        None,
     );
     let b = Conversation::start(
         second,
         Box::new(two),
         host_end.mailbox(To::Client(client.id())),
         0,
+        None,
     );
 
     let messages = drain(&client, 6);
@@ -344,7 +348,7 @@ fn a_pump_continues_from_its_start_seq() {
     let (bridge, _) = Scripted::new(vec![text("hello")]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 41);
+    let conversation = Conversation::start(AgentId::generate(), Box::new(bridge), host, 41, None);
     let messages = drain(&client, 1);
 
     let Message::ConversationUpdate { seq, .. } = &messages[0] else {
@@ -363,7 +367,7 @@ fn a_quiet_stop_sends_no_conversation_ended_and_returns_the_last_seq() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None);
 
     tx.send(Some(text("hello"))).unwrap();
     tx.send(Some(text("again"))).unwrap();
@@ -398,7 +402,7 @@ fn a_stop_that_is_not_quiet_still_sends_conversation_ended() {
     let (bridge, _tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None);
     conversation.stop(false);
 
     let messages = drain(&client, 1);
@@ -414,7 +418,7 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None);
     tx.send(Some(text("hello"))).unwrap();
     drain(&client, 1);
     let last_seq = conversation.stop(true);
@@ -426,6 +430,7 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
         Box::new(bridge2),
         host_end.mailbox(To::Client(client.id())),
         last_seq + 1,
+        None,
     );
     let messages = drain(&client, 1);
     assert!(matches!(

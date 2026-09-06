@@ -33,7 +33,9 @@
 //! subagent list, so [`AgentEvent::SessionStarted`] leaves those `None`/empty.
 //! `step_finish.part.tokens` gives per-turn input/output counts but no
 //! context window, and a ratio with an invented denominator is worse than no
-//! ratio — so this bridge never emits [`AgentEvent::UsageUpdate`] at all.
+//! ratio — so this bridge never emits [`AgentEvent::UsageUpdate`] at all, filling none of the
+//! accounting contract that event documents: no occupancy (no window), and no spend until a
+//! capture says whether `part.tokens` is this step's or the session's running total.
 //! There is also no on-stream approval handshake (opencode runs headless with
 //! `--dangerously-skip-permissions`), so [`AgentEvent::PermissionRequest`]
 //! never appears either.
@@ -52,8 +54,8 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::{
-    AgentEvent, AgentInput, Content, IoBridge, StopReason, ToolCall, ToolCallUpdate, ToolContent,
-    ToolKind, ToolLocation, ToolStatus,
+    AgentEvent, AgentInput, Content, IoBridge, Origin, StopReason, ToolCall, ToolCallUpdate,
+    ToolContent, ToolKind, ToolLocation, ToolStatus,
 };
 
 /// How long [`Drop`] waits for the child to exit after the reader thread
@@ -236,6 +238,7 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(Value::as_str)
             {
                 vec![AgentEvent::AgentMessageChunk {
+                    origin: Origin::default(),
                     content: Content::text(text),
                     // opencode doesn't tag a part with a message id.
                     message_id: None,
@@ -353,7 +356,9 @@ fn tool_kind(name: &str) -> ToolKind {
         "bash" => ToolKind::Execute,
         "grep" | "websearch" => ToolKind::Search,
         "webfetch" => ToolKind::Fetch,
-        "task" | "todowrite" | "todoread" | "question" => ToolKind::Think,
+        // `task` spawns a subagent, which is a delegation and not a thought.
+        "task" => ToolKind::Delegate,
+        "todowrite" | "todoread" | "question" => ToolKind::Think,
         _ => ToolKind::Other,
     }
 }
@@ -386,6 +391,7 @@ mod tests {
         assert_eq!(
             events,
             vec![AgentEvent::AgentMessageChunk {
+                origin: Origin::default(),
                 content: Content::text("hello world"),
                 message_id: None,
             }]

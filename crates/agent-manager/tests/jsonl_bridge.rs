@@ -116,19 +116,25 @@ fn jsonl_bridge_round_trips_events_and_terminates() {
         "expected a terminal TurnEnded{{stop_reason: EndTurn}} event, got: {events:?}"
     );
 
-    // `result.modelUsage` reports camelCase fields (`inputTokens`,
-    // `cacheReadInputTokens`, `contextWindow`, ...); `used` sums the tokens
-    // that count against the window and `size` is the window itself.
+    // `result.modelUsage` reports camelCase fields (`inputTokens`, `cacheReadInputTokens`,
+    // `contextWindow`, ...): `size` is the window it names, and what it bills is `spend`.
+    //
+    // The expected `used` changed from 5 to 0 with the occupancy/spend split: `modelUsage` is
+    // session billing, not what sits in the window, so a `result` reports spend and leaves the
+    // ring where the last assistant message put it — and this fake stream's assistant line carries
+    // no `usage` at all, so there is no occupancy to carry. `size` is 0 with it: a level nothing
+    // has stated draws no ring, rather than an empty one against a window it never filled.
     assert!(
         events.iter().any(|e| matches!(
             e,
             AgentEvent::UsageUpdate {
-                used: 5,
-                size: 200_000,
+                used: 0,
+                size: 0,
                 model: Some(model),
+                spend: Some(spend),
                 ..
-            } if model == "fake-model"
+            } if model == "fake-model" && spend.input == 5 && spend.output == 7
         )),
-        "expected a UsageUpdate event summed from modelUsage, got: {events:?}"
+        "expected a UsageUpdate event carrying modelUsage's spend, got: {events:?}"
     );
 }

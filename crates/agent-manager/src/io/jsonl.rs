@@ -35,11 +35,12 @@
 //!
 //! ## Mapping is stateful, and has to be
 //!
-//! [`Mapper`] remembers the context window each model reported, because
-//! Claude only states it in a `result` event while per-message `usage`
-//! arrives all through a turn. A usage event is emitted only once a window is
-//! known for that model — a ratio with an invented denominator is worse than
-//! no ratio.
+//! [`Mapper`] remembers the context window each model reported, the session's cumulative spend and
+//! cost, and which session it has already announced — Claude states windows only in a `result`,
+//! states every token and dollar figure cumulatively, and re-announces a session it already
+//! announced. What each of `used`, `size`, `spend` and `cost` must mean is the contract on
+//! [`AgentEvent::UsageUpdate`]; this bridge fills all four, and emits a usage event only once a
+//! window is known for that model — a ratio with an invented denominator is worse than no ratio.
 //!
 //! ## Logging
 //!
@@ -57,9 +58,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::{
-    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionKind, PermissionOption,
-    PermissionOutcome, RateLimitWindow, StopReason, ToolCall, ToolCallUpdate, ToolContent,
-    ToolKind, ToolLocation, ToolStatus,
+    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, Origin, PermissionKind,
+    PermissionOption, PermissionOutcome, RateLimitWindow, Spend, StopReason, ToolCall,
+    ToolCallUpdate, ToolContent, ToolKind, ToolLocation, ToolStatus,
 };
 
 /// How long [`Drop`] waits for the child to exit after closing stdin before
@@ -379,14 +380,43 @@ fn write_line(stdin: &Arc<Mutex<Option<ChildStdin>>>, value: &Value) -> crate::R
 
 /// What the mapper has to remember across lines.
 ///
-/// Only one thing so far, and it is unavoidable: a model's context window is
-/// stated in `result.modelUsage` and nowhere else, while per-message `usage`
-/// arrives throughout a turn. Without the window a usage event has no
-/// denominator, so the first turn reports its context at the end and every
-/// turn after it reports as it goes.
+/// Claude's stream states most accounting **cumulatively for the session**, and states occupancy
+/// only in passing, so a stateless mapper cannot report either honestly. This is what it takes to:
+///
+/// - `contextWindow` appears in `result.modelUsage` and nowhere else, so a window is learned at
+///   the end of a turn and used by every turn after it;
+/// - `modelUsage` and `total_cost_usd` are session totals, so this turn's spend and cost are the
+///   difference from the last ones seen;
+/// - occupancy belongs to the last *parent* assistant message, so a `result` and a subagent's line
+///   both carry it forward rather than recomputing it (`_data` capture: seq 780 reported
+///   `used = 35_436` and seq 781 `used = 218_336` for a context that never grew);
+/// - subagent lines spend against the same session totals, so what they were seen to spend is
+///   subtracted from the turn's delta, leaving the two sets of rows summing to the truth;
+/// - one session can announce itself twice (capture seqs 741 and 748), and a transcript should say
+///   so once.
 #[derive(Default)]
 struct Mapper {
+    /// Each model's context window, learned from `result.modelUsage`.
     windows: HashMap<String, u64>,
+    /// The occupancy the conversation itself last reported: the model that answered, and the
+    /// tokens its message found sitting in the window.
+    occupancy: Option<(String, u64)>,
+    /// Session-cumulative spend per model, as `modelUsage` last stated it.
+    spent: HashMap<String, Spend>,
+    /// Session-cumulative cost per model; the empty key is the run's own `total_cost_usd`.
+    costs: HashMap<String, f64>,
+    /// Spend already reported as a subagent's, this turn, per model.
+    subagent_spend: HashMap<String, Spend>,
+    /// Tool calls that spawned a background agent and have not been told it ended.
+    launched: Vec<String>,
+    /// What each delegate is running as, by the spawning call's id: the model its launch resolved
+    /// to, or failing that the one its first line named. Remembered rather than re-read, so every
+    /// block of one delegate says the same thing instead of the answer depending on which block a
+    /// consumer happened to read first.
+    delegate_models: HashMap<String, String>,
+    /// The session id already announced, and the mode it was announced with.
+    started: Option<String>,
+    mode: Option<String>,
 }
 
 impl Mapper {
@@ -397,10 +427,34 @@ impl Mapper {
     fn map_event(&mut self, value: &Value) -> Vec<AgentEvent> {
         match value.get("type").and_then(Value::as_str) {
             Some("system") if value.get("subtype").and_then(Value::as_str) == Some("init") => {
-                vec![map_init(value)]
+                self.map_init(value)
             }
             Some("assistant") => self.map_assistant(value),
-            Some("user") => map_user(value),
+            Some("user") => {
+                let events = map_user(value);
+                // The launch states what the spawn resolved to (`tool_use_result.resolvedModel`,
+                // capture seq 753) — before the delegate has said anything of its own.
+                let resolved = value
+                    .get("tool_use_result")
+                    .and_then(|r| r.get("resolvedModel"))
+                    .and_then(Value::as_str);
+                // A spawn's `tool_result` only says the agent was launched, so the call it names
+                // is remembered until something says it ended — see [`Mapper::finish_launched`].
+                for event in &events {
+                    let AgentEvent::ToolCallUpdate { update } = event else {
+                        continue;
+                    };
+                    if update.status != Some(ToolStatus::InProgress) {
+                        continue;
+                    }
+                    if let Some(model) = resolved {
+                        self.delegate_models
+                            .insert(update.id.clone(), model.to_string());
+                    }
+                    self.launched.push(update.id.clone());
+                }
+                events
+            }
             Some("result") => self.map_result(value),
             Some("log") => {
                 let log = value.get("log");
@@ -426,46 +480,121 @@ impl Mapper {
         }
     }
 
+    /// A `system`/`init` event. **Once per session**: Claude sends this line again on a session it
+    /// has already announced (capture seqs 741 and 748), and a second `SessionStarted` would draw
+    /// a second conversation. A repeat that changed the mode is a mode change, and nothing else.
+    fn map_init(&mut self, value: &Value) -> Vec<AgentEvent> {
+        let event = init_event(value);
+        let AgentEvent::SessionStarted {
+            session_id, mode, ..
+        } = &event
+        else {
+            return vec![event];
+        };
+
+        if self.started.is_some() && &self.started == session_id {
+            let changed = mode.clone().filter(|mode| self.mode.as_ref() != Some(mode));
+            self.mode = mode.clone();
+            return changed
+                .map(|current_mode_id| AgentEvent::CurrentModeUpdate { current_mode_id })
+                .into_iter()
+                .collect();
+        }
+
+        self.started = session_id.clone();
+        self.mode = mode.clone();
+        vec![event]
+    }
+
     /// An `assistant` event: its content blocks, then its own token usage if
     /// a window for that model is already known.
     fn map_assistant(&mut self, value: &Value) -> Vec<AgentEvent> {
-        let mut events = map_content_blocks(value, false);
-        if let Some(usage) = self.message_usage(value) {
+        let mut origin = origin_of(value);
+        if let Some(parent) = origin.parent_tool_use_id.clone() {
+            let named = value
+                .get("message")
+                .and_then(|m| m.get("model"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let known = self
+                .delegate_models
+                .entry(parent)
+                .or_insert_with(|| named.to_string());
+            origin.model = (!known.is_empty()).then(|| known.clone());
+        }
+        let mut events = map_content_blocks(value, false, &origin);
+        if let Some(usage) = self.message_usage(value, &origin) {
             events.push(usage);
         }
         events
     }
 
-    /// Per-message accounting. Claude reports the tokens *this* message cost;
-    /// what fills a context window is the input plus everything read from or
-    /// written to the cache.
-    fn message_usage(&self, value: &Value) -> Option<AgentEvent> {
+    /// Per-message accounting, which is where **occupancy** comes from and the only place it does.
+    ///
+    /// What fills a context window is this message's fresh input plus everything it read from or
+    /// wrote to the cache — a level, as of this message, that falls on compaction as legitimately
+    /// as it rises. `output_tokens` is deliberately not in it: it is a streaming stub (`1`, `2`,
+    /// `3` on the capture's assistant lines) and the real figure only arrives in `result`.
+    ///
+    /// A subagent's line reports what it spent and leaves occupancy where the conversation itself
+    /// left it — its context is its own, and drawing it as the parent's is what made occupancy
+    /// oscillate within one turn in the capture (31_076 → 17_259 → 33_816).
+    fn message_usage(&mut self, value: &Value, origin: &Origin) -> Option<AgentEvent> {
         let message = value.get("message")?;
         let usage = message.get("usage")?;
         let model = message.get("model").and_then(Value::as_str)?;
-        let size = *self.windows.get(model)?;
 
         let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
-        let cached = field("cache_read_input_tokens") + field("cache_creation_input_tokens");
-        let used = field("input_tokens") + cached;
+        let spend = Spend {
+            input: field("input_tokens"),
+            cache_read: field("cache_read_input_tokens"),
+            cache_creation: field("cache_creation_input_tokens"),
+            ..Spend::default()
+        };
+        let occupied = spend.total();
 
-        Some(AgentEvent::UsageUpdate {
+        // Accounted under the canonical name, because `modelUsage` keys the same model by its
+        // dated release — see [`canonical`].
+        let key = canonical(model, None);
+        if origin.is_subagent() {
+            // Remembered so the turn's cumulative delta can be split between the conversation and
+            // the subagents inside it, instead of counting this spend twice.
+            let seen = self.subagent_spend.entry(key).or_default();
+            *seen = seen.saturating_add(&spend);
+        } else {
+            self.occupancy = Some((key, occupied));
+        }
+
+        let (used, size) = self.ring();
+        // A ratio with an invented denominator is worse than no ratio, so a model whose window is
+        // still unknown reports nothing at all.
+        (size > 0).then(|| AgentEvent::UsageUpdate {
             used,
             size,
             cost: None,
             model: Some(model.to_string()),
-            total_tokens: Some(used + field("output_tokens")),
-            cached_tokens: Some(cached),
+            spend: origin.is_subagent().then_some(spend),
+            origin: origin.clone(),
         })
     }
 
-    /// A `result` event: the turn's usage — which is where a context window
+    /// The context ring as it stands: the conversation's last occupancy, against the window of the
+    /// model that reported it. `(0, 0)` before any parent message, which draws no ring.
+    fn ring(&self) -> (u64, u64) {
+        let Some((model, used)) = &self.occupancy else {
+            return (0, 0);
+        };
+        match self.windows.get(model) {
+            Some(size) => (*used, *size),
+            None => (0, 0),
+        }
+    }
+
+    /// A `result` event: the turn's spend — which is where a context window
     /// is learned — and then the turn's end.
     fn map_result(&mut self, value: &Value) -> Vec<AgentEvent> {
-        let mut events = Vec::new();
-        if let Some(usage) = self.turn_usage(value) {
-            events.push(usage);
-        }
+        let mut events = self.turn_usage(value);
+        events.extend(self.finish_launched(value));
 
         let is_error = value
             .get("is_error")
@@ -491,65 +620,232 @@ impl Mapper {
         events
     }
 
-    /// Read `modelUsage` — **camelCase on the wire**, whatever an older
-    /// version of the harness contract said — remember each model's context
-    /// window, and report the turn's own totals.
+    /// End the turn's background agents.
     ///
-    /// Falls back to the top-level `usage` object, which *is* snake_case, for
-    /// a run that reported no per-model breakdown; that path has no window,
-    /// so it can only contribute a cost.
-    fn turn_usage(&mut self, value: &Value) -> Option<AgentEvent> {
-        let cost = value
-            .get("total_cost_usd")
-            .and_then(Value::as_f64)
-            .map(|amount| super::Cost {
-                amount,
-                currency: "USD".to_string(),
-            });
+    /// **Claude announces a spawn and never announces that one agent finished.** Its `tool_result`
+    /// says `async_launched` and nothing later names that `tool_use_id` again; the subagent's own
+    /// lines carry `parent_tool_use_id` but no last-line marker (capture seqs 751–779). What the
+    /// stream does state is the tally on `result`: the capture's closing line reports
+    /// `subagent_stats: {spawned: 3, completed: 3, failed: 0}` for the three calls left in
+    /// progress, so the turn's end is where they can honestly be closed — and leaving them
+    /// `InProgress` for ever, as the switcher above the composer showed, is the one answer that
+    /// can never become true.
+    ///
+    /// A turn that ends with agents still running (`completed + failed < spawned`) keeps them in
+    /// progress; the next `result` closes them.
+    ///
+    /// ponytail: the tally is per turn, not per call, so a mixed turn cannot say *which* agent
+    /// failed — all of them read as failed only when none completed. Per-call truth needs a
+    /// harness line that names the `tool_use_id`, and there is none.
+    fn finish_launched(&mut self, value: &Value) -> Vec<AgentEvent> {
+        if self.launched.is_empty() {
+            return Vec::new();
+        }
+        let stats = value.get("subagent_stats");
+        let stat = |name: &str| {
+            stats
+                .and_then(|s| s.get(name))
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        };
+        let (completed, failed) = (stat("completed"), stat("failed"));
+        if stats.is_some() && completed + failed < stat("spawned") {
+            return Vec::new();
+        }
+        let status = if completed == 0 && failed > 0 {
+            ToolStatus::Failed
+        } else {
+            ToolStatus::Completed
+        };
+        self.launched
+            .drain(..)
+            .map(|id| AgentEvent::ToolCallUpdate {
+                update: ToolCallUpdate::finished(id, status),
+            })
+            .collect()
+    }
 
-        let model_usage = value.get("modelUsage").and_then(Value::as_object);
-        let Some(model_usage) = model_usage else {
-            return cost.map(|cost| AgentEvent::UsageUpdate {
-                used: 0,
-                size: 0,
+    /// Read `modelUsage` — **camelCase on the wire**, whatever an older version of the harness
+    /// contract said — remember each model's context window, and report **what this turn spent**.
+    ///
+    /// Every model gets a report, not just the busiest one: the capture bills haiku 901 in / 14 out
+    /// / $0.000971 on a turn dominated by sonnet, and keeping only the largest entry dropped it.
+    /// Every figure in `modelUsage` is cumulative for the session, so each is reported as the
+    /// difference from the last one seen; a `result` moves no occupancy, it only carries forward
+    /// what the last assistant message said.
+    ///
+    /// Falls back to the top-level `total_cost_usd`, for a run that reported no per-model
+    /// breakdown; that path has no window and no token counts, so it can only contribute a cost.
+    fn turn_usage(&mut self, value: &Value) -> Vec<AgentEvent> {
+        let total_cost = value.get("total_cost_usd").and_then(Value::as_f64);
+
+        let Some(model_usage) = value.get("modelUsage").and_then(Value::as_object) else {
+            let (used, size) = self.ring();
+            let Some(cost) = total_cost.and_then(|total| self.cost_delta("", total)) else {
+                return Vec::new();
+            };
+            return vec![AgentEvent::UsageUpdate {
+                used,
+                size,
                 cost: Some(cost),
                 model: None,
-                total_tokens: None,
-                cached_tokens: None,
-            });
+                spend: None,
+                origin: Origin::default(),
+            }];
         };
 
-        // Report the model that did the most work — a turn that fell back to
-        // a small model for one call should still show the main model's ring.
-        let mut best: Option<(String, u64, u64, u64, u64)> = None;
-        for (model, usage) in model_usage {
-            let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
-            let window = field("contextWindow");
+        // Sorted so a turn's reports are in one order whatever the JSON map preserved. Each entry
+        // carries the name it is billed under and the name it is accounted under.
+        let mut models: Vec<(&String, String)> = model_usage
+            .keys()
+            .map(|model| (model, canonical(model, Some(&model_usage[model]))))
+            .collect();
+        models.sort();
+
+        // Windows first, and only then the ring: this line is where a window is learned, and the
+        // very first `result` of a run states the denominator for occupancy already reported
+        // against it.
+        for (model, key) in &models {
+            let window = model_usage[*model]
+                .get("contextWindow")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             if window > 0 {
-                self.windows.insert(model.clone(), window);
-            }
-            let cached = field("cacheReadInputTokens") + field("cacheCreationInputTokens");
-            let used = field("inputTokens") + cached;
-            let total = used + field("outputTokens");
-            if best.as_ref().is_none_or(|(_, b, ..)| used > *b) {
-                best = Some((model.clone(), used, window, total, cached));
+                self.windows.insert(key.clone(), window);
             }
         }
+        let (used, size) = self.ring();
 
-        let (model, used, size, total, cached) = best?;
-        Some(AgentEvent::UsageUpdate {
-            used,
-            size,
-            cost,
-            model: Some(model),
-            total_tokens: Some(total),
-            cached_tokens: Some(cached),
+        // Taken once, whether or not it is used: the running total has to be recorded even when
+        // per-model `costUSD` already accounts for it, or the next line that falls back to it
+        // would report the whole session as its own.
+        let mut run_cost = total_cost.and_then(|total| self.cost_delta("", total));
+
+        // Which entry is "the" model of this turn, for the two things only one entry may carry:
+        // the ring, which belongs to whatever model actually answered, and a run-level
+        // `total_cost_usd` that no `costUSD` accounted for. Before any assistant message there is
+        // no answering model, and the busiest entry is the best the line itself can say.
+        let ring_model = self.occupancy.as_ref().map(|(model, _)| model.clone());
+        let cost_model = ring_model
+            .clone()
+            .filter(|m| models.iter().any(|(_, key)| key == m))
+            .or_else(|| {
+                models
+                    .iter()
+                    .max_by_key(|(model, _)| {
+                        model_usage[*model]
+                            .get("inputTokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0)
+                    })
+                    .map(|(_, key)| key.clone())
+            });
+        let mut events = Vec::new();
+        for (model, key) in models {
+            let usage = &model_usage[model];
+            let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
+
+            // `outputTokens` includes the thinking tokens, so the two are separated rather than
+            // added — `Spend::total` must not count a reasoning token twice.
+            let thinking = field("thinkingTokens");
+            let cumulative = Spend {
+                input: field("inputTokens"),
+                output: field("outputTokens").saturating_sub(thinking),
+                thinking,
+                cache_read: field("cacheReadInputTokens"),
+                cache_creation: field("cacheCreationInputTokens"),
+            };
+            let previous = self
+                .spent
+                .insert(key.clone(), cumulative)
+                .unwrap_or_default();
+            let delta = cumulative.saturating_sub(&previous);
+            // What the subagents of this turn already reported is theirs, not the conversation's.
+            let subagents = self.subagent_spend.remove(&key).unwrap_or_default();
+            let spend = delta.saturating_sub(&subagents);
+
+            let cost = usage
+                .get("costUSD")
+                .and_then(Value::as_f64)
+                .and_then(|total| self.cost_delta(&key, total))
+                .or_else(|| {
+                    (Some(key.clone()) == cost_model)
+                        .then(|| run_cost.take())
+                        .flatten()
+                });
+
+            let carries_occupancy = Some(key.clone()) == ring_model;
+            if spend.total() == 0 && cost.is_none() && !carries_occupancy {
+                continue;
+            }
+            // Occupancy is the conversation's, not the model's: every report on this line states
+            // the same level, because a report that said `used: 0` for a model that answered
+            // nothing was the last one a consumer kept, and emptied the ring.
+            events.push(AgentEvent::UsageUpdate {
+                used,
+                size,
+                cost,
+                model: Some(model.clone()),
+                spend: Some(spend),
+                origin: Origin::default(),
+            });
+        }
+        self.subagent_spend.clear();
+        events
+    }
+
+    /// This report's cost: what the running total has grown by since the last one, since Claude
+    /// only ever states the session's cumulative figure (0.0530078 then 0.184233 across the
+    /// capture's two turns) and summing those over-counts every turn but the first.
+    fn cost_delta(&mut self, key: &str, total: f64) -> Option<super::Cost> {
+        let previous = self.costs.insert(key.to_string(), total).unwrap_or(0.0);
+        let amount = (total - previous).max(0.0);
+        (amount > 0.0).then(|| super::Cost {
+            amount,
+            currency: "USD".to_string(),
         })
     }
 }
 
-/// A `system`/`init` event: the session's id and everything it can do.
-fn map_init(value: &Value) -> AgentEvent {
+/// The name a model is accounted under.
+///
+/// `modelUsage` keys a model by its dated release (`claude-haiku-4-5-20251001`, capture seq 744)
+/// while an assistant message names the canonical alias (`claude-haiku-4-5`) — so a window learned
+/// from one is never found for the other, occupancy has no denominator, and the ring sits at zero
+/// for the whole session however many turns complete. `canonicalModel` says it where the harness
+/// states it; a trailing `-YYYYMMDD` is stripped where it does not.
+fn canonical(model: &str, entry: Option<&Value>) -> String {
+    if let Some(name) = entry
+        .and_then(|e| e.get("canonicalModel"))
+        .and_then(Value::as_str)
+    {
+        return name.to_string();
+    }
+    match model.rsplit_once('-') {
+        Some((head, date)) if date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()) => {
+            head.to_string()
+        }
+        _ => model.to_string(),
+    }
+}
+
+/// Who produced a line: `parent_tool_use_id` is set on everything a subagent said, and
+/// `subagent_type`/`task_description` name which one (capture seqs 757, 764, 766).
+fn origin_of(value: &Value) -> Origin {
+    let string = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
+    Origin {
+        parent_tool_use_id: string("parent_tool_use_id"),
+        subagent_type: string("subagent_type"),
+        // Filled by [`Mapper::map_assistant`] from what the spawn resolved to; nothing on the
+        // line itself states either.
+        model: None,
+        thinking: None,
+    }
+}
+
+/// A `system`/`init` line's contents: the session's id and everything it can do. Whether it is
+/// announced at all is [`Mapper::map_init`]'s decision.
+fn init_event(value: &Value) -> AgentEvent {
     let strings = |key: &str| {
         value
             .get(key)
@@ -586,8 +882,8 @@ fn map_init(value: &Value) -> AgentEvent {
 }
 
 /// A `rate_limit_event`: how full the account's rolling windows are, and when they reset. Only
-/// `unifiedWindows.{five_hour,seven_day}` and the top-level `status` are read — `rateLimitType`,
-/// `overageStatus`, `overageDisabledReason`, `isUsingOverage` and `uuid` have no reader yet.
+/// `unifiedWindows.{five_hour,seven_day}`, the top-level `status` and the two overage fields are
+/// read — `rateLimitType`, `isUsingOverage` and `uuid` have no reader yet.
 fn map_rate_limit(value: &Value) -> AgentEvent {
     let info = value.get("rate_limit_info");
     let window = |name: &str| {
@@ -603,6 +899,12 @@ fn map_rate_limit(value: &Value) -> AgentEvent {
             })
     };
 
+    let string = |key: &str| {
+        info.and_then(|i| i.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+
     AgentEvent::RateLimitUpdate {
         five_hour: window("five_hour"),
         seven_day: window("seven_day"),
@@ -611,13 +913,15 @@ fn map_rate_limit(value: &Value) -> AgentEvent {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        overage_status: string("overageStatus"),
+        overage_reason: string("overageDisabledReason"),
     }
 }
 
 /// A `user` event: what the harness received from us, and any tool results
 /// carried back on the same turn.
 fn map_user(value: &Value) -> Vec<AgentEvent> {
-    map_content_blocks(value, true)
+    map_content_blocks(value, true, &Origin::default())
 }
 
 /// Map an `assistant` or `user` event's `message.content` blocks.
@@ -626,7 +930,7 @@ fn map_user(value: &Value) -> Vec<AgentEvent> {
 /// user's own text for user messages; `text`/`thinking`/`tool_use` for
 /// assistant messages) — unrecognized block types are ignored either way, so
 /// passing the wrong flag only means missing events, not a panic.
-fn map_content_blocks(value: &Value, is_user: bool) -> Vec<AgentEvent> {
+fn map_content_blocks(value: &Value, is_user: bool, origin: &Origin) -> Vec<AgentEvent> {
     let message = value.get("message");
     let message_id = message
         .and_then(|m| m.get("id"))
@@ -656,26 +960,35 @@ fn map_content_blocks(value: &Value, is_user: bool) -> Vec<AgentEvent> {
                         AgentEvent::AgentMessageChunk {
                             content,
                             message_id,
+                            origin: origin.clone(),
                         }
                     });
                 }
             }
             Some("thinking") if !is_user => {
-                if let Some(text) = block.get("thinking").and_then(Value::as_str) {
-                    events.push(AgentEvent::AgentThoughtChunk {
-                        content: Content::text(text),
-                        message_id: message_id.clone(),
-                    });
+                // A signature with no text is not a thought. Claude withholds the reasoning and
+                // sends `{"thinking":"","signature":"EvEMCqgB…"}` (capture seqs 749, 774); the
+                // turn really did think, and that count arrives in `result` as `Spend::thinking`,
+                // so an empty block here would only draw an empty box.
+                match block.get("thinking").and_then(Value::as_str) {
+                    Some(text) if !text.is_empty() => {
+                        events.push(AgentEvent::AgentThoughtChunk {
+                            content: Content::text(text),
+                            message_id: message_id.clone(),
+                            origin: origin.clone(),
+                        });
+                    }
+                    _ => {}
                 }
             }
             Some("tool_use") if !is_user => {
-                events.push(AgentEvent::ToolCall {
-                    call: map_tool_use(block),
-                });
+                let mut call = map_tool_use(block);
+                call.origin = origin.clone();
+                events.push(AgentEvent::ToolCall { call });
             }
             Some("tool_result") if is_user => {
                 events.push(AgentEvent::ToolCallUpdate {
-                    update: map_tool_result(block),
+                    update: map_tool_result(block, value.get("tool_use_result")),
                 });
             }
             _ => {}
@@ -701,9 +1014,13 @@ fn map_tool_use(block: &Value) -> ToolCall {
         .or_else(|| string("pattern"))
         .or_else(|| string("url"));
 
-    let title = match target {
-        Some(target) => format!("{name} {target}"),
-        None => name.to_string(),
+    // A `Task`/`Agent` call's target is a subagent, and its one readable name is the description
+    // the caller wrote ("Formal greeting agent", capture seq 751) — the name and `subagent_type`
+    // alone say nothing about what was delegated.
+    let title = match (string("description"), target) {
+        (Some(what), _) if matches!(name, "Task" | "Agent") => what.to_string(),
+        (_, Some(target)) => format!("{name} {target}"),
+        _ => name.to_string(),
     };
 
     let mut call = ToolCall::new(
@@ -756,21 +1073,34 @@ fn tool_kind(name: &str) -> ToolKind {
         "Grep" => ToolKind::Search,
         "WebFetch" => ToolKind::Fetch,
         "WebSearch" => ToolKind::Search,
-        "Task" | "TodoWrite" | "ExitPlanMode" => ToolKind::Think,
+        // A spawn is a delegation, not a thought: it starts a second transcript, and the switcher
+        // above the composer reads this kind to find the agents a turn launched.
+        "Task" | "Agent" => ToolKind::Delegate,
+        "TodoWrite" | "ExitPlanMode" => ToolKind::Think,
         _ => ToolKind::Other,
     }
 }
 
 /// A `tool_result` block: the call named by `tool_use_id` has finished.
 ///
-/// A `status` of `async_launched` is the one progress signal between a tool
-/// starting and finishing, so it stays in progress rather than completing.
-fn map_tool_result(block: &Value) -> ToolCallUpdate {
+/// A `status` of `async_launched` is the one progress signal between a tool starting and
+/// finishing, so it stays in progress rather than completing — Claude states it on the block or,
+/// for a spawned agent, on the line's sibling `tool_use_result` (capture seq 753).
+///
+/// Such a result's text is ~800 characters of harness plumbing addressed to the model — an agent
+/// id, a transcript path and the instruction not to mention either — so it is left in `raw_output`
+/// rather than forwarded as something a transcript would draw.
+fn map_tool_result(block: &Value, result: Option<&Value>) -> ToolCallUpdate {
     let failed = block
         .get("is_error")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let launched = block.get("status").and_then(Value::as_str) == Some("async_launched");
+    let launched = block.get("status").and_then(Value::as_str) == Some("async_launched")
+        || result.and_then(|r| r.get("status")).and_then(Value::as_str) == Some("async_launched")
+        || result
+            .and_then(|r| r.get("isAsync"))
+            .and_then(Value::as_bool)
+            == Some(true);
 
     let status = match (failed, launched) {
         (true, _) => ToolStatus::Failed,
@@ -778,11 +1108,14 @@ fn map_tool_result(block: &Value) -> ToolCallUpdate {
         _ => ToolStatus::Completed,
     };
 
-    let content = block.get("content").and_then(result_text).map(|text| {
-        vec![ToolContent::Content {
-            content: Content::text(text),
-        }]
-    });
+    let content = (!launched)
+        .then(|| block.get("content").and_then(result_text))
+        .flatten()
+        .map(|text| {
+            vec![ToolContent::Content {
+                content: Content::text(text),
+            }]
+        });
 
     ToolCallUpdate {
         id: block
@@ -905,6 +1238,7 @@ mod tests {
             AgentEvent::AgentMessageChunk {
                 content: Content::text("hi there"),
                 message_id: Some("m1".to_string()),
+                origin: Origin::default(),
             }
         );
         assert_eq!(
@@ -912,6 +1246,7 @@ mod tests {
             AgentEvent::AgentThoughtChunk {
                 content: Content::text("pondering"),
                 message_id: Some("m1".to_string()),
+                origin: Origin::default(),
             }
         );
         let AgentEvent::ToolCall { call } = &events[2] else {
@@ -992,6 +1327,11 @@ mod tests {
 
     /// `modelUsage` is camelCase on the wire. The harness contract said
     /// otherwise for a while, and the per-model branch matched nothing.
+    ///
+    /// The expected numbers changed with the occupancy/spend split: `used` is no longer summed out
+    /// of `modelUsage` (that is session billing, not what sits in the window — defect 1), so a
+    /// `result` with no assistant message before it moves no ring at all, and what it reports is
+    /// the turn's [`Spend`].
     #[test]
     fn result_reads_camel_case_model_usage_and_learns_the_window() {
         let value: Value = serde_json::from_str(
@@ -1007,15 +1347,23 @@ mod tests {
         assert_eq!(
             events[0],
             AgentEvent::UsageUpdate {
-                used: 1000,
-                size: 1_000_000,
+                // No assistant message has reported occupancy, so there is none to carry
+                // forward — and a level nothing has stated draws no ring rather than an empty one.
+                used: 0,
+                size: 0,
                 cost: Some(super::super::Cost {
                     amount: 0.5,
                     currency: "USD".to_string(),
                 }),
                 model: Some("claude-opus-5".to_string()),
-                total_tokens: Some(1020),
-                cached_tokens: Some(900),
+                spend: Some(Spend {
+                    input: 100,
+                    output: 20,
+                    thinking: 0,
+                    cache_read: 900,
+                    cache_creation: 0,
+                }),
+                origin: Origin::default(),
             }
         );
         assert_eq!(
@@ -1030,12 +1378,16 @@ mod tests {
 
     /// A ratio with an invented denominator is worse than no ratio, so the
     /// first turn reports its context at the end and later ones as they go.
+    ///
+    /// Defect 7: the expected total changed because `output_tokens` is no longer added to
+    /// anything. Claude sends `1`/`2`/`3` there on a streaming assistant line and the real figure
+    /// only in `result`, so a per-message report carries occupancy and no spend.
     #[test]
     fn per_message_usage_waits_until_a_window_is_known() {
         let mut mapper = Mapper::default();
         let assistant: Value = serde_json::from_str(
             r#"{"type":"assistant","message":{"id":"m1","model":"claude-opus-5",
-                "usage":{"input_tokens":10,"cache_read_input_tokens":90},
+                "usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":2},
                 "content":[{"type":"text","text":"hi"}]}}"#,
         )
         .unwrap();
@@ -1052,9 +1404,447 @@ mod tests {
                 size: 200_000,
                 cost: None,
                 model: Some("claude-opus-5".to_string()),
-                total_tokens: Some(100),
-                cached_tokens: Some(90),
+                spend: None,
+                origin: Origin::default(),
             }
+        );
+    }
+
+    /// Defect 4: `modelUsage` names every model the turn used, and keeping only the busiest one
+    /// dropped the rest. The capture (seq 781) bills haiku 901 in / 14 out / $0.000971 on a turn
+    /// dominated by sonnet. Every report carries the same occupancy: it is the conversation's
+    /// level, and a `used: 0` on the model that answered nothing was what emptied the ring
+    /// (defect 1) once a consumer kept the last report it was given.
+    #[test]
+    fn every_model_in_a_result_reports_its_own_spend() {
+        let mut mapper = Mapper::default();
+        mapper.windows.insert("sonnet".to_string(), 1_000_000);
+        mapper.occupancy = Some(("sonnet".to_string(), 31_000));
+
+        let value: Value = serde_json::from_str(
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.184233,"modelUsage":{
+                "haiku":{"inputTokens":901,"outputTokens":14,"costUSD":0.000971,
+                  "contextWindow":200000},
+                "sonnet":{"inputTokens":16,"outputTokens":1586,"thinkingTokens":442,
+                  "cacheReadInputTokens":175250,"cacheCreationInputTokens":43070,
+                  "costUSD":0.183262,"contextWindow":1000000}}}"#,
+        )
+        .unwrap();
+        let events = mapper.map_event(&value);
+
+        let usage: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::UsageUpdate {
+                    used,
+                    size,
+                    cost,
+                    model,
+                    spend,
+                    ..
+                } => Some((model.clone(), *used, *size, cost.clone(), *spend)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(usage.len(), 2, "both models report: {events:?}");
+
+        let (model, used, size, cost, spend) = &usage[0];
+        assert_eq!(model.as_deref(), Some("haiku"));
+        assert_eq!(
+            (*used, *size),
+            (31_000, 1_000_000),
+            "occupancy is the conversation's, so every report on the line states the same level"
+        );
+        assert_eq!(cost.as_ref().map(|c| c.amount), Some(0.000971));
+        assert_eq!(spend.unwrap().input, 901);
+
+        let (model, used, size, cost, spend) = &usage[1];
+        assert_eq!(model.as_deref(), Some("sonnet"));
+        assert_eq!(
+            (*used, *size),
+            (31_000, 1_000_000),
+            "a result carries occupancy forward, it never recomputes it"
+        );
+        assert_eq!(cost.as_ref().map(|c| c.amount), Some(0.183262));
+        let spend = spend.unwrap();
+        // Defect 8: `thinkingTokens` had no reader. It is part of `outputTokens` on the wire, so
+        // the two are split rather than added.
+        assert_eq!(spend.thinking, 442);
+        assert_eq!(spend.output, 1586 - 442);
+        // Defect 5: cache read and cache creation are separate; `cached()` is the read alone.
+        assert_eq!(spend.cache_read, 175_250);
+        assert_eq!(spend.cache_creation, 43_070);
+    }
+
+    /// Defect 6: every figure in a `result` is cumulative for the session (the capture's two turns
+    /// report $0.0530078 then $0.184233 for the same run), so a second turn must report the
+    /// difference — summing the raw figures over-counts every turn but the first.
+    #[test]
+    fn a_second_result_reports_the_difference_not_the_running_total() {
+        let turn = |cost: &str, input: u64| -> Value {
+            serde_json::from_str(&format!(
+                r#"{{"type":"result","subtype":"success","total_cost_usd":{cost},"modelUsage":{{
+                    "sonnet":{{"inputTokens":{input},"outputTokens":0,"contextWindow":1000000}}}}}}"#
+            ))
+            .unwrap()
+        };
+        let mut mapper = Mapper::default();
+        mapper.map_event(&turn("0.0530078", 100));
+        let events = mapper.map_event(&turn("0.184233", 250));
+
+        let AgentEvent::UsageUpdate { cost, spend, .. } = &events[0] else {
+            panic!("expected a usage update, got {events:?}");
+        };
+        let amount = cost.as_ref().unwrap().amount;
+        assert!(
+            (amount - (0.184233 - 0.0530078)).abs() < 1e-9,
+            "the second turn cost the difference, got {amount}"
+        );
+        assert_eq!(spend.unwrap().input, 150);
+    }
+
+    /// Defect 2: everything a subagent produced is stamped `parent_tool_use_id` (capture seqs 757,
+    /// 764, 766). Its speech is its own, and — the reason occupancy oscillated 31_076 → 17_259 →
+    /// 33_816 within one turn — **its context is not the parent's**.
+    #[test]
+    fn a_subagent_reports_its_spend_and_never_moves_the_ring() {
+        let mut mapper = Mapper::default();
+        mapper
+            .windows
+            .insert("claude-sonnet-5".to_string(), 1_000_000);
+
+        let parent: Value = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5",
+                "usage":{"input_tokens":2,"cache_read_input_tokens":30982,
+                  "cache_creation_input_tokens":92,"output_tokens":2},
+                "content":[]},"parent_tool_use_id":null}"#,
+        )
+        .unwrap();
+        let subagent: Value = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5",
+                "usage":{"input_tokens":2,"cache_read_input_tokens":0,
+                  "cache_creation_input_tokens":17257,"output_tokens":3},
+                "content":[{"type":"text","text":"Good day, Marco"}]},
+                "parent_tool_use_id":"toolu_015XvW4DQqg9Bmkmgvq9Fiwz",
+                "subagent_type":"general-purpose","task_description":"Formal greeting agent"}"#,
+        )
+        .unwrap();
+
+        let events = mapper.map_event(&parent);
+        let AgentEvent::UsageUpdate { used, .. } = &events[0] else {
+            panic!("expected usage, got {events:?}");
+        };
+        assert_eq!(*used, 31_076);
+
+        let events = mapper.map_event(&subagent);
+        assert_eq!(
+            events[0],
+            AgentEvent::AgentMessageChunk {
+                content: Content::text("Good day, Marco"),
+                message_id: Some("m2".to_string()),
+                origin: Origin {
+                    parent_tool_use_id: Some("toolu_015XvW4DQqg9Bmkmgvq9Fiwz".to_string()),
+                    subagent_type: Some("general-purpose".to_string()),
+                    model: Some("claude-sonnet-5".to_string()),
+                    thinking: None,
+                },
+            }
+        );
+        let AgentEvent::UsageUpdate {
+            used,
+            spend,
+            origin,
+            ..
+        } = &events[1]
+        else {
+            panic!("expected usage, got {events:?}");
+        };
+        assert_eq!(*used, 31_076, "the parent's ring is untouched");
+        assert_eq!(spend.unwrap().cache_creation, 17_257);
+        assert!(origin.is_subagent());
+
+        // And the turn's cumulative total is split, so the two sets of rows sum to what was billed
+        // rather than counting the subagent twice.
+        let result: Value = serde_json::from_str(
+            r#"{"type":"result","subtype":"success","modelUsage":{
+                "claude-sonnet-5":{"inputTokens":4,"cacheCreationInputTokens":17349,
+                  "cacheReadInputTokens":30982,"outputTokens":5,"contextWindow":1000000}}}"#,
+        )
+        .unwrap();
+        let events = mapper.map_event(&result);
+        let AgentEvent::UsageUpdate { spend, .. } = &events[0] else {
+            panic!("expected usage, got {events:?}");
+        };
+        assert_eq!(
+            spend.unwrap().cache_creation,
+            92,
+            "17_349 billed minus the 17_257 already reported as the subagent's"
+        );
+    }
+
+    /// Defect 3: Claude withholds the reasoning and sends the signature alone (capture seqs 749,
+    /// 774). `Value::as_str` is satisfied by `""`, so an empty thinking block became an empty
+    /// thinking box; the turn's real reasoning count arrives in `result` as `Spend::thinking`.
+    #[test]
+    fn a_signature_only_thinking_block_is_not_a_thought() {
+        let events = map(r#"{"type":"assistant","message":{"id":"m1","content":[
+                {"type":"thinking","thinking":"","signature":"EvEMCqgBCBEYAipAMd2t"}]}}"#);
+        assert!(events.is_empty(), "expected no events, got {events:?}");
+    }
+
+    /// Defect 10: one session announces itself twice (capture seqs 741 and 748). A second
+    /// `SessionStarted` would draw a second conversation; a changed mode is a mode change.
+    #[test]
+    fn a_session_announces_itself_once() {
+        let line = |mode: &str| -> Value {
+            serde_json::from_str(&format!(
+                r#"{{"type":"system","subtype":"init","session_id":"87f042f7",
+                    "model":"claude-sonnet-5","permissionMode":"{mode}"}}"#
+            ))
+            .unwrap()
+        };
+        let mut mapper = Mapper::default();
+        assert_eq!(mapper.map_event(&line("bypassPermissions")).len(), 1);
+        assert!(mapper.map_event(&line("bypassPermissions")).is_empty());
+        assert_eq!(
+            mapper.map_event(&line("plan")),
+            vec![AgentEvent::CurrentModeUpdate {
+                current_mode_id: "plan".to_string(),
+            }]
+        );
+    }
+
+    /// Defect 9: a spawned agent's call is named by what it was asked to do (capture seq 751), and
+    /// its result is ~800 characters of harness plumbing addressed to the model — an agent id, a
+    /// transcript path, "do not mention to user" — which is not conversation (seq 753).
+    #[test]
+    fn a_spawned_agent_is_named_by_its_task_and_leaks_no_plumbing() {
+        let events = map(r#"{"type":"assistant","message":{"id":"m1","content":[
+                {"type":"tool_use","id":"toolu_015X","name":"Agent","input":{
+                  "description":"Formal greeting agent","prompt":"Write a greeting.",
+                  "subagent_type":"general-purpose"}}]}}"#);
+        let AgentEvent::ToolCall { call } = &events[0] else {
+            panic!("expected a tool call, got {events:?}");
+        };
+        assert_eq!(call.title, "Formal greeting agent");
+        // Defect 2: a spawn is a delegation, not a thought — the transcript drew "THINK".
+        assert_eq!(call.kind, ToolKind::Delegate);
+
+        let events = map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                  "tool_use_id":"toolu_015X",
+                  "content":[{"type":"text",
+                    "text":"Async agent launched. agentId: a0537b18 (do not mention to user)"}]}]},
+                "tool_use_result":{"isAsync":true,"status":"async_launched",
+                  "agentId":"a0537b1804b6b5c33"}}"#,
+        );
+        let AgentEvent::ToolCallUpdate { update } = &events[0] else {
+            panic!("expected an update, got {events:?}");
+        };
+        assert_eq!(update.status, Some(ToolStatus::InProgress));
+        assert_eq!(update.content, None, "harness plumbing is not transcript");
+        assert!(update.raw_output.is_some(), "but it is still available raw");
+    }
+
+    /// Defect 1: the ring stayed at `0.0K` for a whole live session while spend accumulated.
+    ///
+    /// Two things kept it there, and this replays both in the capture's own shapes. `modelUsage`
+    /// keys a model by its dated release while an assistant message names the canonical alias
+    /// (capture seq 744 bills `claude-haiku-4-5-20251001`), so the window was learned under a name
+    /// occupancy was never looked up by — no denominator, no ring, and every `result` report then
+    /// said `used: 0`. And a report for a model that answered nothing said `used: 0` too, which is
+    /// the last report a consumer keeps.
+    #[test]
+    fn occupancy_is_reported_and_moves_across_turns_with_subagents() {
+        let mut mapper = Mapper::default();
+        let mut map = |json: &str| mapper.map_event(&serde_json::from_str::<Value>(json).unwrap());
+
+        // Turn one. The message states occupancy; no window is known yet, so it draws no ring.
+        let events = map(
+            r#"{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5","content":[
+                  {"type":"text","text":"hi"}],
+                "usage":{"input_tokens":2,"cache_creation_input_tokens":11978,
+                  "cache_read_input_tokens":19004,"output_tokens":2}}}"#,
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::UsageUpdate { .. })),
+            "no window is known yet: {events:?}"
+        );
+
+        // The `result` is where the window is learned — under the dated key.
+        let result = r#"{"type":"result","subtype":"success","total_cost_usd":0.053,"modelUsage":{
+              "claude-haiku-4-5-20251001":{"inputTokens":901,"outputTokens":14,"costUSD":0.000971,
+                "contextWindow":200000,"canonicalModel":"claude-haiku-4-5"},
+              "claude-sonnet-5-20251101":{"inputTokens":2,"outputTokens":32,
+                "cacheReadInputTokens":19004,"cacheCreationInputTokens":11978,"costUSD":0.052,
+                "contextWindow":1000000,"canonicalModel":"claude-sonnet-5"}}}"#;
+        let rings = |events: &[AgentEvent]| -> Vec<(u64, u64)> {
+            events
+                .iter()
+                .filter_map(|e| match e {
+                    AgentEvent::UsageUpdate { used, size, .. } => Some((*used, *size)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let first = rings(&map(result));
+        assert_eq!(
+            first,
+            vec![(30_984, 1_000_000), (30_984, 1_000_000)],
+            "both models report the conversation's one level, haiku included"
+        );
+
+        // Turn two: the level moves, and now it is reported per message.
+        let second = rings(&map(
+            r#"{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5","content":[
+                  {"type":"text","text":"ok"}],
+                "usage":{"input_tokens":2,"cache_creation_input_tokens":2740,
+                  "cache_read_input_tokens":31074,"output_tokens":1}}}"#,
+        ));
+        assert_eq!(second, vec![(33_816, 1_000_000)], "the ring moved");
+
+        // A subagent's line repeats the parent's level rather than its own (capture seq 758,
+        // where a subagent's 17_259 was drawn as the conversation's).
+        let sub = map(r#"{"type":"assistant","parent_tool_use_id":"toolu_015X",
+                "subagent_type":"general-purpose",
+                "message":{"id":"m3","model":"claude-sonnet-5","content":[
+                  {"type":"text","text":"done"}],
+                "usage":{"input_tokens":2,"cache_creation_input_tokens":17257,
+                  "cache_read_input_tokens":0,"output_tokens":3}}}"#);
+        assert_eq!(rings(&sub), vec![(33_816, 1_000_000)], "the parent's level");
+
+        // And the turn's own `result` carries it forward, for every model on the line.
+        let third = rings(&map(
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.184233,"modelUsage":{
+                  "claude-sonnet-5-20251101":{"inputTokens":16,"outputTokens":1586,
+                    "thinkingTokens":442,"cacheReadInputTokens":175250,
+                    "cacheCreationInputTokens":43070,"costUSD":0.183262,
+                    "contextWindow":1000000,"canonicalModel":"claude-sonnet-5"}}}"#,
+        ));
+        assert_eq!(third, vec![(33_816, 1_000_000)]);
+        assert!(
+            third
+                .iter()
+                .chain(&second)
+                .chain(&first)
+                .all(|(used, _)| *used > 0),
+            "no report empties the ring"
+        );
+    }
+
+    /// What a delegate is running as travels with every line it produced, and says the same thing
+    /// on all of them: the model is learned once, from the launch's `resolvedModel` (capture seq
+    /// 753), so a reader's answer does not depend on which block it happened to read.
+    ///
+    /// Thinking is absent because nothing states it: the spawn's input names a description, a
+    /// prompt and a `subagent_type`, and the launch result adds only the model.
+    #[test]
+    fn a_delegates_lines_all_name_the_model_the_spawn_resolved_to() {
+        let mut mapper = Mapper::default();
+        let mut map = |json: &str| mapper.map_event(&serde_json::from_str::<Value>(json).unwrap());
+
+        map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                "tool_use_id":"toolu_015X","content":"Async agent launched successfully."}]},
+              "tool_use_result":{"isAsync":true,"status":"async_launched",
+                "resolvedModel":"claude-sonnet-5","description":"Formal greeting agent"}}"#,
+        );
+
+        // A line the delegate produced. Its own `message.model` says the same, but the marker is
+        // what the mapper remembered — a later line that named nothing would still carry it.
+        let events = map(r#"{"type":"assistant","parent_tool_use_id":"toolu_015X",
+                "subagent_type":"general-purpose",
+                "message":{"id":"m2","model":"claude-sonnet-5","content":[
+                  {"type":"text","text":"Good day, Marco"}]}}"#);
+        let AgentEvent::AgentMessageChunk { origin, .. } = &events[0] else {
+            panic!("expected a chunk, got {events:?}");
+        };
+        assert_eq!(origin.model.as_deref(), Some("claude-sonnet-5"));
+        assert_eq!(origin.thinking, None, "no harness states it per delegate");
+
+        let events = map(r#"{"type":"assistant","parent_tool_use_id":"toolu_015X",
+                "subagent_type":"general-purpose",
+                "message":{"id":"m3","content":[{"type":"text","text":"and again"}]}}"#);
+        let AgentEvent::AgentMessageChunk { origin, .. } = &events[0] else {
+            panic!("expected a chunk, got {events:?}");
+        };
+        assert_eq!(
+            origin.model.as_deref(),
+            Some("claude-sonnet-5"),
+            "every block of one delegate says the same thing"
+        );
+
+        // A line of the conversation's own is not a delegate's, whatever it names.
+        let events = map(
+            r#"{"type":"assistant","message":{"id":"m4","model":"claude-sonnet-5",
+                "content":[{"type":"text","text":"mine"}]}}"#,
+        );
+        let AgentEvent::AgentMessageChunk { origin, .. } = &events[0] else {
+            panic!("expected a chunk, got {events:?}");
+        };
+        assert_eq!(origin.model, None);
+    }
+
+    /// Defect 2: Claude names the spawn tool `Task` as well as `Agent`, and both are delegations.
+    #[test]
+    fn both_spawn_tool_names_are_delegations() {
+        assert_eq!(tool_kind("Task"), ToolKind::Delegate);
+        assert_eq!(tool_kind("Agent"), ToolKind::Delegate);
+        assert_eq!(tool_kind("TodoWrite"), ToolKind::Think);
+    }
+
+    /// Defect 3: a spawned agent's call sat at `InProgress` for ever, because the launch is the
+    /// last thing Claude says about that `tool_use_id`. The turn's `result` is what says the
+    /// agents ended (capture: `subagent_stats: {spawned: 3, completed: 3}`).
+    #[test]
+    fn a_spawned_call_ends_when_the_turn_accounts_for_it() {
+        let mut mapper = Mapper::default();
+        let mut map = |json: &str| mapper.map_event(&serde_json::from_str::<Value>(json).unwrap());
+
+        map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                "tool_use_id":"toolu_015X","content":"Async agent launched successfully."}]},
+              "tool_use_result":{"isAsync":true,"status":"async_launched"}}"#,
+        );
+
+        // Still running at the end of this turn: nothing is claimed.
+        let events = map(
+            r#"{"type":"result","subtype":"success","subagent_stats":{"spawned":1,
+                "completed":0,"failed":0}}"#,
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ToolCallUpdate { .. })),
+            "an agent that has not finished is not finished: {events:?}"
+        );
+
+        // The next `result` accounts for it.
+        let events = map(
+            r#"{"type":"result","subtype":"success","subagent_stats":{"spawned":1,
+                "completed":1,"failed":0}}"#,
+        );
+        assert_eq!(
+            events[0],
+            AgentEvent::ToolCallUpdate {
+                update: ToolCallUpdate::finished("toolu_015X", ToolStatus::Completed),
+            },
+            "got {events:?}"
+        );
+        assert_eq!(
+            mapper
+                .map_event(
+                    &serde_json::from_str::<Value>(
+                        r#"{"type":"result","subtype":"success","subagent_stats":{"spawned":1,
+                    "completed":1,"failed":0}}"#
+                    )
+                    .unwrap()
+                )
+                .len(),
+            1,
+            "and only once — the turn ends, nothing else"
         );
     }
 
@@ -1137,6 +1927,9 @@ mod tests {
                     resets_at: 1_788_796_800,
                 }),
                 status: "allowed".to_string(),
+                // Defect 8: both were parsed off the wire and thrown away.
+                overage_status: Some("rejected".to_string()),
+                overage_reason: Some("group_zero_credit_limit".to_string()),
             }]
         );
     }

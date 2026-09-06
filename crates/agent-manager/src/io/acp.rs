@@ -50,10 +50,12 @@ pub fn to_acp(event: &AgentEvent) -> Option<Value> {
         AgentEvent::AgentMessageChunk {
             content,
             message_id,
+            ..
         } => chunk("agent_message_chunk", content, message_id.as_deref()),
         AgentEvent::AgentThoughtChunk {
             content,
             message_id,
+            ..
         } => chunk("agent_thought_chunk", content, message_id.as_deref()),
 
         AgentEvent::ToolCall { call } => {
@@ -376,6 +378,9 @@ fn kind(kind: ToolKind) -> &'static str {
         ToolKind::Think => "think",
         ToolKind::Fetch => "fetch",
         ToolKind::SwitchMode => "switch_mode",
+        // ACP names no delegation kind, so it travels as the fallback rather than as a word the
+        // other end would have to guess at.
+        ToolKind::Delegate => "other",
         ToolKind::Other => "other",
     }
 }
@@ -391,11 +396,13 @@ fn status(status: ToolStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::super::model::Origin;
     use super::*;
 
     #[test]
     fn a_message_chunk_is_an_agent_message_chunk() {
         let value = to_acp(&AgentEvent::AgentMessageChunk {
+            origin: Origin::default(),
             content: Content::text("hello"),
             message_id: Some("m1".to_string()),
         })
@@ -463,8 +470,8 @@ mod tests {
                 currency: "USD".to_string(),
             }),
             model: Some("claude-opus-5".to_string()),
-            total_tokens: None,
-            cached_tokens: None,
+            spend: None,
+            origin: Origin::default(),
         })
         .unwrap();
         assert_eq!(value["sessionUpdate"], "usage_update");

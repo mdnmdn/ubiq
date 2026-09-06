@@ -22,12 +22,12 @@ use gpui::{
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
-use ubiq::state::conversation::Run;
+use ubiq::state::conversation::{Run, short_model_label};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate, StopReason,
-    ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
+    Subagent, ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
 };
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
@@ -174,6 +174,7 @@ fn chunk(text: &str) -> ConvUpdate {
     ConvUpdate::AgentChunk {
         content: ConvContent::Text(text.to_string()),
         message_id: Some("m1".to_string()),
+        subagent: None,
     }
 }
 
@@ -239,8 +240,8 @@ fn an_update_refreshes_the_agent_record(cx: &mut TestAppContext) {
             size: 200_000,
             cost_usd: Some(0.5),
             model: Some("claude-opus-5".to_string()),
-            total_tokens: None,
-            cached_tokens: None,
+            spend: None,
+            subagent: None,
         }),
         cx,
     );
@@ -943,6 +944,7 @@ fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
             status: ToolStatus::default(),
             content: Vec::new(),
             locations: Vec::new(),
+            subagent: None,
         },
         open: false,
     });
@@ -964,8 +966,10 @@ fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
         "opus5",
         &[("opus5", "Claude Opus 5")],
     )];
-    c.blocks
-        .push(ConvBlock::Agent("said something".to_string()));
+    c.blocks.push(ConvBlock::Agent {
+        body: "said something".to_string(),
+        subagent: None,
+    });
     assert_eq!(lifecycle(&c), Lifecycle::Unloaded);
 
     // A conversation the harness will take no more turns on reads `Ended`, whether it ran one to
@@ -987,6 +991,11 @@ struct ConversationHarness {
     state: Entity<AppState>,
     agent: AgentId,
     header: bool,
+    /// The agent switcher lives in the bottom block, which only exists when a footer or a
+    /// composer does — so a test that wants to see it asks for one.
+    footer: bool,
+    /// The composer, which the panel must never move: a test that checks it stays put asks for it.
+    composer: bool,
 }
 
 impl Render for ConversationHarness {
@@ -995,8 +1004,8 @@ impl Render for ConversationHarness {
         let view = ConversationView {
             id: SharedString::from("conversation-harness"),
             slot: 0,
-            footer: false,
-            composer: false,
+            footer: self.footer,
+            composer: self.composer,
             header: self.header,
         };
         self.state
@@ -1021,6 +1030,8 @@ fn header_true_draws_the_lifecycle_strip_and_false_does_not(cx: &mut TestAppCont
         state: fixture.state.clone(),
         agent: id,
         header: true,
+        footer: false,
+        composer: false,
     });
     cx.run_until_parked();
     let mut vcx = VisualTestContext::from_window(with_header.into(), cx);
@@ -1033,11 +1044,175 @@ fn header_true_draws_the_lifecycle_strip_and_false_does_not(cx: &mut TestAppCont
         state: fixture.state.clone(),
         agent: id,
         header: false,
+        footer: false,
+        composer: false,
     });
     cx.run_until_parked();
     let mut vcx = VisualTestContext::from_window(without_header.into(), cx);
     assert!(
         vcx.debug_bounds("lifecycle-strip").is_none(),
         "header: false must not draw the strip — the chat panel draws it inline instead"
+    );
+}
+
+/// The switcher is drawn only where there is something to switch to. A conversation that never
+/// spawned a subagent looks exactly as it did before — no empty strip.
+#[gpui::test]
+fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(id, 1, chunk("on it"), cx);
+
+    let window = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: true,
+        footer: true,
+        composer: true,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    assert!(
+        vcx.debug_bounds("agent-switcher").is_none(),
+        "no subagent, no row"
+    );
+
+    // Turn 2 of the real capture: one `Task` call, and the agent it spawned speaking under that
+    // call's id.
+    fixture.update(
+        id,
+        2,
+        ConvUpdate::ToolCall(ToolCallRecord {
+            id: "t751".to_string(),
+            title: "Formal greeting agent".to_string(),
+            kind: ToolKind::Other,
+            status: ToolStatus::InProgress,
+            content: Vec::new(),
+            locations: Vec::new(),
+            subagent: None,
+        }),
+        cx,
+    );
+    fixture.update(
+        id,
+        3,
+        ConvUpdate::AgentChunk {
+            content: ConvContent::Text("Good day.".to_string()),
+            message_id: Some("m9".to_string()),
+            subagent: Some(Subagent {
+                id: "t751".to_string(),
+                kind: Some("general-purpose".to_string()),
+                ..Default::default()
+            }),
+        },
+        cx,
+    );
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("agent-switcher").is_some(),
+        "a spawned subagent puts the row above the control area"
+    );
+    assert!(
+        vcx.debug_bounds("agent-switcher-panel").is_none(),
+        "collapsed by default — one row saying how many, and nothing else"
+    );
+
+    // Opening draws the list upward, over the transcript: one row per agent, the main agent's
+    // among them, and the composer exactly where it was.
+    let composer_before = vcx
+        .debug_bounds("composer-field")
+        .expect("the composer is drawn");
+    fixture.state.update(&mut vcx, |state, cx| {
+        state.toggle_conversation_subagents(id, cx)
+    });
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("agent-switcher-panel").is_some(),
+        "clicking the header expands the list"
+    );
+    assert!(
+        vcx.debug_bounds("agent-row-main").is_some(),
+        "the main agent is always in the list — it is the way back"
+    );
+    assert!(
+        vcx.debug_bounds("agent-row-t751").is_some(),
+        "one row per spawned agent"
+    );
+    assert_eq!(
+        vcx.debug_bounds("composer-field"),
+        Some(composer_before),
+        "the list grows over the transcript, so the composer does not move under the cursor"
+    );
+
+    fixture.state.update(&mut vcx, |state, cx| {
+        state.toggle_conversation_subagents(id, cx)
+    });
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("agent-switcher-panel").is_none(),
+        "clicking the header again collapses it"
+    );
+
+    // What the delegate runs as: the panel's row says it on hover, the reading strip says it above
+    // the transcript, and both read the one `SubagentTab` field through `short_model_label` — so
+    // one conversation never spells the same model two ways.
+    fixture.update(
+        id,
+        4,
+        ConvUpdate::AgentChunk {
+            content: ConvContent::Text("And again.".to_string()),
+            message_id: Some("m10".to_string()),
+            subagent: Some(Subagent {
+                id: "t751".to_string(),
+                kind: Some("general-purpose".to_string()),
+                model: Some("claude-haiku-4-5-20251001".to_string()),
+                thinking: None,
+            }),
+        },
+        cx,
+    );
+    vcx.run_until_parked();
+
+    let (tip, short) = fixture.state.read_with(&vcx, |state, cx| {
+        let live = state.conversation(id, cx).expect("the conversation");
+        let tab = live.subagents().into_iter().next().expect("the delegate");
+        let short = short_model_label(&live.harness, tab.model.as_deref().unwrap());
+        (conversation::subagent_tip(live, &tab), short)
+    });
+    assert_eq!(
+        tip, "Formal greeting agent — general-purpose · haiku",
+        "the row's hover names the kind and the model, and no thinking level nobody stated"
+    );
+    assert!(
+        tip.contains(&short),
+        "the strip shortens the same field the same way"
+    );
+
+    fixture.state.update(&mut vcx, |state, cx| {
+        state.view_conversation_agent(id, Some("t751".to_string()), cx)
+    });
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("reading-strip").is_some(),
+        "reading a delegate names it, and what it is running as, above the transcript"
+    );
+
+    // And switching is the conversation's own state, so two conversations on screen are read
+    // independently.
+    fixture.state.update(&mut vcx, |state, cx| {
+        state.view_conversation_agent(id, Some("t751".to_string()), cx)
+    });
+    let (viewing, visible) = fixture.state.read_with(&vcx, |state, cx| {
+        let live = state.conversation(id, cx).expect("the conversation");
+        (
+            live.viewing_subagent().map(str::to_string),
+            live.visible_blocks().len(),
+        )
+    });
+    assert_eq!(viewing.as_deref(), Some("t751"));
+    assert_eq!(
+        visible, 2,
+        "only what the subagent itself said, both lines of it"
     );
 }

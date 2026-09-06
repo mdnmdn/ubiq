@@ -529,6 +529,38 @@ impl AppState {
         cx.notify();
     }
 
+    /// Switch which agent's transcript one conversation is showing — `None` being its own turns,
+    /// `Some(id)` a spawned subagent's instance id. Per conversation rather than per window, like
+    /// `open_config` beside it: several conversations are on screen at once and each is read
+    /// independently.
+    pub fn view_conversation_agent(
+        &mut self,
+        agent_id: AgentId,
+        subagent: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.viewing = subagent;
+        }
+        cx.notify();
+    }
+
+    /// Open or close the subagent panel above the control area. Collapsed is the resting state —
+    /// a conversation's delegates are worth a line, not a permanent list — so this is the one
+    /// thing that opens it, and picking a row from it closes it again.
+    pub fn toggle_conversation_subagents(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.subagents_open = !conversation.subagents_open;
+        }
+        cx.notify();
+    }
+
     /// Dismiss whichever pre-launch config picker is open, without picking — an outside click.
     pub fn dismiss_agent_config_menu(
         &mut self,

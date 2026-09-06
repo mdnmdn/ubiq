@@ -120,6 +120,8 @@ fn tool_call_result(update: &ToolCallUpdate) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    use crate::io::Origin;
+
     use super::*;
     use crate::io::{PermissionOption, ToolCallUpdate, ToolContent, ToolKind, ToolStatus};
 
@@ -152,6 +154,7 @@ mod tests {
     #[test]
     fn agent_message_chunk_maps_to_text_message_content() {
         let ev = AgentEvent::AgentMessageChunk {
+            origin: Origin::default(),
             content: Content::text("hi"),
             message_id: None,
         };
@@ -162,6 +165,7 @@ mod tests {
     #[test]
     fn agent_thought_chunk_maps_to_thinking_text_message_content() {
         let ev = AgentEvent::AgentThoughtChunk {
+            origin: Origin::default(),
             content: Content::text("hmm"),
             message_id: None,
         };
@@ -259,8 +263,8 @@ mod tests {
                 size: 2,
                 cost: None,
                 model: None,
-                total_tokens: None,
-                cached_tokens: None,
+                spend: None,
+                origin: Origin::default(),
             }),
             None
         );

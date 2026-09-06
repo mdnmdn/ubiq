@@ -1967,7 +1967,9 @@ conversations can each have their own picker open at once. A pick sends
 before launch and the picker has nowhere else to read its own highlight from, and closes the
 picker. Picking a model makes the host re-send `ConfigOptions` with `thinking` recomputed for it —
 `Conversation::apply`'s `ConfigOptions` arm drops any `chosen` entry the fresh options no longer
-back, so a thinking level the old model accepted cannot survive a model switch into launch.
+back, so a thinking level the old model accepted cannot survive a model switch into launch. A pick
+whose levels come out identical is answered with nothing at all, so the picker the window is
+already showing is the one that stands.
 `activity()` reads that pending, never-run state (`Run::Idle` with no `stop_reason` yet) as
 `Activity::Thinking` rather than `Activity::Ended`, matching what the host already reports at
 registration.

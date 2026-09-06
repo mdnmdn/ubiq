@@ -2,9 +2,10 @@
 //!
 //! Two unequal halves, and the inequality is the point. [`HostStats`]'s first five fields are
 //! readings the coordinator takes when it is asked — memory, uptime, and three counts it already
-//! holds. The two [`UsageRow`] vectors are the usage meter, and **nothing writes to it yet**: the
-//! tables and their migrations exist, the agents engine does not report what it spends, so both
-//! vectors are empty on every reply today. The screen says so rather than inventing a number.
+//! holds. The two [`UsageRow`] vectors are the usage meter, written by the conversation pumps as
+//! their harnesses report spend. **A harness that reports none contributes no rows at all** —
+//! Codex, Copilot and opencode say nothing about what they spend today — so an empty vector means
+//! "nobody said", never "zero". The screen says so rather than inventing a number.
 //!
 //! Every field is a sample rather than an event, which is why the interface asks on a timer
 //! instead of being told — see `_docs/features/stats.md`.
@@ -36,7 +37,7 @@ pub struct HostStats {
 /// One bucket of usage: what was spent, by whom, on what.
 ///
 /// The same record the host writes and the interface draws — an insert is a row with a bucket, a
-/// read is the row back. The five dimensions are strings rather than options because that is how
+/// read is the row back. The six dimensions are strings rather than options because that is how
 /// they are keyed on disk: an empty string is "not said", and `NULL` would break the accumulating
 /// upsert that makes a bucket a running total.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -52,6 +53,10 @@ pub struct UsageRow {
     pub account: String,
     /// Empty when the harness did not say which model answered.
     pub model: String,
+    /// The subagent type that spent it, empty when the conversation itself did. A sixth dimension
+    /// rather than a flag: a turn's spend splits between the conversation and the agents it
+    /// spawned, and the two must sum to what the harness billed.
+    pub subagent: String,
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub tokens_think: u64,

@@ -478,7 +478,15 @@ impl Tape {
         // Continuous capture, when the environment asked for it. The file gets the message
         // untruncated — the 8KB cut is what a row can show, not what an analysis can use.
         if let Some(file) = inner.capture() {
-            let line = dump_line(seq, at, direction, &kind, agent.as_deref(), &full, raw.as_deref());
+            let line = dump_line(
+                seq,
+                at,
+                direction,
+                &kind,
+                agent.as_deref(),
+                &full,
+                raw.as_deref(),
+            );
             let _ = std::io::Write::write_all(file, line.as_bytes());
         }
 

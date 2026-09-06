@@ -1512,16 +1512,16 @@ fn set_agent_config_thinking_and_mode_on_a_pending_agent_are_accepted_silently()
     );
 }
 
-/// A `model` pick is different: a reasoning level is per model, so offering the previous model's
-/// levels after the pick would be exactly the lie this design exists to prevent. The pending
-/// agent's picker is recomputed for the newly chosen model and re-sent, at the next seq.
+/// The other half of the same rule. **The recomputed levels are the only thing the resend can
+/// say** — the model list and the mode list cannot change by picking a model, and `current` is the
+/// value the window itself just sent. A pick that leaves the levels identical therefore has
+/// nothing to tell the window, and a message it would answer with is a redundant round trip that
+/// redraws the picker already on screen.
 #[test]
-fn set_agent_config_model_on_a_pending_agent_resends_config_options_with_recomputed_thinking() {
+fn set_agent_config_model_that_changes_nothing_stays_silent() {
     let (_hub, ui) = coordinator();
     let (project_id, _path) = a_project(&ui);
 
-    // Codex: fast (a local bundled JSON, no network) and, unlike opencode, has both modes and
-    // per-model reasoning levels, so the resend actually has something to recompute.
     let agent_id = start_conversation(&ui, project_id, "codex", None);
     expect_conversation_started(&ui, agent_id);
     let initial = expect_config_options(&ui, agent_id, 1);
@@ -1530,34 +1530,24 @@ fn set_agent_config_model_on_a_pending_agent_resends_config_options_with_recompu
         .iter()
         .find(|o| o.id == "model")
         .expect("codex discovery must offer a model option");
-    let ConfigValue::Select { current, choices } = &model_option.value else {
+    let ConfigValue::Select { current, .. } = &model_option.value else {
         panic!("expected a Select value");
     };
-    // Pick a model other than the one already current, so the recompute is not a no-op — falling
-    // back to the current one if codex's bundled catalogue ever shrinks to a single entry.
-    let other = choices
-        .iter()
-        .map(|c| c.value.clone())
-        .find(|v| v != current)
-        .unwrap_or_else(|| current.clone());
 
+    // Confirming the model already showing: a real thing a window does, and the clearest case of
+    // a recompute that arrives at what is already drawn.
     ui.send(Message::SetAgentConfig {
         agent_id,
         config_id: "model".to_string(),
-        value: other.clone(),
+        value: current.clone(),
     });
 
-    let resent = expect_config_options(&ui, agent_id, 2);
     assert!(
-        resent.iter().any(|o| o.id == "model"),
-        "the resend should still carry a model option: {resent:?}"
+        ui.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "a pick that recomputes the same levels must not re-advertise them"
     );
-    // codex's currently bundled, user-listable models all carry reasoning levels — if that ever
-    // changes for `other` specifically, this asserts the option is simply absent rather than
-    // stale (see `thinking_config_option`'s unit tests in `coordinator.rs` for the no-levels case).
-    if let Some(thinking) = resent.iter().find(|o| o.id == "thinking") {
-        assert_eq!(thinking.category, Some(ConfigCategory::ThoughtLevel));
-    }
 }
 
 /// The discovery thread's own `ConfigOptions` is the only thing said before launch unless the

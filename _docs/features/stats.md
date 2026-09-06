@@ -47,13 +47,15 @@ window holds no reading at all, and a zero would be the host claiming it uses no
 agents. The same distinction holds one level in: a reading whose memory field is absent is the
 platform declining to say, and reads as `unavailable`.
 
-**The AI page has no data source.** The database exists, its two tables exist, their migrations run,
-and the host answers with them on every reply — and nothing ever writes a row, because the agents
-engine does not report what a turn spends. So the page draws its empty state every time and says
-why. The table that would draw the rows is written and simply not reached, and no fixture is seeded
-into the meter to make it look inhabited: a plausible number on a screen whose whole job is to
-report real ones would be a lie. Closing that gap is `G160` and `G161` in
-[`../backlog.md`](../backlog.md).
+**The meter is written by the conversation pumps, one row per report that carries spend.** A
+harness's `UsageUpdate` reaches the pump that reads it, which is the only place the report and the
+launch's own dimensions — project, harness, account — are both in hand; the coordinator never sees a
+conversation update, so it could not write them. **Occupancy is a level and spend is a flow**: a
+report that only moves the context ring writes nothing, because a zero row would claim the harness
+said "nothing spent" when it said nothing at all. Claude Code reports spend per model at the end of
+a turn; Codex, Copilot and opencode report none today, so they contribute no rows — and the page
+still draws its empty state rather than seeding a plausible figure into a screen whose whole job is
+to report real ones.
 
 **The meter is a database, kept beside the catalogue rather than in the cache.** It lives at
 `<config root>/usage.db`. `cache/` is defined as everything that can be re-derived by asking again,
@@ -65,9 +67,11 @@ root's shape.
 across every run; `usage_minute` is emptied when the meter opens, which is what makes "this run"
 mean what it says and why the table needs no run-id column — its rows were summed into the hourly
 table as they were written, so dropping them loses nothing. Both are keyed on
-`(bucket, project, harness, account, model)`, are `WITHOUT ROWID`, and are written with an
-accumulating upsert, so a second report for the same five dimensions in the same bucket adds into
-the row already there. Every dimension is `TEXT NOT NULL` with the empty string as "not said":
+`(bucket, project, harness, account, model, subagent)`, are `WITHOUT ROWID`, and are written with an
+accumulating upsert, so a second report for the same six dimensions in the same bucket adds into
+the row already there. **`subagent` is a dimension, not a label**: a turn's spend splits between the
+conversation (`''`) and the agents it spawned, and the two have to stay separable or the breakdown
+is gone for good. Every dimension is `TEXT NOT NULL` with the empty string as "not said":
 SQLite treats two `NULL`s as distinct in a key, so a nullable column would silently stop
 accumulating.
 
@@ -121,6 +125,11 @@ uptime from the `Instant` the coordinator started, the live conversations it alr
 a concrete type rather than a trait: there is one implementation and nothing substitutes it.
 `open()` creates the file, sets WAL, migrates, and empties the minute table; `record()` writes one
 delta into both tables in one transaction; `history()` and `this_run()` read them back.
+`crates/ubiq-host/src/conversation.rs`'s `UsageMeter` is what carries the meter and the launch's
+dimensions to the pump, and its `usage_row()` maps one `TokenSpend` onto the columns — `input`,
+`output` and `thinking` each to their own, cache read and cache creation together into
+`tokens_other`. `msgs_in`/`msgs_out`/`tool_calls` stay zero: the pump sees chunks and tool-call
+patches, not the counts a turn's spend belongs to, and a guessed count is worse than an absent one.
 
 `crates/ubiq/tests/stats.rs` covers the rail grouping and the two pages' copy without a frame;
 `crates/ubiq-host/tests/usage.rs` drives the meter against a real file.
@@ -131,10 +140,12 @@ delta into both tables in one transaction; `history()` and `this_run()` read the
 |---|---|
 | The database cannot be opened — a read-only config root, a corrupt file | The coordinator logs it and carries an absent meter; the session is untouched and the AI page is empty |
 | A usage read fails | Empty rows and a log line, never a dead screen: a screen reporting on the host's health must not be the thing that takes it down |
+| A usage write fails | The pump logs it and carries on — the same bargain `open()` makes: losing token history must never cost the user their session |
+| The harness reports occupancy but no spend | Nothing is written, deliberately: a zero row would be a claim nobody made |
 | The platform will not report resident memory | The reading is absent and the row says `unavailable`, not zero |
 | No reply has arrived yet | Every figure is an em dash, and the agents-live badge is one too |
 | The screen is left for another mode | The timer stops on its next tick, and the last reading stays for whenever the screen comes back |
-| A harness reports usage | Nothing is recorded — no caller reaches `record()` yet (`G160`) |
+| A harness reports usage with no spend | Nothing is recorded: occupancy is a level, and a level is never accumulated |
 
 ## Related docs
 

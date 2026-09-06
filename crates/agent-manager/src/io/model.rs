@@ -160,7 +160,10 @@ pub enum ToolKind {
     Fetch,
     /// Switching the current session mode.
     SwitchMode,
-    /// Anything that doesn't fit the other nine — a bridge's fallback rather than an eleventh
+    /// Spawning another agent. A delegation starts a second transcript rather than doing work in
+    /// this one, which is why it is its own kind and not `Think`.
+    Delegate,
+    /// Anything that doesn't fit the other ten — a bridge's fallback rather than an eleventh
     /// kind it would have to invent.
     #[default]
     Other,
@@ -243,6 +246,9 @@ pub struct ToolCall {
     /// rendered summary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_input: Option<serde_json::Value>,
+    /// Whether the conversation itself or one of its subagents made the call.
+    #[serde(default)]
+    pub origin: Origin,
 }
 
 impl ToolCall {
@@ -256,6 +262,7 @@ impl ToolCall {
             content: Vec::new(),
             locations: Vec::new(),
             raw_input: None,
+            origin: Origin::default(),
         }
     }
 }
@@ -494,10 +501,97 @@ pub enum PermissionOutcome {
 
 // ── usage, and the end of a turn ───────────────────────────────────────
 
+/// Who produced an event: the conversation's own turn, or a subagent it spawned.
+///
+/// Claude Code stamps `parent_tool_use_id` on every line a subagent produced, alongside
+/// `subagent_type` — see the `_data` capture, seqs 757, 764 and 766. Nothing read it before, so a
+/// subagent's speech, thinking, tools and tokens were all indistinguishable from the parent's,
+/// which is why context occupancy appeared to oscillate within a single turn.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Origin {
+    /// The parent's `tool_use` id, where the harness says this line came from a spawned agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_use_id: Option<String>,
+    /// Which subagent type produced it, where the harness names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_type: Option<String>,
+    /// The model the spawned agent answers with, where the harness names it — the same on every
+    /// line of one delegate, because the bridge remembers it rather than re-reading each block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The thinking or reasoning effort the spawned agent runs at, where the harness states it.
+    /// Nothing states it per delegate today; a bridge that cannot say leaves it absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+}
+
+impl Origin {
+    /// Whether a subagent produced this rather than the conversation itself.
+    pub fn is_subagent(&self) -> bool {
+        self.parent_tool_use_id.is_some()
+    }
+}
+
+/// What one usage report says was actually spent — a flow, summed over a conversation, never a
+/// level.
+///
+/// Cache *read* and cache *creation* are separate because one is context re-used and the other is
+/// context newly written: folding them together makes any "how much was cached" reading sit at
+/// ~100% forever.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Spend {
+    /// Fresh input tokens billed by this report.
+    pub input: u64,
+    /// Output tokens billed by this report, thinking excluded where the harness separates them.
+    pub output: u64,
+    /// Reasoning tokens, where the harness counts them apart from `output`.
+    pub thinking: u64,
+    /// Context re-used from the cache.
+    pub cache_read: u64,
+    /// Context newly written to the cache.
+    pub cache_creation: u64,
+}
+
+impl Spend {
+    /// Every token this report billed, however it was spent.
+    pub fn total(&self) -> u64 {
+        self.input
+            .saturating_add(self.output)
+            .saturating_add(self.thinking)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.cache_creation)
+    }
+
+    /// This report minus one already accounted for elsewhere, floored at zero. Used to split a
+    /// harness's session-cumulative totals into "this turn" and "the subagents inside it".
+    pub fn saturating_sub(&self, other: &Self) -> Self {
+        Self {
+            input: self.input.saturating_sub(other.input),
+            output: self.output.saturating_sub(other.output),
+            thinking: self.thinking.saturating_sub(other.thinking),
+            cache_read: self.cache_read.saturating_sub(other.cache_read),
+            cache_creation: self.cache_creation.saturating_sub(other.cache_creation),
+        }
+    }
+
+    /// This report plus another, for accumulating a turn's subagent spend.
+    pub fn saturating_add(&self, other: &Self) -> Self {
+        Self {
+            input: self.input.saturating_add(other.input),
+            output: self.output.saturating_add(other.output),
+            thinking: self.thinking.saturating_add(other.thinking),
+            cache_read: self.cache_read.saturating_add(other.cache_read),
+            cache_creation: self.cache_creation.saturating_add(other.cache_creation),
+        }
+    }
+}
+
 /// What a turn cost in money.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cost {
-    /// Cumulative for the whole session, not just this turn.
+    /// What *this* report cost. A harness that only ever states a session-cumulative figure has
+    /// its bridge report the delta, so summing reports is the session total rather than a
+    /// triangular over-count.
     pub amount: f64,
     /// ISO 4217.
     pub currency: String,
@@ -590,6 +684,9 @@ pub enum AgentEvent {
         /// Chunks sharing this id belong to one logical message.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message_id: Option<String>,
+        /// Whether the conversation itself or one of its subagents said it.
+        #[serde(default)]
+        origin: Origin,
     },
     /// Reasoning, drawn as a thinking block.
     AgentThoughtChunk {
@@ -598,6 +695,9 @@ pub enum AgentEvent {
         /// Chunks sharing this id belong to one logical message.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message_id: Option<String>,
+        /// Whether the conversation itself or one of its subagents said it.
+        #[serde(default)]
+        origin: Origin,
     },
 
     /// A tool call starts.
@@ -644,26 +744,43 @@ pub enum AgentEvent {
         updated_at: Option<String>,
     },
 
-    /// Context and money. `used`/`size` are tokens, and the ratio is the
-    /// context ring — which is why no consumer needs a context-window
-    /// constant of its own.
+    /// Context, spend and money — **the accounting contract every bridge implements**.
+    ///
+    /// Each harness parses a different stream, so each bridge does its own reading; what is shared
+    /// is this vocabulary and these five rules, stated once here rather than re-derived per
+    /// bridge:
+    ///
+    /// 1. **Occupancy is a level.** `used`/`size` are the tokens sitting in the context window
+    ///    *right now* against the window that holds them, and their ratio is the context ring —
+    ///    which is why no consumer needs a context-window constant of its own. A level goes down
+    ///    (compaction, a fresh turn) as legitimately as up.
+    /// 2. **Spend is a flow.** [`Spend`] is what one report billed, meant to be summed across a
+    ///    conversation. It is never occupancy, and occupancy is never accumulated.
+    /// 3. **Cache read and cache creation are distinct** — see [`Spend`].
+    /// 4. **A subagent's report never moves occupancy.** A line stamped with an [`Origin`] carries
+    ///    its spend and leaves `used` at whatever the conversation itself last reported.
+    /// 5. **Cost is a per-report delta**, so summing reports gives the session total.
+    ///
+    /// A bridge that cannot honestly fill a field leaves it absent — `size: 0` for a harness that
+    /// names no window, since a consumer refuses to draw a ring without a denominator, and
+    /// `spend: None` for a report that would double-count one already sent.
     UsageUpdate {
-        /// Tokens currently occupying the context window.
+        /// Tokens currently occupying the context window. A level, not a total.
         used: u64,
-        /// The context window's total size, in tokens.
+        /// The context window's total size, in tokens. `0` where the harness names no window.
         size: u64,
-        /// What the session has cost so far, cumulative — not just this turn.
+        /// What this report cost, as a delta — not the session's running total.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cost: Option<Cost>,
         /// Which model these numbers are for, where the harness says.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
-        /// Every token the conversation has spent, input plus output, as the harness counts it.
+        /// What this report billed, where the harness reports spend it has not already reported.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        total_tokens: Option<u64>,
-        /// The cache read and cache creation part of that, where it is reported.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        cached_tokens: Option<u64>,
+        spend: Option<Spend>,
+        /// Whether the conversation or one of its subagents spent it.
+        #[serde(default)]
+        origin: Origin,
     },
 
     /// How much of the user's rate-limit window is spent, and when it resets. Claude Code's own
@@ -679,6 +796,13 @@ pub enum AgentEvent {
         /// `"allowed"` when the account can still send; anything else means the user is currently
         /// blocked.
         status: String,
+        /// Whether spending past the plan is accepted — `"rejected"` in the `_data` capture, seq
+        /// 742. Absent where the harness does not say.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        overage_status: Option<String>,
+        /// Why overage is off, where the harness gives a reason.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        overage_reason: Option<String>,
     },
 
     /// The agent is asking a human. Answered with
@@ -827,6 +951,7 @@ mod tests {
     #[test]
     fn agent_message_chunk_round_trips_tagged_json() {
         let ev = AgentEvent::AgentMessageChunk {
+            origin: Origin::default(),
             content: Content::text("hi"),
             message_id: Some("m1".to_string()),
         };
@@ -897,8 +1022,14 @@ mod tests {
                 currency: "USD".to_string(),
             }),
             model: Some("claude-opus-5".to_string()),
-            total_tokens: Some(50_000),
-            cached_tokens: Some(8_800),
+            spend: Some(Spend {
+                input: 1_200,
+                output: 340,
+                thinking: 60,
+                cache_read: 8_800,
+                cache_creation: 400,
+            }),
+            origin: Origin::default(),
         };
         let json = serde_json::to_string(&ev).unwrap();
         assert!(
@@ -912,6 +1043,8 @@ mod tests {
     #[test]
     fn rate_limit_update_round_trips() {
         let ev = AgentEvent::RateLimitUpdate {
+            overage_status: None,
+            overage_reason: None,
             five_hour: Some(RateLimitWindow {
                 utilization_pct: 7,
                 resets_at: 1_788_474_600,

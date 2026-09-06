@@ -17,7 +17,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ClickEvent, Context, ElementId, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point, px,
+    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
+    deferred, div, point, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
@@ -32,7 +33,7 @@ use crate::state::conversation::{
     ConvBlock, Conversation, Pending, QueuedMessage, Run, short_model_label,
 };
 use crate::theme;
-use crate::ui::kit::menu::MENU_ANCHOR_UP;
+use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 use crate::ui::kit::{
     ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, ghost_button,
     icon_button, mono, pill, progress_ring, status_dot,
@@ -72,9 +73,19 @@ pub fn render(
 ) -> AnyElement {
     let id = conversation.id;
 
+    let subagents = conversation.subagents();
+
     let mut root = div().flex().flex_col().flex_1().min_h(px(0.));
     if view.header {
         root = root.child(lifecycle_header(app, conversation, &view, cx));
+    }
+    if let Some(subagent) = conversation.viewing_subagent() {
+        let tab = subagents.iter().find(|tab| tab.id == subagent);
+        root = root.child(reading_strip(
+            &conversation.subagent_name(subagent),
+            tab.and_then(|tab| tab.model.as_deref())
+                .map(|model| short_model_label(&conversation.harness, model)),
+        ));
     }
     root = root.child(transcript(app, conversation, &view, cx));
 
@@ -110,6 +121,13 @@ pub fn render(
             .flex_none()
             .border_t_1()
             .border_color(theme::border());
+        // Topmost in the block, above the footer as well as the composer: it opens upward over
+        // the transcript, so nothing under it moves when it does. Only where a subagent exists —
+        // a conversation that spawned none looks exactly as it did before, the same discipline
+        // every pill in this file follows.
+        if !subagents.is_empty() {
+            bottom = bottom.child(agent_switcher(conversation, &subagents, &view, cx));
+        }
         if view.footer {
             bottom = bottom.child(footer(conversation, &view));
         }
@@ -357,9 +375,11 @@ fn lifecycle_colour(state: Lifecycle) -> Rgba {
 /// lets [`transcript`] follow the tail without dragging a reader who scrolled up back down.
 fn tail_signature(conversation: &Conversation) -> u64 {
     let tail = match conversation.blocks.last() {
-        Some(ConvBlock::User(text) | ConvBlock::Agent(text) | ConvBlock::Thought(text)) => {
-            text.len()
-        }
+        Some(
+            ConvBlock::User(text)
+            | ConvBlock::Agent { body: text, .. }
+            | ConvBlock::Thought { body: text, .. },
+        ) => text.len(),
         Some(ConvBlock::Tool { call, open }) => {
             call.title.len() + call.content.len() + usize::from(*open)
         }
@@ -377,20 +397,28 @@ fn transcript(
 ) -> AnyElement {
     let id = conversation.id;
     let root = cx.entity();
+    // One agent's turns, never two interleaved — and the indices are the real ones, because the
+    // element ids and the tool-toggle listener both key off a block's position in `blocks`.
     let blocks: Vec<AnyElement> = conversation
-        .blocks
-        .iter()
-        .enumerate()
+        .visible_blocks()
+        .into_iter()
         .map(|(ix, block)| match block {
             ConvBlock::User(text) => user_turn(text),
-            ConvBlock::Agent(body) => TextView::markdown(
+            ConvBlock::Agent { body, .. } => TextView::markdown(
                 view.eid(&format!("md-{ix}")),
                 SharedString::from(body.clone()),
             )
             .on_link_click(crate::ui::on_link(root.clone(), None))
             .into_any_element(),
-            ConvBlock::Thought(body) => thought(body),
-            ConvBlock::Tool { call, open } => tool_block(id, ix, call, *open, view, cx),
+            ConvBlock::Thought { body, .. } => thought(body),
+            ConvBlock::Tool { call, open } => {
+                // A delegation is a way in to the agent it spawned, and the way in exists only
+                // once that agent has said something: the instance id *is* this call's id.
+                let delegate = (call.kind == ToolKind::Delegate
+                    && conversation.has_subagent(&call.id))
+                .then(|| call.id.clone());
+                tool_block(id, ix, call, *open, delegate, view, cx)
+            }
         })
         .collect();
 
@@ -451,7 +479,8 @@ fn user_turn(text: &str) -> AnyElement {
 }
 
 /// Reasoning, quieter than prose: it is what the agent thought on the way to what it said, and it
-/// must not read as the answer.
+/// must not read as the answer. Whose thought it was is not marked here any more \u{2014} the
+/// transcript shows one agent at a time, and [`reading_strip`] names it once above the whole of it.
 fn thought(body: &str) -> AnyElement {
     div()
         .p_2()
@@ -472,6 +501,32 @@ fn thought(body: &str) -> AnyElement {
         .into_any_element()
 }
 
+/// The one line above a subagent's transcript that says whose turns are on screen, and what they
+/// are being answered with. Drawn only while a subagent is being read: the main agent's own
+/// transcript is the default and needs no caption to say so.
+///
+/// The model is the delegate's own, shortened by [`short_model_label`] — the composer's chip
+/// shortens the parent's the same way, so one conversation never spells a model two ways — and a
+/// delegate the harness named no model for draws nothing rather than a placeholder, exactly as the
+/// footer's pills do.
+fn reading_strip(name: &str, model: Option<String>) -> AnyElement {
+    div()
+        .px_3()
+        .py_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .bg(theme::surface())
+        .border_b_1()
+        .border_color(theme::border())
+        .debug_selector(|| "reading-strip".into())
+        .child(mono("\u{21b3}", theme::info()).text_size(px(10.5)))
+        .child(mono(name.to_string(), theme::info()).text_size(px(11.5)))
+        .children(model.map(|model| mono(model, theme::text_faint()).text_size(px(11.))))
+        .into_any_element()
+}
+
 /// The colour a tool block is filed under, on the four readings the chat panel already uses: a
 /// look is informational, a change is a change, a removal is destructive, a command ran. The ten
 /// ACP kinds share them rather than growing ten tokens nobody could tell apart.
@@ -482,6 +537,9 @@ fn tool_colour(kind: ToolKind) -> Rgba {
         ToolKind::Delete => theme::danger(),
         ToolKind::Execute => theme::success(),
         ToolKind::Think | ToolKind::SwitchMode => theme::info(),
+        // A delegation is where the work went, so it reads as its own thing rather than borrowing
+        // the colour of a thought.
+        ToolKind::Delegate => theme::accent_muted(),
         ToolKind::Other => theme::text_muted(),
     }
 }
@@ -520,11 +578,16 @@ fn tool_title(kind: ToolKind, title: String) -> gpui::Div {
 }
 
 /// A tool call: what it did, to what, and how it went — before any of what it produced.
+/// `delegate` is the subagent this block is the entry point to, where it is one: a `Delegate` call
+/// whose spawned agent has spoken. Then the block switches the transcript instead of unfolding its
+/// own detail — what a reader wants from a delegation is the other transcript, not the summary of
+/// it. A delegation with no agent behind it yet stays inert.
 fn tool_block(
     agent: AgentId,
     index: usize,
     call: &ubiq_proto::conversation::ToolCallRecord,
     open: bool,
+    delegate: Option<String>,
     view: &ConversationView,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
@@ -568,16 +631,28 @@ fn tool_block(
             tool_title(call.kind, call.title.clone())
                 .flex_1()
                 .min_w(px(0.)),
-        )
-        .child(
-            mono(status_label(call.status), status_colour(call.status))
-                .text_size(px(11.5))
-                .mt(px(1.)),
         );
 
+    header = header.child(
+        mono(status_label(call.status), status_colour(call.status))
+            .text_size(px(11.5))
+            .mt(px(1.)),
+    );
+
+    if let Some(target) = delegate {
+        header = header
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.view_conversation_agent(agent, Some(target.clone()), cx);
+            }))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Read this agent's transcript")
+                    .build(window, cx)
+            });
     // A block with nothing behind it does not expand: a chevron that opens on emptiness says the
     // detail is missing rather than absent.
-    if expandable {
+    } else if expandable {
         header = header
             .cursor_pointer()
             .hover(|this| this.bg(theme::hover()))
@@ -742,6 +817,39 @@ fn tipped(id: ElementId, label: String, tip: String, colour: Rgba) -> AnyElement
         .into_any_element()
 }
 
+/// The whole of what the `tot` readout stands for: what the three letters mean, then the five ways
+/// a token is billed, then what each spawned subagent spent of it.
+///
+/// The first clause is the distinction the footer lives or dies by. `tot` is a **flow** — summed
+/// over every turn, only ever growing — where the ring beside it is a **level** that falls the
+/// moment the conversation is compacted. A three-letter label is only honest if hovering it says
+/// which of the two it is.
+///
+/// One line, `·`-separated, like every other tooltip in the row — and the subagent half is drawn
+/// only where a subagent spent something, so a conversation that spawned none reads exactly as it
+/// did before.
+fn spend_tip(conversation: &Conversation) -> String {
+    let Some(spend) = conversation.spend else {
+        return String::new();
+    };
+    let mut tip = format!(
+        "Total spent \u{2014} every token this conversation has billed, subagents included. \
+         It only grows; the ring beside it is what is in the window now, and that can fall. \
+         \u{b7} {} tokens \u{b7} in {} \u{b7} out {} \u{b7} thinking {} \u{b7} cache read {} \
+         \u{b7} cache creation {}",
+        spend.total(),
+        spend.input,
+        spend.output,
+        spend.thinking,
+        spend.cache_read,
+        spend.cache_creation,
+    );
+    for (name, total) in conversation.subagent_spend() {
+        tip.push_str(&format!(" \u{b7} {name} {total}"));
+    }
+    tip
+}
+
 /// What the harness said about itself: which one it is and as whom, what it has spent, and how much
 /// of the context window is gone.
 ///
@@ -757,17 +865,39 @@ fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
     // Which harness, and which identity answered — one chip, because they are one answer: this
     // conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
     // once, in the New agent menu, because a turn already taken was taken as somebody.
-    let (identity, identity_tip) = if conversation.account.is_empty() {
+    let (identity, mut identity_tip) = if conversation.account.is_empty() {
         (
             HARNESS_GLYPH.to_string(),
-            format!("{} \u{2014} no account", conversation.harness),
+            format!(
+                "{} \u{2014} no account, running as you",
+                conversation.harness
+            ),
         )
     } else {
         (
             format!("{HARNESS_GLYPH} {}", conversation.account),
-            format!("{} \u{b7} {}", conversation.harness, conversation.account),
+            format!(
+                "{} \u{b7} signed in as {} \u{2014} chosen once, when the agent was started",
+                conversation.harness, conversation.account
+            ),
         )
     };
+    // Whether this identity may spend past its plan is a fact about the account, so it hangs off
+    // the account chip rather than off a banner of its own: the `5h N%` readout was removed
+    // deliberately and this does not bring it back. Said only when the answer is no — an account
+    // that can still spill over has nothing to warn about.
+    if let Some(rate) = &conversation.rate_limit
+        && rate
+            .overage_status
+            .as_deref()
+            .is_some_and(|status| status != "allowed")
+    {
+        identity_tip.push_str(" \u{b7} overage ");
+        identity_tip.push_str(rate.overage_status.as_deref().unwrap_or_default());
+        if let Some(reason) = &rate.overage_reason {
+            identity_tip.push_str(&format!(" ({reason})"));
+        }
+    }
 
     let mut row = div()
         .px_3()
@@ -792,14 +922,10 @@ fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
     // conversation has spent millions and holds thousands. Drawn only where the harness counts it
     // — a pill with nothing behind it is not drawn.
     if let Some(total) = conversation.total_tokens() {
-        let tip = match conversation.cached_tokens() {
-            Some(cached) => format!("{total} tokens spent \u{b7} {cached} cached"),
-            None => format!("{total} tokens spent"),
-        };
         row = row.child(tipped(
             view.eid("total-tokens"),
-            format!("{:.1}K spent", total as f32 / 1000.0),
-            tip,
+            format!("{:.1}K tot", total as f32 / 1000.0),
+            spend_tip(conversation),
             theme::text_muted(),
         ));
     }
@@ -807,6 +933,14 @@ fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
     if let Some(pct) = conversation.context_pct() {
         let used = conversation.tokens();
         let size = conversation.usage.as_ref().map_or(0, |usage| usage.size);
+        // The ring and the count are one fact drawn twice — how full the window is right now — so
+        // they say the same sentence on hover. A level, not a total: it falls when the harness
+        // compacts, which is exactly what tells it apart from `tot` beside it.
+        let tip = format!(
+            "Context window \u{2014} {used} of {size} tokens in it right now, {pct}% full. \
+             A level, not a total: it falls when the conversation is compacted."
+        );
+        let ring_tip = tip.clone();
         row = row
             .child(
                 div()
@@ -816,19 +950,15 @@ fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
                     .items_center()
                     .child(progress_ring(pct, 12.))
                     .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(format!(
-                            "{used} of {size} tokens in context \u{b7} {pct}%"
-                        ))
-                        .build(window, cx)
+                        gpui_component::tooltip::Tooltip::new(ring_tip.clone()).build(window, cx)
                     }),
             )
-            .child(
-                mono(
-                    format!("{:.1}K ctx", used as f32 / 1000.0),
-                    theme::text_muted(),
-                )
-                .text_size(px(11.)),
-            );
+            .child(tipped(
+                view.eid("context-tokens"),
+                format!("{:.1}K ctx", used as f32 / 1000.0),
+                tip,
+                theme::text_muted(),
+            ));
     }
 
     row.into_any_element()
@@ -1029,7 +1159,10 @@ fn composer(
                         letter.clone().unwrap_or_else(|| row.label.clone()),
                         format!("{} thinking", row.label),
                     ),
-                    _ => (row.label.clone(), row.label.clone()),
+                    _ => (
+                        row.label.clone(),
+                        format!("{} \u{b7} permission mode", row.label),
+                    ),
                 };
 
                 let mut picker = Picker::new(view.eid(&format!("{config_id}-picker")), label)
@@ -1159,6 +1292,7 @@ fn composer(
         .child(
             div()
                 .id(view.eid("composer"))
+                .debug_selector(|| "composer-field".into())
                 .px_2()
                 .pt_1p5()
                 .cursor_text()
@@ -1192,6 +1326,217 @@ fn composer(
             .child(field_el)
             .into_any_element()
     }
+}
+
+/// How many delegates there are, and — once asked — who they are.
+///
+/// Collapsed is the resting state: one row saying `3 subagents`, at the top of the bottom block,
+/// because a conversation's delegates are a fact worth a line and a list worth asking for. Opening
+/// it draws the list *upward*, over the transcript, through the same `anchored` + `deferred` pair
+/// every menu in the window uses — the composer must not move when the panel opens, because a
+/// control that walks away from the cursor is a control you have to chase.
+///
+/// One row per agent: the conversation's own turns first, then every subagent it has spawned. Each
+/// says who on the left and what it is doing on the right, and clicking one switches the transcript
+/// to it. The main agent's row never leaves the list: it is how the reader gets back. Neither half
+/// invents vocabulary — the main agent's word is [`Lifecycle::label`]'s and its colour
+/// [`lifecycle_colour`]'s, a subagent's are [`status_label`]'s and [`status_colour`]'s, read off
+/// the `Task` call that spawned it. A subagent whose spawning call is not in the transcript has no
+/// status to read, and says that rather than being claimed to be running.
+fn agent_switcher(
+    conversation: &Conversation,
+    subagents: &[crate::state::conversation::SubagentTab],
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let id = conversation.id;
+    let viewing = conversation.viewing_subagent();
+    let open = conversation.subagents_open;
+
+    let state = lifecycle(conversation);
+    let mut rows: Vec<AnyElement> = vec![agent_row(
+        view.eid("agent-tag-main"),
+        "agent-row-main".to_string(),
+        "Main agent".to_string(),
+        state.label(),
+        // What the main agent runs as is the footer's chip, right below: saying it twice would be
+        // the same fact drawn twice.
+        None,
+        lifecycle_colour(state),
+        viewing.is_none(),
+        cx.listener(move |this, _, _, cx| {
+            this.view_conversation_agent(id, None, cx);
+            this.toggle_conversation_subagents(id, cx);
+        }),
+    )];
+
+    rows.extend(subagents.iter().map(|tab| {
+        let target = tab.id.clone();
+        let (status, colour) = match tab.status {
+            Some(status) => (status_label(status).to_string(), status_colour(status)),
+            None => ("unknown".to_string(), theme::text_faint()),
+        };
+        agent_row(
+            view.eid(&format!("agent-tag-{}", tab.id)),
+            format!("agent-row-{}", tab.id),
+            tab.name.clone(),
+            status,
+            Some(subagent_tip(conversation, tab)),
+            colour,
+            viewing == Some(tab.id.as_str()),
+            cx.listener(move |this, _, _, cx| {
+                this.view_conversation_agent(id, Some(target.clone()), cx);
+                this.toggle_conversation_subagents(id, cx);
+            }),
+        )
+    }));
+
+    let count = subagents.len();
+    let mut header = div()
+        .id(view.eid("agent-switcher-header"))
+        .relative()
+        .px_2()
+        .py_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .debug_selector(|| "agent-switcher".into())
+        .child(
+            Icon::new(if open {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronUp
+            })
+            .with_size(Size::XSmall)
+            .text_color(theme::text_faint()),
+        )
+        .child(
+            mono(
+                format!("{count} subagent{}", if count == 1 { "" } else { "s" }),
+                theme::text_muted(),
+            )
+            .text_size(px(11.)),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.toggle_conversation_subagents(id, cx);
+        }));
+
+    if open {
+        header = header.child(
+            deferred(
+                anchored()
+                    .anchor(MENU_ANCHOR_UP)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        div()
+                            .id(view.eid("agent-switcher-panel"))
+                            .min_w(px(240.))
+                            .p_1()
+                            .flex()
+                            .flex_col()
+                            .flex_none()
+                            .gap_1()
+                            .bg(theme::surface_raised())
+                            .border_l(px(theme::ACCENT_EDGE))
+                            .border_color(theme::accent())
+                            .shadow_lg()
+                            .debug_selector(|| "agent-switcher-panel".into())
+                            .children(rows),
+                    ),
+            )
+            .priority(MENU_LAYER),
+        );
+    }
+
+    header.into_any_element()
+}
+
+/// What a delegate *is*, for the row's hover: the type the harness named, what it is answering
+/// with, and what effort it runs at.
+///
+/// Each clause is drawn only where the harness said it. No fallback to the parent conversation's
+/// own model or thinking level: a delegate launched on a smaller model is exactly what this
+/// tooltip exists to show, and borrowing the parent's answer would hide the one case worth
+/// hovering for. Nothing said at all leaves the delegate's name, which the row already carries.
+///
+/// Public because it is what the panel's row *says*, and a test that the row and [`reading_strip`]
+/// agree about a delegate's model has to be able to read one of the two.
+pub fn subagent_tip(
+    conversation: &Conversation,
+    tab: &crate::state::conversation::SubagentTab,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(kind) = &tab.kind {
+        parts.push(kind.clone());
+    }
+    if let Some(model) = &tab.model {
+        parts.push(short_model_label(&conversation.harness, model));
+    }
+    if let Some(thinking) = &tab.thinking {
+        parts.push(format!("{thinking} thinking"));
+    }
+    if parts.is_empty() {
+        return tab.name.clone();
+    }
+    format!("{} \u{2014} {}", tab.name, parts.join(" \u{b7} "))
+}
+
+/// One row of that list: a `pill`, because a pill is what this window already draws a small named
+/// fact as. Selected takes the accent edge and the full-strength text; the rest stay muted, so the
+/// list reads as one selected agent rather than as several equal buttons. The status sits at the
+/// far end, so a column of rows reads down either side.
+// Eight, each a distinct thing the row draws or answers, and every one of them built inline by
+// the one caller — a struct to carry them would be ceremony around a private helper, the same
+// reading `kit::menu::menu_panel` makes.
+#[allow(clippy::too_many_arguments)]
+fn agent_row(
+    id: ElementId,
+    selector: String,
+    name: String,
+    status: String,
+    tip: Option<String>,
+    status_colour: Rgba,
+    selected: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    pill(if selected {
+        theme::accent()
+    } else {
+        theme::border()
+    })
+    .id(id)
+    .debug_selector(move || selector.clone())
+    .h(px(22.))
+    .w_full()
+    .px_2()
+    .gap_1p5()
+    .cursor_pointer()
+    .when(selected, |this| this.bg(theme::surface_raised()))
+    .hover(|this| this.bg(theme::hover()))
+    .child(
+        mono(
+            name,
+            if selected {
+                theme::text()
+            } else {
+                theme::text_muted()
+            },
+        )
+        .text_size(px(11.))
+        .flex_1()
+        .min_w(px(0.)),
+    )
+    .child(mono(status, status_colour).text_size(px(10.5)))
+    .on_click(on_click)
+    .when_some(tip, |this, tip| {
+        this.tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+        })
+    })
+    .into_any_element()
 }
 
 /// Prompts typed while a turn was running, oldest first — each with an edit that loads it back

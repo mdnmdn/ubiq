@@ -36,7 +36,9 @@
 //! [`AgentEvent::ToolCallUpdate`] for a call it never announced, and that
 //! update carries no `kind` (nothing here ever learns the tool's name).
 //! And no event carries a context window — or any token count at all — so
-//! [`AgentEvent::UsageUpdate`] is never emitted either.
+//! [`AgentEvent::UsageUpdate`] is never emitted either — nothing on this surface states a context
+//! window or a token count, so none of the accounting contract that event documents can be filled
+//! honestly.
 //!
 //! ## Logging
 //!
@@ -52,7 +54,8 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::{
-    AgentEvent, AgentInput, Content, IoBridge, StopReason, ToolCallUpdate, ToolContent, ToolStatus,
+    AgentEvent, AgentInput, Content, IoBridge, Origin, StopReason, ToolCallUpdate, ToolContent,
+    ToolStatus,
 };
 
 /// How long [`Drop`] waits for the child to exit after the reader thread
@@ -238,6 +241,7 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(Value::as_str)
             {
                 vec![AgentEvent::AgentMessageChunk {
+                    origin: Origin::default(),
                     content: Content::text(text),
                     // Copilot doesn't tag a delta with a message id.
                     message_id: None,
@@ -253,6 +257,7 @@ fn map_event(value: &Value) -> Vec<AgentEvent> {
                 .and_then(Value::as_str)
             {
                 vec![AgentEvent::AgentThoughtChunk {
+                    origin: Origin::default(),
                     content: Content::text(text),
                     message_id: None,
                 }]
@@ -354,6 +359,7 @@ mod tests {
         assert_eq!(
             events,
             vec![AgentEvent::AgentMessageChunk {
+                origin: Origin::default(),
                 content: Content::text("hello world"),
                 message_id: None,
             }]
@@ -368,6 +374,7 @@ mod tests {
         assert_eq!(
             events,
             vec![AgentEvent::AgentThoughtChunk {
+                origin: Origin::default(),
                 content: Content::text("thinking about the problem"),
                 message_id: None,
             }]

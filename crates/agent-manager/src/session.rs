@@ -377,6 +377,7 @@ mod tests {
             .unwrap();
         recorder
             .record_event(&AgentEvent::AgentMessageChunk {
+                origin: crate::io::Origin::default(),
                 content: crate::io::Content::text("hi"),
                 message_id: None,
             })
@@ -458,6 +459,7 @@ mod tests {
         let mut recorder = start(root, sample_meta("555-666")).unwrap();
         recorder
             .record_event(&AgentEvent::AgentMessageChunk {
+                origin: crate::io::Origin::default(),
                 content: crate::io::Content::text("hello"),
                 message_id: None,
             })
@@ -475,6 +477,7 @@ mod tests {
         assert_eq!(
             events[0],
             AgentEvent::AgentMessageChunk {
+                origin: crate::io::Origin::default(),
                 content: crate::io::Content::text("hello"),
                 message_id: None,
             }
