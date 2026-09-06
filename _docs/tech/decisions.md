@@ -1373,6 +1373,36 @@ to be, and that resolution has to be kept in step with every place a pane or pro
 announced (`Bus::note_pane`, `Bus::note_project`). A host that disagreed with another about an id it
 never sees is not a failure mode this design has to consider, because no host is ever told one exists.
 
+### D82 — Browsing the host's own filesystem is a family of its own, not an extension of Add or Locate
+
+`D32` filed remote host-browsing as future work and was specific about its shape: bring it back "as
+a host-side listing behind the same two messages [`AddProject`, `LocateProject`], not as a third
+path." The host browse family (`BrowseHostDir`, `HostDirListing`, `HostDirError`) does exactly what
+that sentence rules out — a new family, not an extension of either message.
+
+The reason is that `AddProject` and `LocateProject` each name one path and complete in one round
+trip: they add or relocate a project, with a colour and a conflict check riding along (`D31`). A
+picker walking a host's filesystem is not that — it is several round trips (list, walk up, walk
+down) that happen *before* any path is chosen, addressed to no project at all, since the whole point
+is finding one. Folding that into `AddProject` would give the family a request that sometimes lists
+and sometimes commits, depending on a field — the same "sometimes fallible, depending which field
+you set" shape `D31` rejected when it kept `LocateProject` apart from `UpdateProject`.
+
+This is not a new exposure. A client attached to a host can spawn a pane — an arbitrary shell — and
+so reads and writes anywhere the host process can; listing one directory at a time grants nothing a
+terminal does not. The comparison holds only because both sit behind the same gate: a listing is
+answered for an attached client, and a remote one attaches by presenting the token (`D80`). It is
+not an argument for answering this family to anyone who has not. What containment the file family enforces
+(`crates/ubiq-host/src/files/path.rs`) answers a different question — keeping a project-relative path
+inside its project's root once that root is chosen — and this family exists specifically to choose
+it, so there is nothing for a path to be contained inside.
+
+**Cost:** the contract gains a fourteenth family for one request and two replies, and `D32`'s plan is
+half superseded by the decision register's own next entry — its body still correctly explains why
+`AddProject`/`LocateProject` read the *local* dialog, but its closing sentence about the remote case
+describes a path the tree does not take. `G165`'s last clause is the up-to-date account of what this
+family does and what it leaves undone.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
