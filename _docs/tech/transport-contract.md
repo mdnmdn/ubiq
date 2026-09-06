@@ -1043,6 +1043,20 @@ file on every question it asks of it and a minted fill would answer a different 
 `HOST_SETTINGS_SCHEMA` is 6 for the change, so a build that predates it refuses the file rather than
 rewriting it without the ids the keychain is now keyed by.
 
+**A saved remote host carries a name and an address, and never its token.** `HostSettings` grows a
+`remote_hosts` of `SavedRemoteHost`, so a host reached once can be offered again after a restart —
+but a token is credential material, and the rule that keeps it off a record is the same one
+`connections` and `oauth_apps` follow. Those two have somewhere to put it, the secret store the
+harness library owns; a remote host's token has no such home, so it is not written down at all and
+a reconnect asks for it again. `HOST_SETTINGS_SCHEMA` is 7 for the field, which an older blob
+parses by defaulting rather than being refused, because a record with no remote hosts in it is a
+complete record.
+
+Unlike `connections`, `oauth_apps` and `trusted_certs`, this field is the interface's to mutate and
+rides `SetSettings` whole. Those three are re-read from disk on every write because a flow running
+in the background can finish while a dialog holds a stale copy of them; nothing adds or forgets a
+saved host except a person on that settings page, so there is no concurrent writer to clobber.
+
 **`bundled` on `Connections` says which providers this build ships an application for.** It is a
 compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's
 only way to know it, so the connect flow offers a "Default" exactly where one can be honoured. An
