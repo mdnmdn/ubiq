@@ -56,7 +56,8 @@ the other. Clearing empties it for all of them at once.
 harness library are collected down to debug and everything else only when it complains —
 `ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,gpui_terminal=debug,warn`.
 The same filter feeds a writer on standard error, so a run from a terminal reports without the
-console being open. [`../tech/operations.md`](../tech/operations.md) owns the commands that set it.
+console being open — and a headless `--serve` run, which opens no window at all, has that writer as
+its only report. [`../tech/operations.md`](../tech/operations.md) owns the commands that set it.
 
 **The Harness subsystem is the structured bridges reporting.** A harness driven as a conversation
 speaks JSON on a pipe, and `crates/agent-manager/src/io/` is where that is read: every frame it

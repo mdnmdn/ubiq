@@ -209,6 +209,152 @@ impl AppState {
         cx.notify();
     }
 
+    /// Write a project's whole search-excludes list, sending it at once and updating the snapshot
+    /// every window redraws from — the same immediacy `set_project_index` gives the index pill,
+    /// rather than waiting on the host's echo. `pick_explorer_action`'s exclude/add-back toggle and
+    /// the project settings dialog both go through here, so there is one place that sends the
+    /// message and applies the answer.
+    pub fn set_project_search_excludes(
+        &mut self,
+        project: ProjectId,
+        excludes: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut snapshot) = WindowRegistry::read(cx).project(project).cloned() else {
+            return;
+        };
+        snapshot.record.search_excludes = excludes.clone();
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: Some(excludes),
+            index: None,
+        });
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        cx.notify();
+    }
+
+    /// Drop one pattern from a project's search excludes — the settings dialog's remove control.
+    pub fn remove_project_search_exclude(
+        &mut self,
+        project: ProjectId,
+        pattern: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut excludes) = WindowRegistry::read(cx)
+            .project(project)
+            .map(|snap| snap.record.search_excludes.clone())
+        else {
+            return;
+        };
+        excludes.retain(|p| p != &pattern);
+        self.set_project_search_excludes(project, excludes, cx);
+    }
+
+    /// The project the settings dialog is editing, if it is open on one that already exists. Only
+    /// such a project has a record to override — the same gate `ui::sink::project::form_project`
+    /// draws for the index row.
+    fn editing_project(&self) -> Option<ProjectId> {
+        match self.workbench.project_settings.as_ref().map(|s| &s.mode) {
+            Some(ProjectSettingsMode::Edit { project }) => Some(*project),
+            _ => None,
+        }
+    }
+
+    /// Add whatever is typed into the settings dialog's exclude field as a new pattern, then clear
+    /// the field. Empty text and a pattern already in the list are both ignored, silently: an
+    /// empty pattern excludes nothing and a duplicate would only reorder the list.
+    pub fn add_project_search_exclude_from_field(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.editing_project() else {
+            return;
+        };
+        let pattern = self
+            .project_exclude_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        if pattern.is_empty() {
+            return;
+        }
+        let Some(mut excludes) = WindowRegistry::read(cx)
+            .project(project)
+            .map(|snap| snap.record.search_excludes.clone())
+        else {
+            return;
+        };
+        if excludes.iter().any(|p| p == &pattern) {
+            return;
+        }
+        excludes.push(pattern);
+        self.set_project_search_excludes(project, excludes, cx);
+        let field = self.project_exclude_input.clone();
+        field.update(cx, |state, cx| state.set_value("", window, cx));
+    }
+
+    /// Raise the native folder chooser and append the chosen folder, relative to the project's own
+    /// root, to its search excludes. A folder outside the project — or the root itself — has no
+    /// relative path worth writing, and is silently ignored rather than refused with a dialog.
+    pub fn choose_project_search_exclude(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.editing_project() else {
+            return;
+        };
+        let chosen = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Exclude".into()),
+        });
+
+        cx.spawn(async move |this, cx| {
+            let answer = match chosen.await {
+                Ok(answer) => answer,
+                Err(_) => return,
+            };
+            this.update(cx, |this, cx| {
+                let Ok(Some(paths)) = answer else {
+                    return;
+                };
+                let Some(path) = paths.into_iter().next() else {
+                    return;
+                };
+                let Some(root) = WindowRegistry::read(cx)
+                    .project(project)
+                    .map(|snap| snap.record.path.clone())
+                else {
+                    return;
+                };
+                let Some(rel) = path
+                    .strip_prefix(&root)
+                    .ok()
+                    .map(|rel| rel.to_string_lossy().into_owned())
+                    .filter(|rel| !rel.is_empty())
+                else {
+                    return;
+                };
+                let Some(mut excludes) = WindowRegistry::read(cx)
+                    .project(project)
+                    .map(|snap| snap.record.search_excludes.clone())
+                else {
+                    return;
+                };
+                if excludes.iter().any(|p| p == &rel) {
+                    return;
+                }
+                excludes.push(rel);
+                this.set_project_search_excludes(project, excludes, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Drop the record and everything Ubiq remembers about it. Nothing inside the project's own
     /// folder is touched, which is why the word is "Forget".
     pub fn forget_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {

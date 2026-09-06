@@ -421,8 +421,16 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         self.workbench.open_menu = Some(MenuId::Explorer);
+        // The project's excludes are AppState's to know — not the tree's — so it is worked out here,
+        // where the project snapshot is in reach, and carried into the menu the same way `can_paste`
+        // is.
+        let is_excluded = path.as_deref().is_some_and(|path| {
+            self.project_snapshot(cx)
+                .is_some_and(|snap| snap.record.search_excludes.iter().any(|p| p == path))
+        });
         if let Some(open) = self.open_project_mut(cx) {
-            open.explorer.open_menu(path.as_deref(), at.0, at.1);
+            open.explorer
+                .open_menu(path.as_deref(), is_excluded, at.0, at.1);
         }
         cx.notify();
     }
@@ -608,6 +616,23 @@ impl AppState {
                     let parent = parent_dir(&path);
                     self.copy_path_into(path, parent, cx);
                 }
+            }
+            ExplorerAction::ExcludeFromSearch | ExplorerAction::AddToSearch => {
+                if let Some(path) = path
+                    && let Some(project_id) = self.project(cx)
+                    && let Some(mut excludes) = self
+                        .project_snapshot(cx)
+                        .map(|snap| snap.record.search_excludes.clone())
+                {
+                    let exclude = entry.action == ExplorerAction::ExcludeFromSearch;
+                    if exclude {
+                        excludes.push(path);
+                    } else {
+                        excludes.retain(|p| p != &path);
+                    }
+                    self.set_project_search_excludes(project_id, excludes, cx);
+                }
+                cx.notify();
             }
         }
     }

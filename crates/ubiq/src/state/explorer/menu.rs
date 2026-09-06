@@ -4,7 +4,7 @@ use super::*;
 impl ExplorerState {
     /// Raise the menu at the pointer, remembering enough of the row to draw it after the tree
     /// has moved on.
-    pub fn open_menu(&mut self, path: Option<&str>, x: f32, y: f32) {
+    pub fn open_menu(&mut self, path: Option<&str>, is_excluded: bool, x: f32, y: f32) {
         let (is_dir, readable, expanded) = match path {
             // The project's own row: a folder, and the folder every create with no row in mind
             // already lands in. There is no node for the empty path, and reading one would give
@@ -30,6 +30,7 @@ impl ExplorerState {
             readable,
             expanded,
             can_paste: self.copied.is_some(),
+            is_excluded,
             x,
             y,
         });
@@ -59,6 +60,7 @@ pub fn menu_entries(
     is_dir: bool,
     readable: bool,
     can_paste: bool,
+    is_excluded: bool,
 ) -> Vec<ExplorerEntry> {
     let entry = |action| ExplorerEntry {
         action,
@@ -112,6 +114,13 @@ pub fn menu_entries(
             ],
             match readable && is_dir {
                 true => vec![entry(ExplorerAction::Refresh)],
+                false => Vec::new(),
+            },
+            match readable && is_dir {
+                true => vec![entry(match is_excluded {
+                    true => ExplorerAction::AddToSearch,
+                    false => ExplorerAction::ExcludeFromSearch,
+                })],
                 false => Vec::new(),
             },
             match readable {

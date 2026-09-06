@@ -416,6 +416,97 @@ fn index_row(app: &AppState, project: ProjectId, cx: &mut Context<AppState>) -> 
     )
 }
 
+/// This project's search excludes: gitignore-style patterns and folders, on top of the
+/// application's own list and the ignore rules the project already carries. Each removes with a
+/// click; a folder picker and a field for the wildcards a picker cannot express both add one.
+///
+/// Sent immediately on every add or remove, the same rule `index_row`'s pills follow — see
+/// `AppState::set_project_search_excludes`.
+fn search_excludes_row(
+    app: &AppState,
+    project: ProjectId,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    let excludes = WindowRegistry::read(cx)
+        .project(project)?
+        .record
+        .search_excludes
+        .clone();
+
+    let rows: Vec<AnyElement> = if excludes.is_empty() {
+        vec![
+            div()
+                .text_size(px(12.))
+                .text_color(theme::text_faint())
+                .child("Nothing excluded beyond the application's own list.")
+                .into_any_element(),
+        ]
+    } else {
+        excludes
+            .iter()
+            .enumerate()
+            .map(|(index, pattern)| {
+                let removed = pattern.clone();
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .py_1()
+                    .child(mono(pattern.clone(), theme::text()).text_size(px(12.5)))
+                    .child(icon_button(
+                        ElementId::Name(format!("project-exclude-remove-{index}").into()),
+                        IconName::Close,
+                        false,
+                        cx.listener(move |this, _, _, cx| {
+                            this.remove_project_search_exclude(project, removed.clone(), cx)
+                        }),
+                    ))
+                    .into_any_element()
+            })
+            .collect()
+    };
+
+    let exclude_input = &app.project_exclude_input;
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .py_3()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(label_line(
+                "Search excludes",
+                "Folders and gitignore-style patterns this project's own searches skip. \
+                 `*.log` or `**/build` both work.",
+            ))
+            .child(div().flex().flex_col().children(rows))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(ghost_button(
+                        "project-exclude-add-folder",
+                        Some(IconName::FolderOpen),
+                        "Add folder\u{2026}",
+                        cx.listener(|this, _, _, cx| this.choose_project_search_exclude(cx)),
+                    ))
+                    .child(
+                        framed_active(theme::border(), input_on(exclude_input, window, cx))
+                            .h(px(28.))
+                            .w(px(200.))
+                            .items_center()
+                            .child(Input::new(exclude_input).appearance(false)),
+                    ),
+            )
+            .into_any_element(),
+    )
+}
+
 fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form) -> AnyElement {
     let picked = colour_of(app, form);
     let colour = picked.swatch;
@@ -562,6 +653,10 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 .into_any_element(),
         ))
         .children(form_project(app, form, cx).and_then(|project| index_row(app, project, cx)))
+        .children(
+            form_project(app, form, cx)
+                .and_then(|project| search_excludes_row(app, project, window, cx)),
+        )
         .into_any_element()
 }
 

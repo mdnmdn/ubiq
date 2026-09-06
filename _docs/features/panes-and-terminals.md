@@ -124,6 +124,15 @@ emulator's. Enter is `\r`; Shift+Enter is `\x1b\r` — the sequence Claude Code'
 `/terminal-setup` binds Shift+Enter to — so a harness can tell "newline" from "submit" without
 kitty-protocol negotiation, which this emulator does not track.
 
+**On macOS, printable text arrives through the system's text input, not the keystroke.** A dead key
+on an international layout (`` ` `` then `e`, giving `è`) only composes if the accent reaches the
+platform's composition machinery, so `TerminalView` installs an `InputHandler` on the focused pane
+and `keystroke_to_bytes()` emits nothing for a plain printable key there; the composed text comes
+back as a commit and is written to the harness once. Held keys repeat rather than opening the accent
+popover, and a pending composition is not drawn in the grid. Other platforms compose before the
+keystroke reaches the emulator, so `key_char` already carries the composed character and the
+keystroke path still writes it.
+
 **The pointer is the emulator's when the harness has asked for it.** A harness that enables SGR
 mouse reporting owns clicks, drags and the wheel. When reporting is off, a click-drag selects
 text (double-click a word, triple-click a line), release copies the selection, and a click with no

@@ -564,6 +564,9 @@ pub struct AppState {
     /// fixtures, because the dialog can be up over the sink's own project page.
     pub project_form_about: Entity<TextareaState>,
     pub project_form_hex: Entity<InputState>,
+    /// The project settings dialog's search-excludes field: one pattern typed at a time, added on
+    /// Enter. Folders picked with "Add folder…" never touch it — they go straight to the record.
+    pub project_exclude_input: Entity<InputState>,
     /// One buffer per kitchen-sink fixture, by the document's key. The sink's documents are the
     /// window's own rather than a project's files — nothing reads them from disk and nothing writes
     /// them back — so their buffers sit here beside the window's other component-library state

@@ -134,7 +134,9 @@ predicted above is built — `crates/ubiq-proto/src/wire.rs` frames a `Message` 
 MessagePack body; the transport contract's framing section owns the shape and why the format is
 self-describing. `crates/ubiq-host/src/remote.rs` accepts TCP connections, checks a bearer token
 handed out at startup, and upgrades each one to raw `wire` frames. `ubiq-app --serve` (or
-`--serve=<addr>`) starts it; [`operations.md`](./operations.md) documents the flag and
+`--serve=<addr>`, `--bind`, `--port`) starts it, and that run opens no window: it is the machine's
+host, reporting to the terminal it was started in. [`operations.md`](./operations.md) documents the
+flags and
 [`../backlog.md`](../backlog.md) (`G165`) what it still lacks — TLS chief among them. **A remote
 connection is an ordinary client of the same `Hub`:** `remote.rs` does nothing but
 `Hub::connect()` plus two pumps, so a connection is a `ClientId` in the routing table like any

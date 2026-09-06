@@ -236,31 +236,39 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
         }
     }
 
-    // Handle regular printable characters
-    // Use key_char if available (contains the actual typed character with modifiers like Shift)
-    if let Some(key_char) = &keystroke.key_char
-        && !keystroke.modifiers.control
-        && !keystroke.modifiers.alt
+    // macOS delivers printable text through the text-input system instead, which is what
+    // composes dead keys on international layouts (`` ` `` then `e` -> an e with a grave
+    // accent). Emitting the bare key here as well would type the accent and defeat the
+    // composition; see `TerminalInputHandler`. Other platforms compose before the keystroke
+    // reaches us, so `key_char` already holds the composed character.
+    #[cfg(not(target_os = "macos"))]
     {
-        return Some(key_char.as_bytes().to_vec());
-    }
-
-    // Fallback to key for single characters
-    let key = keystroke.key.as_str();
-    if key.len() == 1 {
-        let ch = key.chars().next().unwrap();
-        if ch.is_ascii() && !keystroke.modifiers.control {
-            // Handle shift modifier for uppercase
-            let ch = if keystroke.modifiers.shift {
-                ch.to_ascii_uppercase()
-            } else {
-                ch
-            };
-            return Some(vec![ch as u8]);
+        // Handle regular printable characters
+        // Use key_char if available (contains the actual typed character with modifiers like Shift)
+        if let Some(key_char) = &keystroke.key_char
+            && !keystroke.modifiers.control
+            && !keystroke.modifiers.alt
+        {
+            return Some(key_char.as_bytes().to_vec());
         }
-        // For non-ASCII characters, encode as UTF-8
-        if !keystroke.modifiers.control && !keystroke.modifiers.alt {
-            return Some(key.as_bytes().to_vec());
+
+        // Fallback to key for single characters
+        let key = keystroke.key.as_str();
+        if key.len() == 1 {
+            let ch = key.chars().next().unwrap();
+            if ch.is_ascii() && !keystroke.modifiers.control {
+                // Handle shift modifier for uppercase
+                let ch = if keystroke.modifiers.shift {
+                    ch.to_ascii_uppercase()
+                } else {
+                    ch
+                };
+                return Some(vec![ch as u8]);
+            }
+            // For non-ASCII characters, encode as UTF-8
+            if !keystroke.modifiers.control && !keystroke.modifiers.alt {
+                return Some(key.as_bytes().to_vec());
+            }
         }
     }
 
@@ -485,6 +493,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn test_regular_characters() {
         let mode = TermMode::empty();
 
@@ -496,6 +505,28 @@ mod tests {
 
         let zero = Keystroke::parse("0").unwrap();
         assert_eq!(keystroke_to_bytes(&zero, mode), Some(b"0".to_vec()));
+    }
+
+    /// On macOS printable keys are the input handler's business, so the keystroke
+    /// path stays silent and the harness sees the composed character exactly once.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn printable_characters_are_left_to_the_input_handler() {
+        let mode = TermMode::empty();
+
+        assert_eq!(
+            keystroke_to_bytes(&Keystroke::parse("a").unwrap(), mode),
+            None
+        );
+        // Keys the harness needs as escape sequences still come through.
+        assert_eq!(
+            keystroke_to_bytes(&Keystroke::parse("enter").unwrap(), mode),
+            Some(b"\r".to_vec())
+        );
+        assert_eq!(
+            keystroke_to_bytes(&Keystroke::parse("ctrl-c").unwrap(), mode),
+            Some(vec![3])
+        );
     }
 
     #[test]

@@ -161,7 +161,11 @@ is showing. Enter sends, Shift-Enter inserts a newline, and cmd/ctrl+Enter sends
 bare Enter, so there is nothing extra to wire, only a hint to show for it. `AppState::agent_for_slot`
 is what "sends" resolves the agent through on every surface — a chat tab's own attachment for a slot
 in the chat range, a column's active tab for one in the column range — so the Enter key and the
-composer's own button never disagree about who a slot is addressed at.
+composer's own button never disagree about who a slot is addressed at. Up in an *empty* field
+brings the last turn back, the way a shell brings back the last command — `recall_last_message`
+reads it off the transcript, which is what was actually sent, and keeps nothing beside it. A field
+with a draft in it is left alone: the key moves the cursor, because a key that overwrites what is
+typed is a key that loses work.
 
 **One control does Send, Stop or Enqueue, depending on the turn.** Idle sends, exactly as
 `prompt_agent` always has. A turn already running with the draft empty offers Stop, which cancels
@@ -188,7 +192,10 @@ nothing about the screen hosting it: the chat panel and the kitchen sink adopt i
 different `ConversationView` — an id prefix, a composer slot, whether a footer and a composer come
 with it — rather than by growing a renderer each, which would drift the frame a tool block gained a
 field. A block is markdown, a thinking block, or a tool call whose header carries a verb from the
-tool's kind, its target and its status, and which expands onto its output or its diff.
+tool's kind, its target and its status, and which expands onto its output or its diff. Each message
+block carries its own copy control in its lower right, hidden until the pointer is over that
+message: the clipboard gets the block's own text, and a control drawn on every line at rest would
+read as a toolbar rather than a conversation.
 
 **Nothing writes into a transcript.** The composer sends — `PromptAgent` to a live agent,
 `SendToAgent` to a mock — and appends nothing itself; the user's own line appears when the harness
@@ -1892,6 +1899,15 @@ owning one open index per project, fed by the same walk content search runs and 
 own batches, handing out a read handle that carries no writer. It lives in a host-owned `index/`
 directory beside the interface's `ui/` workarea, which Forget and the orphan collector already
 remove.
+
+The same dialog's own search excludes are `ui/sink/project.rs`'s `search_excludes_row()`: one
+removable row per pattern, an `Add folder…` button that raises the native chooser and relativizes
+the chosen folder against the project's own root (a folder outside it, or the root itself, is
+silently dropped), and a field that commits a typed gitignore-style pattern — `*.log`, `**/build`
+— on Enter. Every add or remove, and the explorer's own `Exclude from search` / `Add to search`
+menu picks, all go through `app/projects.rs::set_project_search_excludes`, which sends the whole
+list in one `UpdateProject` and applies the snapshot at once rather than waiting on the host's
+echo.
 
 Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
 shell paints the same dialog over the window when a project is being created or edited. Application

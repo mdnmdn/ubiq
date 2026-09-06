@@ -13,6 +13,7 @@ use std::time::Duration;
 use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
+use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::{FileDialog, WindowRegistry};
 use ubiq_proto::bus::{self, FromClient, To};
@@ -146,6 +147,26 @@ impl Fixture {
             let field = state.file_name.clone();
             field.update(cx, |input, cx| input.set_value(typed.clone(), window, cx));
             state.confirm_file_dialog(window, cx);
+        });
+    }
+
+    /// Type into one of the window's fields and press Enter, which is what commits it.
+    fn type_into(
+        &self,
+        pick: impl Fn(&AppState) -> Entity<gpui_component::input::InputState>,
+        text: &str,
+        cx: &mut TestAppContext,
+    ) {
+        let text = text.to_string();
+        self.with(cx, |state, window, cx| {
+            let input = pick(state);
+            input.update(cx, |field, cx| {
+                field.set_value(text.clone(), window, cx);
+                cx.emit(InputEvent::PressEnter {
+                    shift: false,
+                    secondary: false,
+                });
+            });
         });
     }
 }
@@ -646,4 +667,101 @@ fn an_unsaved_tab_is_asked_about_before_it_closes(cx: &mut TestAppContext) {
     });
     assert_eq!(fixture.dialog(cx), None);
     assert!(open_paths(&fixture, cx).is_empty(), "the tab was dropped");
+}
+
+/// "Exclude from search" adds the folder to the project's own excludes and sends the whole list,
+/// touching nothing else on the record; picking it again is now offered as "Add to search".
+#[gpui::test]
+fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.pick(Some("src"), "Exclude from search", cx);
+    let sent = fixture.said().into_iter().find_map(|m| match m {
+        Message::UpdateProject {
+            project_id,
+            name,
+            colour,
+            custom_colour,
+            search_excludes,
+            index,
+        } => Some((
+            project_id,
+            name,
+            colour,
+            custom_colour,
+            search_excludes,
+            index,
+        )),
+        _ => None,
+    });
+    assert_eq!(
+        sent,
+        Some((
+            fixture.project,
+            None,
+            None,
+            None,
+            Some(vec!["src".to_string()]),
+            None
+        )),
+        "only the excludes change"
+    );
+
+    let labels = fixture.with(cx, |state, _, cx| {
+        state.open_explorer_menu(Some("src".to_string()), (0.0, 0.0), cx);
+        state
+            .explorer(cx)
+            .and_then(|explorer| explorer.menu.clone())
+            .expect("the menu is up")
+            .entries()
+            .iter()
+            .map(|e| e.label())
+            .collect::<Vec<_>>()
+    });
+    assert!(labels.contains(&"Add to search"));
+    assert!(!labels.contains(&"Exclude from search"));
+}
+
+/// The project settings dialog's own exclude field adds a pattern on Enter, sending the whole
+/// list the same way the explorer menu's toggle does; the remove control clears it again.
+#[gpui::test]
+fn project_settings_search_exclude_field_adds_then_removes_a_pattern(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, _, cx| state.open_edit_project(cx));
+
+    fixture.type_into(|state| state.project_exclude_input.clone(), "*.log", cx);
+    let sent = fixture.said().into_iter().find_map(|m| match m {
+        Message::UpdateProject {
+            search_excludes, ..
+        } => search_excludes,
+        _ => None,
+    });
+    assert_eq!(
+        sent,
+        Some(vec!["*.log".to_string()]),
+        "the pattern was added"
+    );
+    assert_eq!(
+        fixture.with(cx, |state, _, cx| state
+            .project_exclude_input
+            .read(cx)
+            .value()
+            .to_string()),
+        "",
+        "the field is cleared after adding"
+    );
+
+    fixture.with(cx, |state, _, cx| {
+        state.remove_project_search_exclude(fixture.project, "*.log".to_string(), cx)
+    });
+    let sent = fixture.said().into_iter().find_map(|m| match m {
+        Message::UpdateProject {
+            search_excludes, ..
+        } => search_excludes,
+        _ => None,
+    });
+    assert_eq!(sent, Some(Vec::new()), "the pattern was removed");
 }

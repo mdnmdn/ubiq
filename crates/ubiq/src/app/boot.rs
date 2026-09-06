@@ -108,6 +108,8 @@ impl AppState {
                 .auto_grow(3, 6)
         });
         let project_form_hex = cx.new(|cx| InputState::new(window, cx).placeholder("#RRGGBB"));
+        let project_exclude_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("*.log, **/build\u{2026}"));
 
         // The kitchen sink's fixtures become buffers here, where there is a window to build one
         // with. They are constants, so this is the whole of their lifecycle: nothing arrives late,
@@ -675,6 +677,19 @@ impl AppState {
             },
         ));
 
+        // A pattern is added on Enter, the same gesture the two comma-lists commit on — but this
+        // field holds one pattern at a time, so the field is cleared afterwards rather than left
+        // holding what was just added.
+        subscriptions.push(cx.subscribe_in(
+            &project_exclude_input,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.add_project_search_exclude_from_field(window, cx);
+                }
+            },
+        ));
+
         // A field's underline is drawn by the parent, so a focus change has to redraw the window
         // rather than only the library widget.
         for handle in [
@@ -704,6 +719,7 @@ impl AppState {
             rename_input.read(cx).focus_handle(cx),
             project_form_about.read(cx).focus_handle(cx),
             project_form_hex.read(cx).focus_handle(cx),
+            project_exclude_input.read(cx).focus_handle(cx),
             picker_search.read(cx).focus_handle(cx),
         ] {
             subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
@@ -828,6 +844,7 @@ impl AppState {
             rename_input,
             project_form_about,
             project_form_hex,
+            project_exclude_input,
             sink_buffers,
             sink_input,
             sink_textarea,

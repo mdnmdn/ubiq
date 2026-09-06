@@ -275,6 +275,10 @@ pub enum ExplorerAction {
     Rename,
     Delete,
     CollapseAll,
+    /// A folder not already in the project's `search_excludes`: offer to add it.
+    ExcludeFromSearch,
+    /// A folder already in the project's `search_excludes`: offer to remove it.
+    AddToSearch,
     /// The line between two groups. It is an action so that it occupies a slot in the list the
     /// pick indexes into: a separator drawn but not counted would shift every row below it.
     Separator,
@@ -300,6 +304,8 @@ impl ExplorerAction {
             ExplorerAction::Rename => "Rename",
             ExplorerAction::Delete => "Delete",
             ExplorerAction::CollapseAll => "Collapse all",
+            ExplorerAction::ExcludeFromSearch => "Exclude from search",
+            ExplorerAction::AddToSearch => "Add to search",
             ExplorerAction::Separator => "",
         }
     }
@@ -353,6 +359,10 @@ pub struct ExplorerMenu {
     /// stays a pure function of the remembered menu, which is what keeps the pick — an index into
     /// this list — pointing at the row that was drawn.
     pub can_paste: bool,
+    /// Whether the clicked path is already in the project's `search_excludes`, as of when the menu
+    /// opened. Held here for the same reason `can_paste` is: `entries()` stays a pure function of
+    /// the remembered menu, and the project's excludes are AppState's, not this tree's, to know.
+    pub is_excluded: bool,
     pub x: f32,
     pub y: f32,
 }
@@ -365,6 +375,7 @@ impl ExplorerMenu {
             self.is_dir,
             self.readable,
             self.can_paste,
+            self.is_excluded,
         )
     }
 }

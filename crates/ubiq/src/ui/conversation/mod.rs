@@ -16,9 +16,9 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, ElementId, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
-    deferred, div, point, px,
+    AnyElement, App, ClickEvent, ClipboardItem, Context, ElementId, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window,
+    anchored, deferred, div, point, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
@@ -403,14 +403,19 @@ fn transcript(
         .visible_blocks()
         .into_iter()
         .map(|(ix, block)| match block {
-            ConvBlock::User(text) => user_turn(text),
-            ConvBlock::Agent { body, .. } => TextView::markdown(
-                view.eid(&format!("md-{ix}")),
-                SharedString::from(body.clone()),
-            )
-            .on_link_click(crate::ui::on_link(root.clone(), None))
-            .into_any_element(),
-            ConvBlock::Thought { body, .. } => thought(body),
+            ConvBlock::User(text) => copyable(view, ix, text, user_turn(text)),
+            ConvBlock::Agent { body, .. } => copyable(
+                view,
+                ix,
+                body,
+                TextView::markdown(
+                    view.eid(&format!("md-{ix}")),
+                    SharedString::from(body.clone()),
+                )
+                .on_link_click(crate::ui::on_link(root.clone(), None))
+                .into_any_element(),
+            ),
+            ConvBlock::Thought { body, .. } => copyable(view, ix, body, thought(body)),
             ConvBlock::Tool { call, open } => {
                 // A delegation is a way in to the agent it spawned, and the way in exists only
                 // once that agent has said something: the instance id *is* this call's id.
@@ -457,6 +462,43 @@ fn transcript(
         blocks
     })
     .into_any_element()
+}
+
+/// One message, with its own copy control in the lower right — hidden until the pointer is over
+/// the message, because a control on every line of a transcript reads as a toolbar rather than a
+/// conversation. The clipboard gets the block's own text, which is what the harness said or
+/// received rather than anything rendered over it.
+fn copyable(view: &ConversationView, ix: usize, text: &str, body: AnyElement) -> AnyElement {
+    let group = SharedString::from(format!("{}-msg-{ix}", view.id));
+    let text = text.to_string();
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .flex_col()
+        .group(group.clone())
+        .child(body)
+        .child(
+            div()
+                .absolute()
+                .bottom_0()
+                .right_0()
+                .invisible()
+                .group_hover(group, |this| this.visible())
+                .child(
+                    icon_button(
+                        view.eid(&format!("copy-{ix}")),
+                        IconName::Copy,
+                        false,
+                        move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                        },
+                    )
+                    .size(px(22.))
+                    .bg(theme::surface()),
+                ),
+        )
+        .into_any_element()
 }
 
 /// What the user said sits in the accent, the way every other surface in the window draws a turn
@@ -1289,6 +1331,17 @@ fn composer(
         .flex_none()
         .flex_col()
         .items_stretch()
+        // Up in an empty field brings the last thing sent back, the way a shell does. Captured
+        // above the field, because the field's own `up` moves the cursor and stops there — and it
+        // is handed back untouched when there is nothing to recall or something is typed, so a
+        // draft of more than one line still navigates.
+        .capture_action(
+            cx.listener(move |this, _: &gpui_component::input::MoveUp, window, cx| {
+                if this.recall_last_message(slot, window, cx) {
+                    cx.stop_propagation();
+                }
+            }),
+        )
         .child(
             div()
                 .id(view.eid("composer"))
