@@ -265,12 +265,17 @@ impl Bus {
         self.active = host;
     }
 
-    /// Add a remote connection and mint the [`HostId`] it is known by from here on. Nothing calls
-    /// this yet; it is the seam the connect flow attaches to.
-    pub fn register_remote(&mut self, client: Client) -> HostId {
+    /// Add a remote connection and mint the [`HostId`] it is known by from here on.
+    ///
+    /// Hands back the new connection's inbound stream alongside its id: the caller still has to
+    /// spawn a router task for it — see `AppState::route_host` — and [`Bus::connections`] cannot
+    /// be asked again for just this one without re-handing out every connection that already has
+    /// a router draining it, which would spawn a second one racing the first.
+    pub fn register_remote(&mut self, client: Client) -> (HostId, flume::Receiver<Message>) {
         let id = HostId(self.next_host_id.fetch_add(1, Ordering::Relaxed));
+        let from_host = client.from_host().clone();
         self.remotes.push(RemoteConn { id, client });
-        id
+        (id, from_host)
     }
 
     /// Drop a remote connection. Anything still recorded under it in `panes` or `projects` is left
@@ -318,7 +323,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let remote = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client);
 
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Remote(remote));
@@ -343,7 +348,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let remote = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client);
 
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Local);
@@ -380,7 +385,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let remote = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client);
         bus.set_active(HostRef::Remote(remote));
 
         bus.send(Message::ListProjects);
@@ -402,7 +407,7 @@ mod tests {
         let (local, local_end) = ubiq_proto::bus::detached();
         let (remote_client, remote_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let remote = bus.register_remote(remote_client);
+        let (remote, _from_host) = bus.register_remote(remote_client);
 
         let project_id = a_project_id();
         bus.note_project(project_id, HostRef::Local);

@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-06
 verified: 2026-09-06
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -86,6 +86,12 @@ sends that path anywhere. `D54` records the decision and its cost. The web-expor
 (`crates/ubiq/src/web_export/`) is a third instance of the same reasoning at a larger scale: it reads
 a whole project's tree with `std::fs` and the `ignore` crate, off its own thread, using the
 project's path from the same `ProjectSnapshot` rather than a path it composed. `D55` records it.
+A fourth is not really an exception at all: `crates/ubiq/src/app/remote_connect.rs` holds a
+`TcpStream` while it dials a remote host and pumps frames over it. Rule 2 is about where a *pane's*
+byte stream terminates — the pseudo-terminal must never be assumed local — and this socket carries
+no pane; it is the client half of the wire transport the interface itself owns, the same handshake
+`ubiq-host/src/remote.rs` answers from the listening side (`D79`, `D80`). Holding the transport is
+not reaching around it.
 
 **3. The coordinator renders nothing.** It has no opinion about layout, colour, or what the bytes it
 forwards mean. Terminal *emulation* — parsing those bytes into a screen — belongs to the UI's
@@ -133,8 +139,11 @@ handed out at startup, and upgrades each one to raw `wire` frames. `ubiq-app --s
 connection is an ordinary client of the same `Hub`:** `remote.rs` does nothing but
 `Hub::connect()` plus two pumps, so a connection is a `ClientId` in the routing table like any
 window's, no message family is special-cased for it, and closing the socket is the same
-`FromClient::Gone` a window losing its connection produces. No UI yet dials one of these listeners
-to attach to a host on another machine — that remains the gap the backlog row names.
+`FromClient::Gone` a window losing its connection produces. `crates/ubiq/src/app/remote_connect.rs`
+is the other end of the same handshake: it dials, sends the `GET /attach?token=…` upgrade request,
+and on a `101` hands the socket to `bus::detached()` behind its own pair of pump threads — the
+mirror image of `remote.rs`'s accept side, one binding and one dialing. What still does not exist is
+the surface *around* a live remote: `../backlog.md` (`G166`) names it.
 
 **Remote harnesses.** A harness running on another host or in a container is structurally the same
 problem as a terminal stream crossing a machine boundary. The coordinator stops assuming the
@@ -271,10 +280,13 @@ and the answer arrives, with everything else that host says, at `receive()`.
 `sender` and `input` surface so none of the interface's call sites had to learn a message might
 have somewhere else to go. It wraps the local, in-process host — always present, connected before
 the first window and outliving every one of them — plus a `Vec<RemoteConn>` of hosts reached over a
-connection the interface opened itself, empty until a connect flow exists to fill it. `boot.rs`
-spawns one router task per connection, each tagging its arrivals with the `HostRef` they came from
-before `receive()` and its per-family handlers ever see them, so a handler can record which host a
-pane or project belongs to as it first hears of one.
+connection the interface opened itself, filled by the titlebar's "Connect to a remote host" modal
+(`crates/ubiq/src/ui/remote_connect.rs`) once a dial succeeds. `AppState::route_host` is the one
+router task, spawned once per connection by `boot.rs` over `bus.connections()` at construction and
+again by the connect flow for each host dialled after boot; either way it tags every arrival with
+the `HostRef` it came from before `receive()` and its per-family handlers ever see it, so a handler
+can record which host a pane or project belongs to as it first hears of one, and removes the
+connection from `Bus` if its channel disconnects.
 
 **Routing follows a fixed order: pane, then project, then whichever host is active.** `Bus::resolve`
 tries the message's pane first, because a pane is a running harness on one specific host and its

@@ -18,6 +18,7 @@ use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::work::AgentId;
 
 use crate::state::clone::CloneState;
+use crate::state::remote::RemoteConnectState;
 use crate::state::settings::SettingsState;
 use crate::state::sink::ColourField;
 use crate::theme::ThemeId;
@@ -278,6 +279,10 @@ pub struct WorkbenchState {
     /// clone has no project yet, and the two questions — "which repository" and "what is this
     /// project called here" — are asked in different places.
     pub clone_project: Option<CloneState>,
+    /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
+    /// reason: raised from the titlebar rather than from settings, and answering a question that
+    /// has nothing to do with any project on screen.
+    pub remote_connect: Option<RemoteConnectState>,
     /// Application settings, raised from the titlebar's gear. Interface-wide, so it opens with
     /// no project.
     pub settings: SettingsState,
@@ -344,6 +349,7 @@ impl Default for WorkbenchState {
             row_action: None,
             project_settings: None,
             clone_project: None,
+            remote_connect: None,
             settings: SettingsState::default(),
             project_error: None,
             work_error: None,

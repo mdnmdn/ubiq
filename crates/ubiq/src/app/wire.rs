@@ -169,13 +169,41 @@ impl AppState {
         cx.notify();
     }
 
+    /// One router task: drain a connection's inbound stream and hand each arrival to [`Self::receive`],
+    /// tagged with the [`HostRef`] it came from before that method ever sees it.
+    ///
+    /// Shared by the loop `boot.rs` runs once over `bus.connections()` at construction, and by
+    /// `remote_connect.rs`'s success path for a connection minted after boot — the same shape
+    /// either way, so it lives once here rather than twice. Ends when the channel disconnects: for
+    /// the local host that never happens before the window itself does, but for a remote it means
+    /// the pump threads gave up (the socket failed, or the connection was dropped on purpose), so
+    /// this also removes it from `Bus` and says so where every window already reads its log —
+    /// `tracing::warn!` reaches the console panel through `ubiq_proto::log`.
+    pub(super) fn route_host(host: HostRef, from_host: flume::Receiver<Message>, cx: &mut Context<Self>) {
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            while let Ok(message) = from_host.recv_async().await {
+                if this
+                    .update(cx, |this, cx| this.receive(host, message, cx))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            if let HostRef::Remote(id) = host {
+                let _ = this.update(cx, |this, _| this.bus.remove_remote(id));
+                tracing::warn!("remote host disconnected");
+            }
+        })
+        .detach();
+    }
+
     /// Everything the coordinator says, in the order it said it.
     ///
-    /// `host` names which of the window's connections `message` arrived on — today always
-    /// `HostRef::Local`, since the router in `boot.rs` spawns one task per connection and there is
-    /// only ever the one. It is threaded through every family so a handler can record which host a
-    /// pane or project belongs to as it first hears of one, and, from a later phase on, keep two
-    /// hosts' projections apart instead of merging a remote's answer into the local one's state.
+    /// `host` names which of the window's connections `message` arrived on — routed here by
+    /// [`Self::route_host`], one task per connection. It is threaded through every family so a
+    /// handler can record which host a pane or project belongs to as it first hears of one, and,
+    /// from a later phase on, keep two hosts' projections apart instead of merging a remote's
+    /// answer into the local one's state.
     ///
     /// The families are disjoint, so each helper answers with the message back when it is
     /// none of its own and the next one is offered it.
