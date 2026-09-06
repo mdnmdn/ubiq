@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-06
 verified: 2026-09-06
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -1113,6 +1113,34 @@ removed, so nothing half-cloned is ever registered.
 - **The file family is answered in the order it was asked.** One worker and one queue, so two
   expands of the same folder cannot leave the older answer on screen. A pool would reorder, and
   fixing that would cost a sequence number on the wire.
+
+**The socket framing exists, in `crates/ubiq-proto/src/wire.rs`.** A frame is a 4-byte big-endian
+length prefix followed by the message body, so a reader knows exactly how many bytes to read before
+it decodes anything. A prefix claiming more than `MAX_FRAME` (64 MiB) is refused before any
+allocation for the body is made — the terminal family already chunks as the pseudo-terminal hands
+bytes back, so nothing this contract carries needs a body near that size, and a claim past it is a
+corrupt or hostile header rather than a message running long. `encode`/`decode` turn a `Message`
+into a body and back with no prefix, for callers that frame differently; `write_frame`/`read_frame`
+add it. A peer that closes cleanly between frames is `WireError::Eof`, kept apart from a torn frame
+or a real I/O failure, so a socket pump does not have to guess which one happened from an `io::Error`
+alone.
+
+**The body is MessagePack via `rmp-serde`, and self-describing is the reason, not a side effect.**
+`ProjectSnapshot` flattens a `ProjectRecord` into itself with `#[serde(flatten)]`, and dozens of
+optional fields across the message set carry `skip_serializing_if` — both require a format that
+carries field names on the wire and can deserialise into a self-describing shape (`deserialize_any`),
+which postcard and bincode do not provide. `wire.rs` encodes with `to_vec_named` rather than the
+compact positional `to_vec` for the same reason: a positional encoding has no map for `flatten` to
+merge into. Self-describing also means a remote host and a UI built at different revisions do not
+have to agree on field order to decode each other's frames — a fact worth having before either half
+can be on the other end of a socket.
+
+**The three byte-vector fields on the hot path are `serde_bytes`.** `TerminalOutput.bytes`,
+`TerminalInput.bytes` and `WriteProjectFile.bytes` carry `#[serde(with = "serde_bytes")]`, so
+`rmp-serde` encodes each as one `bin` blob instead of one MessagePack integer per byte — the
+difference between a terminal frame close to its payload size and one several times larger. A test
+in `wire.rs` asserts a terminal frame stays close to its payload size, and fails if that attribute is
+ever dropped.
 
 ## Adding a variant
 

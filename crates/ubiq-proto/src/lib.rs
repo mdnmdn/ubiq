@@ -22,6 +22,7 @@
 //! - `conversation`: what a live agent says, in the Agent Client Protocol's vocabulary
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
+//! - `wire`: the binary framing a socket transport puts the contract in
 
 pub mod bus;
 pub mod connectors;
@@ -36,4 +37,5 @@ pub mod repos;
 pub mod search;
 pub mod settings;
 pub mod stats;
+pub mod wire;
 pub mod work;

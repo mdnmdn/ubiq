@@ -110,7 +110,7 @@ impl Hub {
             id,
             to_host: self.to_host.clone(),
             from_host,
-            clients: self.clients.clone(),
+            clients: Some(self.clients.clone()),
         }
     }
 }
@@ -193,11 +193,68 @@ impl Mailbox {
 }
 
 /// A window's end of the bus.
+///
+/// `clients` is `None` for a [`detached`] client: it was never inserted into a `Hub`'s routing
+/// table, so it has nothing to remove itself from on drop. A `Hub`-backed client always carries
+/// `Some`.
 pub struct Client {
     id: ClientId,
     to_host: flume::Sender<FromClient>,
     from_host: flume::Receiver<Message>,
-    clients: Clients,
+    clients: Option<Clients>,
+}
+
+/// A process-wide counter for detached client ids, kept apart from any `Hub`'s own so the two
+/// numberings can never collide into the same id meaning two different clients.
+fn next_detached_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Build a [`Client`] with no [`Hub`] behind it, for a socket pump to drive instead of an
+/// in-process host. Returns the client and the [`Detached`] handle a pump needs: the outbound
+/// side to read what the client said and write to the socket, and the inbound side to feed what
+/// arrived from the socket back to the client.
+///
+/// This mints the `Client` half of the contract only — no networking, no framing, nothing that
+/// touches a socket. That is the transport layered on top, in the host crate, in a later phase.
+pub fn detached() -> (Client, Detached) {
+    let id = ClientId(next_detached_id());
+    let (to_host, said) = flume::unbounded();
+    let (to_client, from_host) = flume::unbounded();
+    (
+        Client {
+            id,
+            to_host,
+            from_host,
+            clients: None,
+        },
+        Detached {
+            said,
+            deliver: to_client,
+        },
+    )
+}
+
+/// The two halves of a [`detached`] client that a network pump needs, on the far side from the
+/// `Client` itself.
+pub struct Detached {
+    said: flume::Receiver<FromClient>,
+    deliver: flume::Sender<Message>,
+}
+
+impl Detached {
+    /// What the client said — [`Client::send`] and the callbacks in [`Outbox`] and [`PaneInput`]
+    /// all arrive here as [`FromClient::Said`]. A pump encodes each and writes it to the socket.
+    pub fn said(&self) -> &flume::Receiver<FromClient> {
+        &self.said
+    }
+
+    /// Hand the client a message that arrived from the socket. It surfaces on
+    /// [`Client::from_host`], exactly as if a `Hub` had routed it.
+    pub fn deliver(&self) -> &flume::Sender<Message> {
+        &self.deliver
+    }
 }
 
 impl Client {
@@ -240,9 +297,15 @@ impl Client {
 
 /// A window has gone, and its connection goes with it. The host is told, so it can reap the panes
 /// that window owned — nothing else drops now that the host outlives every window.
+///
+/// A detached client has no routing table to remove itself from — `clients` is `None` — but the
+/// `Gone` announcement still goes out, because whatever is driving the socket on the other end
+/// still needs to know.
 impl Drop for Client {
     fn drop(&mut self) {
-        self.clients.lock().remove(&self.id);
+        if let Some(clients) = &self.clients {
+            clients.lock().remove(&self.id);
+        }
         let _ = self.to_host.send(FromClient::Gone(self.id));
     }
 }

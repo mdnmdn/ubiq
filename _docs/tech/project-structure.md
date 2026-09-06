@@ -137,6 +137,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-proto/src/settings.rs` | Which half owns a settings blob, and the host's own record | A Ui-layer field |
 | `ubiq-proto/src/ids.rs` | The contract's id newtypes, and the one generator behind them | A second id scheme |
 | `ubiq-proto/src/bus.rs` | The hub, a client's end of it, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
+| `ubiq-proto/src/wire.rs` | The socket wire format — a length-prefixed MessagePack frame, via `rmp-serde` — that a later network pump drives over `bus::detached()`'s endpoints | A socket, a thread, or any notion of a connection |
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
 | `ubiq-proto/src/repos.rs` | A remote repository, a clone's request, its stages and its errors, and the one repository-URL parser both halves call | A token, a credential, or a `git2` type |
 | `ubiq-proto/src/git.rs` | A project's repository as it crosses the bus: overview, working-tree map, errors | A `git2` type, a path on disk |
@@ -169,6 +170,12 @@ interface does not depend on the host, so a module in the wrong crate does not c
 The "never holds" column is the enforcement of the architecture's rules in file terms. A
 `portable-pty` type under `ui/`, or a GPUI type in `messages.rs`, is a violation you can grep for —
 and the crate split makes most of them a violation you cannot compile.
+
+`ubiq-proto/Cargo.toml` carries two dependencies for `wire.rs`: `rmp-serde` encodes and decodes the
+MessagePack body a frame carries, and `serde_bytes` is what keeps the three byte-vector fields on
+the hot path a single `bin` blob apiece instead of one MessagePack integer per byte.
+[`transport-contract.md`](./transport-contract.md)'s framing section says why this format and not
+postcard or bincode.
 
 ## Where a new file goes
 

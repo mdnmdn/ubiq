@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-06
 verified: 2026-09-06
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -122,6 +122,17 @@ message set serialised over a local socket. Because neither side speaks anything
 the change is confined to the channel: add framing and serialisation, swap the implementation.
 Coordinator and UI logic go untouched — and that is what unlocks tmux-style detach and reattach,
 where the window can die while the agents keep running.
+
+**The framing and one detached endpoint exist; no listener and no remote UI do.** The socket wire
+format predicted above is built — `crates/ubiq-proto/src/wire.rs` frames a `Message` as a
+length-prefixed MessagePack body; the transport contract's framing section owns the shape and why
+the format is self-describing. `crates/ubiq-proto/src/bus.rs` gained
+`bus::detached()`, a `Client` not backed by a `Hub`: it behaves exactly like a hub-backed one to its
+caller (`send`, `from_host`, `sender`, `input` are unchanged), but its two halves — a `said()`
+receiver and a `deliver()` sender — are meant to be driven by a network pump rather than by an
+in-process `Hub`. Nothing yet drives one: there is no socket listener, no process that accepts a
+remote connection, and no UI attachment to a host on another machine. Those are later phases, and
+the gap is a row in [`../backlog.md`](../backlog.md).
 
 **Remote harnesses.** A harness running on another host or in a container is structurally the same
 problem as a terminal stream crossing a machine boundary. The coordinator stops assuming the
