@@ -3,7 +3,7 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, connector and repository families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector and repository families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-06
 verified: 2026-09-06
@@ -230,6 +230,56 @@ it.
 
 This is the one path in the contract the interface acts on directly rather than over the bus, and
 `architecture.md` states the rule that keeps it honest.
+
+## The host browse family
+
+The fourteenth family, and the smallest: one request and two possible answers, about browsing the
+host's own filesystem before any project exists. It names no project, no pane and no path relative
+to anything — the file family's `rel_path` only makes sense once a project's root is known, and this
+is what lets a picker find that root in the first place, including on a host the interface has never
+seen the disk of.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `BrowseHostDir` | UI → host | `path?` | `HostDirListing` or `HostDirError` |
+| `HostDirListing` | host → UI | `path`, `parent?`, `entries[]`, `truncated` | — |
+| `HostDirError` | host → UI | `path?`, `error` | — |
+
+**`path` absent asks for a sensible starting place, not a listing of one the interface named.** The
+host decides — the user's home directory, the same source the CLI shortcut and the config root
+already draw it from — because a remote host's home directory is a fact only that host can state;
+the interface has no filesystem of its own to propose one from.
+
+**`path` is absolute and resolved against nothing.** Unlike every `rel_path` in the file family,
+there is no project root yet for it to be relative to — this family exists to find that root, which
+is also why the file family's containment check (`crates/ubiq-host/src/files/path.rs`) plays no part
+here: there is nothing yet to contain a path inside, and this family answers a different question
+than that one guards. Neither weakens the other. `HostDirListing.path` is always canonicalised, so
+the interface shows where the host actually landed rather than the string it asked with.
+
+**`parent` is `None` only at the filesystem root**, so a picker knows when to stop offering to walk
+up.
+
+**A listing is capped at 2,000 entries**, independently of the file family's own per-reply ceiling —
+a browse listing is always exactly one level, so there is no reply spanning several listings to
+share a budget across. `truncated` says whether that ceiling cut this one short.
+
+**Hidden entries are marked, not omitted.** `HostDirEntry.hidden` is true for a dotfile; unlike
+`LIST_HIDE`'s junk files, a dotfile is real content the user may want to see, so whether to draw it
+is the picker's call.
+
+**`HostDirEntry.readable` is a hint, not a promise.** It says whether the host could open or enter
+the entry when it looked, for greying out a row before the click; the filesystem can still change
+before the next request.
+
+**`HostPathError` is smaller than `FileError`.** It has no `Refused` — there is no root here for a
+path to escape — and no `Conflict` — nothing here is ever written; its `NotADirectory` stands in for
+`WrongKind`, since listing is the only thing this family does, so the one kind mismatch it can hit is
+being asked to list something that is not a folder.
+
+**This family is a deliberate departure from `D32`'s plan**, which expected a future host-side
+listing to extend `AddProject` and `LocateProject` rather than add a new message family — `D82`
+records why it went the other way instead, and what that costs.
 
 ## The file family
 
@@ -1112,7 +1162,8 @@ removed, so nothing half-cloned is ever registered.
   [`../backlog.md`](../backlog.md).
 - **The file family is answered in the order it was asked.** One worker and one queue, so two
   expands of the same folder cannot leave the older answer on screen. A pool would reorder, and
-  fixing that would cost a sequence number on the wire.
+  fixing that would cost a sequence number on the wire. The host browse family shares that same
+  worker and queue, on the same rule.
 
 **The socket framing exists, in `crates/ubiq-proto/src/wire.rs`.** A frame is a 4-byte big-endian
 length prefix followed by the message body, so a reader knows exactly how many bytes to read before
@@ -1151,6 +1202,8 @@ ever dropped.
    session family.
    If it names an **agent** and carries something that agent said, the conversation family.
    If it names nothing in Ubiq at all and asks about the machine, the command-line family.
+   If it names an **absolute path on the host's own filesystem, with no project yet to be relative
+   to**, the host browse family.
    If it names a **connection** at an external service, or a flow authenticating one, the connector
    family. If it names a **remote repository** — listing one, or cloning one into a project that
    does not exist yet — the repository family.
