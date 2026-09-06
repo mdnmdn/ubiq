@@ -77,6 +77,43 @@ pub struct HostSettings {
     /// server find the same row.
     #[serde(default)]
     pub trusted_certs: Vec<TrustedCert>,
+
+    /// The remote hosts the interface knows how to reach, by name and address alone.
+    ///
+    /// **Deliberately not a token.** `Bus::register_remote`'s `Client` and the token that dials it
+    /// live only in the window's own memory, never here — a bearer token is credential material
+    /// exactly as
+    /// [`AGENTS.md`] rules ("Accounts carry credential references, never credential material"),
+    /// and this is a plaintext file on disk. The `connections`/`oauth_apps` precedent above keeps
+    /// material off this record too, but by putting it in the OS-level `SecretStore` the harness
+    /// library already has; a remote host's token has no such home to go to without adding a
+    /// keychain dependency this phase was told not to take on, so the honest answer is not to
+    /// persist it at all. Reconnecting to a saved host asks for the token again, the same as the
+    /// first dial did.
+    ///
+    /// **Why this field is UI-mutated, unlike the three above it.** Each of those exists because a
+    /// background flow — a login polling a device code, a certificate confirmation — can complete
+    /// while a settings dialog sits open with a stale copy, so `Settings::set` re-overwrites them
+    /// from disk on every `SetSettings`. Nothing here runs unattended: a saved host is added or
+    /// forgotten only by a person editing this exact list on this exact settings page, so there is
+    /// no concurrent writer for a UI write to clobber, and this rides `SetSettings` whole like
+    /// `search_excludes` or `projects_root` above it.
+    #[serde(default)]
+    pub remote_hosts: Vec<SavedRemoteHost>,
+}
+
+/// One remembered remote host: enough to offer a reconnect, never enough to perform one alone.
+///
+/// See [`HostSettings::remote_hosts`] for why the token is not here. Reconnecting from this record
+/// means the interface still has to ask for one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedRemoteHost {
+    /// What the user called it when they saved it. Freely renamable, and shown instead of the
+    /// address wherever there is room for only one string.
+    pub name: String,
+    /// `host:port`, exactly as typed or pasted — the same shape
+    /// `state::remote::with_default_port` already normalises for a live dial.
+    pub address: String,
 }
 
 /// The shape this host writes and understands.
@@ -87,7 +124,12 @@ pub struct HostSettings {
 /// Six because an [`OauthApp`] gained an id and a name. A build that predates them reads such a
 /// record without complaint and drops both on the next write, which would strand the client
 /// secrets filed under those ids — so the refusal a newer schema earns is exactly what is wanted.
-pub const HOST_SETTINGS_SCHEMA: u32 = 6;
+///
+/// Seven adds [`HostSettings::remote_hosts`]. A build that predates it reads such a record fine —
+/// the field defaults to empty — but would silently drop every saved host on its next write, which
+/// is exactly the "an older build should not overwrite a newer field with nothing" case the schema
+/// bump exists to prevent.
+pub const HOST_SETTINGS_SCHEMA: u32 = 7;
 
 fn isolate_agents_default() -> bool {
     true
@@ -132,6 +174,7 @@ impl Default for HostSettings {
             connections: Vec::new(),
             oauth_apps: Vec::new(),
             trusted_certs: Vec::new(),
+            remote_hosts: Vec::new(),
         }
     }
 }
