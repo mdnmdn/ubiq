@@ -764,17 +764,18 @@ that record is managed. The transport underneath the modal —
 reaches, and where a saved host is managed.** A dropdown lists `Local` first, always attached; then
 every remote this window has dialled, each read as attached; then every saved host with no live
 connection of its own, read as not attached or, if the last reconnect from this list failed to
-reach it, failed — a saved host already reached over a live connection is folded into that attached
-row rather than drawn a second time. Picking `Local` or an attached remote calls `Bus::set_active`
-and nothing else: **switching the active host does not move a pane or a project that is already
-open** — each stays routed to the host that owns it, exactly as `D81` has every unaddressed message
-resolve against whichever host `active` names. Picking a saved-but-unattached or failed row instead
-raises the same connect modal described above, address prefilled and the token left blank — a token
-is never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows every remembered host with
-a per-entry **Forget**, which drops the record and nothing else — a live connection under that
-address, if this window still has one, is untouched. **A saved host is named after the address it
-was first reached at, and renaming is not offered** — only forgetting; [`../backlog.md`](../backlog.md)
-(`G166`) names both that and the always-blank token as the gaps this section leaves open.
+reach it, failed — a saved host reached over a live connection is folded into that attached row
+rather than drawn a second time. Picking `Local` or an attached remote calls `Bus::set_active` and
+nothing else: **switching the active host does not move a pane or a project the window has open** —
+each stays routed to the host that owns it, exactly as `D81` has every unaddressed message resolve
+against whichever host `active` names. Picking a saved-but-unattached or failed row instead raises
+the same connect modal described above, address prefilled and the token left blank — a token is
+never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows
+every remembered host with a per-entry **Forget**, which drops the record and nothing else — a live
+connection under that address, if this window still has one, is untouched. **A saved host is named
+after the address it was first reached at, and renaming is not offered** — only forgetting;
+[`../backlog.md`](../backlog.md) (`G166`) names both that and the always-blank token as the gaps
+this section leaves open.
 
 **How much of a project Ubiq indexes is a setting, per project, with an application-wide
 default.** Application settings' Search section offers three levels — Off, Full text, and Full text
