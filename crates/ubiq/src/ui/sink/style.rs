@@ -200,7 +200,7 @@ fn typography() -> AnyElement {
                         .gap_2()
                         .child(badge("M", theme::warning()))
                         .child(badge("A", theme::success()))
-                        .child(badge("ignored", theme::text_faint()))
+                        .child(badge("!", theme::text_faint()))
                         .into_any_element(),
                 ),
                 labelled("Kbd", keystroke("cmd-s")),

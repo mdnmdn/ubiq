@@ -41,43 +41,16 @@ const CLONE_HEIGHT: f32 = 720.0;
 /// and the sections under it are the ones that should give way instead.
 const LIST_MIN: f32 = 140.0;
 
-/// The context the modal is answered in, and the one the component library gives the three fields
-/// inside it.
-const CONTEXT: &str = "CloneModal";
-const FIELD_CONTEXT: &str = "CloneModal > Input";
-
-gpui::actions!(ubiq_clone, [CloneDismiss]);
-
-/// Escape, bound twice.
-///
-/// Same device — and same reason — as [`crate::ui::file_picker::key_bindings`]: the focus is
-/// usually in one of the modal's fields, and the component library binds `escape` for its input at
-/// the deepest node in the tree. A binding that only named the modal would sit above the field and
-/// never fire, so the key is bound for the modal *and* for the field inside it.
-pub fn key_bindings() -> Vec<gpui::KeyBinding> {
-    vec![
-        gpui::KeyBinding::new("escape", CloneDismiss, Some(CONTEXT)),
-        gpui::KeyBinding::new("escape", CloneDismiss, Some(FIELD_CONTEXT)),
-    ]
-}
-
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(clone) = app.workbench.clone_project.as_ref() else {
         return div().into_any_element();
     };
     let view = cx.entity();
 
+    // Escape is the window's: `AppState::cancel_dialog` peels the open picker first and takes
+    // the modal only on a second press. This modal used to bind the key itself, and was the only
+    // surface that knew the rule.
     let body = div()
-        .key_context(CONTEXT)
-        // Escape peels one layer: a picker open over the modal closes first, and only a second
-        // Escape takes the modal itself. Dropping the whole dialog because a menu was open would
-        // lose every field the user had filled in.
-        .on_action(cx.listener(
-            |this, _: &CloneDismiss, _, cx| match this.workbench.open_menu {
-                Some(MenuId::CloneConnection | MenuId::CloneBranch) => this.close_menu(cx),
-                _ => this.close_clone(cx),
-            },
-        ))
         .id("clone-body")
         .flex()
         .flex_col()

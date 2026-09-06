@@ -15,6 +15,7 @@ use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
+use ubiq::state::nav::{Destination, Locus, View};
 use ubiq::state::settings::{self, MarkdownOpen, UiSettings};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::ProjectId;
@@ -318,4 +319,81 @@ impl Fixture {
             .expect("the window is open");
         cx.run_until_parked();
     }
+
+    /// The layout a markdown tab is showing, `None` if it is not open at all.
+    fn layout_of(&self, key: &str, cx: &mut TestAppContext) -> Option<ViewLayout> {
+        self.state.read_with(cx, |state, cx| {
+            state
+                .editor(cx)
+                .and_then(|editor| editor.open.get(editor.index_of_key(key)?))
+                .map(|file| file.layout)
+        })
+    }
+}
+
+/// A destination that names a line is a fact about the bytes, which a preview draws none of: it
+/// turns a markdown tab's source half on no matter the open-as setting. An anchor is left alone,
+/// because a heading slug is exactly what the preview does draw.
+#[gpui::test]
+fn a_line_locus_turns_a_preview_markdown_tab_to_source(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let project = fixture
+        .state
+        .read_with(cx, |state, cx| state.project(cx))
+        .expect("the fixture opens on a project");
+
+    fixture.state.update(cx, |state, cx| {
+        state.select_file("README.md".to_string(), cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.layout_of("README.md", cx),
+        Some(ViewLayout::Preview),
+        "markdown opens on the default open-as setting"
+    );
+
+    fixture.state.update(cx, |state, cx| {
+        state.navigate(
+            Destination {
+                project,
+                view: View::Ide {
+                    key: "README.md".to_string(),
+                },
+                locus: Some(Locus::Line { line: 3 }),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.layout_of("README.md", cx),
+        Some(ViewLayout::Source),
+        "a line names bytes the preview draws none of, so the source half turns on regardless \
+         of the open-as setting"
+    );
+
+    // Back to preview, then an anchor — a heading slug the preview draws itself — leaves it be.
+    fixture.state.update(cx, |state, cx| {
+        state.set_view_layout("README.md", ViewLayout::Preview, cx)
+    });
+    fixture.state.update(cx, |state, cx| {
+        state.navigate(
+            Destination {
+                project,
+                view: View::Ide {
+                    key: "README.md".to_string(),
+                },
+                locus: Some(Locus::Anchor {
+                    slug: "intro".to_string(),
+                }),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.layout_of("README.md", cx),
+        Some(ViewLayout::Preview),
+        "an anchor is drawn by the preview itself, so it is left alone"
+    );
 }

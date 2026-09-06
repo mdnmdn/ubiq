@@ -196,6 +196,17 @@ impl AppState {
         let Some(locus) = locus else {
             return;
         };
+        // A line is a fact about the bytes, and a preview draws none of them. A markdown file
+        // opened at a line therefore turns its source half on, whatever the open-as setting says.
+        // An anchor is the other way round — it names a heading the preview does draw.
+        let hidden_source = matches!(locus, Locus::Line { .. } | Locus::Span { .. })
+            && self
+                .editor(cx)
+                .and_then(|editor| editor.open.get(editor.index_of_key(key)?))
+                .is_some_and(|file| !file.layout.shows_source());
+        if hidden_source {
+            self.set_view_layout(key, ViewLayout::Source, cx);
+        }
         let buffer = self
             .editor(cx)
             .and_then(|editor| editor.open.get(editor.index_of_key(key)?))

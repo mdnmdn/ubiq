@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::ConvBlock;
 
 impl AppState {
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
@@ -288,6 +289,45 @@ impl AppState {
         }
         self.clear_composer(slot, window, cx);
         cx.notify();
+    }
+
+    /// Put the last thing said to this composer's agent back into it, and say whether it did.
+    ///
+    /// Only when the field is empty: a composer with a draft in it is being written, and a key
+    /// that overwrites what is typed is a key that loses work. The transcript is the history —
+    /// nothing is kept beside it, because the turns the harness echoed back are what was actually
+    /// sent.
+    pub fn recall_last_message(
+        &mut self,
+        slot: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return false;
+        };
+        if !input.read(cx).value().is_empty() {
+            return false;
+        }
+        let Some(text) = self
+            .agent_for_slot(slot, cx)
+            .and_then(|agent_id| self.conversation(agent_id, cx))
+            .and_then(|conversation| {
+                conversation
+                    .blocks
+                    .iter()
+                    .rev()
+                    .find_map(|block| match block {
+                        ConvBlock::User(text) => Some(text.clone()),
+                        _ => None,
+                    })
+            })
+        else {
+            return false;
+        };
+        input.update(cx, |state, cx| state.set_value(text, window, cx));
+        cx.notify();
+        true
     }
 
     /// Take a queued prompt back out and load it into the composer — a queue row's edit control.

@@ -12,6 +12,14 @@
 //! **Dismissal is outside-click plus the header's close**, and never the scrim as a click target:
 //! the panel answers `on_mouse_down_out`, exactly as the dropdown does, so the two dismiss the same
 //! way. The scrim occludes the mouse, so nothing behind a modal can be clicked while it is up.
+//!
+//! **Escape is not here, deliberately.** A modal in this module is a function returning an
+//! element: it owns no focus, so a key never arrives at it, and a `key_context` per modal would be
+//! one more answer to a question the window already answers. Escape is bound once, at the window
+//! and at the field depth inside it, and `AppState::cancel_dialog` reads the paint order from the
+//! top to decide which layer it takes — a dropdown before the modal under it, and nothing at all
+//! when no layer is up. A modal added here is dismissed by Escape the moment `ui::shell` paints it
+//! and that list names it; forget the list and the key walks straight past.
 
 use std::rc::Rc;
 

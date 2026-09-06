@@ -20,7 +20,7 @@ use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileInfo};
 use ubiq_proto::projects::IndexLevel;
 
-use crate::app::AppState;
+use crate::app::{AppState, HostEntry, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
     AccountDialog, CliShortcut, ConnectApp, ConnectStep, ConnectorDialog, LoginStep, MarkdownOpen,
     SettingsSection, connect_error_note, describe_status,
@@ -154,6 +154,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
         SettingsSection::Search => IconName::Search,
         SettingsSection::Harnesses => IconName::Asterisk,
         SettingsSection::Connectors => IconName::Globe,
+        SettingsSection::Hosts => IconName::Network,
         SettingsSection::CommandLine => IconName::SquareTerminal,
     }
 }
@@ -166,6 +167,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Search => search(app, cx),
         SettingsSection::Harnesses => harnesses(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
+        SettingsSection::Hosts => hosts_section(app, cx),
         SettingsSection::CommandLine => command_line(app, cx),
     };
 
@@ -1679,6 +1681,128 @@ fn connectors(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     rows.push(trusted_certs(app, cx));
     rows.push(oauth_apps(app, cx));
     column(rows)
+}
+
+/// `Local`, every attached remote, and every saved host with no live connection — one dropdown to
+/// set which host a message naming neither a pane nor a project reaches, and a list below it to
+/// manage what is remembered.
+fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+    let remotes = app.remote_hosts();
+    let saved = app.workbench.settings.host.remote_hosts.clone();
+    let rows = host_menu_rows(&remotes, &saved, &app.workbench.settings.failed_hosts);
+    let items: Vec<String> = rows
+        .iter()
+        .map(|(entry, status)| host_row_label(entry, *status))
+        .collect();
+    let active = app.active_host();
+    let selected = rows
+        .iter()
+        .position(|(entry, _)| match (entry, active) {
+            (HostEntry::Local, HostRef::Local) => true,
+            (HostEntry::Remote { host, .. }, HostRef::Remote(active)) => *host == active,
+            _ => false,
+        })
+        .unwrap_or(0);
+    let open = app.workbench.settings.host_picker_open;
+
+    column(vec![
+        heading(
+            "Hosts",
+            "The local machine, always attached, plus any host reached over \u{201c}Connect to a \
+             remote host\u{201d} in the titlebar. Picking one here only changes where a new pane \
+             or a new project lands by default \u{2014} it never moves one that already exists.",
+        ),
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(label_block("Active host", ""))
+            .child(
+                Picker::new(
+                    "app-settings-host-picker",
+                    items.get(selected).cloned().unwrap_or_default(),
+                )
+                .items(items)
+                .selected(selected)
+                .open(open)
+                .on_toggle(crate::ui::handler(&view, |this, _, cx| {
+                    this.toggle_host_picker(cx)
+                }))
+                .on_pick({
+                    let view = view.clone();
+                    let rows = rows.clone();
+                    move |index, window, cx| {
+                        let Some((entry, _)) = rows.get(index).cloned() else {
+                            return;
+                        };
+                        view.update(cx, |this, cx| this.pick_host_menu_entry(entry, window, cx));
+                    }
+                })
+                .on_dismiss(crate::ui::handler(&view, |this, _, cx| {
+                    this.toggle_host_picker(cx)
+                })),
+            )
+            .into_any_element(),
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .pt_4()
+            .child(section_label("Saved hosts"))
+            .children(if saved.is_empty() {
+                Some(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::text_faint())
+                        .child(SharedString::from(
+                            "None yet. Connecting to a host from the titlebar saves it here.",
+                        ))
+                        .into_any_element(),
+                )
+            } else {
+                None
+            })
+            .children(
+                saved
+                    .iter()
+                    .map(|host| host_row(host, &app.workbench.settings.failed_hosts, cx)),
+            )
+            .into_any_element(),
+    ])
+}
+
+/// One saved host: its address, whether it last failed to reach, and a way to forget it. The
+/// token it was dialled with is never shown here, because it was never kept — see
+/// [`ubiq_proto::settings::HostSettings::remote_hosts`].
+fn host_row(
+    host: &ubiq_proto::settings::SavedRemoteHost,
+    failed: &std::collections::HashSet<String>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let address = host.address.clone();
+    let (chip, colour) = if failed.contains(&host.address) {
+        ("last attempt failed", theme::danger())
+    } else {
+        ("saved", theme::text_faint())
+    };
+
+    setting_row(
+        &host.name,
+        &host.address,
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(badge(chip, colour))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-host-{address}-forget").into()),
+                None,
+                "Forget",
+                cx.listener(move |this, _, _, cx| this.forget_remote_host(address.clone(), cx)),
+            ))
+            .into_any_element(),
+    )
 }
 
 /// How many connections live at an origin — what a "forget this certificate" question has to

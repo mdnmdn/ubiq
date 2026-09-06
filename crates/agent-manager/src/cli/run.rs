@@ -109,7 +109,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
     // The CLI backs preference templates with the filesystem template store
     // (`AM_TEMPLATES` / the default location); an embedder passes its own.
     let templates = crate::harness::FsTemplateStore::from_default();
-    let provisioned = provision::provision(harness, &spec, &templates)?;
+    let mut provisioned = provision::provision(harness, &spec, &templates)?;
 
     // Isolation is resolved after provisioning, because the policy grants the
     // config dir the provisioner just populated. The launch itself is left
@@ -145,7 +145,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
     run_provisioned(
         harness,
         &spec,
-        &provisioned,
+        &mut provisioned,
         &cwd,
         RunTail {
             output,
@@ -180,7 +180,7 @@ pub(super) struct RunTail<'a> {
 pub(super) fn run_provisioned(
     harness: &dyn Harness,
     spec: &crate::spec::RunSpec,
-    provisioned: &provision::Provisioned,
+    provisioned: &mut provision::Provisioned,
     cwd: &Path,
     tail: RunTail<'_>,
 ) -> Result<()> {
@@ -205,15 +205,13 @@ pub(super) fn run_provisioned(
     );
 
     if spec.io == crate::spec::IoModes::Structured {
-        // A structured run talks to the harness over pipes, and isol8 spawns
-        // with inherited stdio, so there is nothing to hand it yet. Refusing
-        // is the only honest answer: the alternative is a run the user asked
-        // to confine and which silently was not.
-        if confined.is_some() {
-            anyhow::bail!(
-                "--isolate and --io structured cannot be combined yet: confining a run whose \
-                 I/O is bridged needs isol8's stdio seam (see refs/isol8-pty-seam-update.md)"
-            );
+        // What the bridge spawns is what the passthrough path spawns: the harness under its
+        // policy when the run is confined. `confined_launch` renders that to an argv, so the
+        // bridge still opens the pipes and the harness still `execve`s in place beneath them.
+        // On a platform with no rendered policy this errors rather than quietly running the
+        // run the user asked to confine unconfined.
+        if let Some(confined) = confined {
+            provisioned.launch = crate::isolate::confined_launch(confined)?;
         }
         return run_structured(harness, spec, provisioned, cwd, output, sessions_root, meta);
     }
@@ -255,6 +253,9 @@ fn launch_argv(launch: &crate::harness::Launch) -> Vec<String> {
 /// This is a framework stub — real per-harness bridges land in C2/C3/C4, so
 /// today every harness's `structured_bridge` bails with a clear "not
 /// supported yet" error via [`Harness::structured_bridge`]'s default impl.
+///
+/// A confined run reaches here with `provisioned.launch` already replaced by
+/// the policy's argv — see [`run_provisioned`].
 ///
 /// When `sessions_root` is available, records every drained event to
 /// `meta`'s session transcript and finishes the recorder with `Some(0)` once

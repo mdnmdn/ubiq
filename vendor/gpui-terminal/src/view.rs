@@ -66,6 +66,7 @@ use alacritty_terminal::selection::Selection as AlacSelection;
 use alacritty_terminal::term::TermMode;
 use gpui::{Edges, ExternalPaths, ScrollDelta, *};
 use std::io::{Read, Write};
+use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -469,6 +470,11 @@ pub struct TerminalView {
 
     /// True while a mouse-reporting-off selection drag is in progress.
     selecting: bool,
+
+    /// Text the platform IME is composing (a dead key's pending accent, a CJK
+    /// pre-edit). Present means "composing", which is what makes macOS keep
+    /// feeding keys to the input handler instead of the key-down path.
+    marked_text: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -618,6 +624,7 @@ impl TerminalView {
             hovering_link: false,
             link_down: None,
             selecting: false,
+            marked_text: None,
         }
     }
 
@@ -839,6 +846,12 @@ impl TerminalView {
 
         if let Some(bytes) = keystroke_to_bytes(&event.keystroke, self.state.mode()) {
             self.write_pty(&bytes);
+            // An Option chord types a character on macOS layouts, so the text-input system
+            // would insert that on top of the meta sequence just written. Claiming the event
+            // is what keeps the harness from seeing both.
+            if event.keystroke.modifiers.alt {
+                cx.stop_propagation();
+            }
         }
     }
 
@@ -1167,6 +1180,34 @@ impl TerminalView {
         &self.config
     }
 
+    /// Write IME-committed text to the harness, ending any composition.
+    fn ime_commit(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.marked_text = None;
+        if !text.is_empty() {
+            self.write_pty(text.as_bytes());
+        }
+        cx.notify();
+    }
+
+    /// Window-coordinate bounds of the cursor cell, for IME candidate placement.
+    fn cursor_bounds(&self) -> Bounds<Pixels> {
+        let layout = *self.layout.lock();
+        let (point, offset) = self
+            .state
+            .with_term(|term| (term.grid().cursor.point, term.grid().display_offset()));
+        let row = point.line.0 + offset as i32;
+        Bounds {
+            origin: Point {
+                x: layout.origin.x + layout.cell_width * point.column.0 as f32,
+                y: layout.origin.y + layout.cell_height * row as f32,
+            },
+            size: Size {
+                width: layout.cell_width,
+                height: layout.cell_height,
+            },
+        }
+    }
+
     /// Get the focus handle for this terminal view.
     ///
     /// # Returns
@@ -1215,6 +1256,103 @@ impl TerminalView {
     }
 }
 
+/// Bridges the platform's text-input system (macOS `NSTextInputClient`) to the
+/// harness. Without it a dead key on an international layout types its bare
+/// accent — `` ` `` then `e` gives ``` `e ``` instead of `e` with a grave accent —
+/// because the accent never reaches the composition machinery. Committed text
+/// arrives here, not through the key-down path.
+struct TerminalInputHandler {
+    view: Entity<TerminalView>,
+}
+
+impl InputHandler for TerminalInputHandler {
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<UTF16Selection> {
+        // The terminal owns no text buffer, but the IME needs a selection to
+        // anchor against; the cursor is a zero-width one.
+        Some(UTF16Selection {
+            range: 0..0,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(&mut self, _window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
+        self.view
+            .read(cx)
+            .marked_text
+            .as_ref()
+            .map(|text| 0..text.encode_utf16().count())
+    }
+
+    fn text_for_range(
+        &mut self,
+        _range_utf16: Range<usize>,
+        _adjusted_range: &mut Option<Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<String> {
+        None
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _replacement_range: Option<Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.view.update(cx, |view, cx| view.ime_commit(text, cx));
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _range_utf16: Option<Range<usize>>,
+        new_text: &str,
+        _new_selected_range: Option<Range<usize>>,
+        _window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.view.update(cx, |view, cx| {
+            view.marked_text = (!new_text.is_empty()).then(|| new_text.to_string());
+            cx.notify();
+        });
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut App) {
+        self.view.update(cx, |view, cx| {
+            view.marked_text = None;
+            cx.notify();
+        });
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        _range_utf16: Range<usize>,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Bounds<Pixels>> {
+        Some(self.view.read(cx).cursor_bounds())
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: Point<Pixels>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<usize> {
+        None
+    }
+
+    fn apple_press_and_hold_enabled(&mut self) -> bool {
+        // A held key repeats in a terminal; it does not open the accent popover.
+        false
+    }
+}
+
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Process any pending events
@@ -1227,6 +1365,8 @@ impl Render for TerminalView {
         let padding = self.config.padding;
         let layout = self.layout.clone();
         let hovered = self.hovered_cell;
+        let input_handler = TerminalInputHandler { view: cx.entity() };
+        let input_focus = self.focus_handle.clone();
 
         let root = div()
             .size_full()
@@ -1249,6 +1389,8 @@ impl Render for TerminalView {
                     move |bounds, _window, _cx| bounds,
                     move |bounds, _, window, cx| {
                         use alacritty_terminal::grid::Dimensions;
+
+                        window.handle_input(&input_focus, input_handler, cx);
 
                         // Measure actual cell dimensions from the font
                         let mut measured_renderer = renderer.clone();

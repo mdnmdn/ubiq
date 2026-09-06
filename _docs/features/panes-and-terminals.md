@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-04
-verified: 2026-09-05
+updated: 2026-09-06
+verified: 2026-09-07
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -123,6 +123,15 @@ Special keys, Ctrl and Alt chords, mouse reporting and the alternate screen are 
 emulator's. Enter is `\r`; Shift+Enter is `\x1b\r` — the sequence Claude Code's own
 `/terminal-setup` binds Shift+Enter to — so a harness can tell "newline" from "submit" without
 kitty-protocol negotiation, which this emulator does not track.
+
+**On macOS, printable text arrives through the system's text input, not the keystroke.** A dead key
+on an international layout (`` ` `` then `e`, giving `è`) only composes if the accent reaches the
+platform's composition machinery, so `TerminalView` installs an `InputHandler` on the focused pane
+and `keystroke_to_bytes()` emits nothing for a plain printable key there; the composed text comes
+back as a commit and is written to the harness once. Held keys repeat rather than opening the accent
+popover, and a pending composition is not drawn in the grid. Other platforms compose before the
+keystroke reaches the emulator, so `key_char` already carries the composed character and the
+keystroke path still writes it.
 
 **The pointer is the emulator's when the harness has asked for it.** A harness that enables SGR
 mouse reporting owns clicks, drags and the wheel. When reporting is off, a click-drag selects
@@ -288,6 +297,12 @@ A pane belongs to the window that spawned it: the host records the owner before 
 everything that pane emits back to that window alone, and refuses a message about it from any
 other. When a window goes, the host reaps the pseudo-terminals it owned — nothing else drops now
 that the host outlives every window.
+
+Inside the window, a pane also belongs to one of its hosts — recorded in `Bus::note_pane` the moment
+`WorkspaceSpawned` arrives — which is how its keystrokes and its resizes reach the connection
+actually running it rather than whichever the window happens to be pointed at. The routing itself,
+and why the local host is always one of them, is
+[`../tech/architecture.md`](../tech/architecture.md)'s.
 
 **`AppState` in `crates/ubiq/src/app/mod.rs` owns one `OpenProject` per project the window holds**, and
 each of those owns that project's panes and which of them is focused. The emulators do not move with

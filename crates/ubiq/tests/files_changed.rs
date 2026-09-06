@@ -14,6 +14,7 @@ use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
+use ubiq::state::nav::{Destination, Locus, View, range_for};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, FileVersion};
 use ubiq_proto::ids::ProjectId;
@@ -406,4 +407,120 @@ fn a_change_this_window_just_wrote_is_not_reread(cx: &mut TestAppContext) {
         "the write this window made is not reread; the other file's real change still is: \
          {reads:?}"
     );
+}
+
+/// A goto that names a line in a tab mid-reload lands on that line once the fresh bytes arrive,
+/// rather than being undone by the reload's own restore — the restore puts a background tab back
+/// where it was, but a goto is where the user just asked to be, and it must win.
+#[gpui::test]
+fn a_goto_mid_reload_beats_the_reloads_own_restore(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+
+    // `lib.rs` ends up in the background once `extra.rs` opens after it.
+    fixture.open_file("src/main.rs", "fn main() {}\n", cx);
+    fixture.open_file("src/lib.rs", "pub fn one() {}\npub fn two() {}\n", cx);
+    fixture.open_file("src/extra.rs", "pub fn extra() {}\n", cx);
+
+    // Move the background tab's cursor away from the top, which is what the reload's restore
+    // will try to put back.
+    let moved_cursor = 5..5;
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                let open = state.open_project_mut(cx).expect("the project is open");
+                let buffer = open
+                    .editor
+                    .find_mut("src/lib.rs")
+                    .expect("the tab is open")
+                    .buffer()
+                    .expect("the tab has a buffer")
+                    .clone();
+                buffer.update(cx, |buffer, cx| {
+                    buffer.set_selected_range(moved_cursor.clone(), cx);
+                });
+            });
+        })
+        .expect("the window is open");
+
+    let _ = fixture.said();
+
+    // The disk changed under the background tab: it reloads, which drops its buffer and captures
+    // the restore off the one it had.
+    fixture.deliver(
+        Message::ProjectFilesChanged {
+            project_id: fixture.project,
+            changed: vec!["src/lib.rs".to_string()],
+            truncated: false,
+            repository: false,
+        },
+        cx,
+    );
+    assert_eq!(
+        reads_asked(&fixture.said()),
+        vec!["src/lib.rs".to_string()],
+        "the clean background tab is read again"
+    );
+
+    // A goto for that same tab arrives while it has no buffer at all — the `pending_goto` path,
+    // not the direct `set_selected_range` one a loaded tab would take.
+    let project = fixture.project;
+    fixture.state.update(cx, |state, cx| {
+        state.navigate(
+            Destination {
+                project,
+                view: View::Ide {
+                    key: "src/lib.rs".to_string(),
+                },
+                locus: Some(Locus::Line { line: 2 }),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+
+    let text = "pub fn one() {}\npub fn two() {}\n";
+    fixture.deliver(
+        Message::ProjectFileContents {
+            project_id: fixture.project,
+            rel_path: "src/lib.rs".to_string(),
+            contents: FileContents {
+                bytes: text.as_bytes().to_vec(),
+                len: text.len() as u64,
+                truncated: false,
+                is_binary: false,
+                version: Some(FileVersion {
+                    len: text.len() as u64,
+                    modified: None,
+                }),
+            },
+        },
+        cx,
+    );
+
+    let expected = range_for(text, &Locus::Line { line: 2 }).expect("line 2 exists");
+    assert_ne!(
+        expected, moved_cursor,
+        "the goto and the restore actually disagree"
+    );
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                let open = state.open_project_mut(cx).expect("the project is open");
+                let buffer = open
+                    .editor
+                    .find_mut("src/lib.rs")
+                    .expect("the tab is open")
+                    .buffer()
+                    .expect("the reread filled a fresh buffer")
+                    .clone();
+                assert_eq!(
+                    buffer.read(cx).selected_range(),
+                    expected,
+                    "the goto's line wins over the reload's restored cursor"
+                );
+            });
+        })
+        .expect("the window is open");
 }

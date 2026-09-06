@@ -1319,6 +1319,90 @@ config root can be read, diffed and hand-corrected; this one needs a tool. That 
 record nobody hand-writes, and it is the reason the boundary is drawn here rather than moved: the
 catalogue, the settings and the view blobs stay TOML.
 
+### D79 — The socket wire format is MessagePack, not postcard or bincode
+
+`crates/ubiq-proto/src/wire.rs` frames a `Message` as a 4-byte length prefix and a body encoded with
+`rmp-serde`'s `to_vec_named`. Postcard and bincode were the obvious choices for a Rust-only wire —
+smaller, faster, no schema of their own — and both were rejected because the contract relies on
+properties they cannot provide. `ProjectSnapshot` flattens a `ProjectRecord` into itself with
+`#[serde(flatten)]`, and dozens of optional fields across the message set carry
+`skip_serializing_if`; both need a format that deserialises into a self-describing shape
+(`deserialize_any`), which a positional encoding has no map to support. MessagePack is binary and
+fast, keeps that property, and buys a second one for free: a remote host and a UI built at different
+revisions do not have to agree on field order to decode each other's frames.
+
+**Cost:** a MessagePack body is larger than postcard's for the same struct, field names included on
+every frame rather than agreed on once — and a `Vec<u8>` costs one MessagePack integer per byte
+unless it carries `serde_bytes`, which is why the three byte-vector fields on the hot path
+(`TerminalOutput.bytes`, `TerminalInput.bytes`, `WriteProjectFile.bytes`) are marked with it. Losing
+that attribute on a future field would silently blow up that field's frame size, and nothing but the
+size test in `wire.rs` would catch it.
+
+### D80 — A remote attach is a bearer token over plaintext TCP, bound to every interface by default
+
+`crates/ubiq-host/src/remote.rs` authenticates a connecting UI with one long random token, generated
+at startup and printed once; it runs no TLS, so the handshake and every frame after it cross the
+network as sent. `ubiq-app --serve` binds `0.0.0.0` unless told otherwise, because a single-interface
+default would require the operator to know in advance which address their machine is reachable at,
+which is exactly what a first `--serve` run cannot assume. Each piece follows the transport contract's
+"Adding a variant" step 5: a structural choice, not a defect deferred — the alternative was
+certificates and a trust decision about them before a first connection could ever be made, which
+turns a one-flag feature into a setup flow.
+
+**Cost:** the token is the whole of authentication — no rotation, no expiry, no per-client identity,
+and whoever has it has a terminal on that machine for as long as the process runs — and the
+connection is readable and tamperable by anything on the path between the two machines. Both are
+usable only behind a trusted network or a tunnel the operator adds themselves, which
+[`operations.md`](./operations.md) says plainly rather than leaving to be discovered. Closing the
+gap is `G165`, the backlog's register of open items.
+
+### D81 — `HostId` stays out of the contract; the local host is always attached
+
+`crates/ubiq/src/app/hosts.rs`'s `Bus` multiplexes a window over several live host connections at
+once — the local, in-process host plus any remotes added alongside it — rather than switching
+between them. The alternative was a single active host a window pointed at, one at a time, which was
+rejected because it would make a dropped remote connection take every terminal in the window with
+it, including the local ones that have nothing to do with the remote. `HostId`, the id that tells the
+window's connections apart, is minted in the interface and never crosses the bus or appears in a
+`Message`: a host has no way to learn that another host exists, so every connection stays an ordinary
+single-host session and the listener in `remote.rs` needs no multi-host awareness of its own.
+
+**Cost:** every message the interface sends has to be resolved to a host — by the pane or project it
+names, falling back to whichever host is active — rather than handed to the one connection there used
+to be, and that resolution has to be kept in step with every place a pane or project is first
+announced (`Bus::note_pane`, `Bus::note_project`). A host that disagreed with another about an id it
+never sees is not a failure mode this design has to consider, because no host is ever told one exists.
+
+### D82 — Browsing the host's own filesystem is a family of its own, not an extension of Add or Locate
+
+`D32` filed remote host-browsing as future work and was specific about its shape: bring it back "as
+a host-side listing behind the same two messages [`AddProject`, `LocateProject`], not as a third
+path." The host browse family (`BrowseHostDir`, `HostDirListing`, `HostDirError`) does exactly what
+that sentence rules out — a new family, not an extension of either message.
+
+The reason is that `AddProject` and `LocateProject` each name one path and complete in one round
+trip: they add or relocate a project, with a colour and a conflict check riding along (`D31`). A
+picker walking a host's filesystem is not that — it is several round trips (list, walk up, walk
+down) that happen *before* any path is chosen, addressed to no project at all, since the whole point
+is finding one. Folding that into `AddProject` would give the family a request that sometimes lists
+and sometimes commits, depending on a field — the same "sometimes fallible, depending which field
+you set" shape `D31` rejected when it kept `LocateProject` apart from `UpdateProject`.
+
+This is not a new exposure. A client attached to a host can spawn a pane — an arbitrary shell — and
+so reads and writes anywhere the host process can; listing one directory at a time grants nothing a
+terminal does not. The comparison holds only because both sit behind the same gate: a listing is
+answered for an attached client, and a remote one attaches by presenting the token (`D80`). It is
+not an argument for answering this family to anyone who has not. What containment the file family enforces
+(`crates/ubiq-host/src/files/path.rs`) answers a different question — keeping a project-relative path
+inside its project's root once that root is chosen — and this family exists specifically to choose
+it, so there is nothing for a path to be contained inside.
+
+**Cost:** the contract gains a fourteenth family for one request and two replies, and `D32`'s plan is
+half superseded by the decision register's own next entry — its body still correctly explains why
+`AddProject`/`LocateProject` read the *local* dialog, but its closing sentence about the remote case
+describes a path the tree does not take. `G166` is the up-to-date account of what this family does
+and what it leaves undone.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

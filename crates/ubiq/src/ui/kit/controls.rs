@@ -90,7 +90,7 @@ pub fn pill(edge: Rgba) -> Div {
         .border_color(edge)
 }
 
-/// A single-letter git badge, or the muted `ignored` marker.
+/// A single-letter git badge.
 pub fn badge(text: &str, color: Rgba) -> impl IntoElement {
     mono(SharedString::from(text.to_string()), color)
         .text_size(px(11.))

@@ -9,6 +9,7 @@
 //! behaviour that only works because something was registered is a bug `just verify` catches by
 //! never registering anything.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 
 use gpui::{App, KeyBinding, actions};
@@ -118,12 +119,21 @@ pub fn run(boot: Boot) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let paths = argv_paths(std::env::args().skip(1), &cwd);
 
+    // Asked for before anything is started, because it decides what kind of process this is: a
+    // `--serve` run is a headless host, and everything below that belongs to a window is skipped.
+    let serve = serve_bind(std::env::args().skip(1));
+
     // Before anything is opened or started: a second `ubiq` under the same config root is a second
     // *process*, not a second application. It gives its paths to the one already running and is
-    // done here — the shell it was typed in gets its prompt straight back.
-    let listener = match handoff::claim(&root.path, &paths) {
-        handoff::Handoff::Delivered => return,
-        handoff::Handoff::Owner(listener) => listener,
+    // done here — the shell it was typed in gets its prompt straight back. A headless host does
+    // not take part: it is not a second copy of the interface but the thing one attaches to, and
+    // handing its arguments to a window elsewhere would leave nothing listening.
+    let listener = match serve {
+        Some(_) => None,
+        None => match handoff::claim(&root.path, &paths) {
+            handoff::Handoff::Delivered => return,
+            handoff::Handoff::Owner(listener) => listener,
+        },
     };
 
     let stores = (boot.stores)(&root.path);
@@ -141,6 +151,26 @@ pub fn run(boot: Boot) {
 
     let (hub, host) = bus::hub();
     coordinator::start(host, root, projects, work, settings, pending);
+
+    // After the coordinator, so a client that attaches in the same breath has something to talk to,
+    // and instead of the first window: a `--serve` run keeps the terminal it was started in.
+    if let Some(bind) = serve {
+        match ubiq_host::remote::serve(hub, bind) {
+            Ok(serving) => announce(&serving),
+            // The user asked for a server. Falling through into a window would leave them with
+            // something that looks like it worked and is not listening to anything.
+            Err(error) => {
+                eprintln!("ubiq: could not listen on {bind}: {error}");
+                std::process::exit(2);
+            }
+        }
+        // The listener and the coordinator each hold a thread of their own; this one has nothing
+        // left to do but stay alive, so the process lives until it is stopped. The log writer on
+        // standard error is the whole interface from here — see `ubiq_proto::log::install`.
+        loop {
+            std::thread::park();
+        }
+    }
 
     // One batch per arrival, because an arrival with no path in it is a bare `ubiq` asking for the
     // window's attention and has to reach the loop below all the same.
@@ -229,25 +259,169 @@ pub fn run(boot: Boot) {
     });
 }
 
+/// The flags that take a value, so a token following one of them is that value and never a path.
+const VALUE_FLAGS: [&str; 3] = ["--config-root", "--bind", "--port"];
+
 /// Positional arguments as paths — `ubiq .`, `ubiq some/file` — reaching the same place a Finder
-/// open would. `--config-root` and its value are the only two tokens spoken for; anything else
-/// that looks like a flag is left alone, on the same trust the platform's own arguments get.
+/// open would. Only [`VALUE_FLAGS`] and their values are spoken for; anything else that looks like
+/// a flag is left alone, on the same trust the platform's own arguments get.
 ///
 /// Relative paths are made absolute against `cwd`: the interface hands them straight to
 /// `deliver_paths`, which never sees the launch directory to resolve them against itself.
 fn argv_paths(mut args: impl Iterator<Item = String>, cwd: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     while let Some(arg) = args.next() {
-        if arg == "--config-root" {
+        if VALUE_FLAGS.contains(&arg.as_str()) {
             args.next(); // the flag's value, not ours
             continue;
         }
-        if arg.starts_with("--config-root=") || arg.starts_with('-') {
+        if arg.starts_with('-') {
             continue;
         }
         paths.push(cwd.join(arg));
     }
     paths
+}
+
+/// The port a served run with no port of its own lands on.
+const SERVE_PORT: u16 = 7420;
+
+/// Where the host should listen, or `None` when serving was not asked for.
+///
+/// Three flags ask for it, and any of them alone is enough — a `--port` with no `--serve` is not a
+/// window that happens to know a port. `--serve` on its own binds every interface, which is the
+/// point of the bare flag; `--serve=<addr>` narrows it, and `--serve=127.0.0.1:7420` is how a
+/// tunnel-only setup is spelled. `--bind <addr>` and `--port <n>` set the two halves separately and
+/// win over a `--serve` value, so `--serve --port 9000` is the common case spelled the short way.
+///
+/// `--serve` takes its value attached with `=` and never separated by a space; `--bind` and
+/// `--port` accept either form, because they are consumed by name in `argv_paths` and so cannot
+/// swallow a project path the way a separated `--serve=` value would.
+fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<SocketAddr> {
+    let mut asked = false;
+    let mut bind: Option<SocketAddr> = None;
+    let mut ip: Option<IpAddr> = None;
+    let mut port: Option<u16> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--serve" => asked = true,
+            "--bind" | "--port" => {
+                asked = true;
+                let given = args.next().unwrap_or_else(|| {
+                    eprintln!("ubiq: {arg} wants a value");
+                    std::process::exit(2);
+                });
+                if arg == "--port" {
+                    port = Some(parse_port(&given));
+                } else {
+                    let (given_ip, given_port) = parse_address(&given);
+                    ip = Some(given_ip);
+                    port = given_port.or(port);
+                }
+            }
+            _ => {
+                if let Some(given) = arg.strip_prefix("--serve=") {
+                    asked = true;
+                    bind = Some(parse_bind(given).unwrap_or_else(|| {
+                        eprintln!("ubiq: --serve={given} is not an address or a port");
+                        std::process::exit(2);
+                    }));
+                } else if let Some(given) = arg.strip_prefix("--port=") {
+                    asked = true;
+                    port = Some(parse_port(given));
+                } else if let Some(given) = arg.strip_prefix("--bind=") {
+                    asked = true;
+                    let (given_ip, given_port) = parse_address(given);
+                    ip = Some(given_ip);
+                    port = given_port.or(port);
+                }
+            }
+        }
+    }
+
+    asked.then(|| {
+        SocketAddr::new(
+            ip.or(bind.map(|bind| bind.ip()))
+                .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+            port.or(bind.map(|bind| bind.port())).unwrap_or(SERVE_PORT),
+        )
+    })
+}
+
+/// `--port`'s value, or the same exit a bad `--serve` takes.
+fn parse_port(value: &str) -> u16 {
+    value.parse().unwrap_or_else(|_| {
+        eprintln!("ubiq: --port={value} is not a port");
+        std::process::exit(2);
+    })
+}
+
+/// `--bind`'s value: an address, or an address with a port attached to it.
+fn parse_address(value: &str) -> (IpAddr, Option<u16>) {
+    if let Ok(ip) = value.parse::<IpAddr>() {
+        return (ip, None);
+    }
+    if let Ok(addr) = value.parse::<SocketAddr>() {
+        return (addr.ip(), Some(addr.port()));
+    }
+    eprintln!("ubiq: --bind={value} is not an address");
+    std::process::exit(2);
+}
+
+/// A bare port, an address with a port, or an address on the default port.
+fn parse_bind(value: &str) -> Option<SocketAddr> {
+    if let Ok(port) = value.parse::<u16>() {
+        return Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)));
+    }
+    if let Ok(addr) = value.parse::<SocketAddr>() {
+        return Some(addr);
+    }
+    value
+        .parse::<IpAddr>()
+        .ok()
+        .map(|ip| SocketAddr::new(ip, SERVE_PORT))
+}
+
+/// What to print as `<ip>` in the connection string.
+///
+/// Bound to one interface, that address is the answer. Bound to all of them, `0.0.0.0` is useless
+/// to paste, so ask the routing table which source address it would use to leave this machine —
+/// a connected UDP socket assigns one without sending a packet or needing a reachable peer, which
+/// is why the address it is pointed at does not matter and no traffic is generated. A machine with
+/// no route out has nothing to advertise, and the bind address is printed unchanged.
+fn advertised_ip(addr: SocketAddr) -> IpAddr {
+    if !addr.ip().is_unspecified() {
+        return addr.ip();
+    }
+    UdpSocket::bind(("0.0.0.0", 0))
+        .and_then(|socket| {
+            socket.connect(("192.0.2.1", 53))?;
+            socket.local_addr()
+        })
+        .map(|local| local.ip())
+        .unwrap_or_else(|_| addr.ip())
+}
+
+/// The banner: where it is listening, the token, and the string to paste into a UI.
+///
+/// Printed to stdout rather than logged, because it is the whole output of a `--serve` run and
+/// must not depend on a log filter. The warning is here because the flag hands a shell on this
+/// machine to whoever holds the token — said plainly, once, rather than buried in a document.
+fn announce(serving: &ubiq_host::remote::Serving) {
+    let addr = serving.addr;
+    let ip = advertised_ip(addr);
+    println!("ubiq host listening on {addr}");
+    println!();
+    println!("  token  {}", serving.token);
+    println!(
+        "  connect  http://{ip}:{}?token={}",
+        addr.port(),
+        serving.token
+    );
+    println!();
+    println!("Anyone who reaches this port with that token gets a terminal on this machine.");
+    println!("The connection is not encrypted — tunnel it if the network is not trusted.");
 }
 
 /// A `file://` URL as Finder or a dock-icon drop hands it over, decoded back to a path. macOS
@@ -324,6 +498,113 @@ mod tests {
             );
             drop((projects, pending, stores.tasks, stores.settings));
         }
+    }
+
+    fn argv(args: &[&str]) -> impl Iterator<Item = String> {
+        args.iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    /// Not asked for is the default, and every other flag stays somebody else's.
+    #[test]
+    fn without_the_flag_nothing_listens() {
+        assert_eq!(serve_bind(argv(&[])), None);
+        assert_eq!(serve_bind(argv(&["--config-root", "/tmp/x", "."])), None);
+    }
+
+    /// The bare flag is the one that binds every interface — that is what the flag is for.
+    #[test]
+    fn the_bare_flag_binds_every_interface_on_the_default_port() {
+        let bind = serve_bind(argv(&["--serve"])).expect("a bind");
+        assert!(bind.ip().is_unspecified());
+        assert_eq!(bind.port(), SERVE_PORT);
+    }
+
+    /// The three shapes a value may take, including the loopback one a tunnel-only setup uses.
+    #[test]
+    fn a_value_may_be_a_port_an_address_or_both() {
+        assert_eq!(
+            serve_bind(argv(&["--serve=9000"])).map(|b| b.port()),
+            Some(9000)
+        );
+        let loopback = serve_bind(argv(&["--serve=127.0.0.1:7420"])).expect("a bind");
+        assert!(loopback.ip().is_loopback());
+        assert_eq!(loopback.port(), 7420);
+        let bare_ip = serve_bind(argv(&["--serve=127.0.0.1"])).expect("a bind");
+        assert!(bare_ip.ip().is_loopback());
+        assert_eq!(bare_ip.port(), SERVE_PORT);
+    }
+
+    /// `--bind` and `--port` set the two halves, in either spelling, and win over a `--serve` value.
+    #[test]
+    fn bind_and_port_set_the_address_and_the_port() {
+        let bind = serve_bind(argv(&["--serve", "--port", "9000"])).expect("a bind");
+        assert!(bind.ip().is_unspecified());
+        assert_eq!(bind.port(), 9000);
+
+        let bind = serve_bind(argv(&["--bind=127.0.0.1", "--port=9001"])).expect("a bind");
+        assert!(bind.ip().is_loopback());
+        assert_eq!(bind.port(), 9001);
+
+        // A port on `--bind` is honoured, and a later `--port` still wins.
+        let bind = serve_bind(argv(&["--bind", "127.0.0.1:8080"])).expect("a bind");
+        assert_eq!(bind.port(), 8080);
+        let bind = serve_bind(argv(&[
+            "--serve=0.0.0.0:1",
+            "--bind",
+            "127.0.0.1",
+            "--port",
+            "2",
+        ]))
+        .expect("a bind");
+        assert!(bind.ip().is_loopback());
+        assert_eq!(bind.port(), 2);
+    }
+
+    /// Either flag alone asks for a server: nothing else in Ubiq has a port to set.
+    #[test]
+    fn either_flag_alone_asks_for_a_server() {
+        assert!(serve_bind(argv(&["--port", "9000"])).is_some());
+        assert!(serve_bind(argv(&["--bind=127.0.0.1"])).is_some());
+        assert_eq!(serve_bind(argv(&["."])), None);
+    }
+
+    /// A separated value belongs to its flag, not to the project list.
+    #[test]
+    fn a_separated_value_is_never_a_path() {
+        let cwd = Path::new("/work");
+        assert!(argv_paths(argv(&["--bind", "127.0.0.1", "--port", "9000"]), cwd).is_empty());
+        assert_eq!(
+            argv_paths(argv(&["--port", "9000", "."]), cwd),
+            vec![PathBuf::from("/work/.")]
+        );
+    }
+
+    /// The reason the value is attached with `=`: a separated one would be read as a project path,
+    /// and a path silently becoming a bind address is worse than the flag not taking that form.
+    #[test]
+    fn the_flag_and_its_attached_value_are_never_mistaken_for_paths() {
+        let cwd = Path::new("/work");
+        assert!(argv_paths(argv(&["--serve"]), cwd).is_empty());
+        assert!(argv_paths(argv(&["--serve=0.0.0.0:7420"]), cwd).is_empty());
+        assert_eq!(
+            argv_paths(argv(&["--serve", "."]), cwd),
+            vec![PathBuf::from("/work/.")]
+        );
+    }
+
+    /// An unspecified bind is not something anyone can paste, so the string carries a real one.
+    #[test]
+    fn the_advertised_address_is_never_the_unspecified_one() {
+        let advertised = advertised_ip(SocketAddr::from((Ipv4Addr::UNSPECIFIED, SERVE_PORT)));
+        // A sandbox with no route out has nothing better to offer, and says so by handing the
+        // bind address back rather than by inventing one.
+        assert!(!advertised.is_unspecified() || advertised == IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        // Bound to one interface, that interface is the answer, with no guessing at all.
+        let pinned = SocketAddr::from((Ipv4Addr::LOCALHOST, 1234));
+        assert_eq!(advertised_ip(pinned), IpAddr::V4(Ipv4Addr::LOCALHOST));
     }
 
     #[test]

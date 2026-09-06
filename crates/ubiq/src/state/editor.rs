@@ -139,6 +139,18 @@ impl ViewerKind {
     pub fn has_preview(self) -> bool {
         matches!(self, ViewerKind::Markdown | ViewerKind::Mermaid)
     }
+
+    /// Whether this viewer draws the buffer itself for `layout` — the only thing in a tab worth
+    /// handing the keyboard to today. The editor always does; Excalidraw draws its scene instead
+    /// and Image draws nothing editable, so neither ever does; Markdown and Mermaid only do in
+    /// the half of their toggle that shows source.
+    pub fn shows_buffer(self, layout: ViewLayout) -> bool {
+        match self {
+            ViewerKind::Editor => true,
+            ViewerKind::Excalidraw | ViewerKind::Image => false,
+            ViewerKind::Markdown | ViewerKind::Mermaid => layout.shows_source(),
+        }
+    }
 }
 
 /// Which of a viewer's layouts is on screen. The one piece of per-tab state a viewer keeps, and

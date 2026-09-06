@@ -147,6 +147,19 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     .h_full(),
                 )
                 .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}).h_full())
+                .child(
+                    icon_button(
+                        "remote-connect",
+                        IconName::Network,
+                        app.workbench.remote_connect.is_some(),
+                        cx.listener(|this, _, window, cx| this.open_remote_connect(window, cx)),
+                    )
+                    .h_full()
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Connect to a remote host")
+                            .build(window, cx)
+                    }),
+                )
                 .when(has_project, |this| {
                     this.child(
                         icon_button(

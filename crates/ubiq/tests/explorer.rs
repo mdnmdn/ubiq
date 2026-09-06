@@ -456,12 +456,12 @@ fn the_flat_list_has_no_project_row() {
 #[test]
 fn the_project_row_offers_a_folder_s_menu() {
     let mut tree = listed();
-    tree.open_menu(Some(""), 0.0, 0.0);
+    tree.open_menu(Some(""), false, 0.0, 0.0);
     let menu = tree.menu.clone().expect("a menu is up");
     assert!(menu.is_dir && menu.readable && menu.expanded);
     assert_eq!(
         menu.entries().iter().map(|e| e.action).collect::<Vec<_>>(),
-        menu_entries(Some("src"), true, true, false)
+        menu_entries(Some("src"), true, true, false, false)
             .iter()
             .map(|e| e.action)
             .collect::<Vec<_>>()
@@ -614,7 +614,7 @@ fn the_cursor_is_put_back_on_a_row_that_is_still_drawn() {
 fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipboard() {
     use ExplorerAction as A;
 
-    let file = menu_entries(Some("src/main.rs"), false, true, false);
+    let file = menu_entries(Some("src/main.rs"), false, true, false, false);
     assert_eq!(
         file.iter().map(|e| e.action).collect::<Vec<_>>(),
         [
@@ -647,7 +647,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
 
     // A folder has nothing to open and something to refresh; there is no Expand row, because the
     // twisty and the row itself already say that.
-    let folder = menu_entries(Some("src"), true, true, false);
+    let folder = menu_entries(Some("src"), true, true, false, false);
     assert_eq!(
         folder.iter().map(|e| e.action).collect::<Vec<_>>(),
         [
@@ -666,12 +666,14 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
             A::Separator,
             A::Refresh,
             A::Separator,
+            A::ExcludeFromSearch,
+            A::Separator,
             A::Rename,
             A::Delete,
         ]
     );
 
-    let filled = menu_entries(Some("src"), true, true, true);
+    let filled = menu_entries(Some("src"), true, true, true, false);
     assert!(
         filled.iter().any(|e| e.action == A::Paste && e.enabled),
         "with something copied, Paste is pickable"
@@ -679,7 +681,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
 
     // A row the host will not follow keeps the path group alone — and no separator, leading or
     // trailing, is left behind by the groups that dropped out.
-    let unreadable = menu_entries(Some("elsewhere"), false, false, true);
+    let unreadable = menu_entries(Some("elsewhere"), false, false, true, false);
     assert_eq!(
         unreadable.iter().map(|e| e.action).collect::<Vec<_>>(),
         [
@@ -691,7 +693,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
         ]
     );
 
-    let empty = menu_entries(None, false, true, false);
+    let empty = menu_entries(None, false, true, false, false);
     assert_eq!(
         empty.iter().map(|e| e.action).collect::<Vec<_>>(),
         [
@@ -723,7 +725,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
 #[test]
 fn the_menu_remembers_the_clipboard_it_opened_with() {
     let mut tree = listed();
-    tree.open_menu(Some("src"), 0.0, 0.0);
+    tree.open_menu(Some("src"), false, 0.0, 0.0);
     let before = tree.menu.as_ref().expect("a menu is up").entries();
     assert!(
         before
@@ -732,7 +734,7 @@ fn the_menu_remembers_the_clipboard_it_opened_with() {
     );
 
     tree.copied = Some("justfile".to_string());
-    tree.open_menu(Some("src"), 0.0, 0.0);
+    tree.open_menu(Some("src"), false, 0.0, 0.0);
     let after = tree.menu.as_ref().expect("a menu is up").entries();
     assert!(
         after
@@ -746,7 +748,7 @@ fn the_menu_remembers_the_clipboard_it_opened_with() {
 #[test]
 fn one_click_outside_closes_the_menu() {
     let mut tree = listed();
-    tree.open_menu(Some("src"), 0.0, 0.0);
+    tree.open_menu(Some("src"), false, 0.0, 0.0);
     let epoch = tree.menu.as_ref().expect("a menu is up").epoch;
 
     tree.close_menu(epoch);
@@ -758,10 +760,10 @@ fn one_click_outside_closes_the_menu() {
 #[test]
 fn a_dismiss_for_a_replaced_menu_leaves_the_new_one_alone() {
     let mut tree = listed();
-    tree.open_menu(Some("src"), 0.0, 0.0);
+    tree.open_menu(Some("src"), false, 0.0, 0.0);
     let stale = tree.menu.as_ref().expect("a menu is up").epoch;
 
-    tree.open_menu(Some("justfile"), 5.0, 5.0);
+    tree.open_menu(Some("justfile"), false, 5.0, 5.0);
     tree.close_menu(stale);
 
     let menu = tree.menu.as_ref().expect("the second menu is still up");
@@ -807,7 +809,7 @@ fn a_free_name_suffixes_until_the_folder_has_room() {
 #[test]
 fn escape_dismisses_the_menu_then_the_filter() {
     let mut tree = listed();
-    tree.open_menu(Some("justfile"), 10.0, 20.0);
+    tree.open_menu(Some("justfile"), false, 10.0, 20.0);
     assert!(tree.menu.is_some());
     assert_eq!(
         tree.press(ExplorerKey::Dismiss, "just"),

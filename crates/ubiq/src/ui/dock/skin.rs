@@ -607,6 +607,66 @@ impl TabGroupRenderer for Skin {
                         window.refresh();
                     }),
             )
+            // The pane control comes before the zoom, so the zoom is the last thing on every
+            // strip: a group is expanded from the same place whether or not it can start a pane.
+            .when_some(new_pane, |this, action| {
+                let run = action.run.clone();
+                let menu = action.menu.clone();
+                this.child(
+                    div()
+                        .ml_1()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        // The `+` starts a pane, so it is drawn only where one can be started;
+                        // the chevron beside it is drawn either way, because the console is on
+                        // its menu. They share a box so the pair keeps its spacing when the `+`
+                        // is not there.
+                        .when((action.available)(cx), |this| {
+                            this.child(
+                                div()
+                                    .id("ubiq-tab-new-pane")
+                                    .size(px(20.))
+                                    .flex()
+                                    .flex_none()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .hover(|this| this.bg(theme::hover()))
+                                    .child(
+                                        Icon::new(IconName::Plus)
+                                            .with_size(Size::XSmall)
+                                            .text_color(theme::text_faint()),
+                                    )
+                                    .on_click(move |_, window, cx| run(window, cx)),
+                            )
+                        })
+                        // The chevron is the same control's second half: the click opens the
+                        // default shell, this says what else this machine can run here. Narrower
+                        // than the "+", because it qualifies it rather than standing on its own.
+                        .child(
+                            div()
+                                .id("ubiq-tab-new-pane-menu")
+                                .h(px(20.))
+                                .w(px(14.))
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .justify_center()
+                                .cursor_pointer()
+                                .hover(|this| this.bg(theme::hover()))
+                                .child(
+                                    Icon::new(IconName::ChevronDown)
+                                        .with_size(Size::XSmall)
+                                        .text_color(theme::text_faint()),
+                                )
+                                .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                                    let at = fence(event.position);
+                                    menu(at.0, at.1, window, cx);
+                                }),
+                        ),
+                )
+            })
             .when(zoomable, |this| {
                 this.child(
                     div()
@@ -630,58 +690,6 @@ impl TabGroupRenderer for Skin {
                             .text_color(theme::text_faint()),
                         )
                         .on_click(move |_, window, cx| zoom.toggle_zoom(window, cx)),
-                )
-            })
-            // Last on the strip, past the zoom, so the right edge of the bottom region is where a
-            // new terminal is offered.
-            .when_some(new_pane, |this, action| {
-                let run = action.run.clone();
-                let menu = action.menu.clone();
-                // The `+` starts a pane, so it is drawn only where one can be started; the chevron
-                // beside it is drawn either way, because the console is on its menu.
-                this.when((action.available)(cx), |this| {
-                    this.child(
-                        div()
-                            .id("ubiq-tab-new-pane")
-                            .size(px(20.))
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .justify_center()
-                            .cursor_pointer()
-                            .hover(|this| this.bg(theme::hover()))
-                            .child(
-                                Icon::new(IconName::Plus)
-                                    .with_size(Size::XSmall)
-                                    .text_color(theme::text_faint()),
-                            )
-                            .on_click(move |_, window, cx| run(window, cx)),
-                    )
-                })
-                // The chevron is the same control's second half: the click opens the default
-                // shell, this says what else this machine can run here. Narrower than the "+",
-                // because it qualifies it rather than standing on its own.
-                .child(
-                    div()
-                        .id("ubiq-tab-new-pane-menu")
-                        .mr_2()
-                        .h(px(20.))
-                        .w(px(14.))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        .hover(|this| this.bg(theme::hover()))
-                        .child(
-                            Icon::new(IconName::ChevronDown)
-                                .with_size(Size::XSmall)
-                                .text_color(theme::text_faint()),
-                        )
-                        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                            let at = fence(event.position);
-                            menu(at.0, at.1, window, cx);
-                        }),
                 )
             })
             .into_any_element()

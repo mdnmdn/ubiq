@@ -1218,3 +1218,53 @@ fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) 
         "only what the subagent itself said, both lines of it"
     );
 }
+
+/// Up in an empty composer brings the last turn back; up in one being written leaves it alone.
+#[gpui::test]
+fn up_in_an_empty_composer_recalls_the_last_turn(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::UserChunk {
+            content: ConvContent::Text("look at the parser".to_string()),
+            message_id: Some("u1".to_string()),
+        },
+        cx,
+    );
+
+    let recalled = fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture
+                .state
+                .update(cx, |state, cx| state.recall_last_message(0, window, cx))
+        })
+        .expect("the window is open");
+    assert!(recalled, "the last turn never came back");
+    assert_eq!(
+        fixture
+            .state
+            .read_with(cx, |state, cx| state.column_inputs[0]
+                .read(cx)
+                .value()
+                .to_string()),
+        "look at the parser"
+    );
+
+    // A draft in the field is work in progress, and the key that would overwrite it does nothing.
+    let recalled = fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.column_inputs[0].update(cx, |input, cx| {
+                    input.set_value("half a thought", window, cx);
+                });
+                state.recall_last_message(0, window, cx)
+            })
+        })
+        .expect("the window is open");
+    assert!(!recalled, "a draft was overwritten by the recall");
+}

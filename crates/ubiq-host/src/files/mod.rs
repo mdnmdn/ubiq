@@ -14,6 +14,7 @@
 //! The path resolution every one of these starts with is [`path`], which is the security boundary.
 //! The comparison is [`diff`], which is the only place version control is read.
 
+pub mod browse;
 pub mod diff;
 pub mod path;
 
@@ -144,19 +145,31 @@ fn one_level(root: &Path, rel_path: &str) -> Result<DirListing, FileError> {
     // Directories first, then names compared without case, with the raw name breaking a tie so the
     // order is total and stable — two windows on one project must not disagree, and neither
     // re-sorts what the host sent.
-    entries.sort_by(|a, b| {
-        let group = |kind: EntryKind| u8::from(kind != EntryKind::Dir);
-        group(a.kind)
-            .cmp(&group(b.kind))
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    entries.sort_by(|a, b| dir_first_then_name(a.kind, &a.name, b.kind, &b.name));
 
     Ok(DirListing {
         rel_path: rel_path.to_string(),
         entries,
         truncated,
     })
+}
+
+/// Directories first, then names compared without case, with the raw name breaking a tie so the
+/// order is total and stable.
+///
+/// Shared with [`browse`], which lists on the same rule so a picker never has to re-sort what the
+/// host sent either.
+pub(crate) fn dir_first_then_name(
+    a_kind: EntryKind,
+    a_name: &str,
+    b_kind: EntryKind,
+    b_name: &str,
+) -> std::cmp::Ordering {
+    let group = |kind: EntryKind| u8::from(kind != EntryKind::Dir);
+    group(a_kind)
+        .cmp(&group(b_kind))
+        .then_with(|| a_name.to_lowercase().cmp(&b_name.to_lowercase()))
+        .then_with(|| a_name.cmp(b_name))
 }
 
 /// What one directory entry is.
@@ -451,19 +464,35 @@ pub enum Request {
     },
 }
 
-/// One request, addressed.
+/// One job for the worker: the file family's, or the host-browse family's.
 ///
-/// It carries the root rather than a way to look one up, so the worker never needs a lock on
-/// anything the coordinator owns.
+/// The two share nothing but the queue and the reply device — a browse job names no project and
+/// resolves against no root — so what varies is [`JobKind`] and only the address is common.
 pub struct Job {
-    pub project_id: ProjectId,
-    /// The record's path, taken from memory on the coordinator's thread. Resolving it against a
-    /// `rel_path` — and every syscall that takes — happens on the worker.
-    pub root: PathBuf,
-    pub request: Request,
+    pub kind: JobKind,
     /// The window that asked. A [`Mailbox`] already knows who it is talking to, which is the same
     /// device a pane's reader and its reaper use.
     pub reply_to: Mailbox,
+}
+
+/// What one job asks the worker to do.
+pub enum JobKind {
+    /// One file-family request, already resolved to a project.
+    ///
+    /// It carries the root rather than a way to look one up, so the worker never needs a lock on
+    /// anything the coordinator owns.
+    File {
+        project_id: ProjectId,
+        /// The record's path, taken from memory on the coordinator's thread. Resolving it against
+        /// a `rel_path` — and every syscall that takes — happens on the worker.
+        root: PathBuf,
+        request: Request,
+    },
+    /// One host-browse request: list an absolute path, or a sensible default when there is none.
+    ///
+    /// No project, no root: there is nothing yet to resolve against, which is the whole point of
+    /// the family — see [`browse`].
+    Browse { path: Option<String> },
 }
 
 /// The thread that answers the file family.
@@ -504,9 +533,20 @@ impl Files {
 
 /// Do one job and say what the window is told.
 fn answer(job: &Job) -> Message {
-    let project_id = job.project_id;
-    match &job.request {
-        Request::Tree { rel_path, depth } => match listing(&job.root, rel_path, *depth) {
+    match &job.kind {
+        JobKind::File {
+            project_id,
+            root,
+            request,
+        } => file_answer(*project_id, root, request),
+        JobKind::Browse { path } => browse::answer(path.as_deref()),
+    }
+}
+
+/// Do one file-family job and say what the window is told.
+fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message {
+    match request {
+        Request::Tree { rel_path, depth } => match listing(root, rel_path, *depth) {
             Ok(listings) => Message::ProjectTreeListing {
                 project_id,
                 rel_path: rel_path.clone(),
@@ -517,7 +557,7 @@ fn answer(job: &Job) -> Message {
         Request::Read {
             rel_path,
             max_bytes,
-        } => match contents(&job.root, rel_path, *max_bytes) {
+        } => match contents(root, rel_path, *max_bytes) {
             Ok(contents) => Message::ProjectFileContents {
                 project_id,
                 rel_path: rel_path.clone(),
@@ -529,7 +569,7 @@ fn answer(job: &Job) -> Message {
             rel_path,
             bytes,
             expected,
-        } => match save(&job.root, rel_path, bytes, *expected) {
+        } => match save(root, rel_path, bytes, *expected) {
             Ok(version) => Message::ProjectFileWritten {
                 project_id,
                 rel_path: rel_path.clone(),
@@ -537,7 +577,7 @@ fn answer(job: &Job) -> Message {
             },
             Err(error) => file_error(project_id, rel_path, error),
         },
-        Request::Diff { rel_path, base } => match diff::diff(&job.root, rel_path, *base) {
+        Request::Diff { rel_path, base } => match diff::diff(root, rel_path, *base) {
             Ok(diff) => Message::ProjectFileDiffed {
                 project_id,
                 rel_path: rel_path.clone(),
@@ -545,7 +585,7 @@ fn answer(job: &Job) -> Message {
             },
             Err(error) => file_error(project_id, rel_path, error),
         },
-        Request::Edit { rel_path, to, op } => match edit(&job.root, rel_path, to.as_deref(), *op) {
+        Request::Edit { rel_path, to, op } => match edit(root, rel_path, to.as_deref(), *op) {
             Ok(()) => Message::ProjectPathEdited {
                 project_id,
                 rel_path: rel_path.clone(),

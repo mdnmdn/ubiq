@@ -10,9 +10,12 @@
 //! is on screen is the user's choice and nothing else's — a picker that decided for them would be a
 //! picker that hides the file they can see the name of.
 //!
-//! **Nothing here reads a disk.** The forest is handed in by whoever raised the picker, which is
-//! what lets the kitchen sink raise one with no project open and what will one day let the host's
-//! listings fill the same dialog. Paths are project-relative, as every path the interface holds is.
+//! **Nothing here reads a disk.** The forest is handed in by whoever raised the picker, and grown
+//! by [`FilePickerState::set_forest`] / [`FilePickerState::fill_node`] as more of it arrives — this
+//! is what lets the kitchen sink raise one over an already-loaded explorer tree, and what lets a
+//! host's own listings fill the same dialog one folder at a time as the user walks into it. Paths
+//! are project-relative for the former and absolute for the latter; the picker itself never tells
+//! the two apart.
 
 use std::collections::HashSet;
 
@@ -90,6 +93,11 @@ pub enum PickerOwner {
         agent: AgentId,
         slot: usize,
     },
+    /// A folder chosen on a remote host's own filesystem, to be opened as a project there. Carries
+    /// no host: the picker itself never learns a `HostId` — see `crate::app::host_browse`, whose
+    /// `HostBrowseState` is what the app layer reads back on commit to know which host the picked
+    /// path belongs to.
+    HostProject,
 }
 
 /// Everything a caller says when it raises a picker.
@@ -170,10 +178,32 @@ impl PickerRequest {
 #[derive(Clone, Debug)]
 pub struct PickerNode {
     pub name: String,
-    /// Project-relative. The project's own node carries the empty path.
+    /// Project-relative for a forest built from the explorer; absolute for one filled from a
+    /// host's own filesystem, before any project exists. The picker itself never tells the two
+    /// apart — a path is a path — but it is what a caller building [`Message::AddProject`] or a
+    /// project-relative read has to know about the forest it handed in.
     pub path: String,
     /// What the tree reports at the end of the row. Folders report nothing.
     pub size: Option<u64>,
+    /// Whether the source could open or enter this — a symlink it would not follow, a folder it
+    /// could not read. Mirrors [`ubiq_proto::files::HostDirEntry::readable`]; always `true` for
+    /// the explorer's own forest, since a node that made it into that tree was already something
+    /// the host had opened to report.
+    pub readable: bool,
+    /// A dotfile, by the Unix convention. Kept rather than dropped, on the same reasoning as
+    /// `HostDirEntry::hidden`: whether to show it is [`FilePickerState::show_hidden`]'s call, not
+    /// a fact this node should hide by not carrying it.
+    pub hidden: bool,
+    /// Whether a directory's children are known. Not the same as having children: a folder that
+    /// has been listed and is empty is a different thing from one nobody has asked about yet.
+    /// Always `true` for a file and for the explorer's own forest — both are already whatever they
+    /// will ever be by the time they reach this type. `false` only for [`PickerNode::dir_unfetched`],
+    /// the placeholder a lazily host-filled forest uses for a folder the user has not walked into.
+    listed: bool,
+    /// The source's entry ceiling cut this folder's listing short, so the row can say so rather
+    /// than draw a folder as smaller than it is. Mirrors `HostDirListing::truncated` /
+    /// `DirListing::truncated`.
+    pub truncated: bool,
     children: Option<Vec<PickerNode>>,
 }
 
@@ -183,16 +213,44 @@ impl PickerNode {
             name: name.to_string(),
             path: path.to_string(),
             size: Some(size),
+            readable: true,
+            hidden: false,
+            listed: true,
+            truncated: false,
             children: None,
         }
     }
 
+    /// A folder whose contents are already known — what the explorer's own forest always hands
+    /// in, and what a host's answer becomes once [`FilePickerState::fill_node`] or
+    /// [`FilePickerState::set_forest`] has placed it.
     pub fn dir(name: &str, path: &str, children: Vec<PickerNode>) -> Self {
         Self {
             name: name.to_string(),
             path: path.to_string(),
             size: None,
+            readable: true,
+            hidden: false,
+            listed: true,
+            truncated: false,
             children: Some(children),
+        }
+    }
+
+    /// A folder the picker knows the name and path of but has not listed — a host's directory
+    /// entry, before the user has walked into it. Its row draws exactly like an empty [`dir`]
+    /// until [`FilePickerState::fill_node`] gives it real children; what tells the two apart is
+    /// [`PickerNode::needs_load`], which is what [`FilePickerState::expanded_needing_load`] asks.
+    pub fn dir_unfetched(name: &str, path: &str, readable: bool, hidden: bool) -> Self {
+        Self {
+            name: name.to_string(),
+            path: path.to_string(),
+            size: None,
+            readable,
+            hidden,
+            listed: false,
+            truncated: false,
+            children: Some(Vec::new()),
         }
     }
 
@@ -202,6 +260,19 @@ impl PickerNode {
 
     pub fn children(&self) -> &[PickerNode] {
         self.children.as_deref().unwrap_or(&[])
+    }
+
+    /// Whether this is a folder somebody still owes a listing to. A file is never asked about; a
+    /// folder the source marked unreadable is never asked about either — there is nothing a
+    /// listing of it could answer.
+    pub fn needs_load(&self) -> bool {
+        self.is_dir() && !self.listed && self.readable
+    }
+
+    /// A host's listing landed for this folder: give it real children and mark it known.
+    fn listed_now(&mut self, children: Vec<PickerNode>) {
+        self.children = Some(children);
+        self.listed = true;
     }
 }
 
@@ -220,6 +291,19 @@ pub fn forest_from_explorer(nodes: &[FileNode]) -> Vec<PickerNode> {
             path: node.path.clone(),
             // The explorer carries no size, and a zero would read as an empty file.
             size: None,
+            readable: node.readable,
+            // The host's own listing already leaves hidden entries out by convention (see
+            // `LIST_HIDE`), so nothing here is ever actually hidden — carried anyway so a picker
+            // built from this forest and one filled from a host draw by the same rule.
+            hidden: false,
+            listed: true,
+            truncated: matches!(
+                &node.kind,
+                NodeKind::Dir {
+                    truncated: true,
+                    ..
+                }
+            ),
             children: match &node.kind {
                 NodeKind::Dir { children, .. } => Some(forest_from_explorer(children)),
                 NodeKind::File => None,
@@ -241,8 +325,17 @@ pub struct PickerRow {
     /// Whether the keyboard is on this row. Selection is what comes back; the cursor is only where
     /// the next key lands, and the two are drawn differently because they mean different things.
     pub on_cursor: bool,
-    /// Whether choosing this row is what the picker was asked for.
+    /// Whether choosing this row is what the picker was asked for. `false` for an unreadable
+    /// entry even where its kind would otherwise qualify — see [`PickerNode::readable`].
     pub pickable: bool,
+    /// Mirrors [`PickerNode::readable`]. Drives the muted colour and the missing twisty that
+    /// together say a row cannot be entered, rather than leaving a click on it to fail silently.
+    pub readable: bool,
+    /// A folder that is open and still waiting on its first listing. Only ever true for a row a
+    /// host is filling lazily — the explorer's own forest arrives already listed.
+    pub loading: bool,
+    /// The source's entry ceiling cut this folder's own listing short.
+    pub truncated: bool,
     /// What the row says at its far end: how big it is in the tree, which folder it is in in the
     /// list.
     pub trailing: String,
@@ -300,6 +393,11 @@ pub struct FilePickerState {
     /// Which row the keyboard is on. A path rather than an index: rows come and go as folders open
     /// and the filter narrows, and an index would be pointing at a different row afterwards.
     cursor: Option<String>,
+    /// Whether a dotfile is drawn. Off by default so a folder full of `.git`, `.cache` and the
+    /// like does not bury what a user is actually looking for — but never the only way to reach
+    /// one: `.config` has to stay reachable, so this is a toggle rather than a filter with no
+    /// switch back.
+    show_hidden: bool,
     pub width: f32,
     pub height: f32,
     /// Where the corner grip went down, and how big the dialog was then. A resize is measured from
@@ -338,6 +436,7 @@ impl FilePickerState {
             expanded,
             picked: Vec::new(),
             cursor: None,
+            show_hidden: false,
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
             drag: None,
@@ -377,6 +476,9 @@ impl FilePickerState {
     ) {
         for node in nodes {
             if node.is_dir() {
+                if node.hidden && !self.show_hidden {
+                    continue;
+                }
                 if !needle.is_empty() && !self.subtree_matches(node, needle) {
                     continue;
                 }
@@ -431,8 +533,12 @@ impl FilePickerState {
         }
     }
 
-    /// Whether an entry survives both filters: the caller's prefilter, and what the user typed.
+    /// Whether an entry survives every filter: hidden by default, the caller's prefilter, and
+    /// what the user typed.
     fn shows(&self, node: &PickerNode, needle: &str) -> bool {
+        if node.hidden && !self.show_hidden {
+            return false;
+        }
         if !node.is_dir()
             && let Some(pattern) = &self.request.pattern
             && !matches_glob(pattern, &node.name)
@@ -463,7 +569,10 @@ impl FilePickerState {
             expanded,
             selected: self.picked.contains(&node.path),
             on_cursor: self.cursor.as_deref() == Some(node.path.as_str()),
-            pickable: self.request.kind.picks(node.is_dir()),
+            pickable: self.request.kind.picks(node.is_dir()) && node.readable,
+            readable: node.readable,
+            loading: expanded && node.needs_load(),
+            truncated: node.truncated,
             trailing,
         }
     }
@@ -526,17 +635,21 @@ impl FilePickerState {
 
     /// What a click on a row means: a folder that cannot be picked opens instead of being chosen,
     /// which is the only way to reach what is inside it in the tree.
+    ///
+    /// An unreadable entry does neither — it is not picked, and a folder the source could not
+    /// list is not opened onto an expansion that would only ever stay empty.
     pub fn click(&mut self, path: &str) -> bool {
         // The keyboard follows the mouse: an arrow after a click carries on from the row that was
         // clicked, not from wherever the cursor was left.
         self.cursor = Some(path.to_string());
 
-        let pickable = self
-            .node(path)
-            .map(|node| self.request.kind.picks(node.is_dir()))
-            .unwrap_or(false);
-
-        if pickable {
+        let Some(node) = self.node(path) else {
+            return false;
+        };
+        if !node.readable {
+            return false;
+        }
+        if self.request.kind.picks(node.is_dir()) {
             return self.pick(path);
         }
         if self.view == PickerView::Tree {
@@ -547,6 +660,58 @@ impl FilePickerState {
 
     fn node(&self, path: &str) -> Option<&PickerNode> {
         find(&self.forest, path)
+    }
+
+    fn node_mut(&mut self, path: &str) -> Option<&mut PickerNode> {
+        find_mut(&mut self.forest, path)
+    }
+
+    // ── filling a forest lazily from a host ─────────────────────────
+
+    /// Whether a dotfile is drawn right now.
+    pub fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
+    pub fn set_show_hidden(&mut self, show: bool) {
+        self.show_hidden = show;
+        self.reanchor();
+    }
+
+    /// Replace the whole top-level forest — what a host's answer to the picker's own root becomes,
+    /// on the first listing and on every walk up or down that changes which folder is the top of
+    /// the tree.
+    ///
+    /// What was expanded and what was picked are left as they are: a folder further down the new
+    /// forest that happened to keep the same path stays open rather than being shut and reopened
+    /// for no reason, and a pick survives a re-root only because nothing here has any occasion to
+    /// call this after one — the two never happen in the same gesture.
+    pub fn set_forest(&mut self, forest: Vec<PickerNode>) {
+        self.forest = forest;
+        self.reanchor();
+    }
+
+    /// Give one folder its children, once a host has answered for it. A path this forest does not
+    /// hold is a listing that arrived for a folder the user has since navigated away from — quietly
+    /// dropped, since there is nowhere left to put it.
+    pub fn fill_node(&mut self, path: &str, children: Vec<PickerNode>, truncated: bool) {
+        if let Some(node) = self.node_mut(path) {
+            node.truncated = truncated;
+            node.listed_now(children);
+        }
+        self.reanchor();
+    }
+
+    /// Every expanded folder that still owes its listing — what a lazily host-filled picker asks
+    /// for as the user walks into folders, one request per row that just opened.
+    ///
+    /// Walked from the forest rather than from `expanded` directly: `expanded` outlives a folder
+    /// that has since been re-rooted out of the tree, and asking about a path that is no longer in
+    /// the forest at all would be asking the host about nothing this dialog can still show.
+    pub fn expanded_needing_load(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        needing_load(&self.forest, &self.expanded, &mut out);
+        out
     }
 
     // ── the keyboard ────────────────────────────────────────────────
@@ -799,6 +964,36 @@ fn find<'a>(nodes: &'a [PickerNode], path: &str) -> Option<&'a PickerNode> {
         }
     }
     None
+}
+
+fn find_mut<'a>(nodes: &'a mut [PickerNode], path: &str) -> Option<&'a mut PickerNode> {
+    for node in nodes {
+        if node.path == path {
+            return Some(node);
+        }
+        if let Some(children) = &mut node.children
+            && let Some(found) = find_mut(children, path)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Collect every expanded folder that still needs its listing, depth-first — order is not load
+/// bearing, callers only ever fetch these, never draw them in the order collected.
+fn needing_load(nodes: &[PickerNode], expanded: &HashSet<String>, out: &mut Vec<String>) {
+    for node in nodes {
+        if !node.is_dir() {
+            continue;
+        }
+        if expanded.contains(&node.path) {
+            if node.needs_load() {
+                out.push(node.path.clone());
+            }
+            needing_load(node.children(), expanded, out);
+        }
+    }
 }
 
 /// The prefilter's match: `*` for any run, `?` for one character, everything else itself, without

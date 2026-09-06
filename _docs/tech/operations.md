@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands.
 read_when: you are setting the project up, running or testing it, or adding a command
-updated: 2026-09-04
-verified: 2026-09-04
-code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -38,6 +38,34 @@ only as a shell incantation in someone's history is a command that does not exis
 | `just dev` | Run Ubiq |
 | `just verbose` | Run Ubiq with `RUST_LOG=debug`, which collects every subsystem at debug |
 | `just build` | Release build of the whole workspace |
+| `ubiq --serve` | Run a headless host listening for a remote UI on `0.0.0.0:7420` — no window |
+| `ubiq --serve=<addr>` | Same, on a chosen address — a bare port, an `ip:port`, or an ip on the default port |
+| `ubiq --bind <addr>` | The address to listen on, on its own or refining a `--serve` value |
+| `ubiq --port <n>` | The port to listen on, likewise |
+
+**A served run opens no window.** It is the machine's host, not a copy of the interface: it keeps
+the terminal it was started in, reports through the same log writer on standard error that
+`just dev` uses, and runs until it is stopped. It also takes no part in the one-application-per-root
+handoff — handing its arguments to a window running elsewhere would leave nothing listening — so a
+headless host and a local window can share a machine, though not usefully a config root.
+
+`--serve` binds every interface, which is the point of the bare flag; `--serve=127.0.0.1:7420` is
+how a tunnel-only setup is spelled. `--serve`'s own value is always attached with `=`, never a
+separate argument — `argv_paths` skips a `-`-prefixed token without knowing the next one belongs to
+it, so a separated value would be read as a project path. `--bind` and `--port` take either
+spelling, because `argv_paths` consumes them by name, and each wins over the matching half of a
+`--serve` value: `--serve --port 9000` is the short way to say `--serve=0.0.0.0:9000`. Either of
+them alone also asks for a server — nothing else in Ubiq has a port to set. A bad value or a bind
+failure prints an error and exits 2 rather than leaving something that looks like it worked and is
+not listening. On success a banner goes to stdout, not through `tracing`, so no log filter can hide
+it: the bind address, a generated token, and a `http://<ip>:<port>?token=<token>` string to paste
+into a remote UI.
+
+**Whoever holds that token gets a terminal on this machine, and the connection is not encrypted.**
+There is no TLS and no other authentication — tunnel the connection (an SSH tunnel or similar) if
+the network is not trusted. `crates/ubiq-host/src/remote.rs` is the listener;
+[`architecture.md`](./architecture.md) covers the rule it follows, and [`../backlog.md`](../backlog.md)
+(`G165`) covers what it lacks.
 
 `RUST_LOG` decides what the log collector keeps, and the collector feeds both the log console and a
 writer on standard error — so `just dev` in a terminal reports without the console being open. With

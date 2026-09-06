@@ -21,8 +21,9 @@ pseudo-terminal, and a pane shows the harness's own screen. That is the **passth
 conversation half runs too: a Claude conversation streams end to end (P1), an identity can be
 signed in from inside Ubiq and saved into a named definition that a conversation starts from (P4 and
 P5), the model and the mode are picked before the harness launches (P3), and the chat panel and the
-agents column draw one conversation through one component. What remains is the thinking level,
-permissions (P7) and a persistent home for a defined agent (P6) — both waiting on `G92`.
+agents column draw one conversation through one component. A conversation is confined by
+`isolate_agents` like a pane, and a defined agent keeps a persistent home behind that (P6). What
+remains is the thinking level and permissions (P7).
 
 **Two corrections to earlier notes in this tree, both load-bearing.**
 
@@ -490,31 +491,23 @@ UI asks. Honour ACP's four option kinds (allow once, allow always, reject once, 
 
 **Done when** a Claude run's file write waits for a click, and denying it visibly stops the tool.
 
-### P6 — The default agent home — **blocked on `G92`, and small behind it**
+### P6 — The default agent home — **done**
 
-The policy is settled — **a defined agent gets a persistent home keyed by its definition, an ad-hoc
-run gets an ephemeral one**, under Ubiq's config root and never in a project (`D30`) — and so is the
-mechanism: `isolate::HomeMode` is `Ephemeral`, setting `ephemeral_home`, or `Managed(id)`, setting
-`home` to `@managed/<id>`, which isol8 resolves to `<ubiq root>/isol8/homes/<id>` and creates at
-spawn time, since `agent.rs` hands `IsolateOptions` a state directory of `<root>/isol8`.
+**A defined agent gets a persistent home keyed by its definition, an ad-hoc run gets an ephemeral
+one**, under Ubiq's config root and never in a project (`D30`). The mechanism is `isolate::HomeMode`:
+`Ephemeral` sets `ephemeral_home`, `Managed(id)` sets `home` to `@managed/<id>`, which isol8 resolves
+to `<ubiq root>/isol8/homes/<id>` and creates at spawn time, since `agent.rs` hands `IsolateOptions`
+a state directory of `<root>/isol8`.
 
-**It is blocked because the two halves sit on different code paths.** `isolate::plan` answers `None`
-for `Isolation::None`, so an unconfined run reaches no `confined_launch`, materialises no home and
-replaces no `$HOME`: `HomeMode` is a *sandboxed*-run feature. And `compose_run`
-(`crates/ubiq-host/src/agent.rs`) confines a passthrough pane when `host_settings.isolate_agents` is
-on but sets `Isolation::None` **unconditionally for a conversation**, pre-empting the refusal the
-CLI still raises for that combination (`crates/agent-manager/src/cli/run.rs`). A conversation is the
-only thing carrying a profile after P4; a pane is confined but deliberately names no identity. So a
-conversation runs under the user's real `$HOME`, its harness state relocated only by
-`ConfigStrategy::Fixed` into the run directory that teardown deletes, and `HomeMode` is named
-nowhere in `crates/ubiq-host` or `crates/ubiq`.
-
-The prerequisite is `G92`'s stdio seam — isol8's `spawn_with_stdio`/`SandboxStdio` threaded through
-`io/jsonl.rs`, `io/codex.rs`, `io/copilot.rs`, `io/opencode.rs` and `harness::structured_bridge` so
-a bridge's piped child spawns under the policy. Behind it P6 is about ten lines and needs no new
-library API: `IsolateOptions.home` is already public, and the one awkwardness — `sanitize_segment`
-being private to the CLI — is four lines to copy rather than a name to export. Teardown needs no
-change: everything it deletes is under `<root>/runs/`, and a managed home is not.
+`HomeMode` is a *sandboxed*-run feature — `isolate::plan` answers `None` for `Isolation::None`, so an
+unconfined run materialises no home and replaces no `$HOME`. That is why this waited on `G92`'s
+confinement half: `compose_run` used to set `Isolation::None` unconditionally for a conversation, and
+a conversation is the only thing carrying a profile after P4. With confinement applied to both faces,
+`compose_run` reads `RunFlags.profile` and sets `Managed(<sanitised id>)` when one is there,
+`Ephemeral` when it is not — so a pane, which deliberately names no identity, still starts clean.
+The one awkwardness, `sanitize_segment` being private to the feature-gated `cli` module, is four
+lines copied as `Agents::home_id` rather than a name exported across that boundary. Teardown needed
+no change: everything it deletes is under `<root>/runs/`, and a managed home is not.
 
 **A managed home is not P5's login capture.** `Account.home` is `<root>/accounts/<id>`, a
 HOME-shaped capture tree used as the login's `$HOME` and afterwards a read-only source copied into
@@ -526,7 +519,8 @@ Two conversations on one profile would share a config directory concurrently —
 writing one `.claude.json` — and it is a second persistence mechanism real P6 would have to unwind.
 
 **Done when** a defined agent's second run finds its own cache warm, and an ad-hoc run still starts
-clean.
+clean. The rendered policy's home path is what the test asserts for both
+(`crates/ubiq-host/src/agent.rs`).
 
 ## Deferred, deliberately
 
