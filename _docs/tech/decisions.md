@@ -1356,6 +1356,23 @@ usable only behind a trusted network or a tunnel the operator adds themselves, w
 [`operations.md`](./operations.md) says plainly rather than leaving to be discovered. Closing the
 gap is `G165`, the backlog's register of open items.
 
+### D81 — `HostId` stays out of the contract; the local host is always attached
+
+`crates/ubiq/src/app/hosts.rs`'s `Bus` multiplexes a window over several live host connections at
+once — the local, in-process host plus any remotes added alongside it — rather than switching
+between them. The alternative was a single active host a window pointed at, one at a time, which was
+rejected because it would make a dropped remote connection take every terminal in the window with
+it, including the local ones that have nothing to do with the remote. `HostId`, the id that tells the
+window's connections apart, is minted in the interface and never crosses the bus or appears in a
+`Message`: a host has no way to learn that another host exists, so every connection stays an ordinary
+single-host session and the listener in `remote.rs` needs no multi-host awareness of its own.
+
+**Cost:** every message the interface sends has to be resolved to a host — by the pane or project it
+names, falling back to whichever host is active — rather than handed to the one connection there used
+to be, and that resolution has to be kept in step with every place a pane or project is first
+announced (`Bus::note_pane`, `Bus::note_project`). A host that disagreed with another about an id it
+never sees is not a failure mode this design has to consider, because no host is ever told one exists.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

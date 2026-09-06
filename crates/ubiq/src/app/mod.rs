@@ -70,7 +70,7 @@ use gpui_component::input::{
     EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
 };
 use gpui_terminal::TerminalView;
-use ubiq_proto::bus::{self, Client};
+use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
@@ -383,9 +383,10 @@ pub struct AppState {
 
     /// The window's session — the grouping every workspace it spawns belongs to.
     session: SessionId,
-    /// This window's connection to the one host. Nothing else reaches it, and dropping this is
-    /// how the host learns the window has gone.
-    bus: Client,
+    /// This window's connection to every host it is attached to — always the local one, and, from
+    /// a later phase on, any remote ones added beside it. Nothing else reaches a host directly,
+    /// and dropping the local connection inside it is how that host learns the window has gone.
+    bus: Bus,
     /// One emulator per pane, keyed the way every message is.
     terminals: HashMap<PaneId, PaneTerminal>,
     /// Geometry an emulator measured for itself, on its way back into `PaneState`.
@@ -673,6 +674,8 @@ pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 mod git;
 mod graph;
+mod hosts;
+pub use hosts::{Bus, HostId, HostRef, RemoteConn};
 mod nav;
 mod panels;
 mod picker;
