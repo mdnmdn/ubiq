@@ -147,6 +147,10 @@ fn terminal_size() -> (u16, u16) {
 /// local terminal on each `SIGWINCH`. Harmless when not attached to a tty:
 /// no real terminal means no `SIGWINCH` ever arrives, so the thread just
 /// blocks forever on the signal iterator and dies with the process.
+///
+/// `SIGWINCH` is POSIX-only, so this is a no-op on Windows (where the
+/// terminal has no SIGWINCH to observe).
+#[cfg(unix)]
 fn spawn_resize_watcher(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
     std::thread::spawn(move || {
         let mut signals = match signal_hook::iterator::Signals::new([signal_hook::consts::SIGWINCH])
@@ -172,6 +176,9 @@ fn spawn_resize_watcher(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
         }
     });
 }
+
+#[cfg(not(unix))]
+fn spawn_resize_watcher(_master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {}
 
 /// Best-effort removal of the ephemeral config dir, unless it was pinned
 /// (`!ephemeral`) or the caller asked to keep it (`keep_config`). Errors are
