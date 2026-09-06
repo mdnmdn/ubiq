@@ -183,8 +183,8 @@ fn pump(
     let mut stop_reason = StopReason::EndTurn;
 
     loop {
-        let event = match bridge.next_event() {
-            Ok(Some(event)) => event,
+        let (event, raw) = match bridge.next_event_raw() {
+            Ok(Some(framed)) => framed,
             Ok(None) => break,
             Err(error) => {
                 tracing::warn!(agent = %id, %error, "conversation stream failed");
@@ -214,6 +214,7 @@ fn pump(
             agent_id: id,
             seq,
             update: Box::new(update),
+            raw,
         }) {
             // The window this agent belongs to has gone. Nothing left to say.
             tracing::debug!(agent = %id, "conversation has no listener; pump ending");
@@ -317,11 +318,15 @@ fn map_event(event: AgentEvent) -> Option<ConvUpdate> {
             size,
             cost,
             model,
+            total_tokens,
+            cached_tokens,
         } => ConvUpdate::Usage(UsageRecord {
             used,
             size,
             cost_usd: cost.map(|cost| cost.amount),
             model,
+            total_tokens,
+            cached_tokens,
         }),
 
         AgentEvent::RateLimitUpdate {
@@ -648,6 +653,8 @@ mod tests {
                 currency: "USD".to_string(),
             }),
             model: Some("claude-opus-5".to_string()),
+            total_tokens: Some(1_200),
+            cached_tokens: Some(900),
         })
         .unwrap();
         let ConvUpdate::Usage(usage) = update else {
@@ -655,6 +662,8 @@ mod tests {
         };
         assert_eq!(usage.size, 200_000);
         assert_eq!(usage.cost_usd, Some(0.5));
+        assert_eq!(usage.total_tokens, Some(1_200));
+        assert_eq!(usage.cached_tokens, Some(900));
         assert_eq!(usage.context_pct(), Some(0));
     }
 

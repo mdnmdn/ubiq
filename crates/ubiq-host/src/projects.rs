@@ -604,6 +604,13 @@ impl Projects {
         self.changed(id)
     }
 
+    /// How many projects have at least one pane running in them — not how many are in the
+    /// catalogue, which is a different and much larger number. A count of zero is kept in the map
+    /// rather than removed, so the filter is the answer.
+    pub fn open_count(&self) -> usize {
+        self.open_panes.values().filter(|n| **n > 0).count()
+    }
+
     /// A pane in a project ended or was closed.
     pub fn pane_closed(&mut self, id: ProjectId) -> Vec<Reply> {
         if let Some(count) = self.open_panes.get_mut(&id) {

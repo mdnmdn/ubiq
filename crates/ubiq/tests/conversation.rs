@@ -111,6 +111,7 @@ impl Fixture {
                 agent_id,
                 seq,
                 update: Box::new(update),
+                raw: None,
             },
         );
         cx.run_until_parked();
@@ -238,6 +239,8 @@ fn an_update_refreshes_the_agent_record(cx: &mut TestAppContext) {
             size: 200_000,
             cost_usd: Some(0.5),
             model: Some("claude-opus-5".to_string()),
+            total_tokens: None,
+            cached_tokens: None,
         }),
         cx,
     );

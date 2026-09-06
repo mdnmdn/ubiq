@@ -41,12 +41,19 @@ pub const COLUMNS_MAX: usize = 8;
 /// the pool is sized before the first frame.
 pub const CHATS_MAX: usize = 8;
 
-/// How many composer fields the window builds before its first frame: one per column, plus one
-/// per chat tab. Every pool indexed by a slot is this long. Columns allocate from the low range,
-/// `0..COLUMNS_MAX` — see [`AgentsView::free_slot`] — and chat tabs from the range above it, see
-/// `state::chat::free_chat_slot`. The two never collide because neither ever crosses into the
-/// other's half.
-pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX;
+/// The sink's messages bench types into a composer of its own, at the top of the pool.
+///
+/// Its own rather than one borrowed from the chat tabs' range: a slot is what addresses a turn —
+/// see `AppState::agent_for_slot` — so a bench sharing a tab's slot would send that tab's draft to
+/// this page's conversation the moment both were open.
+pub const SINK_SLOT: usize = COLUMNS_MAX + CHATS_MAX;
+
+/// How many composer fields the window builds before its first frame: one per column, one per chat
+/// tab, and the sink bench's. Every pool indexed by a slot is this long. Columns allocate from the
+/// low range, `0..COLUMNS_MAX` — see [`AgentsView::free_slot`] — chat tabs from the range above
+/// it, see `state::chat::free_chat_slot`, and [`SINK_SLOT`] is the one above those. None of the
+/// three ever crosses into another's range.
+pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX + 1;
 
 /// The narrowest a column is drawn. Below this a transcript is a word per line, so the row scrolls
 /// sideways rather than squeezing further.

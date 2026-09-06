@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-05
-verified: 2026-09-05
-code_anchors: [Cargo.toml, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -60,6 +60,7 @@ project's own folder — `D30`.
 ├── preferences.toml         the interface's own view blob, opaque to the host
 ├── ui-settings.toml         Ui-layer settings, opaque to the host
 ├── host-settings.toml       Host-layer settings, the host parses
+├── usage.db                 what the agents spent — not a cache: losing it loses history
 ├── cache/
 │   └── harness-models.toml  each harness's model + reasoning-level answers, keyed on its own
 │                            version string — a cache, not a catalogue: safe to delete
@@ -74,6 +75,12 @@ project's own folder — `D30`.
 typed or a catalogue entry losing which would lose data — `harness-models.toml` is the one file in
 it today. Losing the directory costs a re-probe on the next launch, nothing more, which is what
 tells a future entry whether it belongs here or under `projects.toml`'s catalogue instead.
+
+`usage.db` fails that test, which is why it sits at the top level beside the catalogue: a harness
+cannot be asked what it spent last Tuesday, so the meter is the only record of it and deleting the
+file destroys data rather than costing work. It is a database rather than a file because it
+accumulates and is unbounded — `D78`, and
+[`../features/stats.md`](../features/stats.md) for what is in it.
 
 A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
 is what makes forgetting a project complete even after a crash halfway through it. The `ui/`
@@ -138,7 +145,8 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/repos/` | Listing a remote's repositories, and cloning one into a folder, on a thread of its own per clone | A read of an existing repository — that is `git/` — or a write into one |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
-| `ubiq-host/src/store/` | The catalogue, a project's tasks, the view state and settings, behind four traits | Any opinion about what a Ui-layer blob means |
+| `ubiq-host/src/store/` | What the host writes down: the catalogue, a project's tasks, the view state and settings behind four traits, and the concrete stores that need no trait beside them | Any opinion about what a Ui-layer blob means |
+| `ubiq-host/src/store/usage.rs` | The usage meter: `usage.db`, its two tables, its `PRAGMA user_version` migrations and the accumulating upsert into them | A trait, a second implementation, or an opinion about how a bucket is drawn |
 | `ubiq-host/src/projects.rs` | The catalogue as the host runs it, and the reservation of each project's `ui/` workarea | An opinion about colour or layout, or a read of anything inside a workarea |
 | `ubiq-host/src/settings.rs` | Application settings as the host runs them: Ui opaque, Host parsed | An opinion about what a Ui-layer blob means |
 | `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |

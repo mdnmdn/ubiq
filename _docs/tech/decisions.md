@@ -1288,6 +1288,37 @@ an override against a default rather than read a field. The alternative — a pe
 cannot express "whatever the application says", so changing the default would silently skip every
 project that had ever opened its settings dialog.
 
+### D78 — The usage meter is one bundled SQLite file per instance, migrated on `PRAGMA user_version`
+
+Everything else the host writes down is TOML, and the meter is the one thing TOML cannot carry. A
+usage bucket is a running total that many small deltas add into, which is an upsert; a TOML store
+answers it by reading the whole file, adding, and writing the whole file back, on every report from
+every harness. And the record is unbounded — hours accumulate for as long as the user keeps using
+Ubiq — while the screen wants a window of them. Those two together are a database, so `rusqlite`
+with the `bundled` feature, which compiles SQLite into the binary rather than depending on whatever
+the machine has.
+
+Migrations are `PRAGMA user_version` against a const array of SQL in the meter's own module, with a
+step's index as its version. SQLite keeps that integer in the file header itself, so a migration
+crate would add a dependency, a build step and a schema table to hold one number the file carries
+for free.
+
+**One database for the instance, not one per project.** `_docs/inbox/config-persistence-proposal.md`
+shapes per-project state as a directory under `projects/<ulid>/`, and usage does not fit it: every
+question the screen asks — what did this hour cost, which harness spends the most, what has this run
+used — crosses projects, and answering it from a database per project means opening all of them and
+summing. The project is a keyed column instead, which is the same query one way and a far cheaper
+one the other.
+
+**No store trait over it.** There is one implementation and nothing substitutes it, so the meter is
+a concrete type beside the four traits rather than a fifth.
+
+**Cost:** a C compile in the build, which is the largest single thing `just build` does from cold on
+a clean checkout, and a binary format the user cannot open in an editor. Every other file in the
+config root can be read, diffed and hand-corrected; this one needs a tool. That is acceptable for a
+record nobody hand-writes, and it is the reason the boundary is drawn here rather than moved: the
+catalogue, the settings and the view blobs stay TOML.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

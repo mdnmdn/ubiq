@@ -261,6 +261,14 @@ pub struct UsageRecord {
     pub size: u64,
     pub cost_usd: Option<f64>,
     pub model: Option<String>,
+    /// Every token the conversation has spent, input plus output, as the
+    /// harness counts it. Not the ring: `used` is what still occupies the
+    /// context window, and this is what has gone through it in total.
+    #[serde(default)]
+    pub total_tokens: Option<u64>,
+    /// The cache read and cache creation part of that, where it is reported.
+    #[serde(default)]
+    pub cached_tokens: Option<u64>,
 }
 
 impl UsageRecord {
@@ -405,6 +413,8 @@ mod tests {
             size: 200_000,
             cost_usd: None,
             model: None,
+            total_tokens: None,
+            cached_tokens: None,
         };
         assert_eq!(usage.context_pct(), Some(21));
     }
@@ -418,6 +428,8 @@ mod tests {
             size: 0,
             cost_usd: None,
             model: None,
+            total_tokens: None,
+            cached_tokens: None,
         };
         assert_eq!(usage.context_pct(), None);
     }

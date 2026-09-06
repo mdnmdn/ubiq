@@ -203,6 +203,19 @@ impl Conversation {
         self.usage.as_ref().and_then(|usage| usage.cost_usd)
     }
 
+    /// Every token this conversation has spent, input and output together, where the harness
+    /// counts them. Not the ring: [`Self::tokens`] is what still occupies the context window, and
+    /// this is what has gone through it. `None` means the harness reported no total, which the
+    /// footer draws as nothing rather than as a zero it made up.
+    pub fn total_tokens(&self) -> Option<u64> {
+        self.usage.as_ref().and_then(|usage| usage.total_tokens)
+    }
+
+    /// The cache read and cache creation part of that total, where it is reported.
+    pub fn cached_tokens(&self) -> Option<u64> {
+        self.usage.as_ref().and_then(|usage| usage.cached_tokens)
+    }
+
     /// How full the rolling five-hour rate-limit window is, where the harness reports one.
     pub fn rate_limit_five_hour_pct(&self) -> Option<u8> {
         self.rate_limit.as_ref().and_then(|r| r.five_hour_pct)
@@ -436,6 +449,20 @@ impl Conversation {
     }
 }
 
+/// The short name the composer's model chip wears, given the harness that answered.
+///
+/// Only Claude's ids are shortened. They read `vendor-family-version-date`, and the family is the
+/// only part anyone picks a model by — `claude-haiku-4-5-20251001` is `haiku`. Every other harness
+/// names its models however it likes, so its id is left exactly as it came: a cut guessed across
+/// vendors would take the meaning out of half of them. The full id is never lost — the chip's
+/// tooltip carries it.
+pub fn short_model_label(harness: &str, model: &str) -> String {
+    if !harness.to_lowercase().contains("claude") {
+        return model.to_string();
+    }
+    model.split('-').nth(1).unwrap_or(model).to_string()
+}
+
 fn text_of(content: &ConvContent) -> Option<String> {
     match content {
         ConvContent::Text(text) => Some(text.clone()),
@@ -566,12 +593,36 @@ mod tests {
                 size: 1_000_000,
                 cost_usd: Some(0.25),
                 model: Some("claude-opus-5".to_string()),
+                total_tokens: Some(240_000),
+                cached_tokens: Some(180_000),
             }),
         );
 
         assert_eq!(c.context_pct(), Some(10));
         assert_eq!(c.tokens(), 100_000);
         assert_eq!(c.model.as_deref(), Some("claude-opus-5"));
+        assert_eq!(c.total_tokens(), Some(240_000));
+        assert_eq!(c.cached_tokens(), Some(180_000));
+    }
+
+    /// The chip is short enough to read at a glance without inventing a rule for vendors whose
+    /// ids do not share Claude's shape.
+    #[test]
+    fn only_claude_ids_are_shortened_to_their_family() {
+        assert_eq!(
+            short_model_label("Claude Code", "claude-haiku-4-5-20251001"),
+            "haiku"
+        );
+        assert_eq!(
+            short_model_label("Claude Code", "opus"),
+            "opus",
+            "nothing to cut on"
+        );
+        assert_eq!(
+            short_model_label("Codex", "gpt-5-codex"),
+            "gpt-5-codex",
+            "another harness's id is its own"
+        );
     }
 
     #[test]

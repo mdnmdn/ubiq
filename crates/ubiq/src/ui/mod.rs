@@ -32,6 +32,7 @@ pub mod search;
 pub mod settings;
 pub mod shell;
 pub mod sink;
+pub mod stats;
 pub mod status_bar;
 pub mod terminal;
 pub mod titlebar;

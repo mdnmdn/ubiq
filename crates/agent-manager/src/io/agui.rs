@@ -259,6 +259,8 @@ mod tests {
                 size: 2,
                 cost: None,
                 model: None,
+                total_tokens: None,
+                cached_tokens: None,
             }),
             None
         );

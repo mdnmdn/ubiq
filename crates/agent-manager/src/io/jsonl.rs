@@ -68,6 +68,12 @@ use super::{
 /// killing".
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// One event, and the stdout line that produced it where there was one.
+///
+/// A line maps to several events, so the line is shared rather than copied — each event carries a
+/// handle onto the same text. A prompt this bridge synthesizes locally has no line at all.
+type Framed = (AgentEvent, Option<Arc<str>>);
+
 /// A live bridge to a Claude Code process speaking `stream-json` on
 /// stdin/stdout (`-p --output-format stream-json --input-format
 /// stream-json`).
@@ -80,10 +86,10 @@ pub struct JsonlBridge {
     /// clone hold one for as long as the bridge itself lives, so a plain
     /// `AgentEvent` channel would never see `RecvError` once the process
     /// actually exited.
-    events: mpsc::Receiver<Option<AgentEvent>>,
+    events: mpsc::Receiver<Option<Framed>>,
     /// A second handle onto the reader thread's channel, so [`write_input`]
     /// can push a locally-synthesized event — see its doc comment.
-    tx: mpsc::Sender<Option<AgentEvent>>,
+    tx: mpsc::Sender<Option<Framed>>,
     reader: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -91,7 +97,7 @@ pub struct JsonlBridge {
 /// on one thread and prompting from another. See [`AgentInputSink`].
 pub struct JsonlInput {
     stdin: Arc<Mutex<Option<ChildStdin>>>,
-    tx: mpsc::Sender<Option<AgentEvent>>,
+    tx: mpsc::Sender<Option<Framed>>,
 }
 
 impl AgentInputSink for JsonlInput {
@@ -139,8 +145,12 @@ impl IoBridge for JsonlBridge {
     }
 
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>> {
+        Ok(self.next_event_raw()?.map(|(event, _)| event))
+    }
+
+    fn next_event_raw(&mut self) -> crate::Result<Option<(AgentEvent, Option<String>)>> {
         match self.events.recv() {
-            Ok(Some(ev)) => Ok(Some(ev)),
+            Ok(Some((ev, raw))) => Ok(Some((ev, raw.map(|line| line.to_string())))),
             // The reader thread's explicit "done".
             Ok(None) => Ok(None),
             // Every sender clone dropped without one ever sending `None` —
@@ -197,7 +207,7 @@ impl Drop for JsonlBridge {
 /// the same shape as one sent from the owner's.
 fn write_input(
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
-    tx: &mpsc::Sender<Option<AgentEvent>>,
+    tx: &mpsc::Sender<Option<Framed>>,
     input: AgentInput,
 ) -> crate::Result<()> {
     match input {
@@ -223,10 +233,13 @@ fn write_input(
             // the moment the line actually reaches stdin, rather than
             // waiting on an echo that this mode never sends.
             for text in content.iter().filter_map(Content::as_text) {
-                let _ = tx.send(Some(AgentEvent::UserMessageChunk {
-                    content: Content::text(text),
-                    message_id: None,
-                }));
+                let _ = tx.send(Some((
+                    AgentEvent::UserMessageChunk {
+                        content: Content::text(text),
+                        message_id: None,
+                    },
+                    None,
+                )));
             }
             Ok(())
         }
@@ -273,7 +286,7 @@ fn write_input(
 fn read_loop(
     stdout: ChildStdout,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
-    tx: mpsc::Sender<Option<AgentEvent>>,
+    tx: mpsc::Sender<Option<Framed>>,
 ) {
     read_stream(stdout, &stdin, &tx);
     // The reader thread is about to end no matter which path above got it
@@ -285,7 +298,7 @@ fn read_loop(
 fn read_stream(
     stdout: ChildStdout,
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
-    tx: &mpsc::Sender<Option<AgentEvent>>,
+    tx: &mpsc::Sender<Option<Framed>>,
 ) {
     let reader = BufReader::new(stdout);
     let mut mapper = Mapper::default();
@@ -307,9 +320,10 @@ fn read_stream(
             .flatten()
             .map(str::to_string);
 
+        let raw: Arc<str> = Arc::from(line);
         for ev in mapper.map_event(&value) {
             tracing::debug!(event = ?ev, "claude event");
-            if tx.send(Some(ev)).is_err() {
+            if tx.send(Some((ev, Some(Arc::clone(&raw))))).is_err() {
                 // No one is listening anymore.
                 return;
             }
@@ -432,15 +446,16 @@ impl Mapper {
         let size = *self.windows.get(model)?;
 
         let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
-        let used = field("input_tokens")
-            + field("cache_read_input_tokens")
-            + field("cache_creation_input_tokens");
+        let cached = field("cache_read_input_tokens") + field("cache_creation_input_tokens");
+        let used = field("input_tokens") + cached;
 
         Some(AgentEvent::UsageUpdate {
             used,
             size,
             cost: None,
             model: Some(model.to_string()),
+            total_tokens: Some(used + field("output_tokens")),
+            cached_tokens: Some(cached),
         })
     }
 
@@ -499,32 +514,36 @@ impl Mapper {
                 size: 0,
                 cost: Some(cost),
                 model: None,
+                total_tokens: None,
+                cached_tokens: None,
             });
         };
 
         // Report the model that did the most work — a turn that fell back to
         // a small model for one call should still show the main model's ring.
-        let mut best: Option<(String, u64, u64)> = None;
+        let mut best: Option<(String, u64, u64, u64, u64)> = None;
         for (model, usage) in model_usage {
             let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
             let window = field("contextWindow");
             if window > 0 {
                 self.windows.insert(model.clone(), window);
             }
-            let used = field("inputTokens")
-                + field("cacheReadInputTokens")
-                + field("cacheCreationInputTokens");
-            if best.as_ref().is_none_or(|(_, b, _)| used > *b) {
-                best = Some((model.clone(), used, window));
+            let cached = field("cacheReadInputTokens") + field("cacheCreationInputTokens");
+            let used = field("inputTokens") + cached;
+            let total = used + field("outputTokens");
+            if best.as_ref().is_none_or(|(_, b, ..)| used > *b) {
+                best = Some((model.clone(), used, window, total, cached));
             }
         }
 
-        let (model, used, size) = best?;
+        let (model, used, size, total, cached) = best?;
         Some(AgentEvent::UsageUpdate {
             used,
             size,
             cost,
             model: Some(model),
+            total_tokens: Some(total),
+            cached_tokens: Some(cached),
         })
     }
 }
@@ -995,6 +1014,8 @@ mod tests {
                     currency: "USD".to_string(),
                 }),
                 model: Some("claude-opus-5".to_string()),
+                total_tokens: Some(1020),
+                cached_tokens: Some(900),
             }
         );
         assert_eq!(
@@ -1031,6 +1052,8 @@ mod tests {
                 size: 200_000,
                 cost: None,
                 model: Some("claude-opus-5".to_string()),
+                total_tokens: Some(100),
+                cached_tokens: Some(90),
             }
         );
     }

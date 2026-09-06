@@ -19,6 +19,9 @@
 
 use std::collections::HashMap;
 
+use gpui::ScrollHandle;
+use ubiq_proto::work::AgentId;
+
 use crate::state::editor::{FileLanguage, ViewLayout, ViewerKind};
 use crate::state::file_picker::{
     Commit, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest, PickerView,
@@ -37,10 +40,11 @@ pub enum SinkSection {
     Files,
     Settings,
     Project,
+    Messages,
 }
 
 impl SinkSection {
-    /// The eight, in the order the strip draws them.
+    /// The nine, in the order the strip draws them.
     pub fn all() -> &'static [SinkSection] {
         &[
             SinkSection::Editor,
@@ -51,6 +55,7 @@ impl SinkSection {
             SinkSection::Files,
             SinkSection::Settings,
             SinkSection::Project,
+            SinkSection::Messages,
         ]
     }
 
@@ -71,7 +76,7 @@ impl SinkSection {
 }
 
 /// The tab and the line under the title, one row per [`SinkSection`], in variant order.
-const SECTION_COPY: [(&str, &str); 8] = [
+const SECTION_COPY: [(&str, &str); 9] = [
     (
         "Editor",
         "The plain buffer: highlighting, line numbers, folding.",
@@ -100,6 +105,10 @@ const SECTION_COPY: [(&str, &str); 8] = [
     (
         "Project",
         "Project settings: the dialog with a nav, a form and a footer.",
+    ),
+    (
+        "Messages",
+        "One live conversation, beside the bus traffic behind it.",
     ),
 ];
 
@@ -847,6 +856,9 @@ pub struct SinkState {
     pub settings: SettingsDemo,
     /// Project settings: the dialog's nav and the colour swatch.
     pub project: ProjectDemo,
+    /// The messages page: which conversation is on the left, and what the tape on the right is
+    /// showing.
+    pub messages: MessagesDemo,
 }
 
 impl Default for SinkState {
@@ -864,6 +876,7 @@ impl Default for SinkState {
             picker: PickerDemo::default(),
             settings: SettingsDemo::default(),
             project: ProjectDemo::default(),
+            messages: MessagesDemo::default(),
         }
     }
 }
@@ -896,6 +909,55 @@ impl SinkState {
     /// What the meter draws.
     pub fn fraction(&self) -> f32 {
         self.level as f32 / 100.0
+    }
+}
+
+/// The messages page's own state: one live conversation beside the bus tape.
+///
+/// The sink has no project, so the conversation is picked out of whatever the window happens to
+/// hold rather than looked up in one. The tape itself is process-wide and lives in
+/// [`ubiq_proto::bus`]; nothing of it is copied here — only what is being looked at.
+pub struct MessagesDemo {
+    /// Which conversation the left half draws. `None` is "the first one there is", so a window
+    /// that starts an agent while this page is open fills in without a click.
+    pub agent: Option<AgentId>,
+    /// What the viewer under the list shows: the harness's own original line when true, the bus
+    /// message when false. Side by side they do not fit, so it is a toggle rather than a column.
+    pub original: bool,
+    /// The entry the viewer is reading, by sequence number. The list picks it; nothing expands in
+    /// place, because a formatted message is taller than any row a list can keep.
+    pub selected: Option<u64>,
+    /// Whether the tail stays in view as entries arrive.
+    pub follow: bool,
+    pub scroll: ScrollHandle,
+    /// The viewer's own scroll, kept apart from the list's: reading down a long message must not
+    /// move the row that chose it.
+    pub body_scroll: ScrollHandle,
+    /// Whether the next conversation the New agent menu starts is this page's to read. Set by the
+    /// bench's own *New chat*, taken in `pick_new_agent_menu` — the chat tabs' `pending_chat_attach`
+    /// with a different owner.
+    pub pending_attach: bool,
+    /// Where the last dump landed, until the next one. A path rather than a note: it is what the
+    /// reader takes to a shell.
+    pub dumped: Option<String>,
+    /// Whether the tape's nudges are already being listened to. The subscription is lazy — the
+    /// page is a debug bench and most windows never open it — and started exactly once.
+    pub subscribed: bool,
+}
+
+impl Default for MessagesDemo {
+    fn default() -> Self {
+        Self {
+            agent: None,
+            original: false,
+            selected: None,
+            follow: true,
+            scroll: ScrollHandle::new(),
+            body_scroll: ScrollHandle::new(),
+            pending_attach: false,
+            dumped: None,
+            subscribed: false,
+        }
     }
 }
 

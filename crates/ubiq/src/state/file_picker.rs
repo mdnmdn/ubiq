@@ -16,6 +16,10 @@
 
 use std::collections::HashSet;
 
+use ubiq_proto::work::AgentId;
+
+use crate::state::explorer::{FileNode, NodeKind};
+
 /// What the picker hands back.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PickKind {
@@ -76,10 +80,16 @@ pub enum Commit {
 /// Who raised the picker, and therefore who is owed what comes back.
 ///
 /// The dialog itself belongs to the window, so the answer has to be routed rather than returned.
-/// One variant today, because one screen asks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PickerOwner {
     Sink,
+    /// A conversation's composer, asking for files to mention. It is answered by writing into the
+    /// window's pooled composer field, so the answer needs both which conversation asked and which
+    /// slot it types into.
+    Composer {
+        agent: AgentId,
+        slot: usize,
+    },
 }
 
 /// Everything a caller says when it raises a picker.
@@ -193,6 +203,29 @@ impl PickerNode {
     pub fn children(&self) -> &[PickerNode] {
         self.children.as_deref().unwrap_or(&[])
     }
+}
+
+/// The explorer's tree as a picker forest.
+///
+/// **Only what the explorer has already listed is in it.** The tree is filled folder by folder as
+/// the host answers, so a folder nobody has expanded arrives here empty and the dialog offers
+/// nothing under it. That is honest rather than complete: this reads the window's own tree and
+/// asks the host for nothing, and a folder the user opens in the explorer is in the next picker
+/// they raise.
+pub fn forest_from_explorer(nodes: &[FileNode]) -> Vec<PickerNode> {
+    nodes
+        .iter()
+        .map(|node| PickerNode {
+            name: node.name.clone(),
+            path: node.path.clone(),
+            // The explorer carries no size, and a zero would read as an empty file.
+            size: None,
+            children: match &node.kind {
+                NodeKind::Dir { children, .. } => Some(forest_from_explorer(children)),
+                NodeKind::File => None,
+            },
+        })
+        .collect()
 }
 
 /// One visible line, already arranged for whichever view is on screen.

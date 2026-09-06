@@ -144,6 +144,10 @@ impl AppState {
         // project's text has to be written into them.
         self.refill_columns = true;
         self.workbench.rail_mode = view.rail_mode;
+        // Entering a project restores its mode without going through `set_rail_mode`, so a project
+        // left in Control would come back to a screen of em dashes until the user touched a tab.
+        // Asking here is what makes the restored screen say something.
+        self.poll_stats(cx);
         // The arrangement is the mode's own: whichever mode this project was left in is the one
         // whose window comes back. A mode this project never arranged opens on that mode's
         // defaults, regions and all — the same answer a mode switch gives — because otherwise a
@@ -306,6 +310,11 @@ impl AppState {
                 open.prefs.rail_mode = mode;
             }
             self.store_prefs(project);
+        }
+        // Control is the one screen that has to ask for what it draws, and it only asks while it
+        // is up. Starting the loop here is what makes entering the mode the thing that starts it.
+        if mode == RailMode::Control {
+            self.poll_stats(cx);
         }
         cx.notify();
     }

@@ -22,8 +22,8 @@ use crate::state::settings::SettingsState;
 use crate::state::sink::ColourField;
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and `Sink` are
-/// built; the rest render an empty page.
+/// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and
+/// `Sink` are built; the rest render an empty page.
 ///
 /// `Agents` and `Orchestration` are two screens over the same records, and the split is the point.
 /// `Agents` is where the user *talks to* the agents — parallel columns, one conversation each.
@@ -62,10 +62,12 @@ impl RailMode {
         }
     }
 
-    /// The one-line note the empty page shows for a mode that is not built yet.
+    /// The one-line note the empty page shows for a mode that is not built yet. `Control` keeps
+    /// one because the rail's tooltip prints it too, and it now says what the screen actually
+    /// draws rather than what it was going to.
     pub fn note(self) -> &'static str {
         match self {
-            RailMode::Control => "Sessions, workspaces and the agents running in them.",
+            RailMode::Control => "What this Ubiq is doing, and what its agents have spent.",
             RailMode::Ide => "",
             RailMode::Git => "What version control knows about this project.",
             RailMode::Agents => "The agents running in this project, one column each.",

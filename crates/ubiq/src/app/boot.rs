@@ -348,7 +348,10 @@ impl AppState {
                         }
                         cx.notify();
                     }
-                    InputEvent::PressEnter { shift: false, .. } => {
+                    // Enter sends, shift+Enter breaks the line, and cmd/ctrl+Enter sends
+                    // whatever shift is doing — the third is what a composer that swallows Enter
+                    // is reached by.
+                    InputEvent::PressEnter { secondary, shift } if !*shift || *secondary => {
                         this.steer_column(slot, window, cx)
                     }
                     _ => {}
@@ -760,6 +763,7 @@ impl AppState {
             workbench: WorkbenchState::default(),
             pending_chat_attach: None,
             sink: SinkState::default(),
+            stats: StatsState::default(),
             file_picker: None,
             navigator: None,
             logs: LogState::default(),
@@ -776,6 +780,7 @@ impl AppState {
             vim_focus: None,
             agent_input,
             column_inputs,
+            transcript_scrolls: (0..COMPOSER_SLOTS).map(|_| Default::default()).collect(),
             file_filter,
             file_name,
             git_search,

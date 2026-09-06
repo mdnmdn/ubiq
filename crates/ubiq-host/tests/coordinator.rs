@@ -1394,6 +1394,7 @@ fn expect_config_options(ui: &Client, agent_id: AgentId, expected_seq: u64) -> V
                 agent_id: id,
                 seq,
                 update,
+                ..
             }) if id == agent_id => {
                 assert_eq!(
                     seq, expected_seq,

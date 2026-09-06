@@ -1,8 +1,146 @@
 use super::*;
 
+use ubiq_proto::work::AgentId;
+
+use crate::state::conversation::Conversation;
+
 impl AppState {
     pub fn set_sink_section(&mut self, section: SinkSection, cx: &mut Context<Self>) {
         self.sink.section = section;
+        if section == SinkSection::Messages {
+            self.watch_tape(cx);
+        }
+        cx.notify();
+    }
+
+    /// Start listening to the bus tape, once, the first time the messages page is opened.
+    ///
+    /// The log console is nudged from `boot.rs` because every window has one; this page is a
+    /// bench almost no window opens, so it pays for its own subscription when it is first looked
+    /// at. The loop is the console's: a nudge carries nothing, a burst coalesces into one redraw,
+    /// and the timer keeps an entry emitted while drawing from redrawing its own frame forever.
+    fn watch_tape(&mut self, cx: &mut Context<Self>) {
+        if self.sink.messages.subscribed {
+            return;
+        }
+        self.sink.messages.subscribed = true;
+        let nudges = ubiq_proto::bus::tape().subscribe();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            while nudges.recv_async().await.is_ok() {
+                while nudges.try_recv().is_ok() {}
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(120))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
+    /// Every conversation the window holds, across every open project, as `(id, name)`. The sink
+    /// has no project of its own, so this is where its chat half gets something to draw.
+    pub fn sink_conversations(&self) -> Vec<(AgentId, String)> {
+        let mut all: Vec<(AgentId, String)> = self
+            .projects
+            .values()
+            .flat_map(|open| open.conversations.values())
+            .map(|conversation| {
+                (
+                    conversation.id,
+                    conversation
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| conversation.harness.clone()),
+                )
+            })
+            .collect();
+        // A map has no order and the pill row must not shuffle between frames.
+        all.sort_by(|left, right| left.1.cmp(&right.1).then(left.0.cmp(&right.0)));
+        all
+    }
+
+    /// One of them, with the composer slot its surface types into. The slot comes from its own
+    /// project's chat pool — the sink is one more surface borrowing a free chat slot, which is
+    /// exactly what a chat tab does.
+    pub fn sink_conversation(&self, agent: AgentId) -> Option<&Conversation> {
+        self.projects
+            .values()
+            .find_map(|open| open.conversations.get(&agent))
+    }
+
+    /// The conversation the bench is reading: the one it was pointed at while that one still
+    /// exists, and otherwise the first there is — so a window that starts an agent while the page
+    /// is open fills in without a click, and one whose agent ended does not go blank.
+    ///
+    /// One answer, read by the page *and* by `agent_for_slot`, so the composer can never send to a
+    /// conversation other than the one on screen.
+    pub fn sink_agent(&self) -> Option<AgentId> {
+        let held = |agent: &AgentId| {
+            self.projects
+                .values()
+                .any(|open| open.conversations.contains_key(agent))
+        };
+        self.sink
+            .messages
+            .agent
+            .filter(held)
+            .or_else(|| self.sink_conversations().first().map(|(id, _)| *id))
+    }
+
+    /// Start a conversation from the bench, through the same New agent menu the agents screen
+    /// raises — and read it here when it arrives.
+    pub fn start_sink_chat(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        self.sink.messages.pending_attach = true;
+        self.open_new_agent_menu(at, cx);
+    }
+
+    pub fn set_sink_conversation(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        self.sink.messages.agent = Some(agent);
+        cx.notify();
+    }
+
+    /// Which body the tape shows: the harness's original line, or the bus message.
+    pub fn set_sink_message_original(&mut self, original: bool, cx: &mut Context<Self>) {
+        self.sink.messages.original = original;
+        cx.notify();
+    }
+
+    /// Read one entry in the viewer under the list. Picking the one already up puts it away, so
+    /// the list can be read with nothing selected.
+    pub fn select_sink_message(&mut self, seq: u64, cx: &mut Context<Self>) {
+        self.sink.messages.selected = match self.sink.messages.selected {
+            Some(open) if open == seq => None,
+            _ => Some(seq),
+        };
+        cx.notify();
+    }
+
+    pub fn toggle_sink_message_follow(&mut self, cx: &mut Context<Self>) {
+        self.sink.messages.follow = !self.sink.messages.follow;
+        cx.notify();
+    }
+
+    /// Write the ring to a file, and keep the path where the toolbar can show it. The tape names
+    /// the folder — `UBIQ_TAPE_DIR`, or the machine's temporary one — because a path is the
+    /// coordinator's business and not the window's.
+    pub fn dump_sink_messages(&mut self, cx: &mut Context<Self>) {
+        self.sink.messages.dumped = match ubiq_proto::bus::tape().dump() {
+            Ok(path) => {
+                let path = path.display().to_string();
+                tracing::info!(%path, "bus tape dumped");
+                Some(path)
+            }
+            Err(error) => Some(format!("dump failed: {error}")),
+        };
+        cx.notify();
+    }
+
+    pub fn clear_sink_messages(&mut self, cx: &mut Context<Self>) {
+        ubiq_proto::bus::tape().clear();
+        self.sink.messages.selected = None;
+        self.sink.messages.dumped = None;
         cx.notify();
     }
 

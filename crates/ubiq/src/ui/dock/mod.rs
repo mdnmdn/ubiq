@@ -50,7 +50,7 @@ use crate::state::editor::ViewLayout;
 use crate::theme;
 use crate::ui::{
     agents, board, chat, editor, empty, explorer, git, logs, orchestration, outline, rail, search,
-    sink, terminal,
+    sink, stats, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -540,9 +540,10 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
         }
         RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
         // The two modes that are about the application rather than a project answer whether or
-        // not one is open: the sink draws its own fixtures, and Control says what it will hold.
+        // not one is open: the sink draws its own fixtures, and Control reports on the host, which
+        // is running whether or not this window has a folder open.
         RailMode::Sink => sink::render(app, window, cx),
-        RailMode::Control => not_built(RailMode::Control),
+        RailMode::Control => stats::render(app, cx),
         // Every other mode is a project's, as the rail says by putting them under `PROJECT`. With
         // none open there is no work to draw, so they say what the editor says.
         _ if !has_project => empty::no_project(cx),

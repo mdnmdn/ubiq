@@ -49,7 +49,12 @@ impl AppState {
     ///
     /// Answering `false` is what hands the key back: `left` and `right` mean nothing in the flat
     /// list, and the caller propagates so the filter field gets its caret keys back.
-    pub fn press_picker_key(&mut self, key: PickerKey, cx: &mut Context<Self>) -> bool {
+    pub fn press_picker_key(
+        &mut self,
+        key: PickerKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(picker) = self.file_picker.as_mut() else {
             return false;
         };
@@ -67,11 +72,11 @@ impl AppState {
                 true
             }
             Pressed::Commit => {
-                self.commit_file_picker(cx);
+                self.commit_file_picker(window, cx);
                 true
             }
             Pressed::Dismiss => {
-                self.cancel_file_picker(cx);
+                self.cancel_file_picker(window, cx);
                 true
             }
         }
@@ -93,19 +98,19 @@ impl AppState {
 
     /// What a click on a row does, which the picker itself decides: a folder that cannot be picked
     /// opens, and a pick that was asked to be final closes the dialog on the spot.
-    pub fn click_picker_row(&mut self, path: String, cx: &mut Context<Self>) {
+    pub fn click_picker_row(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(picker) = self.file_picker.as_mut() else {
             return;
         };
         if picker.click(&path) {
-            self.commit_file_picker(cx);
+            self.commit_file_picker(window, cx);
             return;
         }
         cx.notify();
     }
 
     /// Hand what was chosen to whoever asked for it, and take the dialog down.
-    pub fn commit_file_picker(&mut self, cx: &mut Context<Self>) {
+    pub fn commit_file_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(picker) = self.file_picker.take() else {
             return;
         };
@@ -115,13 +120,72 @@ impl AppState {
                 self.sink.picker.result = Some(picked);
                 self.sink.picker.dismissed = false;
             }
+            // What a composer asked for arrives as mentions appended to whatever is already
+            // typed: the picker adds to the prompt rather than replacing it, because the sentence
+            // around the paths is usually written first.
+            PickerOwner::Composer { slot, .. } => self.mention_files(slot, &picked, window, cx),
         }
         cx.notify();
     }
 
+    /// Raise the picker over the open project's explorer tree, to be answered into one composer.
+    ///
+    /// Nothing happens with no project open: there is no tree to choose from, and an empty dialog
+    /// would say the project has no files rather than that none have been listed.
+    pub fn raise_composer_picker(
+        &mut self,
+        agent: AgentId,
+        slot: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let forest = self
+            .explorer(cx)
+            .map(|explorer| crate::state::file_picker::forest_from_explorer(&explorer.root))
+            .unwrap_or_default();
+        if forest.is_empty() {
+            return;
+        }
+        let request = crate::state::file_picker::PickerRequest::new(
+            PickerOwner::Composer { agent, slot },
+            "Attach files to the prompt",
+        );
+        self.open_file_picker(request, forest, PickerView::Tree, window, cx);
+    }
+
+    /// Append what was picked to a composer as `@path` mentions, space separated — the one path
+    /// shape the interface holds, and the shape every harness reads a file reference in.
+    fn mention_files(
+        &mut self,
+        slot: usize,
+        picked: &[String],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if picked.is_empty() {
+            return;
+        }
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return;
+        };
+        input.update(cx, |state, cx| {
+            let mut text = state.value().to_string();
+            if !text.is_empty() && !text.ends_with(char::is_whitespace) {
+                text.push(' ');
+            }
+            for path in picked {
+                text.push('@');
+                text.push_str(path);
+                text.push(' ');
+            }
+            state.set_value(text, window, cx);
+            state.focus(window, cx);
+        });
+    }
+
     /// Take the dialog down with nothing chosen. Dismissed is not the same answer as an empty one,
     /// so whoever asked is told which it was.
-    pub fn cancel_file_picker(&mut self, cx: &mut Context<Self>) {
+    pub fn cancel_file_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(picker) = self.file_picker.take() else {
             return;
         };
@@ -129,6 +193,13 @@ impl AppState {
             PickerOwner::Sink => {
                 self.sink.picker.result = None;
                 self.sink.picker.dismissed = true;
+            }
+            // Nothing to write back: a composer that was not answered keeps what it already had.
+            // The keyboard goes back to it, which is where it was before the dialog took it.
+            PickerOwner::Composer { slot, .. } => {
+                if let Some(input) = self.column_inputs.get(slot).cloned() {
+                    input.update(cx, |state, cx| state.focus(window, cx));
+                }
             }
         }
         cx.notify();

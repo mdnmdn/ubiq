@@ -14,9 +14,10 @@
 //! harness echoes it back — an interface that draws its own half of a conversation is inventing
 //! the other half too.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
-    Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point, px,
+    AnyElement, App, ClickEvent, Context, ElementId, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
@@ -27,12 +28,14 @@ use ubiq_proto::work::{Activity, AgentId};
 
 use crate::app::AppState;
 use crate::state::MenuId;
-use crate::state::conversation::{ConvBlock, Conversation, Pending, QueuedMessage, Run};
+use crate::state::conversation::{
+    ConvBlock, Conversation, Pending, QueuedMessage, Run, short_model_label,
+};
 use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
-    ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, field,
-    ghost_button, mono, pill, progress_ring, state_chip, status_dot,
+    ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, ghost_button,
+    icon_button, mono, pill, progress_ring, status_dot,
 };
 use crate::ui::work::activity_colour;
 use crate::ui::{handler, indexed};
@@ -73,7 +76,7 @@ pub fn render(
     if view.header {
         root = root.child(lifecycle_header(app, conversation, &view, cx));
     }
-    root = root.child(transcript(conversation, &view, cx));
+    root = root.child(transcript(app, conversation, &view, cx));
 
     if let Some(pending) = &conversation.pending {
         root = root.child(permission(id, pending, &view, cx));
@@ -98,11 +101,22 @@ pub fn render(
                 .child(mono(error.clone(), theme::text()).text_size(px(11.5))),
         );
     }
-    if view.footer {
-        root = root.child(footer(conversation));
-    }
-    if view.composer {
-        root = root.child(composer(app, conversation, &view, window, cx));
+    // One rule, above both. The footer and the composer are one block at the bottom of the view
+    // — not two boxes — so the separator belongs to the block rather than to either half.
+    if view.footer || view.composer {
+        let mut bottom = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .border_t_1()
+            .border_color(theme::border());
+        if view.footer {
+            bottom = bottom.child(footer(conversation, &view));
+        }
+        if view.composer {
+            bottom = bottom.child(composer(app, conversation, &view, window, cx));
+        }
+        root = root.child(bottom);
     }
 
     // Delete is destructive and irreversible — the run directory and its seeded credentials go
@@ -335,8 +349,28 @@ fn lifecycle_colour(state: Lifecycle) -> Rgba {
     }
 }
 
-/// What has been said, oldest first.
+/// A cheap reading of the transcript's tail: how many blocks there are, and how long the last one
+/// is.
+///
+/// A streaming chunk lengthens the last block, so this moves on every token without hashing the
+/// whole transcript once a frame — and it does *not* move when nothing was said, which is what
+/// lets [`transcript`] follow the tail without dragging a reader who scrolled up back down.
+fn tail_signature(conversation: &Conversation) -> u64 {
+    let tail = match conversation.blocks.last() {
+        Some(ConvBlock::User(text) | ConvBlock::Agent(text) | ConvBlock::Thought(text)) => {
+            text.len()
+        }
+        Some(ConvBlock::Tool { call, open }) => {
+            call.title.len() + call.content.len() + usize::from(*open)
+        }
+        None => 0,
+    };
+    (conversation.blocks.len() as u64).wrapping_mul(1_000_003) ^ tail as u64
+}
+
+/// What has been said, oldest first — and, when anything new has landed, scrolled to.
 fn transcript(
+    app: &AppState,
     conversation: &Conversation,
     view: &ConversationView,
     cx: &mut Context<AppState>,
@@ -360,7 +394,7 @@ fn transcript(
         })
         .collect();
 
-    div()
+    let mut root = div()
         .id(view.eid("transcript"))
         .flex()
         .flex_col()
@@ -371,17 +405,30 @@ fn transcript(
         .gap_2()
         .text_size(px(13.5))
         .text_color(theme::text())
-        .overflow_y_scroll()
-        .children(if blocks.is_empty() {
-            vec![
-                mono("nothing said yet", theme::text_faint())
-                    .text_size(px(11.5))
-                    .into_any_element(),
-            ]
-        } else {
-            blocks
-        })
-        .into_any_element()
+        .overflow_y_scroll();
+
+    // Follow the tail, and only the tail: the handle is scrolled down when the signature it last
+    // followed has changed, so a quiet conversation the reader has scrolled up in stays where they
+    // put it.
+    if let Some((handle, followed)) = app.transcript_scrolls.get(view.slot) {
+        let signature = tail_signature(conversation);
+        if followed.get() != signature {
+            followed.set(signature);
+            handle.scroll_to_bottom();
+        }
+        root = root.track_scroll(handle);
+    }
+
+    root.children(if blocks.is_empty() {
+        vec![
+            mono("nothing said yet", theme::text_faint())
+                .text_size(px(11.5))
+                .into_any_element(),
+        ]
+    } else {
+        blocks
+    })
+    .into_any_element()
 }
 
 /// What the user said sits in the accent, the way every other surface in the window draws a turn
@@ -680,12 +727,48 @@ fn permission(
         .into_any_element()
 }
 
-/// What the harness said about itself: which one it is, which model, what the turn has cost, and
-/// how much of the context window is gone.
+/// A short label with the whole of itself on hover — the shape every readout in the footer and
+/// the composer's picker row takes, because the row has space for a mark and none for a number.
+fn tipped(id: ElementId, label: String, tip: String, colour: Rgba) -> AnyElement {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .child(mono(label, colour).text_size(px(11.)))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+        })
+        .into_any_element()
+}
+
+/// What the harness said about itself: which one it is and as whom, what it has spent, and how much
+/// of the context window is gone.
+///
+/// **No numbers in the row that a mark can carry.** The money and the rate-limit windows are gone
+/// outright, and what is left says the least it can on screen and the whole of it on hover — the
+/// footer is glanced at, not read. What a turn *runs as* is not here at all any more: the model,
+/// the thinking level and the mode are the composer's own pickers, live for the conversation's
+/// whole life, and a read-only pill beside them would be the same fact drawn twice.
 ///
 /// The ring is drawn only where a window was reported. A percentage of a size nobody named is a
 /// wrong ring, and a wrong ring is worse than none.
-fn footer(conversation: &Conversation) -> AnyElement {
+fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
+    // Which harness, and which identity answered — one chip, because they are one answer: this
+    // conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
+    // once, in the New agent menu, because a turn already taken was taken as somebody.
+    let (identity, identity_tip) = if conversation.account.is_empty() {
+        (
+            HARNESS_GLYPH.to_string(),
+            format!("{} \u{2014} no account", conversation.harness),
+        )
+    } else {
+        (
+            format!("{HARNESS_GLYPH} {}", conversation.account),
+            format!("{} \u{b7} {}", conversation.harness, conversation.account),
+        )
+    };
+
     let mut row = div()
         .px_3()
         .py_1p5()
@@ -693,54 +776,59 @@ fn footer(conversation: &Conversation) -> AnyElement {
         .flex_none()
         .items_center()
         .gap_1p5()
-        .border_t_1()
-        .border_color(theme::border())
         .child(
             pill(theme::accent())
                 .h(px(22.))
                 .px_2()
-                .child(mono(HARNESS_GLYPH, theme::text()).text_size(px(11.))),
-        );
+                .id(view.eid("identity"))
+                .child(mono(identity, theme::text()).text_size(px(11.)))
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(identity_tip.clone()).build(window, cx)
+                }),
+        )
+        .child(div().flex_1().min_w(px(0.)));
 
-    // Which identity answered. Read-only by design: it is chosen once, in the New agent menu,
-    // because a turn already taken was taken as somebody. Drawn only when the run resolved one
-    // — an empty pill beside the harness would claim an identity that does not exist.
-    if !conversation.account.is_empty() {
-        row = row.child(
-            pill(theme::border())
-                .h(px(22.))
-                .px_2()
-                .child(mono(conversation.account.clone(), theme::text_muted()).text_size(px(11.))),
-        );
-    }
-    if let Some(model) = &conversation.model {
-        row = row.child(
-            pill(theme::border())
-                .h(px(22.))
-                .px_2()
-                .child(mono(model.clone(), theme::text()).text_size(px(11.))),
-        );
-    }
-    if let Some(mode) = &conversation.mode {
-        row = row.child(state_chip(mode.clone(), theme::info(), 1.0));
+    // Everything the conversation has spent, which is not what is in the window: a compacted
+    // conversation has spent millions and holds thousands. Drawn only where the harness counts it
+    // — a pill with nothing behind it is not drawn.
+    if let Some(total) = conversation.total_tokens() {
+        let tip = match conversation.cached_tokens() {
+            Some(cached) => format!("{total} tokens spent \u{b7} {cached} cached"),
+            None => format!("{total} tokens spent"),
+        };
+        row = row.child(tipped(
+            view.eid("total-tokens"),
+            format!("{:.1}K spent", total as f32 / 1000.0),
+            tip,
+            theme::text_muted(),
+        ));
     }
 
-    row = row.child(div().flex_1().min_w(px(0.)));
-
-    if let Some(cost) = conversation.cost_usd() {
-        row = row.child(mono(format!("${cost:.2}"), theme::text_muted()).text_size(px(11.)));
-    }
     if let Some(pct) = conversation.context_pct() {
-        row = row.child(progress_ring(pct, 12.)).child(
-            mono(
-                format!("{:.1}K ctx", conversation.tokens() as f32 / 1000.0),
-                theme::text_muted(),
+        let used = conversation.tokens();
+        let size = conversation.usage.as_ref().map_or(0, |usage| usage.size);
+        row = row
+            .child(
+                div()
+                    .id(view.eid("context-ring"))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .child(progress_ring(pct, 12.))
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(format!(
+                            "{used} of {size} tokens in context \u{b7} {pct}%"
+                        ))
+                        .build(window, cx)
+                    }),
             )
-            .text_size(px(11.)),
-        );
-    }
-    if let Some(pct) = conversation.rate_limit_five_hour_pct() {
-        row = row.child(mono(format!("5h {pct}%"), theme::text_muted()).text_size(px(11.)));
+            .child(
+                mono(
+                    format!("{:.1}K ctx", used as f32 / 1000.0),
+                    theme::text_muted(),
+                )
+                .text_size(px(11.)),
+            );
     }
 
     row.into_any_element()
@@ -809,6 +897,47 @@ pub fn config_choices(
 /// row reads left to right as "what to run as, how hard to think, which mode" every time.
 const CONFIG_ORDER: [&str; 3] = ["model", "thinking", "mode"];
 
+/// The composer's one action, drawn the way [`crate::ui::kit::primary_button`] draws a screen's
+/// one obvious action: filled, square, and the only solid block in the view.
+///
+/// Icon only. Send, Enqueue and Stop are one control in three states, and a word that changes
+/// width would move the button out from under the pointer as a turn starts; the word is the
+/// tooltip instead. Nothing to send drains the fill rather than removing the button, so the row
+/// never changes shape.
+fn action_button(
+    id: ElementId,
+    icon: IconName,
+    label: &'static str,
+    fill: Rgba,
+    enabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .size(px(26.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .bg(if enabled {
+            fill
+        } else {
+            theme::fade(fill, 0.35)
+        })
+        .child(
+            Icon::new(icon)
+                .with_size(Size::XSmall)
+                .text_color(theme::on_accent()),
+        )
+        .when(enabled, |this| {
+            this.cursor_pointer()
+                .hover(|this| this.bg(theme::fade(fill, 0.8)))
+                .on_click(on_click)
+        })
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(label).build(window, cx))
+        .into_any_element()
+}
+
 /// The field that steers this agent, and the Stop that interrupts it.
 fn composer(
     app: &AppState,
@@ -825,8 +954,6 @@ fn composer(
             .py_1p5()
             .flex()
             .flex_none()
-            .border_t_1()
-            .border_color(theme::border())
             .child(
                 mono(
                     "This agent has ended \u{2014} its transcript stays, and it takes no more turns.",
@@ -844,22 +971,31 @@ fn composer(
     let id = conversation.id;
     let slot = view.slot;
     let can_send = !input.read(cx).value().trim().is_empty();
-    let focused = input.read(cx).focus_handle(cx).is_focused(window);
     let working = conversation.run == Run::Working;
 
-    // Before the harness has launched, the composer offers a model picker instead of the
-    // read-only pill the footer draws once it has. It sits in the controls row *under* the field,
-    // beside Send, rather than in a strip above it: what a turn will run as belongs next to the
-    // control that starts it, and a row of its own pushed the field down for a chip. It never
-    // blocks typing — the user may send before discovery finishes, and the host then launches with
-    // the harness's own default.
-    let config_row = (!conversation.launched).then(|| {
+    // What this turn runs as, for the conversation's whole life rather than only before it
+    // launched: `SetAgentConfig` is answered by a running harness as readily as by a pending one,
+    // and a level nobody can see or change is a level nobody knows they are paying for. The row
+    // sits *under* the field, beside Send — what a turn will run as belongs next to the control
+    // that starts it — and never blocks typing: the user may send before discovery finishes, and
+    // the host then launches with the harness's own default.
+    let config_row = {
         let search = app.picker_search.read(cx).value().to_string();
         let search_focused = app
             .picker_search
             .read(cx)
             .focus_handle(cx)
             .is_focused(window);
+
+        // What the thinking picker currently says, read once: the model chip wears its first
+        // letter, so the two are never out of step.
+        let thinking = config_choices(conversation, "thinking", "").map(|row| row.label);
+        let letter = thinking.as_deref().and_then(|level| {
+            level
+                .chars()
+                .next()
+                .map(|first| first.to_uppercase().to_string())
+        });
 
         let pickers: Vec<AnyElement> = CONFIG_ORDER
             .iter()
@@ -874,7 +1010,29 @@ fn composer(
                 let row = config_choices(conversation, config_id, query)?;
                 let values = row.values;
                 let cid = config_id.to_string();
-                let mut picker = Picker::new(view.eid(&format!("{config_id}-picker")), row.label)
+
+                // The chip says the least that identifies the choice; the tooltip says the whole
+                // of it. A model id is `vendor-family-version-date` and a thinking level is a
+                // word, and neither fits a row that also has to hold a field.
+                let (label, tip) = match config_id {
+                    "model" => {
+                        let short = short_model_label(&conversation.harness, &row.label);
+                        match (&letter, &thinking) {
+                            (Some(letter), Some(level)) => (
+                                format!("{short} \u{b7} {letter}"),
+                                format!("{} \u{b7} {level} thinking", row.label),
+                            ),
+                            _ => (short, row.label.clone()),
+                        }
+                    }
+                    "thinking" => (
+                        letter.clone().unwrap_or_else(|| row.label.clone()),
+                        format!("{} thinking", row.label),
+                    ),
+                    _ => (row.label.clone(), row.label.clone()),
+                };
+
+                let mut picker = Picker::new(view.eid(&format!("{config_id}-picker")), label)
                     .style(PickerStyle::Chip)
                     .anchor(MENU_ANCHOR_UP)
                     .items(row.names)
@@ -899,10 +1057,14 @@ fn composer(
                     }));
                 Some(
                     div()
+                        .id(view.eid(&format!("{config_id}-chip")))
                         .flex()
                         .flex_none()
                         .items_center()
                         .child(picker)
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                        })
                         .into_any_element(),
                 )
             })
@@ -921,7 +1083,7 @@ fn composer(
                 .children(pickers)
                 .into_any_element()
         }
-    });
+    };
 
     // No keyboard hint. Enter, cmd/ctrl+Enter and shift+Enter are what every text field on the
     // machine already does, and a permanent line of shortcut text under every composer is furniture
@@ -933,7 +1095,24 @@ fn composer(
         .flex()
         .items_center()
         .gap_1p5()
-        .children(config_row)
+        .child(config_row)
+        // Files, as the harness reads a reference to one: `@path`, project-relative. The picker
+        // is the window's own, raised over the explorer's tree; with no project open there is no
+        // tree and the button does nothing.
+        .child(
+            icon_button(
+                view.eid("attach"),
+                IconName::Plus,
+                false,
+                cx.listener(move |this, _, window, cx| {
+                    this.raise_composer_picker(id, slot, window, cx)
+                }),
+            )
+            .size(px(26.))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Attach files").build(window, cx)
+            }),
+        )
         .child(div().flex_1().min_w(px(0.)));
 
     // One control, and which it is depends on the turn and the draft: idle sends, a running turn
@@ -941,39 +1120,39 @@ fn composer(
     // of writing into a harness mid-turn — the same three states the Enter key answers through
     // `AppState::send_or_enqueue`, so the button and the key never disagree.
     let action = if working && !can_send {
-        ghost_button(
+        action_button(
             view.eid("stop"),
-            Some(IconName::Close),
+            IconName::Close,
             "Stop",
+            theme::danger(),
+            true,
             cx.listener(move |this, _, _, cx| this.cancel_turn(id, cx)),
         )
-        .text_color(theme::danger())
     } else if working {
-        ghost_button(
+        action_button(
             view.eid("send"),
-            Some(IconName::Inbox),
+            IconName::Inbox,
             "Enqueue",
+            theme::accent(),
+            can_send,
             cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
         )
-        .text_color(theme::accent())
     } else {
-        ghost_button(
+        action_button(
             view.eid("send"),
-            Some(IconName::ArrowUp),
+            IconName::ArrowUp,
             "Send",
+            theme::accent(),
+            can_send,
             cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
         )
-        .text_color(if can_send {
-            theme::accent()
-        } else {
-            theme::text_faint()
-        })
     };
 
     // "Unloaded" is said once already — the glyph beside the three-dots menu, top left of the
     // view, with the word itself in its tooltip. A composer that also spelled it out in prose
     // would be saying the same fact twice, once as a mark and once as a sentence.
-    let field_el = field(theme::accent(), focused)
+    let field_el = div()
+        .flex()
         .flex_none()
         .flex_col()
         .items_stretch()

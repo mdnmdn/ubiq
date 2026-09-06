@@ -11,7 +11,7 @@
 //!
 //! Every mutator ends in `cx.notify()`. One that forgets is a panel that stops updating.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
@@ -47,6 +47,7 @@ use crate::state::settings::{
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
 };
+use crate::state::stats::{StatsState, StatsTab};
 use crate::state::viewport::{Content, Viewport};
 use crate::state::vim::VimState;
 use crate::state::work::WorkProjection;
@@ -443,6 +444,9 @@ pub struct AppState {
     /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
     /// the window rather than to a project, because the sink has no project behind it.
     pub sink: SinkState,
+    /// The Control screen's own state: which page is open, and the last reading the host sent. On
+    /// the window for the same reason the sink's is — the figures are the host's, not a project's.
+    pub stats: StatsState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
     /// The project search panel's state: query, options, results.
@@ -509,6 +513,14 @@ pub struct AppState {
     /// first frame, and a column borrows the slot it is given. `AgentsView::drafts` is the other
     /// half, indexed the same way.
     pub column_inputs: Vec<Entity<TextareaState>>,
+    /// One transcript scroll handle per composer slot, indexed exactly as `column_inputs` is, each
+    /// paired with the last transcript signature it followed to the bottom for.
+    ///
+    /// The signature is what keeps the follow from fighting the reader: the transcript scrolls
+    /// only when the conversation's tail actually moved, so scrolling up in a quiet conversation
+    /// stays where it was put. A [`Cell`] because `render` holds `&AppState` and there is no
+    /// mutable path to it from inside an element.
+    pub transcript_scrolls: Vec<(ScrollHandle, Cell<u64>)>,
     pub file_filter: Entity<InputState>,
     /// What a file dialog is typing into: a new path's name, a rename, or where an untitled buffer
     /// is to be saved. One field, because one dialog is up at a time.
@@ -663,6 +675,7 @@ mod projects;
 mod settings;
 mod shell;
 mod sink;
+mod stats;
 mod vim;
 mod wire;
 

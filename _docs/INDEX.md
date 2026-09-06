@@ -81,6 +81,7 @@ states the boundary once.
 | [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-05 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-05 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-05 |
+| [Stats](./features/stats.md) | The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not. | 2026-09-06 |
 | [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-06 |
 
 ### Tech
@@ -94,7 +95,7 @@ states the boundary once.
 | [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-06 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-09-04 |
-| [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-05 |
+| [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-06 |
 | [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, command-line, connector and repository families, the framing rules, and the procedure for adding a variant. | 2026-09-06 |
 | [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-05 |
 | [Version control](./tech/version-control.md) | How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-05 |
@@ -154,6 +155,7 @@ a link.
 | The diagram authoring format | `tech/diagram-format.md` |
 | Session and workspace lifecycle | `features/sessions-and-workspaces.md` |
 | Log subsystems, levels, the ring's capacity and the console | `features/logs.md` |
+| The host's readings, the usage meter's buckets and its schema | `features/stats.md` |
 | Focus, resize, layout modes, pane lifecycle | `features/panes-and-terminals.md` |
 | Product scope and non-goals | `product/overview.md` |
 | Vocabulary | `product/glossary.md` |
@@ -185,6 +187,7 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Changing the window layout, or what a window owns | `features/workbench.md`, then `tech/architecture.md` |
 | Changing the chat panel or a message renderer | `features/chat.md` |
 | Adding a log event, a subsystem, or changing the log console | `features/logs.md` |
+| Changing the Stats screen, what the host reports, or the usage meter | `features/stats.md`, then `tech/transport-contract.md` |
 | Launching a harness, or touching accounts, skills or MCP servers | `tech/agent-manager.md`, then that crate's own `_docs/` |
 | Adding a file and not knowing where it goes | `tech/project-structure.md` |
 | Adding a command | `tech/operations.md` |

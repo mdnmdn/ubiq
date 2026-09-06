@@ -17,6 +17,7 @@
 
 pub mod docs;
 pub mod files;
+pub mod messages;
 pub mod project;
 pub mod settings;
 pub mod style;
@@ -75,6 +76,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             SinkSection::Files => files::render(app, cx),
             SinkSection::Settings => settings::render(app, window, cx),
             SinkSection::Project => project::render(app, window, cx),
+            SinkSection::Messages => messages::render(app, window, cx),
             // Every other page is one document, drawn by the viewer its name implies.
             other => match other.doc() {
                 Some(doc) => docs::render(app, doc, cx),

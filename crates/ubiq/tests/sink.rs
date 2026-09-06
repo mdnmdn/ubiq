@@ -453,19 +453,27 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
 
         // Both arrangements of the same dialog, a folder opened in each, and the keyboard walked
         // through the rows — which is the only way the cursor bar is ever drawn.
-        state.update(cx, |state, cx| {
-            state.set_picker_view(PickerView::Tree, cx);
-            state.toggle_picker_folder("docs/adr".to_string(), cx);
-            state.press_picker_key(PickerKey::Down, cx);
-            state.press_picker_key(PickerKey::Right, cx);
-            state.press_picker_key(PickerKey::Down, cx);
-            state.press_picker_key(PickerKey::Left, cx);
-            state.set_picker_view(PickerView::List, cx);
-            state.press_picker_key(PickerKey::Down, cx);
-        });
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.set_picker_view(PickerView::Tree, cx);
+                    state.toggle_picker_folder("docs/adr".to_string(), cx);
+                    state.press_picker_key(PickerKey::Down, window, cx);
+                    state.press_picker_key(PickerKey::Right, window, cx);
+                    state.press_picker_key(PickerKey::Down, window, cx);
+                    state.press_picker_key(PickerKey::Left, window, cx);
+                    state.set_picker_view(PickerView::List, cx);
+                    state.press_picker_key(PickerKey::Down, window, cx);
+                });
+            })
+            .expect("the window is open");
         cx.run_until_parked();
 
-        state.update(cx, |state, cx| state.cancel_file_picker(cx));
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| state.cancel_file_picker(window, cx));
+            })
+            .expect("the window is open");
         cx.run_until_parked();
         state.read_with(cx, |state, _| {
             assert!(state.file_picker.is_none(), "the dialog stayed up");
@@ -497,15 +505,23 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
             .collect()
     });
 
-    state.update(cx, |state, cx| {
-        state.press_picker_key(PickerKey::Enter, cx);
-        state.press_picker_key(PickerKey::Down, cx);
-        state.press_picker_key(PickerKey::Enter, cx);
-    });
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.press_picker_key(PickerKey::Enter, window, cx);
+                state.press_picker_key(PickerKey::Down, window, cx);
+                state.press_picker_key(PickerKey::Enter, window, cx);
+            });
+        })
+        .expect("the window is open");
     cx.run_until_parked();
-    state.update(cx, |state, cx| {
-        state.press_picker_key(PickerKey::Confirm, cx);
-    });
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.press_picker_key(PickerKey::Confirm, window, cx);
+            });
+        })
+        .expect("the window is open");
     cx.run_until_parked();
 
     // The window is still there, and it is still on the page it was left on.

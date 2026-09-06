@@ -1,4 +1,4 @@
-//! What Ubiq writes down, behind four traits.
+//! What Ubiq writes down: four traits, and one meter that is not one.
 //!
 //! The catalogue, a project's tasks, the interface's view state and application settings have
 //! different durability rules, and the differences are the point:
@@ -11,12 +11,16 @@
 //! - **View state is opaque.** The host stores a string it never reads, on the same discipline
 //!   that keeps terminal bytes uninterpreted — the interface owns that schema, so the interface
 //!   versions it. A failed write is a log line, not an error anybody has to read.
+//! - **The usage meter is none of those.** It accumulates rather than being rewritten, and it
+//!   grows without bound, so it is a database and a concrete type — see [`usage`].
 //! - **Settings split in two.** The Ui layer is opaque, like view state. The Host layer is the
 //!   host's to parse, like the catalogue: a corrupt file is preserved and reported.
 
 pub mod file;
 pub mod harness;
 pub mod memory;
+/// The usage meter — not a trait, and not a file. See the module for why it is neither.
+pub mod usage;
 
 use std::path::PathBuf;
 

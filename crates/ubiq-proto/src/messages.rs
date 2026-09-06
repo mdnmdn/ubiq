@@ -21,6 +21,7 @@ use crate::projects::{IndexChange, ProjectSnapshot, Scope};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
+use crate::stats::HostStats;
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
@@ -104,6 +105,19 @@ pub enum Message {
     /// The shells the host found, in the order the menu offers them.
     ShellList {
         shells: Vec<ShellInfo>,
+    },
+
+    /// What this Ubiq is doing right now, and what its agents have spent. Answered with
+    /// [`Message::Stats`].
+    ///
+    /// Asked on a timer while the Control screen is open, and at no other time. It is the one
+    /// thing the interface polls for, because it is the one thing with no event behind it:
+    /// memory and uptime change when nothing happens, so there is nothing for the host to push.
+    ListStats,
+    /// One reading of the host, for the window that asked. Never broadcast — two windows watching
+    /// the screen take their own samples.
+    Stats {
+        stats: HostStats,
     },
 
     /// Which agent harnesses can be started here. Answered with [`Message::AgentTypes`].
@@ -1038,6 +1052,11 @@ pub enum Message {
         /// them, on the same terms as a pane's output.
         seq: u64,
         update: Box<ConvUpdate>,
+        /// The harness's own line that produced this update — the ACP frame or the JSONL line —
+        /// where the bridge behind it keeps one. It is what the debug viewer draws beside the
+        /// message; nothing in the transcript reads it.
+        #[serde(default)]
+        raw: Option<String>,
     },
     /// The harness is gone. The transcript stays; the agent stops accepting turns.
     ConversationEnded {

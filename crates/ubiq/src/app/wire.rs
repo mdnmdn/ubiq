@@ -922,6 +922,7 @@ impl AppState {
                 agent_id,
                 seq,
                 update,
+                ..
             } => {
                 let open = self
                     .projects
@@ -1030,6 +1031,14 @@ impl AppState {
             // the list, and a shell that has been uninstalled has to leave the menu.
             Message::ShellList { shells } => {
                 self.workbench.shells = shells;
+                cx.notify();
+            }
+
+            // One reading of the host, in answer to one `ListStats`. Replaced whole rather than
+            // merged: every field is a sample taken at the same moment, and half of an old
+            // reading beside half of a new one is a picture of no moment at all.
+            Message::Stats { stats } => {
+                self.stats.host = Some(stats);
                 cx.notify();
             }
 

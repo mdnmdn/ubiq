@@ -658,6 +658,12 @@ pub enum AgentEvent {
         /// Which model these numbers are for, where the harness says.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// Every token the conversation has spent, input plus output, as the harness counts it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_tokens: Option<u64>,
+        /// The cache read and cache creation part of that, where it is reported.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cached_tokens: Option<u64>,
     },
 
     /// How much of the user's rate-limit window is spent, and when it resets. Claude Code's own
@@ -800,6 +806,13 @@ pub trait IoBridge: Send {
     /// **Blocks** until there is one.
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>>;
 
+    /// The next event together with the harness's own line that produced it, where the bridge
+    /// keeps one. A bridge that does not is not lying by answering `None`: the debug viewer draws
+    /// the bus message alone.
+    fn next_event_raw(&mut self) -> crate::Result<Option<(AgentEvent, Option<String>)>> {
+        Ok(self.next_event()?.map(|event| (event, None)))
+    }
+
     /// A handle that can feed this agent from another thread, if the bridge
     /// has one. See [`AgentInputSink`].
     fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
@@ -884,6 +897,8 @@ mod tests {
                 currency: "USD".to_string(),
             }),
             model: Some("claude-opus-5".to_string()),
+            total_tokens: Some(50_000),
+            cached_tokens: Some(8_800),
         };
         let json = serde_json::to_string(&ev).unwrap();
         assert!(

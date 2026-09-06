@@ -91,8 +91,8 @@ pub fn key_bindings() -> Vec<KeyBinding> {
 }
 
 /// One key, answered by the picker if it means anything there and handed back if it does not.
-fn answer(this: &mut AppState, key: PickerKey, cx: &mut Context<AppState>) {
-    if !this.press_picker_key(key, cx) {
+fn answer(this: &mut AppState, key: PickerKey, window: &mut Window, cx: &mut Context<AppState>) {
+    if !this.press_picker_key(key, window, cx) {
         // Nothing here wanted it: the field is welcome to it.
         cx.propagate();
     }
@@ -116,52 +116,67 @@ pub fn render(
         .collect();
     let nothing = rows.is_empty();
 
-    let panel = div()
-        .id("file-picker-panel")
-        .key_context(CONTEXT)
-        .on_action(cx.listener(|this, _: &PickerUp, _, cx| answer(this, PickerKey::Up, cx)))
-        .on_action(cx.listener(|this, _: &PickerDown, _, cx| answer(this, PickerKey::Down, cx)))
-        .on_action(cx.listener(|this, _: &PickerOut, _, cx| answer(this, PickerKey::Left, cx)))
-        .on_action(cx.listener(|this, _: &PickerInto, _, cx| answer(this, PickerKey::Right, cx)))
-        .on_action(cx.listener(|this, _: &PickerEnter, _, cx| answer(this, PickerKey::Enter, cx)))
-        .on_action(
-            cx.listener(|this, _: &PickerConfirm, _, cx| answer(this, PickerKey::Confirm, cx)),
-        )
-        .on_action(
-            cx.listener(|this, _: &PickerDismiss, _, cx| answer(this, PickerKey::Dismiss, cx)),
-        )
-        .relative()
-        .w(px(picker.width))
-        .h(px(picker.height))
-        .max_w(viewport.width - px(32.))
-        .max_h(viewport.height - px(32.))
-        .flex()
-        .flex_col()
-        .bg(theme::surface_raised())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::accent())
-        .shadow_lg()
-        .child(header(picker, cx))
-        .child(field(app, picker, window, cx))
-        .child(
-            div()
-                .id("file-picker-rows")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h(px(0.))
-                .overflow_y_scroll()
-                .track_scroll(&app.picker_scroll)
-                .children(nothing.then(|| empty_panel("Nothing matches")))
-                .children(rows),
-        )
-        .child(footer(picker, cx))
-        .child(grip(cx))
-        // A picker that does not hold the window goes away when attention leaves it. A modal one
-        // stays up until it is answered or cancelled, which is what modal means.
-        .when(!modal, |this| {
-            this.on_mouse_down_out(cx.listener(|this, _, _, cx| this.cancel_file_picker(cx)))
-        });
+    let panel =
+        div()
+            .id("file-picker-panel")
+            .key_context(CONTEXT)
+            .on_action(
+                cx.listener(|this, _: &PickerUp, window, cx| {
+                    answer(this, PickerKey::Up, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &PickerDown, window, cx| {
+                answer(this, PickerKey::Down, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PickerOut, window, cx| {
+                answer(this, PickerKey::Left, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PickerInto, window, cx| {
+                answer(this, PickerKey::Right, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PickerEnter, window, cx| {
+                answer(this, PickerKey::Enter, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PickerConfirm, window, cx| {
+                answer(this, PickerKey::Confirm, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PickerDismiss, window, cx| {
+                answer(this, PickerKey::Dismiss, window, cx)
+            }))
+            .relative()
+            .w(px(picker.width))
+            .h(px(picker.height))
+            .max_w(viewport.width - px(32.))
+            .max_h(viewport.height - px(32.))
+            .flex()
+            .flex_col()
+            .bg(theme::surface_raised())
+            .border_l(px(theme::ACCENT_EDGE))
+            .border_color(theme::accent())
+            .shadow_lg()
+            .child(header(picker, cx))
+            .child(field(app, picker, window, cx))
+            .child(
+                div()
+                    .id("file-picker-rows")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .overflow_y_scroll()
+                    .track_scroll(&app.picker_scroll)
+                    .children(nothing.then(|| empty_panel("Nothing matches")))
+                    .children(rows),
+            )
+            .child(footer(picker, cx))
+            .child(grip(cx))
+            // A picker that does not hold the window goes away when attention leaves it. A modal one
+            // stays up until it is answered or cancelled, which is what modal means.
+            .when(!modal, |this| {
+                this.on_mouse_down_out(
+                    cx.listener(|this, _, window, cx| this.cancel_file_picker(window, cx)),
+                )
+            });
 
     // The layer is full-window in both cases: it is what the resize drag is tracked on, because a
     // pointer that outran the corner would otherwise leave the dialog and strand the drag.
@@ -239,7 +254,7 @@ fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
             "file-picker-close",
             IconName::Close,
             false,
-            cx.listener(|this, _, _, cx| this.cancel_file_picker(cx)),
+            cx.listener(|this, _, window, cx| this.cancel_file_picker(window, cx)),
         ))
         .into_any_element()
 }
@@ -321,9 +336,9 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
         line = line.child(check_box(
             eid("picker-tick", &row.path),
             selected,
-            cx.listener(move |this, _, _, cx| {
+            cx.listener(move |this, _, window, cx| {
                 cx.stop_propagation();
-                this.click_picker_row(ticked.clone(), cx);
+                this.click_picker_row(ticked.clone(), window, cx);
             }),
         ));
     }
@@ -362,8 +377,10 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
         );
     }
 
-    line.on_click(cx.listener(move |this, _, _, cx| this.click_picker_row(path.clone(), cx)))
-        .into_any_element()
+    line.on_click(
+        cx.listener(move |this, _, window, cx| this.click_picker_row(path.clone(), window, cx)),
+    )
+    .into_any_element()
 }
 
 /// How much has been chosen, and the two ways out.
@@ -402,14 +419,14 @@ fn footer(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
             "file-picker-cancel",
             None,
             "Cancel",
-            cx.listener(|this, _, _, cx| this.cancel_file_picker(cx)),
+            cx.listener(|this, _, window, cx| this.cancel_file_picker(window, cx)),
         ))
         .children((!picker.request.commits_on_click()).then(|| {
             primary_button(
                 "file-picker-confirm",
                 None,
                 label,
-                cx.listener(|this, _, _, cx| this.commit_file_picker(cx)),
+                cx.listener(|this, _, window, cx| this.commit_file_picker(window, cx)),
             )
             // Nothing chosen is nothing to add. The button stays where it is and drains, rather
             // than disappearing and moving Cancel under the pointer.

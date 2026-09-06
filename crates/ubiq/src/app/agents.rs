@@ -168,6 +168,11 @@ impl AppState {
     /// Enter-key path and the click-based Send/Enqueue button resolve the same agent for the same
     /// slot on every surface that hosts a composer.
     pub fn agent_for_slot(&self, slot: usize, cx: &App) -> Option<AgentId> {
+        // The sink's bench addresses whatever conversation it is reading, which is the page's
+        // own pick rather than anything the arrangement holds.
+        if slot == crate::state::agents::SINK_SLOT {
+            return self.sink_agent();
+        }
         if slot >= COLUMNS_MAX {
             return self
                 .open_project(cx)?
@@ -646,6 +651,11 @@ impl AppState {
         // chat tab's own *New chat* opened this menu — if any did — is attached right away.
         if let Some(chat_id) = self.pending_chat_attach.take() {
             self.attach_chat(chat_id, Some(agent_id), cx);
+        }
+        // The sink's bench asked for this one, so it reads it rather than staying on whichever
+        // conversation happened to be first.
+        if std::mem::take(&mut self.sink.messages.pending_attach) {
+            self.sink.messages.agent = Some(agent_id);
         }
         cx.notify();
     }

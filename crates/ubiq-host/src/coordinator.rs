@@ -19,6 +19,7 @@ use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth};
+use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, PendingLogin};
@@ -37,6 +38,7 @@ use crate::search::{self, Search};
 use crate::settings::Settings;
 use crate::shells;
 use crate::store::harness::{CachedModel, FileHarnessCache};
+use crate::store::usage::Usage;
 use crate::watch;
 use crate::work::Work;
 
@@ -148,6 +150,20 @@ struct Coordinator {
     /// answerable once its process has exited, so what the answer needs is parked here until
     /// then — the same shape `active_searches` uses, and forgotten the same way.
     logins: HashMap<PaneId, PendingLogin>,
+    /// When this coordinator started, which is what the stats screen calls uptime. Nothing else
+    /// measured elapsed time before, so this is where it comes from.
+    // ponytail: measured from the coordinator's thread rather than from `main`. The difference is
+    // the few milliseconds spent finding the config root, which nobody reading "uptime 4m" can
+    // perceive; move it to `main` and pass it in if a figure in milliseconds ever matters.
+    started: Instant,
+    /// Every conversation started since this run began, including the ones that have since ended.
+    /// A counter rather than a length, because what it counts is gone. A relaunch of the same
+    /// agent counts again, deliberately: it is a second harness process on a second pump thread,
+    /// which is what the figure beside "live" is comparing against.
+    agents_this_run: usize,
+    /// What the agents have spent. `None` when the database could not be opened — an unwritable
+    /// config root costs the user their token history, never their session.
+    usage: Option<Usage>,
 }
 
 /// A conversation the window asked for and the harness has not yet answered — registered so the
@@ -516,6 +532,11 @@ impl Coordinator {
         let catalogue = Arc::new(FileHarnessCache::new(
             root.path.join("cache").join("harness-models.toml"),
         ));
+        // A meter that will not open is a stats screen with empty rows, and nothing else. Said
+        // once, here, rather than on every sample.
+        let usage = Usage::open(&root.path)
+            .inspect_err(|error| tracing::warn!("the usage meter is not available: {error}"))
+            .ok();
 
         Self {
             host,
@@ -542,6 +563,39 @@ impl Coordinator {
             conversation_owners: HashMap::new(),
             pending_conversations: HashMap::new(),
             logins: HashMap::new(),
+            started: Instant::now(),
+            agents_this_run: 0,
+            usage,
+        }
+    }
+
+    /// One reading of the host, taken because a window asked. Every field is sampled here and
+    /// now: nothing is accumulated on the coordinator's behalf, which is why the interface polls
+    /// rather than being told.
+    ///
+    /// The two usage vectors come back empty when the meter is absent *or* when reading it fails,
+    /// and a failure is a log line. A screen that reports how healthy the host is must never be
+    /// the thing that takes it down.
+    fn stats(&self) -> HostStats {
+        let read = |what: &str, rows: Option<Result<Vec<UsageRow>, _>>| match rows {
+            Some(Ok(rows)) => rows,
+            Some(Err(error)) => {
+                tracing::warn!("could not read {what} usage: {error}");
+                Vec::new()
+            }
+            None => Vec::new(),
+        };
+
+        HostStats {
+            rss_bytes: memory_stats::memory_stats().map(|m| m.physical_mem as u64),
+            uptime_secs: self.started.elapsed().as_secs(),
+            open_projects: self.projects.open_count(),
+            agents_live: self.conversations.len(),
+            agents_this_run: self.agents_this_run,
+            this_run: read("this run's", self.usage.as_ref().map(|u| u.this_run())),
+            // Everything ever recorded. Bounding the window is the interface's to ask for once it
+            // has an opinion about how far back a chart goes.
+            history: read("historical", self.usage.as_ref().map(|u| u.history(0))),
         }
     }
 
@@ -814,6 +868,10 @@ impl Coordinator {
 
             // What can be started here, asked by the new-pane menu as it opens. Probed on every
             // ask: a shell installed since the window opened is offered without a restart.
+            Message::ListStats => {
+                let stats = self.stats();
+                self.host.send(To::Client(client), Message::Stats { stats });
+            }
             Message::ListShells => {
                 self.host.send(
                     To::Client(client),
@@ -1377,6 +1435,7 @@ impl Coordinator {
                                 agent_id,
                                 seq,
                                 update: Box::new(ConvUpdate::ConfigOptions(options)),
+                                raw: None,
                             });
                     } else if config_id == "thinking" {
                         pending.chosen_thinking = Some(value);
@@ -1592,6 +1651,7 @@ impl Coordinator {
                     agent_id,
                     seq: 1,
                     update: Box::new(ConvUpdate::ConfigOptions(options)),
+                    raw: None,
                 });
             })
             .ok();
@@ -1667,6 +1727,7 @@ impl Coordinator {
         let mailbox = self.host.mailbox(To::Client(client));
         let conversation = Conversation::start(agent_id, bridge, mailbox, pending.next_seq);
         self.conversations.insert(agent_id, conversation);
+        self.agents_this_run += 1;
         true
     }
 

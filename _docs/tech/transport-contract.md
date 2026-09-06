@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-06
 verified: 2026-09-06
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -129,6 +129,16 @@ recolour and a move on disk.
 | `HostInfo` | host → UI | `config_root`, `is_default` | — |
 | `ListShells` | UI → host | — | `ShellList` |
 | `ShellList` | host → UI | `shells` | — |
+| `ListStats` | UI → host | — | `Stats` |
+| `Stats` | host → UI | `stats` | — |
+
+**A `Stats` goes only to the window that asked, and `ListStats` is the one thing the interface
+polls for.** Everything else in Ubiq is pushed because something happened; the host's memory and its
+uptime change when nothing happens, so there is no event behind them to push. The window asks every
+two seconds while the Control screen is the rail mode and stops as soon as it is not, which makes
+two windows watching that screen two independent samplers rather than one broadcast —
+[`../features/stats.md`](../features/stats.md) owns what the reading contains and what the screen
+does with it.
 
 **`ProjectChanged`, `ProjectAdded` and `ProjectForgotten` are broadcast** to every attached window,
 so every picker agrees by construction rather than by each window asking again. A `ProjectList`, a

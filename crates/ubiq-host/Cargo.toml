@@ -79,6 +79,16 @@ rand = "0.8"
 # blocking HTTP server small enough to have no runtime and no view layer.
 tiny_http = "0.12"
 
+# The usage meter's storage. A counter that survives a restart is a database, and this is the one
+# every machine already has. `bundled` compiles SQLite into the binary on purpose: the OS's own
+# libsqlite3 varies by platform and by decade, and which SQL is understood — `WITHOUT ROWID`, the
+# upsert the meter is built on — must not be a property of the machine Ubiq happens to run on. It
+# is a C library with a Rust wrapper: no runtime, no window, nothing that draws.
+rusqlite = { version = "0.37", features = ["bundled"] }
+# The host's own resident set, for the stats screen. One call per sample, no sampling thread, and
+# a `None` on a platform that will not say. Draws nothing.
+memory-stats = "1"
+
 [dev-dependencies]
 tempfile = "3"
 # The pin verifier's own test drives it through `ServerCertVerifier`, which means naming rustls'

@@ -463,6 +463,8 @@ mod tests {
                 currency: "USD".to_string(),
             }),
             model: Some("claude-opus-5".to_string()),
+            total_tokens: None,
+            cached_tokens: None,
         })
         .unwrap();
         assert_eq!(value["sessionUpdate"], "usage_update");

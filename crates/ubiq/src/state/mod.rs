@@ -29,6 +29,7 @@ pub mod scene;
 pub mod search;
 pub mod settings;
 pub mod sink;
+pub mod stats;
 pub mod viewport;
 pub mod vim;
 pub mod when;
