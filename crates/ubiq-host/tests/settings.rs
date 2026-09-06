@@ -174,6 +174,7 @@ fn a_ui_write_keeps_its_own_fields_and_leaves_the_hosts_alone() {
                 scopes: vec!["api".into()],
                 account: "mdn".into(),
                 client_id: None,
+                oauth_app: None,
             });
         })
         .unwrap();
@@ -213,4 +214,76 @@ fn a_newer_schema_is_still_refused() {
     let ahead = format!(r#"{{"schema":{}}}"#, HOST_SETTINGS_SCHEMA + 1);
     let replies = settings.set(SettingsLayer::Host, ahead);
     assert_eq!(replies.len(), 1, "a blob from the future must be reported");
+}
+
+// ── The indexing level ──────────────────────────────────────────
+
+/// A settings file written before the level existed still parses, and reads the default.
+///
+/// This is the whole migration: the documented rule is that a record from an older schema parses
+/// because every field added since carries a default, and `IndexLevel`'s is `Light`. There is no
+/// migration pass to get wrong.
+#[test]
+fn a_schema_four_file_parses_and_indexes_lightly() {
+    use ubiq_proto::projects::IndexLevel;
+
+    let dir = TempDir::new().unwrap();
+    let store = FileSettingsStore::new(dir.path().to_path_buf());
+    let path = store.path(SettingsLayer::Host);
+    // Exactly what the build before this one wrote: no `index_level` key at all.
+    fs::write(
+        &path,
+        "schema = 4\nisolate_agents = true\nsearch_excludes = [\"target\"]\n",
+    )
+    .unwrap();
+
+    // The store parses the TOML on disk and hands back JSON, so the default has already been
+    // filled in by the time anyone sees it.
+    let blob = store.get(SettingsLayer::Host).unwrap().unwrap();
+    let parsed: HostSettings = serde_json::from_str(&blob).unwrap();
+
+    assert_eq!(parsed.index_level, IndexLevel::Light);
+    assert_eq!(parsed.search_excludes, vec!["target".to_string()]);
+}
+
+/// The default is `Light`, and the levels are cumulative rather than alternative.
+#[test]
+fn the_levels_are_cumulative() {
+    use ubiq_proto::projects::IndexLevel;
+
+    assert_eq!(IndexLevel::default(), IndexLevel::Light);
+
+    // `Full` keeps everything `Light` keeps. A symbol table answers about names and never about
+    // content, so it can never stand in for the full-text half.
+    assert!(!IndexLevel::None.keeps_text());
+    assert!(!IndexLevel::None.keeps_symbols());
+    assert!(IndexLevel::Light.keeps_text());
+    assert!(!IndexLevel::Light.keeps_symbols());
+    assert!(IndexLevel::Full.keeps_text());
+    assert!(IndexLevel::Full.keeps_symbols());
+}
+
+/// The three states an update can carry stay distinct across the wire.
+///
+/// The regression this pins: `Option<Option<IndexLevel>>` would collapse "clear the override" and
+/// "say nothing" into the same `None` after a serde round trip.
+#[test]
+fn clearing_an_override_is_not_the_same_as_saying_nothing() {
+    use ubiq_proto::projects::{IndexChange, IndexLevel};
+
+    let said_nothing: Option<IndexChange> = None;
+    let clear = Some(IndexChange::Inherit);
+    let pin = Some(IndexChange::Set(IndexLevel::Full));
+
+    for value in [said_nothing, clear, pin] {
+        let json = serde_json::to_string(&value).unwrap();
+        let back: Option<IndexChange> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, value, "round trip lost {value:?} (as {json})");
+    }
+
+    assert_eq!(IndexChange::Inherit.resolve(), None);
+    assert_eq!(
+        IndexChange::Set(IndexLevel::Full).resolve(),
+        Some(IndexLevel::Full)
+    );
 }

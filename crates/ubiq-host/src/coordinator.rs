@@ -18,7 +18,7 @@ use ubiq_proto::conversation::{
 use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
-use ubiq_proto::projects::ProjectHealth;
+use ubiq_proto::projects::{IndexLevel, ProjectHealth};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, PendingLogin};
@@ -104,6 +104,8 @@ struct Coordinator {
     /// The thread that walks a project's files for content search. Long-running by nature, so it
     /// has its own queue: a search behind a slow one would stall every folder expand.
     search: Search,
+    /// The full-text index, one open per project that keeps one.
+    index: crate::index::Index,
     /// One live search per project. The flag means two things: a cancel request, set when a
     /// second search for the same project arrives or `CancelSearch` names this one; and "this
     /// search is over", set by the worker itself when it finishes, cancelled or not. `search_job`
@@ -528,6 +530,7 @@ impl Coordinator {
             files: Files::start(),
             git: Git::start(),
             search: Search::start(),
+            index: crate::index::Index::start(),
             active_searches: HashMap::new(),
             watchers: HashMap::new(),
             pending,
@@ -629,7 +632,24 @@ impl Coordinator {
     fn client_gone(&mut self, client: ClientId) {
         self.focused.remove(&client);
         // Dropping a watch stops its `notify` handle and ends its debounce thread.
+        let dropped: Vec<ProjectId> = self
+            .watchers
+            .keys()
+            .filter(|(owner, _)| *owner == client)
+            .map(|(_, project_id)| *project_id)
+            .collect();
         self.watchers.retain(|(owner, _), _| *owner != client);
+        // An index is worth keeping only while somebody has the project open. A project another
+        // window still holds keeps its own — the watch map is the only record of who has what.
+        for project_id in dropped {
+            let still_open = self
+                .watchers
+                .keys()
+                .any(|(_, watched)| *watched == project_id);
+            if !still_open {
+                self.index.submit(crate::index::Job::Drop(project_id));
+            }
+        }
         let owned: Vec<PaneId> = self
             .owners
             .iter()
@@ -832,6 +852,9 @@ impl Coordinator {
                 // `ProjectFilesChanged` for it.
                 self.watchers
                     .retain(|(_, watched), _| *watched != project_id);
+                // The index goes with it. Its directory sits under the project's own, which
+                // Forget removes, so what is left to do is close the handle holding it open.
+                self.index.submit(crate::index::Job::Drop(project_id));
                 self.answer(client, replies);
             }
             Message::UpdateProject {
@@ -840,7 +863,7 @@ impl Coordinator {
                 colour,
                 custom_colour,
                 search_excludes,
-                no_local_index,
+                index,
             } => {
                 let replies = self.projects.update(
                     project_id,
@@ -848,9 +871,15 @@ impl Coordinator {
                     colour,
                     custom_colour,
                     search_excludes,
-                    no_local_index,
+                    index,
                 );
                 self.answer(client, replies);
+                // A level the user just changed takes effect now, not at the next open: turning
+                // indexing off and watching the disk not free up would read as a setting that
+                // does nothing.
+                if index.is_some() {
+                    self.settle_index(project_id);
+                }
             }
             Message::LocateProject { project_id, path } => {
                 let replies = self.projects.locate(project_id, &path);
@@ -925,10 +954,12 @@ impl Coordinator {
                 label,
                 auth,
                 client_id,
+                oauth_app,
             } => {
                 let (asker, everyone) = self.sinks(client);
                 let replies = self.connectors.begin(
-                    client, connect_id, provider, instance, label, auth, client_id, asker, everyone,
+                    client, connect_id, provider, instance, label, auth, client_id, oauth_app,
+                    asker, everyone,
                 );
                 self.answer(client, replies);
             }
@@ -966,16 +997,28 @@ impl Coordinator {
                 let replies = self.connectors.forget_cert(origin);
                 self.answer(client, replies);
             }
-            Message::SetAppSecret {
+            Message::SaveOauthApp {
+                id,
                 provider,
+                name,
                 origin,
-                secret,
+                client_id,
             } => {
-                let replies = self.connectors.set_app_secret(provider, origin, secret);
+                let replies = self
+                    .connectors
+                    .save_app(id, provider, name, origin, client_id);
                 self.answer(client, replies);
             }
-            Message::ClearAppSecret { provider, origin } => {
-                let replies = self.connectors.clear_app_secret(provider, origin);
+            Message::DeleteOauthApp { id } => {
+                let replies = self.connectors.delete_app(id);
+                self.answer(client, replies);
+            }
+            Message::SetAppSecret { app, secret } => {
+                let replies = self.connectors.set_app_secret(app, secret);
+                self.answer(client, replies);
+            }
+            Message::ClearAppSecret { app } => {
+                let replies = self.connectors.clear_app_secret(app);
                 self.answer(client, replies);
             }
 
@@ -1018,6 +1061,17 @@ impl Coordinator {
                 // re-read here rather than kept in a copy that could go stale.
                 self.agents.set_isolate(self.settings.host().isolate_agents);
                 self.answer(client, replies);
+                // The default moved, so every project that never overrode it moved with it. Only
+                // open projects are settled: a closed one has no index either way, and builds one
+                // when it opens.
+                let open: Vec<ProjectId> = self
+                    .watchers
+                    .keys()
+                    .map(|(_, project_id)| *project_id)
+                    .collect();
+                for project_id in open {
+                    self.settle_index(project_id);
+                }
             }
 
             // ── the file family ─────────────────────────────────────
@@ -1871,10 +1925,27 @@ impl Coordinator {
         excludes.extend(record.search_excludes.iter().cloned());
         let root = PathBuf::from(&record.path);
 
+        // The index is built when a project opens, not at boot: an index for a project nobody
+        // has open is work nobody asked for. A second open finds it already there, and a level of
+        // `none` builds nothing — the watch below still runs, because what a level decides is
+        // what is kept and not what is noticed.
+        if self.index_level(project_id).keeps_text() {
+            self.index.submit(crate::index::Job::Build {
+                project_id,
+                root: root.clone(),
+                home: self.projects.index_dir(project_id),
+                excludes: excludes.clone(),
+            });
+        }
+
         match watch::start(watch::Job {
             project_id,
             root,
             excludes,
+            // The watcher's own batches reach the index directly. The push to the interface goes
+            // out on the mailbox below and the coordinator never sees it, so it cannot forward
+            // what it is not given.
+            index: Some(self.index.sender()),
             reply_to: self.host.mailbox(To::Client(client)),
         }) {
             Ok(watcher) => {
@@ -1884,6 +1955,43 @@ impl Coordinator {
                 tracing::warn!(project = %project_id, %error, "no filesystem watch for this project");
             }
         }
+    }
+
+    /// The indexing level this project actually gets: its own override, or the application-wide
+    /// default when it has none.
+    ///
+    /// The one place the question is answered, so what the settings dialog promises and what the
+    /// index thread does can never come apart.
+    fn index_level(&self, project_id: ProjectId) -> IndexLevel {
+        self.projects
+            .record(project_id)
+            .and_then(|record| record.index)
+            .unwrap_or_else(|| self.settings.host().index_level)
+    }
+
+    /// Make this project's index match its level, now.
+    ///
+    /// Called when a level could have moved — the project's own override changed, or the
+    /// application default did. Building an index that already exists is a no-op on the index
+    /// thread, and dropping one that was never built is too, so this is safe to call whenever the
+    /// answer might have changed rather than only when it did.
+    fn settle_index(&mut self, project_id: ProjectId) {
+        let level = self.index_level(project_id);
+        if !level.keeps_text() {
+            self.index.submit(crate::index::Job::Drop(project_id));
+            return;
+        }
+        let Some(record) = self.projects.record(project_id) else {
+            return;
+        };
+        let mut excludes = self.settings.host().search_excludes;
+        excludes.extend(record.search_excludes.iter().cloned());
+        self.index.submit(crate::index::Job::Build {
+            project_id,
+            root: PathBuf::from(&record.path),
+            home: self.projects.index_dir(project_id),
+            excludes,
+        });
     }
 
     fn search_job(
@@ -1941,6 +2049,9 @@ impl Coordinator {
             filter,
             excludes,
             fallbacks: host_settings.search_fallbacks,
+            // Absent until the project's index has been built, and absent for good when its
+            // level says to keep none. Either way the worker walks.
+            index: self.index.reader(project_id),
             cancel,
             reply_to: self.host.mailbox(To::Client(client)),
         });

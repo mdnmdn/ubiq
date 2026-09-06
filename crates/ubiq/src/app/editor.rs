@@ -543,6 +543,90 @@ impl AppState {
         self.reveal_search(window, cx);
     }
 
+    /// ⇧⌘O: bring the outline panel out if it is put away.
+    pub fn open_outline(&mut self, _: &OpenOutline, window: &mut Window, cx: &mut Context<Self>) {
+        self.reveal_outline(window, cx);
+    }
+
+    /// Rebuild the outline once the typing stops.
+    ///
+    /// The parse is a second one over the same bytes — see `ui::outline::extract` — so it is worth
+    /// neither doing per keystroke nor doing at all while the panel is put away. The generation
+    /// token is `md_reflow_gen`'s device: a debounce that lost the race installs nothing.
+    pub(super) fn schedule_outline(&mut self, cx: &mut Context<Self>) {
+        if !self.outline_panel_open(cx) {
+            return;
+        }
+        self.outline_gen = self.outline_gen.wrapping_add(1);
+        let token = self.outline_gen;
+        let Some((key, text, ext)) = self.active_buffer_text(cx) else {
+            self.outline = Vec::new();
+            self.outline_key = String::new();
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(OUTLINE_DEBOUNCE).await;
+            let defs = cx
+                .background_spawn(async move { ui::outline::extract(&text, &ext) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if token == this.outline_gen {
+                    this.outline = defs;
+                    this.outline_key = key;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The outline the panel draws, when the tab it was parsed from is no longer the tab on screen.
+    ///
+    /// A tab switch is not a keystroke, so it is parsed on the spot rather than debounced: waiting
+    /// would draw the outgoing file's definitions over the incoming file's text.
+    pub(super) fn settle_outline(&mut self, cx: &mut Context<Self>) {
+        if !self.outline_panel_open(cx) {
+            return;
+        }
+        match self.active_buffer_text(cx) {
+            Some((key, _, _)) if key == self.outline_key => {}
+            Some((key, text, ext)) => {
+                self.outline = ui::outline::extract(&text, &ext);
+                self.outline_key = key;
+                cx.notify();
+            }
+            None => {
+                if !self.outline.is_empty() {
+                    self.outline = Vec::new();
+                    self.outline_key = String::new();
+                    cx.notify();
+                }
+            }
+        }
+    }
+
+    /// Whether the outline panel is in the dock at all. Nothing is parsed for a panel nobody has
+    /// asked for.
+    fn outline_panel_open(&mut self, cx: &mut Context<Self>) -> bool {
+        // Read rather than `panel()`: that one builds the entity if it is missing, and a window
+        // whose user never opens the outline should not carry one.
+        let Some(panel) = self.panels.get(&PanelKind::Outline).cloned() else {
+            return false;
+        };
+        dock::holds(&self.dock.clone(), &panel, cx)
+    }
+
+    /// The active tab's key, its text and its extension — everything an outline is made of.
+    fn active_buffer_text(&self, cx: &App) -> Option<(String, String, String)> {
+        let file = self.editor(cx)?.active_file()?;
+        let text = file.buffer()?.read(cx).value().to_string();
+        Some((
+            tab_key(&file.path, Subject::File),
+            text,
+            ui::outline::extension(&file.path),
+        ))
+    }
+
     /// Dismiss the file tab's menu — an outside click, or a pick already taken it.
     pub fn dismiss_file_tab_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
@@ -853,6 +937,9 @@ impl AppState {
                         open.editor.promote_key(&key);
                     }
                 }
+                // The outline is one debounce behind the buffer, and is not rebuilt at all while
+                // its panel is put away.
+                this.schedule_outline(cx);
                 cx.notify();
             },
         );

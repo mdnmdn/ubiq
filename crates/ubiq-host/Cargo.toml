@@ -39,6 +39,13 @@ grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 num_cpus = "1"
+# The full-text index, which selects candidate files for the search above rather than producing
+# hits of its own — a hit is always read back through `grep-searcher`, so an index and a walk
+# answer identically. `default-features = false` drops the stemmer (it would break the superset
+# property a trigram index is chosen for), the stopword lists, and both docstore compressors,
+# which would otherwise drag `zstd-sys` and a C compile in to squeeze a stored path. `mmap` stays
+# because that is what an on-disk index is. Draws nothing; `just host` stays green.
+tantivy = { version = "0.26", default-features = false, features = ["mmap"] }
 # Filesystem watch: one recursive handle per open project. Already in the workspace build graph
 # through `gpui-component`, so a direct edge here is a manifest line, not a new crate to vet.
 notify = "7"

@@ -750,6 +750,13 @@ impl AppState {
                 self.force_close_tab(&key, cx);
                 return;
             }
+            // The one project's close, answered: the modal goes, and the close is taken again
+            // with the question already asked.
+            FileDialog::CloseProject { project } => {
+                self.close_file_dialog(cx);
+                self.close_project(project, true, cx);
+                return;
+            }
             FileDialog::CloseWindow { quitting } => {
                 self.close_file_dialog(cx);
                 if quitting {
@@ -809,7 +816,9 @@ impl AppState {
                 self.save_untitled_as(&key, typed, cx);
             }
             // Answered above, before the project was looked up.
-            FileDialog::DiscardChanges { .. } | FileDialog::CloseWindow { .. } => {}
+            FileDialog::DiscardChanges { .. }
+            | FileDialog::CloseWindow { .. }
+            | FileDialog::CloseProject { .. } => {}
         }
         self.close_file_dialog(cx);
     }

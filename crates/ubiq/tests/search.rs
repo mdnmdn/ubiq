@@ -109,7 +109,7 @@ fn a_project() -> ProjectSnapshot {
             created_at: Utc::now(),
             last_opened_at: None,
             search_excludes: Vec::new(),
-            no_local_index: false,
+            index: None,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -249,10 +249,33 @@ fn a_reply_naming_another_search_is_discarded(cx: &mut TestAppContext) {
     );
 }
 
+/// Enter twice, because the field's first Enter raises the navigator rather than searching.
+///
+/// The list opens on its own search row — what was typed, offered as a content search — so the
+/// second Enter presses that row and the search runs. One Enter is deliberately not enough: the
+/// field answers files, links and tasks as well, and a search that fired before the user could see
+/// those would make the other answers unreachable.
 #[gpui::test]
 fn the_header_field_starts_a_search_and_switches_to_the_ide(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let _ = fixture.said();
+
+    let press = |cx: &mut TestAppContext| {
+        fixture
+            .window
+            .update(cx, |_, _, cx| {
+                fixture.state.update(cx, |state, cx| {
+                    state.command_input.clone().update(cx, |_, cx| {
+                        cx.emit(InputEvent::PressEnter {
+                            shift: false,
+                            secondary: false,
+                        });
+                    });
+                });
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    };
 
     fixture
         .window
@@ -260,20 +283,28 @@ fn the_header_field_starts_a_search_and_switches_to_the_ide(cx: &mut TestAppCont
             fixture.state.update(cx, |state, cx| {
                 state.set_rail_mode(ubiq::state::RailMode::Control, cx);
                 let input = state.command_input.clone();
-                input.update(cx, |field, cx| {
-                    field.set_value("needle", window, cx);
-                    cx.emit(InputEvent::PressEnter {
-                        shift: false,
-                        secondary: false,
-                    });
-                });
+                input.update(cx, |field, cx| field.set_value("needle", window, cx));
             });
         })
         .expect("the window is open");
     cx.run_until_parked();
 
+    press(cx);
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.navigator.is_some()),
+        "the first Enter raises the navigator instead of searching"
+    );
+    assert!(
+        searches(fixture.said()).is_empty(),
+        "and nothing is searched for until a row is pressed"
+    );
+
+    press(cx);
+
     let asked = searches(fixture.said());
-    assert_eq!(asked.len(), 1, "Enter in the header field runs one search");
+    assert_eq!(asked.len(), 1, "the search row runs one search");
     assert_eq!(asked[0].1.text, "needle");
     assert_eq!(
         fixture

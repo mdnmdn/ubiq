@@ -116,20 +116,22 @@ impl AppState {
         self.close_menu(cx);
     }
 
-    /// Close a project in this window. One with terminals still running asks first: the menu row
-    /// turns into a confirmation rather than taking the click. Closing the last one leaves the
-    /// window open on nothing, with the picker to offer.
+    /// Close a project in this window. One with terminals still running or unsaved files asks
+    /// first, in the same modal the window's own close raises — one project's worth of it. Closing
+    /// the last one leaves the window open on nothing, with the picker to offer.
     pub fn close_project(&mut self, project: ProjectId, force: bool, cx: &mut Context<Self>) {
         // This window's own count, not the catalogue's: closing a project here kills the panes
         // *this* window is running in it and drops what was typed into its buffers, and says so
         // about those.
         if self.project_holds(project, cx).anything() && !force {
-            self.workbench.pending_close = Some(project);
+            // The menu the click came from goes first: the question is a modal over the window
+            // now, and a menu left open behind it is a menu the answer would have to dodge.
+            self.close_menu(cx);
+            self.workbench.file_dialog = Some(FileDialog::CloseProject { project });
             cx.notify();
             return;
         }
 
-        self.workbench.pending_close = None;
         // A search over a project this window no longer holds has nowhere to draw: it goes with
         // the project's other state, and the worker is told so it stops walking.
         if let Some(active) = self
@@ -162,11 +164,6 @@ impl AppState {
         }
     }
 
-    pub fn cancel_close(&mut self, cx: &mut Context<Self>) {
-        self.workbench.pending_close = None;
-        cx.notify();
-    }
-
     // ── Asking the host ─────────────────────────────────────────────
 
     /// Rename or recolour. The host answers, and every window redraws.
@@ -184,9 +181,31 @@ impl AppState {
             colour,
             custom_colour: custom,
             search_excludes: None,
-            no_local_index: None,
+            index: None,
         });
         self.workbench.row_action = None;
+        cx.notify();
+    }
+
+    /// This project's indexing level, or a return to the application-wide default.
+    ///
+    /// Sent on the click rather than held until the dialog is dismissed: it is a switch, and the
+    /// host acts on it at once — building or dropping an index while the dialog is still open is
+    /// what makes the setting feel like it did something.
+    pub fn set_project_index(
+        &mut self,
+        project: ProjectId,
+        index: ubiq_proto::projects::IndexChange,
+        cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: Some(index),
+        });
         cx.notify();
     }
 

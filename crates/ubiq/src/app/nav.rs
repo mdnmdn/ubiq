@@ -478,6 +478,7 @@ impl AppState {
                 .update(cx, |state, cx| state.set_value("", window, cx));
             match action {
                 NavAction::Clone(url) => self.open_clone(Some(url), window, cx),
+                NavAction::Search(term) => self.search_for(term, window, cx),
             }
             return;
         }

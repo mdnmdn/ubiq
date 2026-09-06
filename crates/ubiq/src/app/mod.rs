@@ -40,8 +40,9 @@ use crate::state::nav::{
 use crate::state::navigator::NavigatorState;
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
-    self as ui_settings, AccountDialog, CertPrompt, CliShortcut, ConnectState, ConnectStep,
-    ConnectorDialog, LoginState, LoginStep, MAX_LOGIN_LINKS, MarkdownOpen, SettingsSection,
+    self as ui_settings, AccountDialog, AppForm, CertPrompt, CliShortcut, ConnectApp, ConnectState,
+    ConnectStep, ConnectorDialog, LoginState, LoginStep, MAX_LOGIN_LINKS, MarkdownOpen,
+    PendingSecret, SettingsSection,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -69,11 +70,11 @@ use gpui_component::input::{
 };
 use gpui_terminal::TerminalView;
 use ubiq_proto::bus::{self, Client};
-use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId};
+use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{
-    ConnectId, ConnectionId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId,
+    ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId,
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
@@ -104,10 +105,15 @@ const MOVE_UNASKED: Duration = Duration::from_secs(10 * 60);
 /// document, so a held zoom key must not do it once per point.
 const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
 
+/// How long after the last edit the outline is rebuilt. The rebuild parses the whole buffer a
+/// second time, so a held key must not do it once per character.
+const OUTLINE_DEBOUNCE: Duration = Duration::from_millis(200);
+
 gpui::actions!(
     ubiq,
     [
         OpenSearch,
+        OpenOutline,
         SaveFile,
         NewFile,
         CloseEditor,
@@ -119,7 +125,8 @@ gpui::actions!(
         NavBack,
         NavForward,
         ToggleBookmark,
-        OpenNavigator
+        OpenNavigator,
+        SubmitSearch
     ]
 );
 
@@ -610,6 +617,15 @@ pub struct AppState {
     /// The zoom that asked for the last reflow, so a debounce that lost the race does not rebuild
     /// a preview the user has already zoomed past.
     md_reflow_gen: u64,
+    /// The definitions in the file on screen, for the outline panel. One list rather than one per
+    /// tab: the panel only ever draws the active file, and a tab switch reparses once — which is
+    /// what a cache miss would cost anyway.
+    pub outline: Vec<crate::ui::outline::Def>,
+    /// Which tab [`AppState::outline`] was parsed from, so a tab switch is noticed.
+    outline_key: String,
+    /// Bumped on every edit, so a debounce that lost the race does not install an outline for text
+    /// the user has already typed past. The same device as `md_reflow_gen`.
+    outline_gen: u64,
     pub log_scroll: UniformListScrollHandle,
     /// Which task the panel's fields were last filled from, so a selection change refills them
     /// exactly once. Writing into the component library's state needs a window and a message does
@@ -731,12 +747,14 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-shift-=", ZoomIn, Some("Workbench")),
         gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-shift-o", OpenOutline, Some("Workbench")),
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl--", NavBack, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-shift--", NavForward, Some("Workbench")),
         gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Workbench")),
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-enter", SubmitSearch, Some("Workbench")),
         // Enter answers whichever file question is up; Escape takes it away. Both are handed back
         // when no dialog is up — `AppState::confirm_dialog` says why that matters.
         gpui::KeyBinding::new("enter", DialogConfirm, Some("Workbench")),
@@ -753,6 +771,7 @@ pub fn install_key_bindings(cx: &mut App) {
     // Replace moves to ⌘⌥F rather than losing its key.
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Input")),
+        gpui::KeyBinding::new("cmd-shift-o", OpenOutline, Some("Input")),
         // ⌘P means "go to file" wherever the caret is, for the same reason and by the same device.
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Input")),
         // ⌃- and ⌃⇧- mean back and forward with the caret in a buffer too, by the same device.
@@ -763,6 +782,8 @@ pub fn install_key_bindings(cx: &mut App) {
         // ⌘K raises the navigator from inside a field too, by the same device. **Not** ⌃K: the
         // component library owns that one inside an input.
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Input")),
+        // ⌘⏎ in the titlebar's field skips the navigator and searches for what is typed.
+        gpui::KeyBinding::new("cmd-enter", SubmitSearch, Some("Input")),
         gpui::KeyBinding::new("cmd-alt-f", gpui_component::input::Replace, Some("Input")),
         // The prompt dialogs put the keyboard in a field, and the component library binds keys at
         // the field's own depth — so Escape is bound there too, or it never reaches the window.
@@ -773,6 +794,7 @@ pub fn install_key_bindings(cx: &mut App) {
     // The file picker's and the explorer's, which are the field's as well as the surface's and
     // have to be registered after the component library's own — `ui::file_picker::key_bindings`
     // says why.
+    cx.bind_keys(crate::ui::clone::key_bindings());
     cx.bind_keys(crate::ui::file_picker::key_bindings());
     cx.bind_keys(crate::ui::navigator::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());

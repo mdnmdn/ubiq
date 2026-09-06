@@ -7,15 +7,26 @@
 //! at once — which is also why the shell prompt comes straight back.
 //!
 //! The socket lives with the config root rather than in `/tmp`, so `--config-root` is honoured
-//! here too: two roots are two applications on purpose, and `just dev` beside an installed bundle
-//! is not a collision.
+//! here too: two roots are two applications on purpose. Its name carries the executable's path as
+//! well, so two *builds* are two applications too: `cargo run` beside an installed bundle, both on
+//! the default root, each owns itself. Only a relaunch of the same binary — which is what
+//! `ubiq some/dir` from the shell is — hands over.
 //!
 //! Unix only. On Windows every launch owns itself, exactly as it did before.
 
 use std::path::{Path, PathBuf};
 
-/// The socket's name inside the config root.
-const NAME: &str = "ubiq.sock";
+/// The socket's name inside the config root, one per executable.
+///
+/// The path is hashed rather than spelled out because it is a path, and because the only question
+/// asked of it is whether two launches are the same build.
+fn name() -> String {
+    use std::hash::{Hash as _, Hasher as _};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::env::current_exe().ok().hash(&mut hasher);
+    format!("ubiq-{:016x}.sock", hasher.finish())
+}
 
 /// What a launch found: either it owns the application, or another process already does.
 pub enum Handoff {
@@ -40,7 +51,7 @@ pub fn claim(root: &Path, paths: &[PathBuf]) -> Handoff {
     use std::io::Write as _;
     use std::os::unix::net::{UnixListener, UnixStream};
 
-    let socket = root.join(NAME);
+    let socket = root.join(name());
 
     if let Ok(mut stream) = UnixStream::connect(&socket) {
         let message: String = paths
@@ -131,7 +142,7 @@ mod tests {
     #[test]
     fn a_socket_nobody_listens_on_is_stale_and_replaced() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join(NAME), "not a socket").unwrap();
+        std::fs::write(root.path().join(name()), "not a socket").unwrap();
 
         let Handoff::Owner(Some(_listener)) = claim(root.path(), &[]) else {
             panic!("a stale socket is not a running application");

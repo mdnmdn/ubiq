@@ -63,6 +63,7 @@ impl AppState {
                 match serde_json::from_str::<HostSettings>(&blob) {
                     Ok(host) => {
                         self.workbench.settings.host = host;
+                        self.file_pending_secret();
                         cx.notify();
                     }
                     Err(error) => {
@@ -213,6 +214,23 @@ impl AppState {
             return;
         }
         self.workbench.settings.host.search_excludes = globs;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// How much of a project Ubiq indexes, for every project that does not override it.
+    ///
+    /// The host acts on the change for every project that is open — turning indexing off and
+    /// watching nothing happen would read as a setting that does not work.
+    pub fn set_index_level(
+        &mut self,
+        level: ubiq_proto::projects::IndexLevel,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workbench.settings.host.index_level == level {
+            return;
+        }
+        self.workbench.settings.host.index_level = level;
         self.remember_host_settings();
         cx.notify();
     }
@@ -602,6 +620,8 @@ impl AppState {
             label: String::new(),
             provider: ProviderId::Github,
             instance: None,
+            app: ConnectApp::Instance,
+            app_open: false,
             step: ConnectStep::Choosing {
                 provider: None,
                 auth: None,
@@ -613,12 +633,54 @@ impl AppState {
     /// Pick a provider. The flow choice goes with it: which flows exist is a property of the
     /// provider and the instance, so a kind picked for the last provider may not be on offer.
     pub fn pick_connect_provider(&mut self, provider: ProviderId, cx: &mut Context<Self>) {
+        let app = self.first_connect_app(provider);
         if let Some(connect) = &mut self.workbench.settings.connect {
             connect.provider = provider;
+            connect.app = app;
+            connect.app_open = false;
             connect.step = ConnectStep::Choosing {
                 provider: Some(provider),
                 auth: None,
             };
+        }
+        cx.notify();
+    }
+
+    /// What the application picker opens on for a provider: this build's own application where
+    /// there is one, otherwise the first registration, otherwise a typed URL.
+    ///
+    /// Whether the build ships one is the host's answer and never a guess — an interface that
+    /// assumed a default would open a browser at an authorization URL with no client id in it.
+    pub fn first_connect_app(&self, provider: ProviderId) -> ConnectApp {
+        if self.workbench.settings.bundled.contains(&provider) {
+            return ConnectApp::Bundled;
+        }
+        match self
+            .workbench
+            .settings
+            .host
+            .oauth_apps
+            .iter()
+            .find(|app| app.provider == provider)
+        {
+            Some(app) => ConnectApp::Registration(app.id),
+            None => ConnectApp::Instance,
+        }
+    }
+
+    /// Which application this flow is to authenticate as. Picking one sets where the connection
+    /// lives as well, since a registration already knows its own instance.
+    pub fn pick_connect_app(&mut self, app: ConnectApp, cx: &mut Context<Self>) {
+        if let Some(connect) = &mut self.workbench.settings.connect {
+            connect.app = app;
+            connect.app_open = false;
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_connect_app_picker(&mut self, cx: &mut Context<Self>) {
+        if let Some(connect) = &mut self.workbench.settings.connect {
+            connect.app_open = !connect.app_open;
         }
         cx.notify();
     }
@@ -651,6 +713,26 @@ impl AppState {
             .value()
             .trim()
             .to_string();
+        // A registration answers both questions at once: where the identity lives, and which
+        // application the flow authenticates as. Read before the borrow below, since it reads the
+        // registration list the same state holds.
+        let chosen = self
+            .workbench
+            .settings
+            .connect
+            .as_ref()
+            .map(|connect| connect.app);
+        let registration = match chosen {
+            Some(ConnectApp::Registration(id)) => self
+                .workbench
+                .settings
+                .host
+                .oauth_apps
+                .iter()
+                .find(|app| app.id == id)
+                .cloned(),
+            _ => None,
+        };
         let Some(connect) = &mut self.workbench.settings.connect else {
             return;
         };
@@ -664,7 +746,18 @@ impl AppState {
         if label.is_empty() {
             return;
         }
-        let instance = (!instance.is_empty()).then_some(instance);
+        let (instance, client_id, oauth_app) = match &registration {
+            Some(app) => (
+                app.origin.clone(),
+                Some(app.client_id.clone()),
+                Some(app.id),
+            ),
+            None => (
+                (!instance.is_empty()).then_some(instance),
+                (!client_id.is_empty()).then_some(client_id),
+                None,
+            ),
+        };
         connect.label = label.clone();
         connect.provider = provider;
         connect.instance = instance.clone();
@@ -675,7 +768,8 @@ impl AppState {
             instance,
             label,
             auth,
-            client_id: (!client_id.is_empty()).then_some(client_id),
+            client_id,
+            oauth_app,
         });
         cx.notify();
     }
@@ -852,48 +946,210 @@ impl AppState {
         cx.notify();
     }
 
-    /// Raise the client-secret prompt for one configured OAuth application.
-    pub fn open_app_secret(
+    /// Raise the application-registration form — empty for a new one, seeded for an existing one.
+    ///
+    /// The four fields are the connect modal's: the two modals occlude each other, so neither can
+    /// be on screen while the other is. The secret box is always left empty, because a stored
+    /// secret is never read back — the row says whether there is one and nothing shows it.
+    pub fn open_app_form(
         &mut self,
-        provider: ProviderId,
-        origin: Option<String>,
+        id: Option<OauthAppId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.connect_secret_input
-            .update(cx, |state, cx| state.set_value("", window, cx));
-        self.workbench.settings.connector = Some(ConnectorDialog::AppSecret { provider, origin });
+        let held = id.and_then(|id| {
+            self.workbench
+                .settings
+                .host
+                .oauth_apps
+                .iter()
+                .find(|app| app.id == id)
+                .cloned()
+        });
+        let provider = held.as_ref().map_or(ProviderId::Github, |app| app.provider);
+        let url = match &held {
+            Some(app) => app
+                .origin
+                .clone()
+                .or_else(|| provider.cloud_url().map(str::to_string))
+                .unwrap_or_default(),
+            None => provider.cloud_url().unwrap_or_default().to_string(),
+        };
+        let name = held.as_ref().map_or(String::new(), |app| app.name.clone());
+        let client_id = held.map_or(String::new(), |app| app.client_id);
+        self.set_app_form_fields(&name, &url, &client_id, window, cx);
+        self.workbench.settings.connect = None;
+        self.workbench.settings.connector = None;
+        self.workbench.settings.app_form = Some(AppForm {
+            id,
+            provider,
+            open: false,
+        });
         self.workbench.settings.error = None;
         cx.notify();
     }
 
-    pub fn confirm_app_secret(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let value = self.connect_secret_input.read(cx).value().to_string();
-        let Some(ConnectorDialog::AppSecret { provider, origin }) =
-            self.workbench.settings.connector.take()
-        else {
-            return;
-        };
-        if !value.trim().is_empty() {
-            self.bus.send(Message::SetAppSecret {
-                provider,
-                origin,
-                secret: Secret::new(value),
-            });
+    /// Pick the provider a registration is at. The URL follows it, so the field is never left
+    /// naming a different provider's cloud — unless the user has already typed their own install,
+    /// which is theirs and is kept.
+    pub fn pick_app_provider(
+        &mut self,
+        provider: ProviderId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let typed = self.connect_instance_input.read(cx).value().to_string();
+        let was_a_cloud = typed.trim().is_empty()
+            || ProviderId::all()
+                .iter()
+                .any(|other| other.cloud_url() == Some(typed.trim()));
+        if was_a_cloud {
+            let url = provider.cloud_url().unwrap_or_default().to_string();
+            self.connect_instance_input
+                .update(cx, |state, cx| state.set_value(&url, window, cx));
         }
-        self.connect_secret_input
-            .update(cx, |state, cx| state.set_value("", window, cx));
+        if let Some(form) = &mut self.workbench.settings.app_form {
+            form.provider = provider;
+            form.open = false;
+        }
         cx.notify();
     }
 
-    pub fn clear_app_secret(
+    pub fn toggle_app_provider_picker(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.app_form {
+            form.open = !form.open;
+        }
+        cx.notify();
+    }
+
+    /// Send the form. The host mints the id, validates the name and the client id, and answers
+    /// with the settings blob every window draws from — or with a refusal, which reads as the
+    /// banner in this section.
+    pub fn save_app_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.login_account_input.read(cx).value().trim().to_string();
+        let url = self
+            .connect_instance_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let client_id = self
+            .connect_client_id_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let secret = self.connect_secret_input.read(cx).value().to_string();
+        let Some(form) = self.workbench.settings.app_form.take() else {
+            return;
+        };
+        if name.is_empty() || client_id.is_empty() {
+            self.workbench.settings.app_form = Some(form);
+            return;
+        }
+        // A URL equal to the provider's own cloud is that cloud, and stores nothing: `origin` is
+        // what a settings match and a certificate pin are keyed by, and "the cloud" is `None`.
+        let origin = match form.provider.cloud_url() {
+            Some(cloud) if cloud == url => None,
+            _ => origin(&url),
+        };
+        self.bus.send(Message::SaveOauthApp {
+            id: form.id,
+            provider: form.provider,
+            name: name.clone(),
+            origin,
+            client_id: client_id.clone(),
+        });
+        match form.id {
+            // An existing registration already has an id to file a secret under.
+            Some(app) => self.send_app_secret(app, &secret),
+            // A new one does not, so the secret waits for the record to come back with one.
+            None if !secret.trim().is_empty() => {
+                self.workbench.settings.pending_secret = Some(PendingSecret {
+                    name,
+                    client_id,
+                    secret,
+                });
+            }
+            None => {}
+        }
+        self.clear_connect_inputs(window, cx);
+        cx.notify();
+    }
+
+    pub fn close_app_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workbench.settings.app_form = None;
+        self.clear_connect_inputs(window, cx);
+        cx.notify();
+    }
+
+    pub fn open_delete_app(&mut self, app: OauthAppId, name: String, cx: &mut Context<Self>) {
+        self.workbench.settings.connector = Some(ConnectorDialog::DeleteApp { app, name });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn confirm_delete_app(&mut self, cx: &mut Context<Self>) {
+        let Some(ConnectorDialog::DeleteApp { app, .. }) = self.workbench.settings.connector.take()
+        else {
+            return;
+        };
+        self.bus.send(Message::DeleteOauthApp { id: app });
+        cx.notify();
+    }
+
+    /// Set or clear one registration's client secret. Blank clears, because a field the user
+    /// emptied is a secret they meant to be rid of.
+    fn send_app_secret(&mut self, app: OauthAppId, secret: &str) {
+        if secret.trim().is_empty() {
+            self.bus.send(Message::ClearAppSecret { app });
+        } else {
+            self.bus.send(Message::SetAppSecret {
+                app,
+                secret: Secret::new(secret.to_string()),
+            });
+        }
+    }
+
+    /// File a secret that was typed for a registration the host had not minted an id for yet.
+    ///
+    /// Matched on the two fields the user typed rather than on position, since another window may
+    /// have written a registration of its own in between. A secret that matches nothing is dropped
+    /// rather than kept waiting: the save it belonged to was refused.
+    fn file_pending_secret(&mut self) {
+        let Some(pending) = self.workbench.settings.pending_secret.take() else {
+            return;
+        };
+        let Some(app) = self
+            .workbench
+            .settings
+            .host
+            .oauth_apps
+            .iter()
+            .find(|app| pending.matches(app))
+            .map(|app| app.id)
+        else {
+            return;
+        };
+        self.send_app_secret(app, &pending.secret);
+    }
+
+    fn set_app_form_fields(
         &mut self,
-        provider: ProviderId,
-        origin: Option<String>,
+        name: &str,
+        url: &str,
+        client_id: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.bus.send(Message::ClearAppSecret { provider, origin });
-        cx.notify();
+        for (input, value) in [
+            (&self.login_account_input, name),
+            (&self.connect_instance_input, url),
+            (&self.connect_client_id_input, client_id),
+            (&self.connect_secret_input, ""),
+        ] {
+            input.update(cx, |state, cx| state.set_value(value, window, cx));
+        }
     }
 
     pub fn close_connector_dialog(&mut self, cx: &mut Context<Self>) {

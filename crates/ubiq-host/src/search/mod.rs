@@ -11,6 +11,7 @@
 
 pub mod ceiling;
 pub mod fallback;
+pub mod hits;
 pub mod walk;
 pub mod worker;
 
@@ -67,6 +68,13 @@ pub struct Job {
     pub excludes: Vec<String>,
     /// External tools tried, in order, when the built-in regex engine cannot compile the query.
     pub fallbacks: Vec<String>,
+    /// The project's full-text index, when it has one and the coordinator resolved its level to
+    /// something that keeps one.
+    ///
+    /// `None` is not a failure and not a special case — it is a project indexed at `none`, or one
+    /// whose index has not been built yet. The worker walks, which is what it did before any index
+    /// existed, so this field only ever removes work.
+    pub index: Option<crate::index::text::Reader>,
     pub cancel: Arc<AtomicBool>,
     pub reply_to: Mailbox,
 }

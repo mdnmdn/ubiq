@@ -39,10 +39,73 @@ pub struct ProjectRecord {
     /// application-wide set in [`crate::settings::HostSettings`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub search_excludes: Vec<String>,
-    /// Whether this project may be indexed locally. Off is the user saying "walk it, do not keep
-    /// it" — the watcher still runs.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub no_local_index: bool,
+    /// How much of this project Ubiq keeps an index of, or `None` to follow the application-wide
+    /// default in [`crate::settings::HostSettings::index_level`].
+    ///
+    /// An override rather than a value, because "follow the default" and "happens to equal the
+    /// default today" are different answers: changing the application setting must move every
+    /// project that never said otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<IndexLevel>,
+}
+
+/// How much of a project Ubiq keeps an index of.
+///
+/// **Cumulative, not alternative**: `Full` is `Light` plus symbols. The full-text half carries
+/// content search at both levels and for every kind of file, including the ones a grammar exists
+/// for — a symbol index answers questions about *names* and never about content, so it can never
+/// stand in for the other half.
+///
+/// The watcher runs at every level, `None` included: what a level decides is what is *kept*, not
+/// what is noticed.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IndexLevel {
+    /// Nothing is kept. Content search walks the project on every query, which is what it did
+    /// before any index existed.
+    None,
+    /// A full-text index, so a content search reads only the files that could match.
+    #[default]
+    Light,
+    /// The full-text index, plus a table of the definitions each file declares.
+    Full,
+}
+
+impl IndexLevel {
+    /// Whether this level keeps a full-text index.
+    pub fn keeps_text(self) -> bool {
+        matches!(self, Self::Light | Self::Full)
+    }
+
+    /// Whether this level keeps a symbol table.
+    pub fn keeps_symbols(self) -> bool {
+        matches!(self, Self::Full)
+    }
+}
+
+/// What an update does to a project's indexing override.
+///
+/// Three states have to cross the wire — leave it alone, clear it, set it — and
+/// `Option<Option<IndexLevel>>` cannot carry them: serde reads an absent field and an explicit
+/// `null` into the same outer `None`, which would make "clear the override" indistinguishable
+/// from "say nothing about it". So the outer `Option` means *was anything said*, and this says
+/// what.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IndexChange {
+    /// Drop the override and follow the application-wide default.
+    Inherit,
+    /// Pin this project to a level of its own.
+    Set(IndexLevel),
+}
+
+impl IndexChange {
+    /// The override this change leaves behind.
+    pub fn resolve(self) -> Option<IndexLevel> {
+        match self {
+            Self::Inherit => None,
+            Self::Set(level) => Some(level),
+        }
+    }
 }
 
 /// What the host found when it last looked at the folder.

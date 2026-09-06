@@ -337,7 +337,6 @@ impl AppState {
 
     pub fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
-        self.workbench.pending_close = None;
         self.workbench.file_tab_menu = None;
         self.workbench.new_pane_menu = None;
         self.workbench.conversation_menu = None;
@@ -627,6 +626,21 @@ impl AppState {
         // having happened, which is how the gesture looked while the binding was being lost.
         let field = self.search.query.read(cx).focus_handle(cx);
         window.focus(&field, cx);
+        cx.notify();
+    }
+
+    /// Bring the outline panel on screen, and parse the buffer for it if it was put away while
+    /// the file changed underneath it.
+    pub fn reveal_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = self.panel(PanelKind::Outline, cx);
+        dock::reveal(
+            &self.dock.clone(),
+            &panel,
+            PanelKind::Outline.home(),
+            window,
+            cx,
+        );
+        self.settle_outline(cx);
         cx.notify();
     }
 

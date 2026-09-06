@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::projects::{ProjectRecord, ProjectSnapshot, Scope};
+use ubiq_proto::projects::{IndexChange, ProjectRecord, ProjectSnapshot, Scope};
 
 use crate::gc;
 use crate::health::probe;
@@ -22,6 +22,12 @@ use crate::store::{PreferenceStore, ProjectStore, StoreError};
 /// The host reserves the name and creates it, and never reads or writes inside it — see
 /// [`ubiq_proto::projects::ProjectSnapshot::workarea`].
 pub const WORKAREA: &str = "ui";
+
+/// The directory inside a project's own that belongs to the host's index.
+///
+/// The mirror of [`WORKAREA`]: the interface is never told this exists, and everything in it is
+/// derived data that is deleted rather than repaired.
+pub const INDEX_DIR: &str = "index";
 
 /// How long a preference sits before it is written.
 ///
@@ -128,6 +134,21 @@ impl Projects {
             .join("projects")
             .join(id.to_string())
             .join(WORKAREA)
+    }
+
+    /// Where this project's index lives.
+    ///
+    /// A sibling of [`Self::workarea`] and the mirror of it: that directory belongs to the
+    /// interface and the host never looks inside, this one belongs to the host and the interface
+    /// is never told it exists. Both sit under the project's own directory, so Forget and the
+    /// orphan collector already remove them without knowing what either holds.
+    ///
+    /// Nothing here is ever written into the user's project folder.
+    pub fn index_dir(&self, id: ProjectId) -> PathBuf {
+        self.root
+            .join("projects")
+            .join(id.to_string())
+            .join(INDEX_DIR)
     }
 
     /// Reserve it, and answer the path the interface is told.
@@ -263,7 +284,7 @@ impl Projects {
             created_at: Utc::now(),
             last_opened_at: None,
             search_excludes: Vec::new(),
-            no_local_index: false,
+            index: None,
         };
 
         let snapshot = self.snapshot(&record);
@@ -285,7 +306,7 @@ impl Projects {
         colour: Option<usize>,
         custom_colour: Option<u32>,
         search_excludes: Option<Vec<String>>,
-        no_local_index: Option<bool>,
+        index: Option<IndexChange>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -302,8 +323,8 @@ impl Projects {
         if let Some(search_excludes) = search_excludes {
             record.search_excludes = search_excludes;
         }
-        if let Some(no_local_index) = no_local_index {
-            record.no_local_index = no_local_index;
+        if let Some(index) = index {
+            record.index = index.resolve();
         }
 
         let snapshot = self.snapshot(&record);
@@ -365,7 +386,7 @@ impl Projects {
     }
 
     /// Rename, recolour, or change what a project's searches skip. Touches no filesystem and
-    /// cannot fail beyond "no such project": `search_excludes` and `no_local_index` are display
+    /// cannot fail beyond "no such project": `search_excludes` and `index` are display
     /// state exactly like the rest — `None` leaves a field as it is, `Some` replaces it.
     pub fn update(
         &mut self,
@@ -374,7 +395,7 @@ impl Projects {
         colour: Option<usize>,
         custom_colour: Option<u32>,
         search_excludes: Option<Vec<String>>,
-        no_local_index: Option<bool>,
+        index: Option<IndexChange>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -382,14 +403,7 @@ impl Projects {
         // Naming a temporary project in the settings dialog is what keeps it, and this is where
         // that happens — there is deliberately no separate promote message.
         if record.temporary {
-            return self.promote(
-                id,
-                name,
-                colour,
-                custom_colour,
-                search_excludes,
-                no_local_index,
-            );
+            return self.promote(id, name, colour, custom_colour, search_excludes, index);
         }
         let mut record = record.clone();
         if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
@@ -402,8 +416,8 @@ impl Projects {
         if let Some(search_excludes) = search_excludes {
             record.search_excludes = search_excludes;
         }
-        if let Some(no_local_index) = no_local_index {
-            record.no_local_index = no_local_index;
+        if let Some(index) = index {
+            record.index = index.resolve();
         }
 
         let snapshot = self.snapshot(&record);

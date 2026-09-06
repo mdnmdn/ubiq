@@ -28,7 +28,7 @@ fn record(id: ProjectId, path: &Path, temporary: bool) -> ProjectRecord {
         created_at: Utc.with_ymd_and_hms(2026, 9, 5, 9, 0, 0).unwrap(),
         last_opened_at: None,
         search_excludes: Vec::new(),
-        no_local_index: false,
+        index: None,
     }
 }
 

@@ -38,6 +38,7 @@ pub mod files;
 pub mod gc;
 pub mod git;
 pub mod health;
+pub mod index;
 pub mod links;
 pub mod mcp_server;
 pub mod projects;

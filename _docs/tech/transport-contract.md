@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, command-line, connector and repository families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-05
-verified: 2026-09-05
+updated: 2026-09-06
+verified: 2026-09-06
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -110,7 +110,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -692,13 +692,22 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` — at 4 — and `isolate_agents`, which is whether an agent runs
+`HostSettings` carries a `schema` — at 5 — and `isolate_agents`, which is whether an agent runs
 confined, the one setting the host acts on rather than stores, read again at every spawn. It also
 carries `projects_root` and `ephemeral_root`, the two folders a clone lands in: an absent or blank
 one means the host's own default under its config root, so the interface offers a placeholder rather
-than inventing a path it cannot read. A record written by
+than inventing a path it cannot read. `index_level` is how much of a project is indexed for every
+project that does not say otherwise, and is `light` when nothing says. A record written by
 an older build still parses, because every field added since carries a default; only a newer schema
 is refused.
+
+`IndexLevel` — `none`, `light`, `full` — is **cumulative**: `full` is `light` plus a symbol table,
+and the full-text half carries content search at both. A project's own `ProjectRecord.index` is an
+`Option<IndexLevel>`, absent meaning it follows the setting above, so moving the application
+default moves every project that never overrode it. `UpdateProject` carries that override as an
+`IndexChange` — `Inherit` or `Set(level)` — rather than an `Option<Option<IndexLevel>>`, because
+serde reads an absent field and an explicit `null` into the same outer `None` and "clear the
+override" would become indistinguishable from "say nothing about it".
 
 The conversation family's own enums are the Agent Client Protocol's and are named after it rather
 than after anything here, so a reader can check them against
@@ -889,8 +898,8 @@ is unique per provider, and every consumer takes a connection id rather than a p
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListConnections` | UI → host | — | `Connections` |
-| `Connections` | host → UI | `connections` | — |
-| `BeginConnect` | UI → host | `connect_id`, `provider`, `instance?`, `label`, `auth`, `client_id?` | `ConnectPending`, then `ConnectCaptured` or `ConnectFailed` |
+| `Connections` | host → UI | `connections`, `bundled` | — |
+| `BeginConnect` | UI → host | `connect_id`, `provider`, `instance?`, `label`, `auth`, `client_id?`, `oauth_app?` | `ConnectPending`, then `ConnectCaptured` or `ConnectFailed` |
 | `ConnectPending` | host → UI | `connect_id`, `stage` | — |
 | `ConnectCaptured` | host → UI | `connect_id`, `connection` | `Connections` follows |
 | `ConnectFailed` | host → UI | `connect_id`, `error` | — |
@@ -903,13 +912,16 @@ is unique per provider, and every consumer takes a connection id rather than a p
 | `ConfirmCertificate` | host → UI | `connect_id`, `origin`, `cert` | `TrustCertificate`, or a cancel |
 | `TrustCertificate` | UI → host | `connect_id`, `origin`, `sha256` | resumes the flow, or `ConnectorError` |
 | `ForgetCertificate` | UI → host | `origin` | `Settings` or `ConnectorError` |
-| `SetAppSecret` | UI → host | `provider`, `origin?`, `secret` | `Settings` or `ConnectorError` |
-| `ClearAppSecret` | UI → host | `provider`, `origin?` | `Settings` or `ConnectorError` |
+| `SaveOauthApp` | UI → host | `id?`, `provider`, `name`, `origin?`, `client_id` | `Settings` or `ConnectorError` |
+| `DeleteOauthApp` | UI → host | `id` | `Settings` or `ConnectorError` |
+| `SetAppSecret` | UI → host | `app`, `secret` | `Settings` or `ConnectorError` |
+| `ClearAppSecret` | UI → host | `app` | `Settings` or `ConnectorError` |
 | `ConnectorError` | host → UI | `error` | — |
 
 **`ConnectionInfo` carries no material.** It is the stored record — id, provider, label, instance,
-auth, scopes, the provider's own name for the identity — plus the status the host read out of the
-token and whether the instance is pinned. The log sink listens to the same bus, so the account
+auth, scopes, the provider's own name for the identity, the client id it was made with and the
+registration it was made under — plus the status the host read out of the token and whether the
+instance is pinned. The log sink listens to the same bus, so the account
 family's rule applies unchanged: a token here is a token in a log a user might paste into an issue.
 
 **Two variants carry material, and the rule is the type rather than the list.**
@@ -917,8 +929,35 @@ family's rule applies unchanged: a token here is a token in a log a user might p
 Both carry a `Secret`, whose `Debug` prints `Secret(***)` and which has no `Display`, no `Deref` and
 no `AsRef<str>` — so a whole `Message` can be logged, as both halves do, without material reaching
 the sink. The rule to hold is **material crosses only in a `Secret`, and a `Secret` is never
-printed**; see [D65](./decisions.md). A client *id* is public, rides the settings blob like any other
-setting, and needs no variant of its own, which is why there is no `SetOauthApp`.
+printed**; see [D65](./decisions.md). A client *id* is public and rides the settings blob like any
+other setting, so `SaveOauthApp` carries one in the clear while the secret keeps its own variant.
+
+**An application registration is keyed by an `OauthAppId` and by nothing else.** One provider and
+one instance may carry several, so `SaveOauthApp`, `DeleteOauthApp`, `SetAppSecret`,
+`ClearAppSecret`, `BeginConnect` and the `Connection` record all name the id. `SaveOauthApp` with
+`id: None` creates and the host mints one — a registration exists once it is written, the discipline
+`ConnectId` and `ConnectionId` already follow — and with `Some` rewrites that registration in place,
+so a rename disturbs neither the secret filed under it nor the connections that reference it. A
+blank name or a blank client id is refused with `ConnectorError`; so is an instance that is not an
+absolute `http` or `https` URL. Deleting a registration clears its client secret with it.
+
+**An `OauthApp` read from an older blob is filled deterministically.** Neither the id nor the name
+existed before, so a record without them takes a name derived from its provider and origin and an
+id derived from the same pair — derived rather than minted, because the host re-reads the settings
+file on every question it asks of it and a minted fill would answer a different id each time.
+`HOST_SETTINGS_SCHEMA` is 6 for the change, so a build that predates it refuses the file rather than
+rewriting it without the ids the keychain is now keyed by.
+
+**`bundled` on `Connections` says which providers this build ships an application for.** It is a
+compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's
+only way to know it, so the connect flow offers a "Default" exactly where one can be honoured. An
+interface that guessed would open a browser at an authorization URL with no client id in it.
+
+**The callback URL is a constant, not a payload.** `ubiq_proto::connectors::OAUTH_REDIRECT` and
+`OAUTH_REDIRECT_PORT` sit on the contract because both halves need the same string for different
+reasons: the host binds the port, the interface shows the URL to whoever is registering the
+application. A second spelling of it in either half would be a string that drifts from the one
+actually listened on.
 
 **Creating a connection is completing a flow.** There is no `AddConnection`. `BeginConnect` mints
 nothing but a flow — the `connect_id` is the interface's, on the search family's discipline — and a

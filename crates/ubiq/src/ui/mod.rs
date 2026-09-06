@@ -24,6 +24,7 @@ pub mod logs;
 pub mod navigator;
 pub mod new_pane_menu;
 pub mod orchestration;
+pub mod outline;
 pub mod project_menu;
 pub mod rail;
 pub mod ribbon;

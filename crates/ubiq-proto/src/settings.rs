@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::connectors::{Connection, OauthApp, TrustedCert};
+use crate::projects::IndexLevel;
 
 /// Which half owns the schema of a settings blob.
 ///
@@ -42,6 +43,11 @@ pub struct HostSettings {
     /// built-in walk could not answer. Empty means there is no fallback.
     #[serde(default = "search_fallbacks_default")]
     pub search_fallbacks: Vec<String>,
+    /// How much of a project Ubiq indexes, for every project that does not say otherwise in its
+    /// own record. `Light` by default: a content search that reads only the files that could
+    /// match is what most projects want, and the symbol half costs a parse of every file.
+    #[serde(default)]
+    pub index_level: IndexLevel,
     /// The folder a clone lands in. `None` is the built-in default, which the host resolves — the
     /// contract does not name a path, and this one is no exception.
     #[serde(default)]
@@ -62,7 +68,8 @@ pub struct HostSettings {
     /// mutates a field owns it", and no other field here works that way.
     #[serde(default)]
     pub connections: Vec<Connection>,
-    /// OAuth applications Ubiq authenticates *as*, where one was configured rather than built in.
+    /// The named OAuth application registrations Ubiq authenticates *as*, where one was registered
+    /// rather than built in. Keyed by id: one provider and one instance may carry several.
     #[serde(default)]
     pub oauth_apps: Vec<OauthApp>,
     /// Certificates the user has vouched for, keyed by origin. A second list rather than a field on
@@ -76,7 +83,11 @@ pub struct HostSettings {
 ///
 /// A record from an older schema still parses — every field added since carries a default — and
 /// only a *newer* one is refused, because that is the one this build cannot be trusted to read.
-pub const HOST_SETTINGS_SCHEMA: u32 = 4;
+///
+/// Six because an [`OauthApp`] gained an id and a name. A build that predates them reads such a
+/// record without complaint and drops both on the next write, which would strand the client
+/// secrets filed under those ids — so the refusal a newer schema earns is exactly what is wanted.
+pub const HOST_SETTINGS_SCHEMA: u32 = 6;
 
 fn isolate_agents_default() -> bool {
     true
@@ -115,6 +126,7 @@ impl Default for HostSettings {
             isolate_agents: isolate_agents_default(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
+            index_level: IndexLevel::default(),
             projects_root: None,
             ephemeral_root: None,
             connections: Vec::new(),

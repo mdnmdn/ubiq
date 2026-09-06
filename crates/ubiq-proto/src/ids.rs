@@ -154,6 +154,34 @@ ulid_id! {
 }
 
 ulid_id! {
+    /// One OAuth application registration. Minted by the host when a registration is written,
+    /// because a registration exists only once it is on disk — a form the user abandoned leaves no
+    /// id behind. Stable across a rename and across a change of instance: the name and the URL are
+    /// the user's, this is what a connection and a stored client secret reference.
+    OauthAppId
+}
+
+impl OauthAppId {
+    /// The id an application registration written before ids existed is given.
+    ///
+    /// Derived from the record's own provider and origin rather than minted, and that is the whole
+    /// point: the host re-reads the settings file on every question it asks of it, so a minted fill
+    /// would answer a different id each time and nothing could reference one. FNV-1a over the seed,
+    /// spelled out here rather than taken from [`std::hash`], whose output is not promised to be
+    /// stable between compiler releases.
+    pub fn derived(seed: &str) -> Self {
+        const OFFSET: u128 = 0x6c62272e07bb014262b821756295c58d;
+        const PRIME: u128 = 0x0000000001000000000000000000013b;
+        let mut hash = OFFSET;
+        for byte in seed.as_bytes() {
+            hash ^= u128::from(*byte);
+            hash = hash.wrapping_mul(PRIME);
+        }
+        Self(Ulid::from(hash))
+    }
+}
+
+ulid_id! {
     /// One clone operation, from `CloneRepo` to the single success or `CloneFailed` that ends it.
     /// Minted by the interface, on [`ConnectId`]'s discipline: a stage naming an id the interface
     /// no longer holds is discarded rather than drawn, so a clone the user cancelled cannot repaint

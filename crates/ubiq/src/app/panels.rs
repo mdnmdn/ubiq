@@ -99,6 +99,18 @@ impl AppState {
         });
     }
 
+    /// Collapse a region a whole arrangement was just installed over, if it landed empty.
+    ///
+    /// [`Self::hide_emptied_regions`] only fires on the edge — a region that *went* from holding
+    /// something to holding nothing — because a caller may open one empty on purpose and fill it a
+    /// frame later. A restore is not that: the arrangement it installed is final, so an open region
+    /// with nothing in it is one the project on screen has no use for. Arming the edge is the whole
+    /// of it: the next pass reads the region as having just been emptied and puts it away.
+    pub(super) fn collapse_empty_regions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.region_had_content = (true, true, true);
+        self.hide_emptied_regions(window, cx);
+    }
+
     /// The panel for one kind, built the first time it is asked for.
     pub(super) fn panel(&mut self, kind: PanelKind, cx: &mut App) -> Entity<WorkbenchPanel> {
         if let Some(panel) = self.panels.get(&kind) {
@@ -181,6 +193,9 @@ impl AppState {
                 self.pending_panels.push(PanelEdit::Open(PanelKind::Search));
             }
         }
+        // The outline follows the tab on screen, and a tab switch does not pass through here on a
+        // message — it is noticed in the frame that draws the new one.
+        self.settle_outline(cx);
         if self.pending_panels.is_empty() {
             return;
         }
@@ -328,6 +343,7 @@ impl AppState {
             // the tree with `OpenProject::chats`, which is the tab's actual source of truth.
             self.sync_chat_panels(project);
         }
+        self.collapse_empty_regions(window, cx);
         cx.notify();
     }
 

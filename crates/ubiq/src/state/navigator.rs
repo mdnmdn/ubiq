@@ -27,6 +27,9 @@ pub const RECENTS_MAX: usize = 32;
 /// every action in the crate for one consumer. Backlogged.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Group {
+    /// What was typed, offered as a content search over the project. First, and so the row the
+    /// cursor opens on: Enter twice is a search, which is the shortest thing the field can mean.
+    Search,
     Uri,
     /// A repository URL, offered as a clone rather than as a place. The only group whose row goes
     /// nowhere: it opens the clone modal instead — see [`NavAction`].
@@ -42,6 +45,7 @@ impl Group {
     /// The heading this group is drawn under.
     pub fn label(self) -> &'static str {
         match self {
+            Group::Search => "Search",
             Group::Uri => "Link",
             Group::Clone => "Clone",
             Group::Recent => "Recent",
@@ -71,12 +75,14 @@ pub struct NavRow {
 
 /// What a row does instead of going somewhere.
 ///
-/// One variant, and an enum rather than a bool: the navigator is where every "type this and
-/// something happens" lands, and the next one is a variant rather than a second field.
+/// An enum rather than a bool: the navigator is where every "type this and something happens"
+/// lands, and the next one is a variant rather than a second field.
 #[derive(Clone, PartialEq, Debug)]
 pub enum NavAction {
     /// Open the clone modal with this URL already in its field.
     Clone(String),
+    /// Run the project content search for this term.
+    Search(String),
 }
 
 /// The navigator, while it is up: what was typed, and which row the keyboard is on.
@@ -145,6 +151,18 @@ pub fn rows(
 
     let needle = query.to_lowercase();
     let mut out = Vec::new();
+
+    // Always first, and never filtered: it *is* what was typed.
+    if !query.is_empty() {
+        out.push(NavRow {
+            group: Group::Search,
+            label: query.to_string(),
+            detail: "in project".to_string(),
+            dest: None,
+            adrift: false,
+            action: Some(NavAction::Search(query.to_string())),
+        });
+    }
 
     keep(
         &mut out,

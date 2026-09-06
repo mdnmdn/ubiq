@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-05
-verified: 2026-09-05
+updated: 2026-09-06
+verified: 2026-09-06
 code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
@@ -150,6 +150,7 @@ the transport beneath the contract.
 | A project's repository | `crates/ubiq-host/src/git/` | The overview the status bar reads and the working-tree map the explorer's badges read, on a worker thread of their own so a cold status does not stall every pane |
 | Listing a remote's repositories, and cloning one | `crates/ubiq-host/src/repos/` | A thread per clone, deliberately not the git worker, whose synchronous queue a clone would block for minutes (`D73`). It reaches the connectors' HTTP and token helpers for a listing, and hands the finished folder to the coordinator over a channel because it cannot reach the catalogue |
 | What changed in a project's folder | `crates/ubiq-host/src/watch/` | One recursive `notify` watch and one debounce thread per open project, per window. The only thing in the host that speaks without being asked |
+| What a project contains | `crates/ubiq-host/src/index/` | One thread owning one full-text index per project that keeps one, built from the same walk content search runs and refreshed from the watcher's own batches. It hands out a read handle carrying no writer, so a search can never block indexing |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
@@ -184,6 +185,13 @@ opens another project or leaves, so a dropped handle is the whole of stopping a 
 is `ProjectFilesChanged` — project-relative paths and a flag for the git directory, never content
 and never an absolute path, on the same rule a search hit follows. A watch that will not start is
 logged and the project simply has none.
+
+**The same flush also feeds the index, and does not go through the coordinator to do it.** The
+watch thread pushes straight to its client, so the coordinator never sees a change and has nothing
+to relay; a `watch::Job` therefore carries an optional sender into `index::Job::Changed` beside its
+mailbox. One extra send per flush, downstream of a debounce that coalesced the burst. The
+index's failure is not the interface's: a thread that has gone means searches walk, which is what
+they did before an index existed.
 
 **The boot is a library, and the binary is three lines.** `crates/ubiq-app/src/lib.rs` holds the
 whole start sequence in one function, `run(boot)`: install logging, resolve the config root, open the

@@ -15,6 +15,9 @@ use gpui::{
 use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::ids::ProjectId;
+use ubiq_proto::projects::{IndexChange, IndexLevel};
+
 use crate::app::AppState;
 use crate::state::sink::{
     ColourField, PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK,
@@ -24,7 +27,8 @@ use crate::state::workbench::ProjectSettingsMode;
 use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
 use crate::ui::kit::{
-    elided, ghost_button, heading, icon_button, mono, nav_item, primary_button, setting_row,
+    choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item, primary_button,
+    setting_row,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
@@ -329,6 +333,89 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
         .into_any_element()
 }
 
+/// The project this form is editing, where there is one.
+///
+/// Only a project that already exists can carry an override: the Sink form and the Create mode are
+/// both about a project with no record yet, and there is nothing to override until there is.
+fn form_project(app: &AppState, form: Form, _cx: &gpui::App) -> Option<ProjectId> {
+    match form {
+        Form::Sink => None,
+        Form::Live => match app.workbench.project_settings.as_ref().map(|s| &s.mode) {
+            Some(ProjectSettingsMode::Edit { project }) => Some(*project),
+            _ => None,
+        },
+    }
+}
+
+/// This project's indexing level: four choices, because "follow the default" is one of them and is
+/// not the same as happening to match it today.
+fn index_row(app: &AppState, project: ProjectId, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let record = WindowRegistry::read(cx).project(project)?.record.clone();
+    let current = record.index;
+    let default = app.workbench.settings.host.index_level;
+
+    let pill =
+        |id: String, label: String, want: Option<IndexLevel>, current: Option<IndexLevel>| {
+            let change = match want {
+                None => IndexChange::Inherit,
+                Some(level) => IndexChange::Set(level),
+            };
+            choice_pill(
+                ElementId::Name(id.into()),
+                label,
+                current == want,
+                cx.listener(move |this, _, _, cx| this.set_project_index(project, change, cx)),
+            )
+        };
+
+    let default_label = match default {
+        IndexLevel::None => "Default (off)",
+        IndexLevel::Light => "Default (full text)",
+        IndexLevel::Full => "Default (full text + symbols)",
+    };
+
+    Some(
+        setting_row(
+            "Keep an index",
+            "What Ubiq remembers about this project, overriding the application setting. Off walks \
+             every file on every query — worth it for a project on a slow disk, or one you would \
+             rather Ubiq kept nothing about.",
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .flex_wrap()
+                .child(pill(
+                    "project-index-default".to_string(),
+                    default_label.to_string(),
+                    None,
+                    current,
+                ))
+                .child(pill(
+                    "project-index-none".to_string(),
+                    "Off".to_string(),
+                    Some(IndexLevel::None),
+                    current,
+                ))
+                .child(pill(
+                    "project-index-light".to_string(),
+                    "Full text".to_string(),
+                    Some(IndexLevel::Light),
+                    current,
+                ))
+                .child(pill(
+                    "project-index-full".to_string(),
+                    "Full text + symbols".to_string(),
+                    Some(IndexLevel::Full),
+                    current,
+                ))
+                .into_any_element(),
+        )
+        .into_any_element(),
+    )
+}
+
 fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form) -> AnyElement {
     let picked = colour_of(app, form);
     let colour = picked.swatch;
@@ -474,6 +561,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 .text_size(px(12.5))
                 .into_any_element(),
         ))
+        .children(form_project(app, form, cx).and_then(|project| index_row(app, project, cx)))
         .into_any_element()
 }
 

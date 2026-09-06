@@ -140,10 +140,16 @@ impl AppState {
     /// came from, the way a command palette clears once its command has fired. A no-op with
     /// nothing open, on the same guard `run_project_search` already applies.
     pub fn submit_header_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.command_input.read(cx).value().trim().to_string();
+        self.search_for(text, window, cx);
+    }
+
+    /// The same search, for a term the field no longer holds — the navigator's own search row
+    /// carries it, and pressing that row is what runs this.
+    pub fn search_for(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
         if self.project(cx).is_none() {
             return;
         }
-        let text = self.command_input.read(cx).value().trim().to_string();
         if text.is_empty() {
             return;
         }

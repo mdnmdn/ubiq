@@ -11,9 +11,12 @@ use gpui::{
     StatefulInteractiveElement, Styled, StyledText, Window, div, px,
 };
 use gpui_component::input::Input;
+use ubiq_proto::ids::ProjectId;
 use ubiq_proto::search::SearchError;
 
 use crate::app::AppState;
+use crate::state::editor::{Subject, tab_key};
+use crate::state::nav::{Destination, Locus, View};
 use crate::theme;
 use crate::ui::empty::empty_panel;
 use crate::ui::kit::{filter_bar, mono, panel, row_height};
@@ -100,9 +103,28 @@ fn glyph_toggle(
 /// like `e` matches tens of thousands of lines, and drawing them all is a stall, not a result.
 pub const SHOWN_HITS: usize = 500;
 
+/// Where a result row goes: the file, and the line when the row names one.
+///
+/// A file row has no line and lands wherever the editor puts the caret; a hit row carries its
+/// own, and [`AppState::navigate`] applies it through the same `pending_goto` a bookmark uses.
+fn hit_dest(project: ProjectId, path: &str, line: Option<u32>) -> Destination {
+    Destination {
+        project,
+        view: View::Ide {
+            key: tab_key(path, Subject::File),
+        },
+        locus: line.map(|line| Locus::Line { line }),
+    }
+}
+
 fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let mut rows: Vec<AnyElement> = Vec::new();
     let mut drawn = 0usize;
+    // Every row needs it and it cannot change mid-list; with no project open there is nowhere for
+    // a row to go, so the list draws empty rather than drawing rows that cannot be followed.
+    let Some(project) = app.project(cx) else {
+        return div().into_any_element();
+    };
     // The results read against the tree and the editor, so they follow the same project font size,
     // and a row is as tall as that size asks for.
     let font = app.ui_font_size_or_default(cx) - 0.5;
@@ -113,12 +135,13 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             break;
         }
         let path = file.rel_path.clone();
+        let dest = hit_dest(project, &path, None);
         rows.push(
             div()
                 .id(gpui::ElementId::Name(format!("search-file-{path}").into()))
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::hover()))
-                .on_click(cx.listener(move |this, _, _, cx| this.select_file(path.clone(), cx)))
+                .on_click(cx.listener(move |this, _, _, cx| this.navigate(dest.clone(), cx)))
                 .h(px(row + 2.))
                 .px_3()
                 .flex()
@@ -168,9 +191,8 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     },
                 )
             }));
-            // §9's destination is the file: there is no open-at-line yet, so a hit row opens the
-            // file and the caret stays where the editor puts it.
             let path = file.rel_path.clone();
+            let dest = hit_dest(project, &path, Some(hit.line));
             rows.push(
                 div()
                     .id(gpui::ElementId::Name(
@@ -178,7 +200,7 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     ))
                     .cursor_pointer()
                     .hover(|this| this.bg(theme::hover()))
-                    .on_click(cx.listener(move |this, _, _, cx| this.select_file(path.clone(), cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(dest.clone(), cx)))
                     .h(px(row))
                     .px_3()
                     .flex()
@@ -375,5 +397,26 @@ mod tests {
         assert_eq!(&text[marks[0].clone()], "term");
         // The tail is the row's to clip, not this function's to cut.
         assert!(text.ends_with("yyy"));
+    }
+
+    #[test]
+    fn a_hit_row_carries_its_line_and_a_file_row_does_not() {
+        let project = ProjectId::generate();
+
+        let hit = hit_dest(project, "src/main.rs", Some(900));
+        assert_eq!(
+            hit.view,
+            View::Ide {
+                key: "src/main.rs".to_string()
+            }
+        );
+        // The whole of `G107`: a hit found on line 900 opens on line 900.
+        assert_eq!(hit.locus, Some(Locus::Line { line: 900 }));
+        assert_eq!(hit.line(), Some(900));
+
+        // A file row names no line, so the caret stays where the editor puts it.
+        let file = hit_dest(project, "src/main.rs", None);
+        assert_eq!(file.locus, None);
+        assert!(file.same_place(&hit));
     }
 }

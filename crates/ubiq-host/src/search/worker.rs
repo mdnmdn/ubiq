@@ -4,21 +4,19 @@
 //! Matching goes through `grep-regex` and `grep-searcher`, which is what ripgrep uses. The worker
 //! is interruptible between files via an `Arc<AtomicBool>`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use grep_matcher::Matcher;
 use grep_regex::RegexMatcherBuilder;
-use grep_searcher::sinks::UTF8;
-use grep_searcher::{BinaryDetection, SearcherBuilder};
 use ubiq_proto::messages::Message;
-use ubiq_proto::search::{self, Batch, FileHit, LineHit, Source};
+use ubiq_proto::search::{self, Batch, Source};
 
 use super::Job;
 use super::ceiling;
 use super::fallback;
+use super::hits::{self, State};
 use super::walk;
 
 /// How long an external fallback tool is given before it is killed. See [`fallback::run`].
@@ -97,6 +95,19 @@ pub fn run(job: &Job) {
         }
     };
 
+    // The index, where there is one that can answer this query, names the files worth reading and
+    // the walk is skipped. Everything after this point is the same code either way: the same sink,
+    // the same batching, the same ceilings, the same messages — the index chose the files and
+    // nothing else (`D75`).
+    //
+    // Note where this sits: **after** the matcher was built above, so a pattern the engine rejects
+    // has already gone to the external fallback. A query that uses `ag` takes the same path it
+    // always did, index or no index.
+    if let Some(candidates) = candidates(job, &start) {
+        run_candidates(job, &matcher, candidates, started);
+        return;
+    }
+
     // Walk the project tree: the project's own ignore rules (`.gitignore`, `.ignore`, hidden
     // files), plus the filter's include globs and every exclude. A glob that will not compile is
     // a [`SearchError::BadFilter`].
@@ -156,33 +167,7 @@ pub fn run(job: &Job) {
                     .to_string_lossy()
                     .into_owned();
 
-                // Search the file using the UTF8 sink, which handles binary detection and
-                // line reading for us.
-                let mut file_hits: Vec<LineHit> = Vec::new();
-                let mut searcher = SearcherBuilder::new()
-                    .line_number(true)
-                    .binary_detection(BinaryDetection::quit(0))
-                    .build();
-
-                let sink = UTF8(
-                    |line_number: u64, line_text: &str| -> Result<bool, std::io::Error> {
-                        let ranges = compute_match_ranges(&matcher, line_text);
-
-                        if !ranges.is_empty() {
-                            file_hits.push(LineHit {
-                                line: line_number as u32,
-                                text: line_text.to_string(),
-                                ranges,
-                            });
-                        }
-
-                        // Stop the searcher early if the per-file ceiling is hit.
-                        Ok(file_hits.len() < ceiling::HITS_PER_FILE)
-                    },
-                );
-
-                let search_result = searcher.search_path(&*matcher, abs_path, sink);
-                let _ = search_result;
+                let hit = hits::scan_file(&matcher, abs_path, rel_path);
 
                 // Every visited file passes through this shared tail, hits or not: `files_seen`,
                 // progress, batching and the ceiling checks all depend on seeing every file, not
@@ -190,13 +175,8 @@ pub fn run(job: &Job) {
                 let mut state = state.lock().unwrap();
                 state.saw_file();
 
-                if !file_hits.is_empty() {
-                    let truncated = file_hits.len() >= ceiling::HITS_PER_FILE;
-                    state.add_file(FileHit {
-                        rel_path,
-                        lines: file_hits,
-                        truncated,
-                    });
+                if let Some(hit) = hit {
+                    state.add_file(hit);
                 }
 
                 let batch = state.should_flush().then(|| state.take_batch());
@@ -205,8 +185,7 @@ pub fn run(job: &Job) {
                 if report {
                     state.reported_at = files_seen;
                 }
-                let total_hits = state.total_hits;
-                let files_with_hits = state.files_with_hits;
+                let at_ceiling = state.at_ceiling();
                 // Drop the lock before sending.
                 drop(state);
 
@@ -229,8 +208,7 @@ pub fn run(job: &Job) {
                 }
 
                 // Check ceilings.
-                if total_hits >= ceiling::TOTAL_HITS || files_with_hits >= ceiling::FILES_WITH_HITS
-                {
+                if at_ceiling {
                     cancel.store(true, Ordering::Relaxed);
                     return ignore::WalkState::Quit;
                 }
@@ -242,17 +220,25 @@ pub fn run(job: &Job) {
 
     // Flush any remaining hits.
     let mut state = state.lock().unwrap();
-    let truncated = state.total_hits >= ceiling::TOTAL_HITS
-        || state.files_with_hits >= ceiling::FILES_WITH_HITS;
+    finish(job, &mut state, started, "walk");
+}
+
+/// The closing messages every search sends, whichever path chose its files.
+///
+/// Factored so the index path cannot drift from the walk's: the final batch, the true `files_seen`
+/// and the `SearchFinished` that carries `truncated` are the contract, and two copies of it would
+/// be two chances to send a different one. `how` names the path for the log line and appears
+/// nowhere on the wire — the interface is not told which ran, because it must not care (`D75`).
+fn finish(job: &Job, state: &mut State, started: Instant, how: &str) {
+    let project_id = job.project_id;
+    let search_id = job.search_id;
+    let truncated = state.at_ceiling();
     let files_seen = state.files_seen;
     let files_with_hits = state.files_with_hits;
     let total_hits = state.total_hits;
-    let searched = vec![Source::File];
 
-    let final_batch = (!state.is_empty()).then(|| state.take_batch());
-    drop(state);
-
-    if let Some(batch) = final_batch {
+    if !state.is_empty() {
+        let batch = state.take_batch();
         job.reply_to.send(Message::SearchMatches {
             project_id,
             search_id,
@@ -271,19 +257,20 @@ pub fn run(job: &Job) {
     job.reply_to.send(Message::SearchFinished {
         project_id,
         search_id,
-        searched,
+        searched: vec![Source::File],
         truncated,
     });
 
     tracing::info!(
         search = %search_id,
         project = %project_id,
+        how,
         files_seen,
         files_with_hits,
         total_hits,
         elapsed_ms = started.elapsed().as_millis(),
         truncated,
-        // Set by a cancel, by a supersede, or by a ceiling the walk hit — `truncated` tells the
+        // Set by a cancel, by a supersede, or by a ceiling the search hit — `truncated` tells the
         // last of those apart from the first two.
         stopped_early = job.cancel.load(Ordering::Relaxed),
         "search finished"
@@ -292,6 +279,145 @@ pub fn run(job: &Job) {
     // The flag now also means "this search is over", cancelled or not — the coordinator reaps
     // `active_searches` entries by reading it, not just a cancel request.
     job.cancel.store(true, Ordering::Relaxed);
+}
+
+/// The files an index says are worth reading, or `None` when the index cannot answer.
+///
+/// `None` covers every reason the shortcut does not apply, and they are all the same answer to the
+/// caller — walk it:
+///
+/// - the project keeps no index, or its build has not finished (`ready` is false);
+/// - the query is a regular expression, which a term index cannot bound;
+/// - the query is shorter than one trigram;
+/// - the index errored, which is logged once and then forgotten.
+///
+/// A subdirectory filter or an include glob does not disqualify the index: the candidates are
+/// filtered by both below, which is cheaper than walking the tree to apply the same test.
+fn candidates(job: &Job, start: &Path) -> Option<Vec<PathBuf>> {
+    let index = job.index.as_ref()?;
+    if !index.ready() || job.query.regex {
+        return None;
+    }
+
+    let (paths, truncated) = match index.candidates(&job.query.text) {
+        Ok(Some(found)) => found,
+        // The query has no trigram, so the index has nothing to say about it.
+        Ok(None) => return None,
+        Err(error) => {
+            tracing::warn!(%error, "the index could not answer; walking instead");
+            return None;
+        }
+    };
+    if truncated {
+        tracing::debug!(
+            candidates = paths.len(),
+            "the candidate ceiling was hit; the search is bounded by it"
+        );
+    }
+
+    // The index knows nothing about this search's filter, so apply it here. `start` is the root
+    // unless a subdirectory was asked for, and the overrides carry the include globs and excludes.
+    let over = {
+        let mut builder = ignore::overrides::OverrideBuilder::new(&job.root);
+        for pattern in &job.filter.patterns {
+            builder.add(pattern).ok()?;
+        }
+        for exclude in &job.excludes {
+            builder.add(&format!("!{exclude}")).ok()?;
+        }
+        builder.build().ok()?
+    };
+
+    Some(
+        paths
+            .into_iter()
+            .map(|rel| job.root.join(rel))
+            .filter(|abs| abs.starts_with(start))
+            .filter(|abs| allowed(&over, &job.root, abs))
+            .collect(),
+    )
+}
+
+/// Whether the filter lets this file through, testing the directories above it as well as itself.
+///
+/// The walk gets this for free: an exclude naming a directory makes `ignore` prune the whole
+/// subtree, so no file inside it is ever visited. There is no traversal here to prune, and a glob
+/// like `vendor` matches the *directory* and not `vendor/skip.txt`, so the ancestors have to be
+/// asked about one at a time. Missing this is how an excluded folder's files come back the moment
+/// a project is indexed, and only then.
+fn allowed(over: &ignore::overrides::Override, root: &Path, abs: &Path) -> bool {
+    // The file itself. This is also where include globs are decided: `Override` answers "ignore"
+    // for a file matching no whitelist glob when any whitelist glob exists.
+    if over.matched(abs, false).is_ignore() {
+        return false;
+    }
+    let Ok(rel) = abs.strip_prefix(root) else {
+        return true;
+    };
+    let parts: Vec<_> = rel.components().collect();
+    let mut dir = root.to_path_buf();
+    // Every component but the last, which is the file name tested above.
+    for part in parts.iter().take(parts.len().saturating_sub(1)) {
+        dir.push(part);
+        if over.matched(&dir, true).is_ignore() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Read the candidate files and stream their hits, then finish exactly as the walk does.
+///
+/// Single-threaded on purpose: the walk parallelises because it is bound by traversing a tree, and
+/// this has no tree to traverse — it is a short list of files to read. The `State` and the sink are
+/// the walk's own, so the batches are indistinguishable.
+fn run_candidates(
+    job: &Job,
+    matcher: &grep_regex::RegexMatcher,
+    candidates: Vec<PathBuf>,
+    started: Instant,
+) {
+    let mut state = State::new();
+
+    for abs_path in &candidates {
+        if job.cancel.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let rel_path = abs_path
+            .strip_prefix(&job.root)
+            .unwrap_or(abs_path)
+            .to_string_lossy()
+            .into_owned();
+
+        let hit = hits::scan_file(matcher, abs_path, rel_path);
+        state.saw_file();
+        if let Some(hit) = hit {
+            state.add_file(hit);
+        }
+
+        if state.should_flush() {
+            let batch = state.take_batch();
+            job.reply_to.send(Message::SearchMatches {
+                project_id: job.project_id,
+                search_id: job.search_id,
+                batch,
+            });
+        }
+        if state.files_seen - state.reported_at >= ceiling::PROGRESS_INTERVAL {
+            state.reported_at = state.files_seen;
+            job.reply_to.send(Message::SearchProgress {
+                project_id: job.project_id,
+                search_id: job.search_id,
+                files_seen: state.files_seen,
+            });
+        }
+        if state.at_ceiling() {
+            break;
+        }
+    }
+
+    finish(job, &mut state, started, "index");
 }
 
 /// Try an external tool when the built-in regex engine rejected `job.query`. Answers `true` when
@@ -348,79 +474,4 @@ fn run_fallback(job: &Job, start: &Path, reason: &str) -> bool {
             false
         }
     }
-}
-
-/// Worker-level state, protected by a mutex across the parallel walk's file-level serialisation.
-struct State {
-    batch_files: Vec<FileHit>,
-    /// Every file the walk visited, hits or not — what `SearchProgress` reports.
-    files_seen: usize,
-    /// Files that contributed at least one hit — what `FILES_WITH_HITS` bounds.
-    files_with_hits: usize,
-    total_hits: usize,
-    /// Accumulated hits since last flush.
-    pending_hits: usize,
-    /// When the current batch started, so a slow trickle is still flushed.
-    opened_at: Instant,
-    /// Progress last reported at this `files_seen`.
-    reported_at: usize,
-}
-
-impl State {
-    fn new() -> Self {
-        Self {
-            batch_files: Vec::new(),
-            files_seen: 0,
-            files_with_hits: 0,
-            total_hits: 0,
-            pending_hits: 0,
-            opened_at: Instant::now(),
-            reported_at: 0,
-        }
-    }
-
-    /// A file the walk visited, whether or not it had hits.
-    fn saw_file(&mut self) {
-        self.files_seen += 1;
-    }
-
-    fn add_file(&mut self, hit: FileHit) {
-        self.files_with_hits += 1;
-        self.pending_hits += hit.lines.len();
-        self.total_hits += hit.lines.len();
-        self.batch_files.push(hit);
-    }
-
-    fn should_flush(&self) -> bool {
-        !self.batch_files.is_empty()
-            && (self.batch_files.len() >= ceiling::BATCH_FILES
-                || self.pending_hits >= ceiling::BATCH_HITS
-                || self.opened_at.elapsed() >= ceiling::BATCH_INTERVAL)
-    }
-
-    fn take_batch(&mut self) -> Batch {
-        self.pending_hits = 0;
-        self.opened_at = Instant::now();
-        Batch::Files(std::mem::take(&mut self.batch_files))
-    }
-
-    fn is_empty(&self) -> bool {
-        self.batch_files.is_empty()
-    }
-}
-
-/// Compute byte-offset highlight ranges for the matched line by re-running the matcher.
-fn compute_match_ranges(matcher: &grep_regex::RegexMatcher, line_text: &str) -> Vec<(u32, u32)> {
-    let mut ranges = Vec::new();
-    let mut last_end = 0usize;
-    let _ = matcher.find_iter(line_text.as_bytes(), |m| {
-        let start = m.start() as u32;
-        let end = m.end() as u32;
-        if (start as usize) >= last_end {
-            ranges.push((start, end));
-            last_end = m.end();
-        }
-        true
-    });
-    ranges
 }

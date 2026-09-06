@@ -91,6 +91,8 @@ fn a_query_filters_across_groups_in_order() {
     assert_eq!(
         groups,
         vec![
+            // What was typed, offered as a search, is always the first row.
+            Group::Search,
             Group::Recent,
             Group::Bookmark,
             Group::File,
@@ -102,7 +104,7 @@ fn a_query_filters_across_groups_in_order() {
     // The one recent that does not match is gone, and the folder row goes to the explorer.
     assert!(found.iter().all(|row| !row.label.contains("README")));
     assert_eq!(
-        found[3].dest.as_ref().map(|dest| dest.view.clone()),
+        found[4].dest.as_ref().map(|dest| dest.view.clone()),
         Some(View::Explorer {
             path: "src/routes".into()
         })
@@ -230,4 +232,26 @@ fn ordinary_text_is_still_filtered_rather_than_offered_as_a_clone() {
 
     assert!(found.iter().all(|row| row.group != Group::Clone));
     assert!(found.iter().any(|row| row.group == Group::File));
+}
+
+/// Anything typed is offered as a project content search first, under the cursor as the list
+/// opens — which is what makes Enter twice a search.
+#[test]
+fn a_query_is_offered_as_a_search_first() {
+    let project = ProjectId::generate();
+    let found = ask("router", project, &[], &[]);
+
+    assert_eq!(found[0].group, Group::Search);
+    assert_eq!(
+        found[0].action,
+        Some(NavAction::Search("router".to_string()))
+    );
+    assert!(found[0].dest.is_none());
+
+    // Nothing typed is "where was I", and there is nothing to search for.
+    assert!(
+        ask("", project, &[], &[])
+            .iter()
+            .all(|row| row.group != Group::Search)
+    );
 }

@@ -30,8 +30,36 @@ use crate::ui::{handler, indexed};
 
 /// Wider than the kit's default and given a height to fill: the repository list is the body's
 /// point, and a list inside a hugging modal would collapse to whatever it happened to hold.
+///
+/// The height is what the fixed sections need with a usable list under them. The body scrolls
+/// anyway, because the panel is also clamped to a fraction of the viewport and a column that
+/// overflows without scrolling does not clip — it paints over whatever is beneath it.
 const CLONE_WIDTH: f32 = 560.0;
-const CLONE_HEIGHT: f32 = 620.0;
+const CLONE_HEIGHT: f32 = 720.0;
+
+/// The least the listing may shrink to. Below about this it stops being a list to choose from,
+/// and the sections under it are the ones that should give way instead.
+const LIST_MIN: f32 = 140.0;
+
+/// The context the modal is answered in, and the one the component library gives the three fields
+/// inside it.
+const CONTEXT: &str = "CloneModal";
+const FIELD_CONTEXT: &str = "CloneModal > Input";
+
+gpui::actions!(ubiq_clone, [CloneDismiss]);
+
+/// Escape, bound twice.
+///
+/// Same device — and same reason — as [`crate::ui::file_picker::key_bindings`]: the focus is
+/// usually in one of the modal's fields, and the component library binds `escape` for its input at
+/// the deepest node in the tree. A binding that only named the modal would sit above the field and
+/// never fire, so the key is bound for the modal *and* for the field inside it.
+pub fn key_bindings() -> Vec<gpui::KeyBinding> {
+    vec![
+        gpui::KeyBinding::new("escape", CloneDismiss, Some(CONTEXT)),
+        gpui::KeyBinding::new("escape", CloneDismiss, Some(FIELD_CONTEXT)),
+    ]
+}
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(clone) = app.workbench.clone_project.as_ref() else {
@@ -40,10 +68,22 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     let view = cx.entity();
 
     let body = div()
+        .key_context(CONTEXT)
+        // Escape peels one layer: a picker open over the modal closes first, and only a second
+        // Escape takes the modal itself. Dropping the whole dialog because a menu was open would
+        // lose every field the user had filled in.
+        .on_action(cx.listener(
+            |this, _: &CloneDismiss, _, cx| match this.workbench.open_menu {
+                Some(MenuId::CloneConnection | MenuId::CloneBranch) => this.close_menu(cx),
+                _ => this.close_clone(cx),
+            },
+        ))
+        .id("clone-body")
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.))
+        .overflow_y_scroll()
         .gap_3()
         .pt_3()
         .children(clone.error.as_ref().map(|error| {
@@ -59,7 +99,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .child(clone_error_note(error))
         }))
         .children(connector_picker(app, clone, cx))
-        .child(repo_list(app, clone, window, cx))
+        .children(repo_list(app, clone, window, cx))
         .child(url_field(app, clone, window, cx))
         .child(branch_picker(app, clone, window, cx))
         .child(destination(app, clone, window, cx))
@@ -104,6 +144,7 @@ fn connector_picker(
     let picked = at.map_or_else(|| "Choose an identity".to_string(), |ix| labels[ix].clone());
 
     let mut picker = Picker::new("clone-connection", picked)
+        .above_modal()
         .items(labels)
         .open(app.workbench.open_menu == Some(MenuId::CloneConnection))
         .on_toggle(handler(&view, |this, _, cx| {
@@ -136,12 +177,19 @@ fn connector_picker(
 /// The filter runs in memory — see [`CloneState::visible`] — and only reaches the provider when it
 /// runs out of local answers over a listing the provider truncated. That is why an empty result
 /// says which of the two it is rather than a flat "no matches".
+///
+/// Absent entirely when there is no connection, for the same reason the identity picker above it
+/// is: with nothing to list, a filter over an empty list is a control that can only disappoint,
+/// and the URL field below is the whole of what this modal can do.
 fn repo_list(
     app: &AppState,
     clone: &CloneState,
     window: &Window,
     cx: &mut Context<AppState>,
-) -> AnyElement {
+) -> Option<AnyElement> {
+    if app.workbench.settings.host.connections.is_empty() {
+        return None;
+    }
     let focused = app
         .clone_filter_input
         .read(cx)
@@ -169,11 +217,11 @@ fn repo_list(
         false => found.iter().map(|repo| row(clone, repo, cx)).collect(),
     };
 
-    div()
+    let list = div()
         .flex()
         .flex_col()
         .flex_1()
-        .min_h(px(0.))
+        .min_h(px(LIST_MIN))
         .gap_2()
         .when(dim, |this| this.opacity(0.5))
         .child(section_label("Repositories"))
@@ -207,7 +255,8 @@ fn repo_list(
                 .bg(theme::surface())
                 .children(rows),
         )
-        .into_any_element()
+        .into_any_element();
+    Some(list)
 }
 
 /// One repository. Its full name, its visibility, and whatever the provider said about it.
@@ -252,8 +301,9 @@ fn row(clone: &CloneState, repo: &RemoteRepo, cx: &mut Context<AppState>) -> Any
                 ElementId::Name(format!("clone-repo-note-{}", repo.id).into()),
                 note.clone(),
                 theme::text_faint(),
-                200.,
+                11.5,
             )
+            .max_w(px(200.))
         }))
         .on_click(
             cx.listener(move |this, _, window, cx| {
@@ -348,6 +398,7 @@ fn branch_picker(
     let pickable = shown.clone();
 
     let mut picker = Picker::new("clone-branch", label)
+        .above_modal()
         .items(shown)
         .search(&app.picker_search, search_focused)
         .open(app.workbench.open_menu == Some(MenuId::CloneBranch))
@@ -405,7 +456,7 @@ fn destination(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(elided("clone-parent", path, colour, 300.))
+                .child(elided("clone-parent", path, colour, 12.5).max_w(px(300.)))
                 .child(ghost_button(
                     "clone-parent-choose",
                     None,

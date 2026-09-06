@@ -4,8 +4,7 @@
 //! `Secret`, and a `Secret` is never printed". These tests are what make that a guarantee rather
 //! than a comment — the whole `Message` derives `Debug`, and both halves log messages.
 
-use ubiq_proto::connectors::ProviderId;
-use ubiq_proto::ids::ConnectId;
+use ubiq_proto::ids::{ConnectId, OauthAppId};
 use ubiq_proto::messages::{Message, Secret};
 
 const MATERIAL: &str = "ghp_a_real_looking_token";
@@ -31,9 +30,9 @@ fn a_message_carrying_material_does_not_print_it() {
     );
     assert!(printed.contains("Secret(***)"));
 
+    let registration = OauthAppId::generate();
     let app = Message::SetAppSecret {
-        provider: ProviderId::Gitlab,
-        origin: Some("https://gitlab.example.com".into()),
+        app: registration,
         secret: Secret::new(MATERIAL),
     };
     let printed = format!("{app:?}");
@@ -42,7 +41,7 @@ fn a_message_carrying_material_does_not_print_it() {
         "material reached a Debug: {printed}"
     );
     // The non-secret half of the payload still reads, so a log line stays useful.
-    assert!(printed.contains("gitlab.example.com"));
+    assert!(printed.contains(&registration.to_string()));
 }
 
 #[test]

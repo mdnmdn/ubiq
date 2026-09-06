@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-05
-verified: 2026-09-05
+updated: 2026-09-06
+verified: 2026-09-06
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -1239,6 +1239,54 @@ the deletion mean "a folder Ubiq made, in the place Ubiq made it".
 (`point_ephemeral_at()`), so the two halves of the condition are set in different places and a wrong
 root silently turns deletion off rather than on. That is the failure direction to prefer, and it is
 still a failure nobody sees.
+
+### D75 — The full-text index selects candidate files; it never produces hits
+
+A query is answered by asking the index which files could match, then reading those files back
+through the same `grep-searcher` sink the walk uses. The index stores each file's path and its
+trigrams, and nothing else — no positions, no stored content, no snippets. So a `LineHit` is
+produced one way whatever chose the file, and the interface cannot tell which path ran.
+
+This is what keeps the index a shortcut rather than a second search engine. Cancel, supersede,
+streaming, the batching ceilings, `case_sensitive`, `whole_word` and the highlight ranges are
+untouched code rather than a second implementation kept in step. A stale index entry costs one
+wasted file read and contributes no hits, so staleness degrades speed and never correctness.
+
+**Cost:** every hit costs a file read, so the index buys nothing on a query matching most files —
+it narrows the walk, it does not replace it. And a file the index has never seen is invisible to
+the shortcut, which is why anything the index cannot bound falls back to the whole walk. `tantivy`
+itself is 33 packages and 2.7 MB of release binary, measured, against a content search that worked
+without it.
+
+### D76 — The index tokenises trigrams, not words
+
+The tokenizer is `ngram(3,3)` with case folding, and a query is the `AND` of its trigrams.
+
+A word tokenizer is the obvious choice and is wrong here: it makes the index a **subset** of what
+the walk finds, because `needl` would not match `needles` and no amount of re-verification can
+recover a file the index never returned. Trigrams make it a **superset** — every substring match is
+guaranteed to be among the candidates — and D75's re-read discards the false positives for free.
+The stemmer is disabled for the same reason it would break the guarantee.
+
+**Cost:** a bigger index than a word index, and queries under three characters have no trigram to
+look up and take the walk. Case folding is likewise a deliberate widening — `case_sensitive` is
+re-checked on the read, never in the index.
+
+### D77 — Indexing is a per-project level, and the levels are cumulative
+
+`none`, `light`, `full`, chosen per project and defaulting from an application-wide setting.
+`full` is `light` plus a symbol table rather than an alternative to it: the full-text index carries
+content search at both levels and for every kind of file, because a symbol table answers questions
+about *names* and can never stand in for one about content.
+
+A project's own value is an *override* — absent means "follow the default" — so moving the
+application setting moves every project that never said otherwise. What a level decides is what is
+**kept**, not what is noticed: the filesystem watch runs at every level, `none` included.
+
+**Cost:** three states where a switch would have done, and every reader of the level has to resolve
+an override against a default rather than read a field. The alternative — a per-project boolean —
+cannot express "whatever the application says", so changing the default would silently skip every
+project that had ever opened its settings dialog.
 
 ## Related docs
 

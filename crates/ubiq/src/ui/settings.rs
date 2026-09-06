@@ -13,21 +13,23 @@ use gpui::{
 use gpui_component::IconName;
 use gpui_component::input::Input;
 use ubiq_proto::connectors::{
-    AuthKind, CertReason, Connection, InstanceNeed, OauthApp, ProviderId, TrustedCert, origin,
+    AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
+    TrustedCert, origin,
 };
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus};
+use ubiq_proto::projects::IndexLevel;
 
 use crate::app::AppState;
 use crate::state::settings::{
-    AccountDialog, CliShortcut, ConnectStep, ConnectorDialog, LoginStep, MarkdownOpen,
+    AccountDialog, CliShortcut, ConnectApp, ConnectStep, ConnectorDialog, LoginStep, MarkdownOpen,
     SettingsSection, connect_error_note, describe_status,
 };
 use crate::theme;
 use crate::ui::kit::{
     badge, check_box, choice_pill, column, confirm_modal, elided, field, ghost_button, heading,
-    icon_button, label_block, modal, modal_note, modal_sized, mono, nav_item, primary_button,
-    prompt_modal, section_label, setting_row, slab, state_chip,
+    icon_button, label_block, menu::Picker, modal, modal_note, modal_sized, mono, nav_item,
+    primary_button, prompt_modal, section_label, setting_row, slab, state_chip,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -161,7 +163,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Appearance => appearance(app, cx),
         SettingsSection::FileExplorer => file_explorer(app, cx),
         SettingsSection::Editor => editor(app, cx),
-        SettingsSection::Search => search(app),
+        SettingsSection::Search => search(app, cx),
         SettingsSection::Harnesses => harnesses(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::CommandLine => command_line(app, cx),
@@ -262,12 +264,15 @@ fn folder_row(
             .flex()
             .items_center()
             .gap_2()
-            .child(elided(
-                ElementId::Name(format!("{id}-value").into()),
-                text,
-                colour,
-                220.,
-            ))
+            .child(
+                elided(
+                    ElementId::Name(format!("{id}-value").into()),
+                    text,
+                    colour,
+                    12.5,
+                )
+                .max_w(px(220.)),
+            )
             .child(ghost_button(
                 ElementId::Name(format!("{id}-choose").into()),
                 None,
@@ -329,9 +334,10 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     ])
 }
 
-/// The two host-owned lists. Each is a comma-separated line that commits on Enter and on blur —
-/// see the subscriptions in `app.rs`, and `sync_search_settings_fields` for what fills them.
-fn search(app: &AppState) -> AnyElement {
+/// What every project search does: how much is indexed, what is skipped, and what it falls back
+/// to. The two lists are comma-separated lines that commit on Enter and on blur — see the
+/// subscriptions in `app.rs`, and `sync_search_settings_fields` for what fills them.
+fn search(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let line = |input| {
         field(theme::border(), false)
             .h(px(30.))
@@ -354,6 +360,14 @@ fn search(app: &AppState) -> AnyElement {
             line(&app.search_excludes_input),
         ),
         setting_row(
+            "Keep an index",
+            "What Ubiq remembers about a project so a search need not re-read it. Off walks every \
+             file on every query. Full text reads only the files that could match. Adding symbols \
+             also records what each file defines, which costs a parse of every file and is what \
+             jumping to a definition needs. A project can override this in its own settings.",
+            index_level_choice(app.workbench.settings.host.index_level, cx),
+        ),
+        setting_row(
             "Fallback tools",
             "External tools tried in order, and only when the built-in matcher cannot answer a \
              query \u{2014} a pattern its stricter regex engine refuses. Empty means there is no \
@@ -362,6 +376,39 @@ fn search(app: &AppState) -> AnyElement {
             line(&app.search_fallbacks_input),
         ),
     ])
+}
+
+/// The three indexing levels, one lit.
+///
+/// Named for what they cost the user rather than for what they are: "Full text" and "Full text +
+/// symbols" say what is kept, where `light` and `full` would only say which is bigger.
+fn index_level_choice(current: IndexLevel, cx: &mut Context<AppState>) -> AnyElement {
+    let pill = |id: &'static str, label: &'static str, level: IndexLevel| {
+        choice_pill(
+            id,
+            label,
+            current == level,
+            cx.listener(move |this, _, _, cx| this.set_index_level(level, cx)),
+        )
+    };
+
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .child(pill("app-settings-index-none", "Off", IndexLevel::None))
+        .child(pill(
+            "app-settings-index-light",
+            "Full text",
+            IndexLevel::Light,
+        ))
+        .child(pill(
+            "app-settings-index-full",
+            "Full text + symbols",
+            IndexLevel::Full,
+        ))
+        .into_any_element()
 }
 
 fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
@@ -1270,6 +1317,12 @@ fn connectors(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "Connect\u{2026}",
                 cx.listener(|this, _, window, cx| this.open_connect(window, cx)),
             ))
+            .child(ghost_button(
+                "app-settings-app-registration",
+                Some(IconName::Plus),
+                "App registration\u{2026}",
+                cx.listener(|this, _, window, cx| this.open_app_form(None, window, cx)),
+            ))
             .into_any_element(),
     );
 
@@ -1543,30 +1596,49 @@ fn cert_row(app: &AppState, cert: &TrustedCert, cx: &mut Context<AppState>) -> A
         .into_any_element()
 }
 
-/// The OAuth applications Ubiq authenticates *as*, where one was configured rather than built in.
+/// The application registrations Ubiq authenticates *as*, where one was registered rather than
+/// built in.
 ///
-/// The client id is public and rides the settings blob; only the secret is material, which is why
-/// the row says whether one is set rather than showing anything.
+/// Drawn whether or not there are any: a section that vanishes when the list is empty is a section
+/// with no way to add the first row, which is exactly the state a user arrives in. The client id is
+/// public and rides the settings blob; only the secret is material, which is why the row says
+/// whether one is set rather than showing anything.
 fn oauth_apps(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let apps = app.workbench.settings.host.oauth_apps.clone();
-    if apps.is_empty() {
-        return div().into_any_element();
-    }
-
-    div()
+    let mut section = div()
         .flex()
         .flex_col()
         .gap_2()
         .pt_4()
-        .child(section_label("OAuth applications"))
-        .children(apps.iter().map(|entry| oauth_row(entry, cx)))
-        .into_any_element()
+        .child(section_label("App registrations"))
+        .child(modal_note(&format!(
+            "An application registered at the provider, which Ubiq then signs in through. Register \
+             it with {OAUTH_REDIRECT} as its callback \u{2014} that is the address this machine \
+             listens on, and a browser flow fails at the provider without it."
+        )));
+
+    if apps.is_empty() {
+        return section
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme::text_faint())
+                    .child(SharedString::from(
+                        "No registrations. Connections use whatever application this build ships, \
+                         where it ships one.",
+                    )),
+            )
+            .into_any_element();
+    }
+
+    section = section.children(apps.iter().map(|entry| oauth_row(entry, cx)));
+    section.into_any_element()
 }
 
 fn oauth_row(entry: &OauthApp, cx: &mut Context<AppState>) -> AnyElement {
     let where_it_is = entry.origin.clone().unwrap_or_else(|| "cloud".to_string());
-    let (provider, origin) = (entry.provider, entry.origin.clone());
-    let clear_origin = origin.clone();
+    let id = entry.id;
+    let name = entry.name.clone();
     let (chip, colour) = if entry.has_secret {
         ("secret set", theme::success())
     } else {
@@ -1574,38 +1646,221 @@ fn oauth_row(entry: &OauthApp, cx: &mut Context<AppState>) -> AnyElement {
     };
 
     setting_row(
-        &format!("{} \u{b7} {where_it_is}", entry.provider.label()),
-        &format!(
-            "Registered on this instance rather than built in, so {} is the id every \
-             authorization URL carries.",
-            entry.client_id
-        ),
+        &format!("{} \u{b7} {}", entry.name, entry.provider.label()),
+        &format!("{where_it_is} \u{b7} {}", entry.client_id),
         div()
             .flex()
             .items_center()
             .gap_2()
             .child(badge(chip, colour))
             .child(ghost_button(
-                ElementId::Name(
-                    format!("app-settings-oauth-{provider:?}-{where_it_is}-edit").into(),
-                ),
+                ElementId::Name(format!("app-settings-oauth-{id}-edit").into()),
                 None,
                 "Edit",
-                cx.listener(move |this, _, window, cx| {
-                    this.open_app_secret(provider, origin.clone(), window, cx)
-                }),
+                cx.listener(move |this, _, window, cx| this.open_app_form(Some(id), window, cx)),
             ))
             .child(ghost_button(
-                ElementId::Name(
-                    format!("app-settings-oauth-{provider:?}-{where_it_is}-clear").into(),
-                ),
+                ElementId::Name(format!("app-settings-oauth-{id}-delete").into()),
                 None,
-                "Clear",
-                cx.listener(move |this, _, _, cx| {
-                    this.clear_app_secret(provider, clear_origin.clone(), cx)
-                }),
+                "Delete",
+                cx.listener(move |this, _, _, cx| this.open_delete_app(id, name.clone(), cx)),
             ))
             .into_any_element(),
+    )
+}
+
+/// One read-only value with a copy button — the redirect URL, which the user has to paste into the
+/// provider's own form and cannot guess.
+fn copyable(id: &'static str, value: &str, cx: &mut Context<AppState>) -> AnyElement {
+    let copy = value.to_string();
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .h(px(30.))
+                .px_2()
+                .flex()
+                .items_center()
+                .bg(theme::surface())
+                .border_1()
+                .border_color(theme::border())
+                .child(mono(value.to_string(), theme::text()).text_size(px(11.))),
+        )
+        .child(icon_button(
+            ElementId::Name(format!("{id}-copy").into()),
+            IconName::Copy,
+            false,
+            cx.listener(move |_, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+            }),
+        ))
+        .into_any_element()
+}
+
+/// The application-registration form: name it, say which provider and where, and give it the id
+/// the provider issued.
+///
+/// The provider picker calls `above_modal`, without which the list paints under the panel holding
+/// it and reads as a control that does nothing.
+pub fn app_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(form) = app.workbench.settings.app_form.clone() else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let focused = |input: &gpui::Entity<gpui_component::input::InputState>| {
+        input.read(cx).focus_handle(cx).is_focused(window)
+    };
+    let named = !app.login_account_input.read(cx).value().trim().is_empty();
+    let identified = !app
+        .connect_client_id_input
+        .read(cx)
+        .value()
+        .trim()
+        .is_empty();
+
+    let providers: Vec<&str> = ProviderId::all()
+        .iter()
+        .map(|provider| provider.label())
+        .collect();
+    let picked = ProviderId::all()
+        .iter()
+        .position(|provider| *provider == form.provider)
+        .unwrap_or(0);
+
+    let text_field = |label: &str,
+                      note: &str,
+                      input: &gpui::Entity<gpui_component::input::InputState>|
+     -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(label_block(label, note))
+            .child(
+                field(theme::border(), focused(input))
+                    .h(px(30.))
+                    .px_2()
+                    .child(Input::new(input).appearance(false)),
+            )
+            .into_any_element()
+    };
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(text_field(
+            "Name",
+            "What to call this registration \u{2014} \"team ci\", \"personal\". Several may exist \
+             for one provider and one install.",
+            &app.login_account_input,
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Provider",
+                    "Which service the application is registered at.",
+                ))
+                .child(
+                    Picker::new("app-settings-app-form-provider", form.provider.label())
+                        .items(providers)
+                        .selected(picked)
+                        .open(form.open)
+                        .above_modal()
+                        .on_toggle(crate::ui::handler(&view, |this, _, cx| {
+                            this.toggle_app_provider_picker(cx)
+                        }))
+                        .on_pick({
+                            let view = view.clone();
+                            move |index, window, cx| {
+                                let provider = ProviderId::all()[index];
+                                view.update(cx, |this, cx| {
+                                    this.pick_app_provider(provider, window, cx)
+                                });
+                            }
+                        })
+                        .on_dismiss(crate::ui::handler(&view, |this, _, cx| {
+                            this.toggle_app_provider_picker(cx)
+                        })),
+                ),
+        )
+        .child(text_field(
+            "URL",
+            "The base URL the application is registered at. The provider\u{2019}s own cloud to \
+             start with; replace it with a self-managed install.",
+            &app.connect_instance_input,
+        ))
+        .child(text_field(
+            "Client id",
+            "What the provider issued when the application was registered. Public \u{2014} it \
+             travels in the query string of every authorization URL.",
+            &app.connect_client_id_input,
+        ))
+        .child(text_field(
+            "Client secret",
+            "Only for a confidential application. Kept in the machine\u{2019}s credential store, \
+             never in the settings file, and never shown again.",
+            &app.connect_secret_input,
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Callback URL",
+                    "Register this at the provider, exactly as it reads. It is the address this \
+                     machine listens on, and a browser flow fails without it.",
+                ))
+                .child(copyable(
+                    "app-settings-app-form-redirect",
+                    OAUTH_REDIRECT,
+                    cx,
+                )),
+        )
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-app-form-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, window, cx| this.close_app_form(window, cx)),
+        ))
+        .child(
+            primary_button(
+                "app-settings-app-form-save",
+                None,
+                "Save",
+                cx.listener(|this, _, window, cx| this.save_app_form(window, cx)),
+            )
+            .when(!(named && identified), |button| button.opacity(0.5)),
+        )
+        .into_any_element();
+
+    modal(
+        "app-settings-app-form-modal",
+        theme::accent(),
+        if form.id.is_some() {
+            "Edit app registration"
+        } else {
+            "App registration"
+        },
+        body,
+        footer,
+        crate::ui::handler(&view, |this, window, cx| this.close_app_form(window, cx)),
+        window,
     )
 }
 
@@ -1640,7 +1895,15 @@ pub fn connect(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
     let (title, body, footer) = match &connect.step {
         ConnectStep::Choosing { provider, auth } => (
             "Connect",
-            choosing_connector(app, *provider, *auth, window, cx),
+            choosing_connector(
+                app,
+                *provider,
+                *auth,
+                connect.app,
+                connect.app_open,
+                window,
+                cx,
+            ),
             connect_footer(app, provider.is_some() && auth.is_some(), cx),
         ),
         ConnectStep::Starting | ConnectStep::Opening => (
@@ -1757,19 +2020,42 @@ pub fn connect(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
     )
 }
 
-/// Step one: which provider, where it lives, and which flow.
+/// Step one: which provider, which application, and which flow.
 ///
-/// The instance field asks for a **base URL**, not a host name: an on-premises install can live
-/// under a path, and `origin` refuses anything without a scheme rather than guessing one.
+/// Where the identity lives is the *application's* fact rather than a second thing to type: a
+/// registration knows its own instance, so picking one sets both and neither can disagree with the
+/// other. Typing a base URL is still offered, because a pasted token needs no application at all
+/// and a self-hosted install must stay reachable without one registered — and that field asks for a
+/// base URL, not a host name, since an on-premises install can live under a path.
+#[allow(clippy::too_many_arguments)]
 fn choosing_connector(
     app: &AppState,
     chosen: Option<ProviderId>,
     auth: Option<AuthKind>,
+    picked_app: ConnectApp,
+    app_open: bool,
     window: &mut Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let typed = app.connect_instance_input.read(cx).value().to_string();
-    let self_hosted = !typed.trim().is_empty();
+    let registration = match picked_app {
+        ConnectApp::Registration(id) => app
+            .workbench
+            .settings
+            .host
+            .oauth_apps
+            .iter()
+            .find(|held| held.id == id),
+        _ => None,
+    };
+    let self_hosted = match picked_app {
+        ConnectApp::Bundled => false,
+        ConnectApp::Registration(_) => registration.is_some_and(|held| held.origin.is_some()),
+        ConnectApp::Instance => !typed.trim().is_empty(),
+    };
+    // Built before the borrow below: the picker wants `cx` mutably, and `focused` holds it.
+    let application =
+        chosen.map(|provider| application_picker(app, provider, picked_app, app_open, cx));
     let focused = |input: &gpui::Entity<gpui_component::input::InputState>| {
         input.read(cx).focus_handle(cx).is_focused(window)
     };
@@ -1810,7 +2096,9 @@ fn choosing_connector(
         );
 
     if let Some(provider) = chosen {
-        if provider.instance_need() != InstanceNeed::Never {
+        body = body.children(application);
+
+        if picked_app == ConnectApp::Instance && provider.instance_need() != InstanceNeed::Never {
             let note = match provider.instance_need() {
                 InstanceNeed::Required => {
                     "The base URL of the install \u{2014} there is no hosted service for this one."
@@ -1867,7 +2155,28 @@ fn choosing_connector(
 
         if let Some(kind) = auth
             && provider.needs_client_id(kind, self_hosted)
+            && picked_app == ConnectApp::Instance
         {
+            // Nothing registered and nothing built in: the browser flow has no application to open
+            // as, so it is refused here rather than at an authorization URL with no id in it.
+            if app.workbench.settings.host.oauth_apps.is_empty() {
+                body = body.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(modal_note(
+                            "A browser flow on a self-managed install needs an application \
+                             registered on that install. Register one, or paste a token instead.",
+                        ))
+                        .child(ghost_button(
+                            "app-settings-connect-register",
+                            Some(IconName::Plus),
+                            "App registration\u{2026}",
+                            cx.listener(|this, _, window, cx| this.open_app_form(None, window, cx)),
+                        )),
+                );
+            }
             body = body.child(
                 div()
                     .flex()
@@ -1905,6 +2214,88 @@ fn choosing_connector(
             ),
     )
     .into_any_element()
+}
+
+/// Which application the flow authenticates as, as a list of what is actually available.
+///
+/// "Default" is offered only where the *host* said this build ships a registered application for
+/// the provider — the interface never guesses at one, because a browser sent to an authorization
+/// URL with no client id in it fails at the provider rather than here.
+fn application_picker(
+    app: &AppState,
+    provider: ProviderId,
+    picked: ConnectApp,
+    open: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let view = cx.entity();
+    let bundled = app.workbench.settings.bundled.contains(&provider);
+    let registrations: Vec<OauthApp> = app
+        .workbench
+        .settings
+        .host
+        .oauth_apps
+        .iter()
+        .filter(|held| held.provider == provider)
+        .cloned()
+        .collect();
+
+    let mut choices = Vec::new();
+    let mut items: Vec<String> = Vec::new();
+    if bundled {
+        choices.push(ConnectApp::Bundled);
+        items.push("Default".to_string());
+    }
+    for held in &registrations {
+        choices.push(ConnectApp::Registration(held.id));
+        items.push(format!(
+            "{} \u{b7} {}",
+            held.name,
+            held.origin.clone().unwrap_or_else(|| "cloud".to_string())
+        ));
+    }
+    choices.push(ConnectApp::Instance);
+    items.push("Another instance\u{2026}".to_string());
+
+    let selected = choices.iter().position(|choice| *choice == picked);
+    let label = selected
+        .and_then(|index| items.get(index).cloned())
+        .unwrap_or_else(|| "Another instance\u{2026}".to_string());
+    let note = if bundled {
+        "The application Ubiq signs in through. \"Default\" is the one this build ships."
+    } else {
+        "The application Ubiq signs in through. This build ships none for this provider, so a \
+         browser flow needs a registration."
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(label_block("Application", note))
+        .child(
+            Picker::new("app-settings-connect-app", label)
+                .items(items)
+                .selected(selected.unwrap_or(choices.len() - 1))
+                .open(open)
+                .above_modal()
+                .on_toggle(crate::ui::handler(&view, |this, _, cx| {
+                    this.toggle_connect_app_picker(cx)
+                }))
+                .on_pick({
+                    let view = view.clone();
+                    move |index, _, cx| {
+                        let Some(choice) = choices.get(index).copied() else {
+                            return;
+                        };
+                        view.update(cx, |this, cx| this.pick_connect_app(choice, cx));
+                    }
+                })
+                .on_dismiss(crate::ui::handler(&view, |this, _, cx| {
+                    this.toggle_connect_app_picker(cx)
+                })),
+        )
+        .into_any_element()
 }
 
 /// How a flow reads in the picker. The wire's own names are about mechanism; these are about
@@ -2204,26 +2595,19 @@ pub fn connector_dialog(
             crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
             window,
         ),
-        Some(ConnectorDialog::AppSecret { .. }) => {
-            let enabled = !app.connect_secret_input.read(cx).value().trim().is_empty();
-            prompt_modal(
-                "app-settings-oauth-secret",
-                "Client secret",
-                Some(
-                    "The secret of the application Ubiq authenticates as \u{2014} not your own \
-                     credential. It is kept in the credential store, never in the settings file.",
-                ),
-                "Secret",
-                &app.connect_secret_input,
-                "Save",
-                enabled,
-                crate::ui::handler(&view, |this, window, cx| {
-                    this.confirm_app_secret(window, cx)
-                }),
-                crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
-                window,
-                cx,
-            )
-        }
+        Some(ConnectorDialog::DeleteApp { name, .. }) => confirm_modal(
+            "app-settings-oauth-delete",
+            "Delete registration",
+            &format!(
+                "Delete {name}? Its client secret goes with it. Connections made under it keep \
+                 working \u{2014} each holds its own client id \u{2014} but nothing can be \
+                 connected under it again."
+            ),
+            "Delete",
+            true,
+            crate::ui::handler(&view, |this, _, cx| this.confirm_delete_app(cx)),
+            crate::ui::handler(&view, |this, _, cx| this.close_connector_dialog(cx)),
+            window,
+        ),
     }
 }

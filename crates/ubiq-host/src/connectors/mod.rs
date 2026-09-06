@@ -30,8 +30,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ubiq_proto::bus::{ClientId, Mailbox};
-use ubiq_proto::connectors::{AuthKind, ConnectError, OauthApp, ProviderId};
-use ubiq_proto::ids::{ConnectId, ConnectionId};
+use ubiq_proto::connectors::{AuthKind, ConnectError, OauthApp, ProviderId, origin as as_origin};
+use ubiq_proto::ids::{ConnectId, ConnectionId, OauthAppId};
 use ubiq_proto::messages::{ConnectionInfo, Message, Secret};
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
 
@@ -71,6 +71,7 @@ impl Connectors {
     pub fn list(&self) -> Vec<Reply> {
         vec![Reply::Asker(Message::Connections {
             connections: self.connections(),
+            bundled: providers::bundled(),
         })]
     }
 
@@ -142,6 +143,9 @@ impl Connectors {
         let instance = record.instance.clone();
         let label = record.label.clone();
         let client_id = record.client_id.clone();
+        // The registration the connection was made under, so a probe authenticates as the same
+        // application the user first consented to.
+        let oauth_app = record.oauth_app;
         self.start(
             client,
             ConnectId::generate(),
@@ -150,6 +154,7 @@ impl Connectors {
             label,
             AuthKind::Probe,
             client_id,
+            oauth_app,
             Some(connection),
             asker,
             everyone,
@@ -164,39 +169,104 @@ impl Connectors {
         })
     }
 
-    /// Store an application's client secret, and record that there is one.
+    /// Create or rewrite one named application registration.
     ///
-    /// The `has_secret` flag lives on the [`OauthApp`] row, so a provider that has a secret but no
-    /// row yet gets one — with an empty client id, which is what "a secret was configured before
-    /// the id was" honestly looks like.
-    pub fn set_app_secret(
+    /// The id is minted here and not in the interface, for [`ConnectionId`]'s reason: a
+    /// registration exists once it is written, and a form the user abandoned leaves nothing behind.
+    /// A rewrite keeps the id, so the secret filed under it and the connections that name it are
+    /// undisturbed by a rename or a change of instance.
+    pub fn save_app(
         &self,
+        id: Option<OauthAppId>,
         provider: ProviderId,
+        name: String,
         origin: Option<String>,
-        secret: Secret,
+        client_id: String,
     ) -> Vec<Reply> {
-        if let Err(reason) = self
-            .store
-            .set_app_secret(provider, origin.as_deref(), secret.expose())
-        {
-            return vec![error(&reason)];
+        let name = name.trim().to_string();
+        let client_id = client_id.trim().to_string();
+        if name.is_empty() {
+            return vec![error("a registration needs a name")];
+        }
+        if client_id.is_empty() {
+            return vec![error("a registration needs a client id")];
+        }
+        // Normalised here as well as in the interface, because this is the boundary: what a
+        // registration stores has to be the same string a certificate pin and a settings match are
+        // keyed by, and an unparseable URL is a refusal rather than a row nothing will ever match.
+        let origin = match origin.as_deref().map(str::trim).filter(|at| !at.is_empty()) {
+            None => None,
+            Some(at) => match as_origin(at) {
+                Some(origin) => Some(origin),
+                None => return vec![error("that instance is not an absolute http or https URL")],
+            },
+        };
+        let has_secret = id.is_some_and(|id| self.store.app_secret(id).is_some());
+        self.change(move |host| {
+            let held = id.and_then(|id| host.oauth_apps.iter_mut().find(|app| app.id == id));
+            match held {
+                Some(app) => {
+                    app.provider = provider;
+                    app.name = name;
+                    app.origin = origin;
+                    app.client_id = client_id;
+                    app.has_secret = has_secret;
+                    Ok(())
+                }
+                None if id.is_some() => Err("no such registration".to_string()),
+                None => {
+                    host.oauth_apps.push(OauthApp {
+                        id: OauthAppId::generate(),
+                        provider,
+                        name,
+                        origin,
+                        client_id,
+                        has_secret: false,
+                    });
+                    Ok(())
+                }
+            }
+        })
+    }
+
+    /// Delete a registration and the client secret filed under it.
+    ///
+    /// Connections made under it are left alone: each holds its own client id, and the id it names
+    /// simply matches nothing after this.
+    pub fn delete_app(&self, id: OauthAppId) -> Vec<Reply> {
+        if let Err(reason) = self.store.clear_app_secret(id) {
+            // The row goes anyway, on [`Self::delete`]'s reasoning: leaving it would strand a
+            // registration the user asked to be rid of.
+            tracing::warn!("a registration's client secret was not deleted: {reason}");
         }
         self.change(|host| {
-            app_row(host, provider, origin.as_deref()).has_secret = true;
+            let before = host.oauth_apps.len();
+            host.oauth_apps.retain(|app| app.id != id);
+            if host.oauth_apps.len() == before {
+                return Err("no such registration".to_string());
+            }
             Ok(())
         })
     }
 
-    /// Forget a stored client secret. Its own operation rather than an empty one, because clearing
-    /// a credential should not look like setting one.
-    pub fn clear_app_secret(&self, provider: ProviderId, origin: Option<String>) -> Vec<Reply> {
-        if let Err(reason) = self.store.clear_app_secret(provider, origin.as_deref()) {
+    /// Store a registration's client secret, and record that there is one.
+    ///
+    /// The `has_secret` flag lives on the [`OauthApp`] row rather than being asked of the keychain
+    /// on every read, so the two are written together or not at all.
+    pub fn set_app_secret(&self, app: OauthAppId, secret: Secret) -> Vec<Reply> {
+        if let Err(reason) = self.store.set_app_secret(app, secret.expose()) {
             return vec![error(&reason)];
         }
-        self.change(|host| {
-            app_row(host, provider, origin.as_deref()).has_secret = false;
-            Ok(())
-        })
+        self.change(|host| app_row(host, app).map(|row| row.has_secret = true))
+    }
+
+    /// Forget a stored client secret. Its own operation rather than an empty one, because clearing
+    /// a credential should not look like setting one.
+    pub fn clear_app_secret(&self, app: OauthAppId) -> Vec<Reply> {
+        if let Err(reason) = self.store.clear_app_secret(app) {
+            return vec![error(&reason)];
+        }
+        self.change(|host| app_row(host, app).map(|row| row.has_secret = false))
     }
 
     /// Start authenticating. Mints a flow, not a connection — an abandoned flow leaves nothing.
@@ -210,11 +280,13 @@ impl Connectors {
         label: String,
         auth: AuthKind,
         client_id: Option<String>,
+        oauth_app: Option<OauthAppId>,
         asker: Mailbox,
         everyone: Mailbox,
     ) -> Vec<Reply> {
         self.start(
-            client, connect_id, provider, instance, label, auth, client_id, None, asker, everyone,
+            client, connect_id, provider, instance, label, auth, client_id, oauth_app, None, asker,
+            everyone,
         )
     }
 
@@ -264,6 +336,7 @@ impl Connectors {
         label: String,
         auth: AuthKind,
         client_id: Option<String>,
+        oauth_app: Option<OauthAppId>,
         connection: Option<ConnectionId>,
         asker: Mailbox,
         everyone: Mailbox,
@@ -289,6 +362,7 @@ impl Connectors {
             label,
             auth,
             client_id,
+            oauth_app,
             connection,
             answers: queue,
             settings: self.settings.clone(),
@@ -321,6 +395,7 @@ impl Connectors {
                 }),
                 Reply::Everyone(Message::Connections {
                     connections: infos(&host, Some(&self.store), flow::now_ms()),
+                    bundled: providers::bundled(),
                 }),
             ],
         }
@@ -355,26 +430,14 @@ pub fn infos(settings: &HostSettings, store: Option<&Store>, now_ms: i64) -> Vec
         .collect()
 }
 
-/// The application row for a provider and origin, created if it is not there yet.
-fn app_row<'a>(
-    settings: &'a mut HostSettings,
-    provider: ProviderId,
-    origin: Option<&str>,
-) -> &'a mut OauthApp {
-    let found = settings
+/// One registration by id. A secret can only be set on a registration that exists, since the id it
+/// would be filed under is the row's.
+fn app_row(settings: &mut HostSettings, id: OauthAppId) -> Result<&mut OauthApp, String> {
+    settings
         .oauth_apps
-        .iter()
-        .position(|app| app.provider == provider && app.origin.as_deref() == origin);
-    let index = found.unwrap_or_else(|| {
-        settings.oauth_apps.push(OauthApp {
-            provider,
-            origin: origin.map(str::to_string),
-            client_id: String::new(),
-            has_secret: false,
-        });
-        settings.oauth_apps.len() - 1
-    });
-    &mut settings.oauth_apps[index]
+        .iter_mut()
+        .find(|app| app.id == id)
+        .ok_or_else(|| "no such registration".to_string())
 }
 
 fn error(reason: &str) -> Reply {

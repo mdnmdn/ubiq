@@ -249,10 +249,6 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         return forget_row(&entry, project, cx);
     }
 
-    if app.workbench.pending_close == Some(project) && group == Group::Here {
-        return confirm_row(app.project_holds(project, cx), project, cx);
-    }
-
     let healthy = entry.health.is_ok();
     let full_path = entry.record.path.clone();
     let path_colour = if healthy {
@@ -551,50 +547,6 @@ fn window_mark(label: char, colour: gpui::Rgba) -> impl IntoElement {
         .border_1()
         .border_color(colour)
         .child(label.to_string())
-}
-
-/// Closing a project with terminals running or unsaved files is a question, not a click.
-fn confirm_row(
-    holds: crate::app::Holds,
-    project: ProjectId,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    div()
-        .px_2()
-        .py_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .bg(theme::warning_soft())
-        .border_l(px(theme::ACCENT_EDGE))
-        .border_color(theme::warning())
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(12.))
-                .text_color(theme::text())
-                .child(format!(
-                    "{}. Close anyway?",
-                    holds
-                        .sentence()
-                        .unwrap_or_else(|| "Nothing open".to_string())
-                )),
-        )
-        .child(small_button(
-            "confirm-cancel",
-            "Cancel",
-            theme::text_muted(),
-            cx.listener(|this, _, _, cx| this.cancel_close(cx)),
-        ))
-        .child(small_button(
-            "confirm-close",
-            "Close",
-            theme::danger(),
-            cx.listener(move |this, _, _, cx| this.close_project(project, true, cx)),
-        ))
-        .into_any_element()
 }
 
 fn action(

@@ -16,7 +16,21 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::ConnectionId;
+use crate::ids::{ConnectionId, OauthAppId};
+
+/// The loopback port an authorization code comes back on.
+///
+/// One port, never another: a different port is a different redirect URI, and no provider accepts
+/// one it was not registered with.
+pub const OAUTH_REDIRECT_PORT: u16 = 47821;
+
+/// The redirect URI every application Ubiq authenticates as must be registered with.
+///
+/// It lives on the contract rather than in the host alone because the interface has to *show* it —
+/// a user registering an application at GitHub cannot guess it, and a second spelling of it in the
+/// interface would be a string that drifts from the one the host actually listens on. The host
+/// binds [`OAUTH_REDIRECT_PORT`] and sends this; the interface only ever displays it.
+pub const OAUTH_REDIRECT: &str = "http://127.0.0.1:47821/callback";
 
 /// The six services Ubiq can hold an identity at.
 ///
@@ -134,6 +148,24 @@ impl ProviderId {
         }
     }
 
+    /// The base URL of the provider's own cloud — what an application registration is prefilled
+    /// with before the user replaces it with their own install.
+    ///
+    /// The product's home, not its OAuth endpoint: an administrator registering an application
+    /// types `https://github.com`, never `https://auth.atlassian.com`. That is why this is a fact
+    /// of its own here rather than the host's endpoint table read from a distance. `None` is a
+    /// provider with no cloud at all, where there is nothing to prefill.
+    pub fn cloud_url(self) -> Option<&'static str> {
+        match self {
+            ProviderId::Github => Some("https://github.com"),
+            ProviderId::Gitlab => Some("https://gitlab.com"),
+            ProviderId::Gitea => None,
+            ProviderId::AzureDevops => Some("https://dev.azure.com"),
+            ProviderId::Atlassian => Some("https://atlassian.net"),
+            ProviderId::Google => Some("https://console.cloud.google.com"),
+        }
+    }
+
     /// Whether the interface must ask for a client id before opening anything.
     ///
     /// A browser flow needs a registered application, and an application on a self-hosted install
@@ -210,23 +242,80 @@ pub struct Connection {
     /// by construction — a client id travels in the query string of every authorization URL.
     #[serde(default)]
     pub client_id: Option<String>,
+    /// The registration this identity was made under, when it was made under one.
+    ///
+    /// Written when the flow starts and never after, so a later probe or refresh authenticates as
+    /// the same application the user first consented to. `None` is a connection made against the
+    /// application this build ships, or one that needed no application at all.
+    #[serde(default)]
+    pub oauth_app: Option<OauthAppId>,
 }
 
-/// An OAuth application Ubiq authenticates *as*, configured rather than built in.
+/// An OAuth application Ubiq authenticates *as*, registered by the user rather than built in.
 ///
 /// Distinct from a connection: a connection credential identifies the user and is theirs; this
 /// identifies Ubiq to the provider and is the same for every user of a build. `has_secret` is
 /// derived from the secret store rather than stored, so this whole record is safe in a file the
 /// user can open and hand to a colleague.
+///
+/// **A registration is keyed by its id, and by nothing else.** One provider and one instance may
+/// carry several — a company registers one application per team, and the pair that used to
+/// identify a row identifies a group of them — so every message and every lookup names an
+/// [`OauthAppId`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "StoredApp")]
 pub struct OauthApp {
+    pub id: OauthAppId,
     pub provider: ProviderId,
+    /// The user's name for it — "team ci", "personal". Freely renamable, and what the connect
+    /// flow's picker offers.
+    pub name: String,
     /// Which instance this application is registered on. `None` is the provider's cloud.
     #[serde(default)]
     pub origin: Option<String>,
     pub client_id: String,
     #[serde(default)]
     pub has_secret: bool,
+}
+
+/// A registration as it may be found on disk: written before registrations were named, or after.
+///
+/// The fill is deterministic, and has to be. The host re-reads the settings file on every question
+/// it asks of it, so an id minted here would differ between two reads of one file and the secret
+/// filed under it would be unreachable — [`OauthAppId::derived`] answers the same id every time
+/// instead. The derived name is the sentence the list used to draw for such a row, so a settings
+/// file from an older build reads the same after the upgrade as before it.
+#[derive(Deserialize)]
+struct StoredApp {
+    #[serde(default)]
+    id: Option<OauthAppId>,
+    provider: ProviderId,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    origin: Option<String>,
+    client_id: String,
+    #[serde(default)]
+    has_secret: bool,
+}
+
+impl From<StoredApp> for OauthApp {
+    fn from(stored: StoredApp) -> Self {
+        let where_it_is = stored.origin.as_deref().unwrap_or("cloud");
+        Self {
+            id: stored.id.unwrap_or_else(|| {
+                OauthAppId::derived(&format!("{:?}:{where_it_is}", stored.provider))
+            }),
+            name: stored
+                .name
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| format!("{} \u{b7} {where_it_is}", stored.provider.label())),
+            provider: stored.provider,
+            origin: stored.origin,
+            client_id: stored.client_id,
+            has_secret: stored.has_secret,
+        }
+    }
 }
 
 /// A certificate the user has vouched for, at one origin.
@@ -425,6 +514,44 @@ mod tests {
                 InstanceNeed::Optional => assert!(!cloud.is_empty() && !hosted.is_empty()),
             }
         }
+    }
+
+    #[test]
+    fn a_registration_written_before_ids_existed_still_loads() {
+        let older = r#"{"provider":"gitlab","origin":"https://git.example.com","client_id":"abc"}"#;
+        let app: OauthApp = serde_json::from_str(older).expect("an older row still parses");
+        assert_eq!(app.client_id, "abc");
+        assert_eq!(app.name, "GitLab \u{b7} https://git.example.com");
+        // Derived, not minted: the host re-reads the file on every question, so two reads of one
+        // row have to answer one id.
+        let again: OauthApp = serde_json::from_str(older).expect("and parses the same way twice");
+        assert_eq!(app.id, again.id);
+        // A row for the provider's cloud is a different registration, and a different id.
+        let cloud: OauthApp = serde_json::from_str(r#"{"provider":"gitlab","client_id":"abc"}"#)
+            .expect("a cloud row parses too");
+        assert_ne!(app.id, cloud.id);
+        assert_eq!(cloud.name, "GitLab \u{b7} cloud");
+    }
+
+    #[test]
+    fn two_registrations_can_share_one_provider_and_instance() {
+        // What names them apart is the id and nothing else, which is the whole reason there is one.
+        let first = OauthApp {
+            id: OauthAppId::generate(),
+            provider: ProviderId::Gitea,
+            name: "team ci".to_string(),
+            origin: Some("https://git.example.com".to_string()),
+            client_id: "one".to_string(),
+            has_secret: false,
+        };
+        let second = OauthApp {
+            id: OauthAppId::generate(),
+            name: "personal".to_string(),
+            client_id: "two".to_string(),
+            ..first.clone()
+        };
+        assert_ne!(first.id, second.id);
+        assert_eq!(first.origin, second.origin);
     }
 
     #[test]

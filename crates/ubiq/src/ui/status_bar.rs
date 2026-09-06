@@ -262,8 +262,6 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         // takes the danger colour, because it is the only thing here the user has to act on.
         .children(active.and_then(save_state))
         .child(div().flex_1().min_w(px(0.)))
-        .child(version_label())
-        .child(made_with_love())
         .children(git_readout(app, cx))
         .child(vim_chip(app, cx))
         // A caret in a buffer nobody is looking at is not a fact, so the readout goes with the
@@ -280,6 +278,8 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             )
         }))
         .child(font_size_dropdown(app, cx))
+        .child(version_label())
+        .child(made_with_love())
 }
 
 /// Every text size the status bar's dropdown offers, in points. A hand-picked ladder rather than

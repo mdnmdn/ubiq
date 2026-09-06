@@ -9,7 +9,7 @@
 
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
-use crate::app::{AppState, FocusFileFilter, ZoomIn, ZoomOut};
+use crate::app::{AppState, FocusFileFilter, SubmitSearch, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{rail, ribbon, settings, status_bar, titlebar};
@@ -26,10 +26,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::new_untitled_file))
         .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
+        .on_action(cx.listener(AppState::open_outline))
         .on_action(cx.listener(AppState::back))
         .on_action(cx.listener(AppState::forward))
         .on_action(cx.listener(AppState::toggle_bookmark))
         .on_action(cx.listener(AppState::open_navigator))
+        // ⌘⏎ is the search itself, whether the navigator is up or not.
+        .on_action(cx.listener(|this, _: &SubmitSearch, window, cx| {
+            this.close_navigator(cx);
+            this.submit_header_search(window, cx);
+        }))
         .on_action(cx.listener(|this, _: &FocusFileFilter, window, cx| {
             this.reveal_explorer_filter(window, cx)
         }))
@@ -118,6 +124,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .connect
                 .as_ref()
                 .map(|_| settings::connect(app, window, cx)),
+        )
+        // The application-registration form, painted beside the connect modal rather than over it:
+        // the two share their fields, so only one is ever up.
+        .children(
+            app.workbench
+                .settings
+                .app_form
+                .as_ref()
+                .map(|_| settings::app_form(app, window, cx)),
         )
         // The connectors section's rename, disconnect or forget question — over the connect
         // modal, since either can be up over what raised it.

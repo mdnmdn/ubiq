@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, ProviderId};
-use ubiq_proto::ids::{ConnectId, ConnectionId, PaneId};
+use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
+use ubiq_proto::ids::{ConnectId, ConnectionId, OauthAppId, PaneId};
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus};
 use ubiq_proto::settings::HostSettings;
 
@@ -240,6 +240,23 @@ pub enum ConnectStep {
     Failed { error: ConnectError },
 }
 
+/// Which application a connect flow is to authenticate as.
+///
+/// The one choice that replaces typing an instance URL, because a registration already knows where
+/// it lives: picking one sets the instance and the client id together, and neither can then
+/// disagree with the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectApp {
+    /// The application this build ships. Offered only where the host says there is one.
+    Bundled,
+    /// One of the user's own registrations.
+    Registration(OauthAppId),
+    /// Neither — a base URL typed by hand. Kept because a pasted token needs no application at
+    /// all, and refusing to reach a self-hosted install without one registered would be a
+    /// regression rather than a rule.
+    Instance,
+}
+
 /// The connect modal: which flow is running, and what it is for.
 #[derive(Clone, Debug)]
 pub struct ConnectState {
@@ -252,7 +269,47 @@ pub struct ConnectState {
     pub provider: ProviderId,
     /// The base URL the identity lives at, as typed. `None` is the provider's public cloud.
     pub instance: Option<String>,
+    /// Which application the flow authenticates as. Seeded whenever the provider is picked, so the
+    /// modal never opens on a choice that provider does not offer.
+    pub app: ConnectApp,
+    /// Whether the application picker's list is down. Held here because a picker over a modal
+    /// draws its own layer and the modal is redrawn from state on every frame.
+    pub app_open: bool,
     pub step: ConnectStep,
+}
+
+/// The application-registration form, while it is up.
+///
+/// The four fields it draws are the connect modal's own inputs — the two modals occlude the
+/// settings page that raises them, so neither can be on screen while the other is, and a fifth
+/// buffer for the same four questions is a buffer that goes stale.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppForm {
+    /// The registration being rewritten, or `None` for one being created. The host mints the id,
+    /// so a form the user abandoned leaves nothing behind.
+    pub id: Option<OauthAppId>,
+    pub provider: ProviderId,
+    /// Whether the provider picker's list is down.
+    pub open: bool,
+}
+
+/// A client secret typed into the form for a registration that did not exist yet.
+///
+/// The id is the host's to mint, so there is nothing to file a secret under until the written
+/// record comes back. This is what the interface holds in the meantime, matched against the next
+/// settings broadcast by the two fields the user just typed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingSecret {
+    pub name: String,
+    pub client_id: String,
+    pub secret: String,
+}
+
+impl PendingSecret {
+    /// The registration this secret was meant for, in a list the host has since sent back.
+    pub fn matches(&self, app: &OauthApp) -> bool {
+        app.name == self.name && app.client_id == self.client_id
+    }
 }
 
 /// A question asked about one connection or one pinned certificate, over the connectors section.
@@ -273,12 +330,10 @@ pub enum ConnectorDialog {
     /// Drops a pinned certificate. `uses` is how many connections live at that origin, so the
     /// question can say what else stops trusting it.
     ForgetCert { origin: String, uses: usize },
-    /// Sets the client *secret* of a configured OAuth application. A fourth variant rather than
-    /// its own field, because it is raised from the same list and only one question is ever up.
-    AppSecret {
-        provider: ProviderId,
-        origin: Option<String>,
-    },
+    /// Deletes a registration and the client secret filed under it. Confirming sends
+    /// `DeleteOauthApp`; the connections made under it are left alone, since each holds its own
+    /// client id.
+    DeleteApp { app: OauthAppId, name: String },
 }
 
 /// A certificate a running flow stopped on, held until the user answers.
@@ -308,6 +363,13 @@ pub struct SettingsState {
     pub login: Option<LoginState>,
     /// The rename, delete or sign-out question over one account, while one is up.
     pub dialog: Option<AccountDialog>,
+    /// The providers this build ships an application for, as the host last said. Empty until it
+    /// answers, which reads correctly: a flow offers a "Default" only where there is one.
+    pub bundled: Vec<ProviderId>,
+    /// The application-registration form, while one is up.
+    pub app_form: Option<AppForm>,
+    /// A secret waiting for the registration it belongs to to come back with an id.
+    pub pending_secret: Option<PendingSecret>,
     /// The connect modal, while a flow is running. There is no list of connections beside it:
     /// those ride `host.connections`, which the host owns.
     pub connect: Option<ConnectState>,
@@ -355,6 +417,9 @@ impl Default for SettingsState {
             ui: UiSettings::default(),
             host: HostSettings::default(),
             accounts: Vec::new(),
+            bundled: Vec::new(),
+            app_form: None,
+            pending_secret: None,
             login: None,
             dialog: None,
             connect: None,

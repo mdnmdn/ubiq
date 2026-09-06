@@ -242,6 +242,10 @@ pub enum FileDialog {
     /// terminals. What each of them holds is counted when the dialog is drawn. `quitting` is the
     /// same question asked for the whole application — ⌘Q — which takes every window with it.
     CloseWindow { quitting: bool },
+    /// One project's close, asked for the same reasons and answered in the same modal — the close
+    /// in the project menu takes the window's unsaved files and running terminals just as
+    /// seriously, it only has one project to say it about.
+    CloseProject { project: ProjectId },
 }
 
 pub struct WorkbenchState {
@@ -261,8 +265,6 @@ pub struct WorkbenchState {
 
     /// What was typed into the project menu's search field.
     pub project_filter: String,
-    /// A project whose close is waiting on an answer, because it still has terminals open.
-    pub pending_close: Option<ProjectId>,
     /// A row expanded into a Forget confirmation.
     pub row_action: Option<(ProjectId, RowAction)>,
     /// Project settings, raised over the window to create a project or edit the one on screen.
@@ -334,7 +336,6 @@ impl Default for WorkbenchState {
             interface_rest: Default::default(),
             open_menu: None,
             project_filter: String::new(),
-            pending_close: None,
             row_action: None,
             project_settings: None,
             clone_project: None,

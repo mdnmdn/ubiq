@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use tempfile::TempDir;
+use ubiq_host::index::text::{self, Text};
 use ubiq_host::search::{Job, ceiling, fallback, worker};
 use ubiq_proto::bus::{self, To};
 use ubiq_proto::ids::{ProjectId, SearchId};
@@ -42,6 +43,37 @@ fn job(root: &Path, query: Query) -> (Job, bus::Client) {
     job_with(root, query, Filter::default(), Vec::new(), Vec::new())
 }
 
+/// Build a full-text index over every file under `root`, ready to be consulted.
+///
+/// The `TempDir` holding the index is returned with it: dropping it would delete the directory the
+/// reader has mapped.
+fn indexed(root: &Path) -> (TempDir, Text) {
+    let home = TempDir::new().unwrap();
+    let mut index = Text::open(home.path()).unwrap();
+    for entry in ignore::WalkBuilder::new(root).build().flatten() {
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let len = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        if !text::indexable(entry.path(), len) {
+            continue;
+        }
+        let Ok(body) = fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let rel = entry
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .into_owned();
+        index.put(&rel, Some(&body));
+    }
+    index.commit().unwrap();
+    index.set_ready(true);
+    (home, index)
+}
+
 /// The full shape, for the filter, exclude and fallback tests.
 fn job_with(
     root: &Path,
@@ -64,6 +96,7 @@ fn job_with(
         filter,
         excludes,
         fallbacks,
+        index: None,
         cancel: Arc::new(AtomicBool::new(false)),
         reply_to,
     };
@@ -452,4 +485,208 @@ fn with_no_fallbacks_configured_a_bad_regex_still_answers_bad_query() {
 #[test]
 fn fallback_pick_finds_nothing_for_a_tool_name_that_does_not_exist() {
     assert!(fallback::pick(&["definitely-not-a-real-search-tool".to_string()]).is_none());
+}
+
+// ── The index path ──────────────────────────────────────────────
+//
+// The index chooses which files are read and nothing else (`D75`), so every assertion here is
+// about the two paths agreeing rather than about the index having its own behaviour.
+
+/// The whole correctness claim: the same query over the same tree answers identically whether the
+/// walk or the index chose the files.
+#[test]
+fn an_indexed_search_answers_exactly_what_the_walk_answers() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "needle\nnot this\nneedle again\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "a needle in here\n").unwrap();
+    fs::write(dir.path().join("c.txt"), "nothing at all\n").unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub/d.txt"), "needles, plural\n").unwrap();
+
+    let (walked, walked_client) = job(dir.path(), query("needle"));
+    worker::run(&walked);
+    let by_walk = drain(&walked_client, &walked);
+
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+    let (mut indexed_job, indexed_client) = job(dir.path(), query("needle"));
+    indexed_job.index = Some(index.reader());
+    worker::run(&indexed_job);
+    let by_index = drain(&indexed_client, &indexed_job);
+
+    let sorted = |answers: &Answers| {
+        let mut hits: Vec<(String, Vec<(u32, String)>)> = answers
+            .hits
+            .iter()
+            .map(|hit| {
+                (
+                    hit.rel_path.clone(),
+                    hit.lines
+                        .iter()
+                        .map(|line| (line.line, line.text.clone()))
+                        .collect(),
+                )
+            })
+            .collect();
+        hits.sort();
+        hits
+    };
+
+    assert_eq!(
+        sorted(&by_index),
+        sorted(&by_walk),
+        "hits must be identical"
+    );
+    assert_eq!(by_index.truncated, by_walk.truncated);
+    // Four files hold `needle` as a substring; `c.txt` holds none, so the index never reads it.
+    // That difference is the entire point, and it is the one thing that may differ.
+    assert_eq!(sorted(&by_walk).len(), 3);
+}
+
+/// A query the index cannot bound falls through to the walk, and still finds everything.
+#[test]
+fn a_regex_query_ignores_the_index_and_still_answers() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "needle\n").unwrap();
+
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+    let (mut job, client) = job(
+        dir.path(),
+        Query {
+            text: "n[e]+dle".to_string(),
+            case_sensitive: false,
+            whole_word: false,
+            regex: true,
+        },
+    );
+    job.index = Some(index.reader());
+    worker::run(&job);
+    let answers = drain(&client, &job);
+
+    assert_eq!(answers.hits.len(), 1, "a regex must still be answered");
+}
+
+/// A query too short to have a trigram takes the walk rather than answering nothing.
+#[test]
+fn a_two_character_query_walks_rather_than_asking_the_index() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "ab\n").unwrap();
+
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+    let (mut job, client) = job(dir.path(), query("ab"));
+    job.index = Some(index.reader());
+    worker::run(&job);
+    let answers = drain(&client, &job);
+
+    assert_eq!(answers.hits.len(), 1);
+}
+
+/// An index whose build has not finished is not consulted.
+#[test]
+fn an_index_that_is_not_ready_is_not_consulted() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "needle\n").unwrap();
+
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+    // Nothing has been indexed as far as a searcher is concerned.
+    index.set_ready(false);
+
+    let (mut job, client) = job(dir.path(), query("needle"));
+    job.index = Some(index.reader());
+    worker::run(&job);
+    let answers = drain(&client, &job);
+
+    assert_eq!(answers.hits.len(), 1, "the walk must still answer");
+}
+
+/// A stale index cannot invent a hit: a candidate that no longer matches contributes nothing.
+#[test]
+fn a_stale_candidate_contributes_no_hits() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "needle\n").unwrap();
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+
+    // The file changes under the index, which still names it as a candidate.
+    fs::write(dir.path().join("a.txt"), "haystack\n").unwrap();
+
+    let (mut job, client) = job(dir.path(), query("needle"));
+    job.index = Some(index.reader());
+    worker::run(&job);
+    let answers = drain(&client, &job);
+
+    assert!(
+        answers.hits.is_empty(),
+        "a candidate is re-read, so a stale entry costs a read and never a wrong hit"
+    );
+}
+
+/// The excludes still apply when the index chose the files, not only when the walk did.
+#[test]
+fn an_exclude_removes_an_indexed_candidate() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "needle\n").unwrap();
+    fs::create_dir(dir.path().join("vendor")).unwrap();
+    fs::write(dir.path().join("vendor/skip.txt"), "needle\n").unwrap();
+
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+    let (mut job, client) = job_with(
+        dir.path(),
+        query("needle"),
+        Filter::default(),
+        vec!["vendor".to_string()],
+        Vec::new(),
+    );
+    job.index = Some(index.reader());
+    worker::run(&job);
+    let answers = drain(&client, &job);
+
+    let paths: Vec<&str> = answers
+        .hits
+        .iter()
+        .map(|hit| hit.rel_path.as_str())
+        .collect();
+    assert_eq!(paths, vec!["keep.txt"]);
+}
+
+/// A query the regex engine rejects still reaches the external fallback with a warm index present.
+///
+/// The regression this pins: the index gate sits *after* the matcher is built, so it can never
+/// take the fallback's branch away from a query that needs it.
+#[test]
+fn a_bad_regex_still_reaches_the_fallback_with_an_index() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "needle\n").unwrap();
+
+    let (_home, index) = indexed(&dir.path().canonicalize().unwrap());
+    let (mut job, client) = job_with(
+        dir.path(),
+        Query {
+            // A backreference: ripgrep's engine refuses it, a PCRE-ish tool accepts it.
+            text: r"(needle)\1".to_string(),
+            case_sensitive: false,
+            whole_word: false,
+            regex: true,
+        },
+        Filter::default(),
+        Vec::new(),
+        // No tool configured, so the fallback declines and the error is answered — which is
+        // reached only if the fallback branch ran at all.
+        Vec::new(),
+    );
+    job.index = Some(index.reader());
+    worker::run(&job);
+
+    let message = client
+        .from_host()
+        .recv_timeout(PATIENCE)
+        .expect("an answer");
+    assert!(
+        matches!(
+            message,
+            Message::SearchError {
+                error: SearchError::BadQuery(_),
+                ..
+            }
+        ),
+        "expected the bad-query path, got {message:?}"
+    );
 }

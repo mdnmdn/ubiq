@@ -163,6 +163,49 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 window,
             )
         }
+        Some(FileDialog::CloseProject { project }) => {
+            let name = crate::state::WindowRegistry::read(cx)
+                .project(project)
+                .map_or_else(|| project.to_string(), |entry| entry.record.name.clone());
+            let body = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .pt_3()
+                .child(modal_note("Closing this project takes all of it with it:"))
+                .child(modal_note(&format!(
+                    "{name} — {}",
+                    app.project_holds(project, cx)
+                        .sentence()
+                        .unwrap_or_else(|| "nothing open".to_string())
+                )));
+            let footer = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-close-project-cancel",
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, _, cx| this.close_file_dialog(cx)),
+                ))
+                .child(primary_button(
+                    "app-close-project-confirm",
+                    None,
+                    "Close anyway",
+                    cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
+                ))
+                .into_any_element();
+            modal(
+                "app-close-project",
+                theme::danger(),
+                "Close project",
+                body.into_any_element(),
+                footer,
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
         Some(FileDialog::Move { path, into }) => {
             let unasked = app.workbench.move_unasked_until.is_some();
             let target = match into.is_empty() {

@@ -21,7 +21,7 @@ use ubiq_proto::bus::Mailbox;
 use ubiq_proto::connectors::{
     AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId, TrustedCert,
 };
-use ubiq_proto::ids::{ConnectId, ConnectionId};
+use ubiq_proto::ids::{ConnectId, ConnectionId, OauthAppId};
 use ubiq_proto::messages::{Message, Secret};
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
 
@@ -31,15 +31,13 @@ use super::http::{self, Failure};
 use super::store::{Store, Token};
 use super::{app, providers};
 
-/// The loopback port an authorization code comes back on.
+/// The loopback port an authorization code comes back on, and the redirect URI it forms.
 ///
-/// One port, never another: a different port is a different redirect URI, and no provider accepts
-/// one it was not registered with. Failing on a busy port is clearer than succeeding into a
-/// redirect the provider will refuse.
-pub const PORT: u16 = 47821;
-
-/// The redirect URI registered against every application this build talks to.
-pub const REDIRECT: &str = "http://127.0.0.1:47821/callback";
+/// Both live on the contract rather than here: the interface has to *show* the redirect URI to
+/// whoever is registering an application, and a second spelling of it would be a string that
+/// drifts from the one this file actually binds. Failing on a busy port is still clearer than
+/// succeeding into a redirect the provider will refuse.
+pub use ubiq_proto::connectors::{OAUTH_REDIRECT as REDIRECT, OAUTH_REDIRECT_PORT as PORT};
 
 /// How long a flow waits for a person. Longer than a person takes, shorter than forever.
 const PATIENCE: Duration = Duration::from_secs(600);
@@ -65,6 +63,9 @@ pub struct Job {
     pub auth: AuthKind,
     /// The client id the interface was told to ask for, when it asked.
     pub client_id: Option<String>,
+    /// The registration the user picked, when they picked one. Written onto the connection, and
+    /// what a stored client secret is filed under.
+    pub oauth_app: Option<OauthAppId>,
     /// Set only for a probe: the connection being checked.
     pub connection: Option<ConnectionId>,
     pub answers: flume::Receiver<Answer>,
@@ -355,10 +356,10 @@ fn pkce(job: &Job) -> Result<(), Failure> {
 
     pending(job, ConnectStage::Exchanging);
     let exchange = providers::web_url(job.provider, job.instance.as_deref(), row.token)?;
-    let configured = job.instance.as_deref().and_then(as_origin);
-    let secret = job
-        .store
-        .app_secret(job.provider, configured.as_deref())
+    let secret = resolve(job)
+        .1
+        .registration()
+        .and_then(|app| job.store.app_secret(app))
         .unwrap_or_default();
     let answer = with_trust(job, &origin, |pin| {
         let mut fields = vec![
@@ -446,6 +447,7 @@ fn capture(job: &Job, token: Token, account: String, scopes: Vec<String>) -> Res
         scopes,
         account,
         client_id: job.client_id.clone(),
+        oauth_app: job.oauth_app,
     };
     let settings = job
         .settings
@@ -467,14 +469,20 @@ fn capture(job: &Job, token: Token, account: String, scopes: Vec<String>) -> Res
 
 /// The application this flow authenticates as, or the refusal that says there is none.
 fn application(job: &Job) -> Result<String, Failure> {
+    resolve(job).0.ok_or(ConnectError::NoApplication.into())
+}
+
+/// The same answer, with the registration that gave it — which is what a client secret is filed
+/// under, so the two are never resolved by two different rules.
+fn resolve(job: &Job) -> (Option<String>, app::ClientIdSource) {
     let origin = job.instance.as_deref().and_then(as_origin);
-    app::client_id(
+    app::resolve(
         &job.settings.host(),
         job.provider,
         origin.as_deref(),
         job.client_id.as_deref(),
+        job.oauth_app,
     )
-    .ok_or(ConnectError::NoApplication.into())
 }
 
 /// Wait for the one request this listener exists for.
@@ -540,6 +548,7 @@ fn announce(job: &Job, settings: &HostSettings) {
     });
     job.everyone.send(Message::Connections {
         connections: super::infos(settings, Some(&job.store), now_ms()),
+        bundled: providers::bundled(),
     });
 }
 

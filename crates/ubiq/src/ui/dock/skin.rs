@@ -357,8 +357,10 @@ impl TabGroupRenderer for Skin {
                 }
                 next_tab_ix += 1;
                 let info = tab_of(panel, cx);
-                let panel_id = panel.panel_id(cx);
-                let closable = group.is_closable() && panel.closable(cx);
+                // Not `group.is_closable()`: the library's group refuses to give up its last
+                // panel, and Ubiq collapses the emptied region instead. The panel's own answer is
+                // the whole of the policy — see `ui::dock::close_panel`.
+                let closable = !group.is_locked() && panel.closable(cx);
 
                 let mut tab = div()
                     .id(("ubiq-tab", ix))
@@ -411,7 +413,7 @@ impl TabGroupRenderer for Skin {
                 }
 
                 if closable {
-                    let group = group.clone();
+                    let view = panel.view().downcast::<WorkbenchPanel>().ok();
                     tab = tab.child(
                         div()
                             .id(("ubiq-tab-close", ix))
@@ -427,7 +429,11 @@ impl TabGroupRenderer for Skin {
                                     .with_size(Size::XSmall)
                                     .text_color(theme::text_faint()),
                             )
-                            .on_click(move |_, window, cx| group.close(panel_id, window, cx)),
+                            .on_click(move |_, window, cx| {
+                                if let Some(view) = view.as_ref() {
+                                    crate::ui::dock::close_panel(view, window, cx);
+                                }
+                            }),
                     );
                 }
 

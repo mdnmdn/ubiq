@@ -1114,7 +1114,11 @@ impl AppState {
             // Every flow message is matched against the id the modal holds and discarded
             // otherwise — the search family's discipline, and the only thing that stops a stage
             // still in flight from reopening a modal the user has closed.
-            Message::Connections { connections } => {
+            Message::Connections {
+                connections,
+                bundled,
+            } => {
+                self.workbench.settings.bundled = bundled;
                 self.workbench.settings.connection_status = connections
                     .iter()
                     .map(|info| (info.connection.id, info.status.clone()))

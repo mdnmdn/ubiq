@@ -14,10 +14,10 @@ use crate::conversation::{ConvUpdate, StopReason};
 use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
-    CloneId, ConnectId, ConnectionId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, StepId,
-    TaskId,
+    CloneId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId,
+    SessionId, StepId, TaskId,
 };
-use crate::projects::{ProjectSnapshot, Scope};
+use crate::projects::{IndexChange, ProjectSnapshot, Scope};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
@@ -230,6 +230,14 @@ pub enum Message {
     /// pasted into a terminal.
     Connections {
         connections: Vec<ConnectionInfo>,
+        /// The providers this build ships a registered application for.
+        ///
+        /// Rides here rather than in a message of its own because it is read at the same moment
+        /// the list is — the connect flow offers a "Default" only where the build can honour one,
+        /// and whether it can is a compile-time fact of the *host* that the interface must not
+        /// guess. An empty list means every browser flow needs a registration.
+        #[serde(default)]
+        bundled: Vec<ProviderId>,
     },
     /// Start authenticating against `provider`, in a flow of its own.
     ///
@@ -247,6 +255,10 @@ pub enum Message {
         label: String,
         auth: AuthKind,
         client_id: Option<String>,
+        /// The registration to authenticate as, when the user picked one. Written onto the
+        /// connection, so a later probe or refresh uses the same application.
+        #[serde(default)]
+        oauth_app: Option<OauthAppId>,
     },
     /// How far the flow named by `connect_id` has got. Any number of these, then exactly one of
     /// [`Message::ConnectCaptured`] or [`Message::ConnectFailed`].
@@ -339,21 +351,45 @@ pub enum Message {
     ForgetCertificate {
         origin: String,
     },
-    /// Store the client *secret* of a user-configured OAuth application.
+    /// Create or rewrite one named OAuth application registration.
+    ///
+    /// `id: None` creates and the host mints one; `Some` rewrites that registration in place. One
+    /// variant for both because it is one form either way, and because a registration the user
+    /// renamed is the registration their connections already reference.
+    ///
+    /// The registrations live in the host-owned part of the settings blob, so this is the only way
+    /// to write one: what the interface sends for that part of a `SetSettings` is discarded. A
+    /// blank name or a blank client id is a [`Message::ConnectorError`]; success is
+    /// [`Message::Settings`], since the blob every window draws from has changed.
+    SaveOauthApp {
+        id: Option<OauthAppId>,
+        provider: ProviderId,
+        name: String,
+        /// The instance it is registered on, as [`crate::connectors::origin`] normalises it.
+        /// `None` is the provider's own cloud.
+        origin: Option<String>,
+        client_id: String,
+    },
+    /// Delete a registration, and the client secret filed under it.
+    ///
+    /// Connections made under it keep working: they hold their own client id, and the id they name
+    /// simply matches nothing any more.
+    DeleteOauthApp {
+        id: OauthAppId,
+    },
+    /// Store the client *secret* of one registration.
     ///
     /// The second variant that carries material, under the same rule as
     /// [`Message::SubmitConnectSecret`]. The client *id* is public and rides the settings blob like
-    /// any other setting, which is why there is no `SetOauthApp`.
+    /// any other setting, which is why only the secret has a variant of its own.
     SetAppSecret {
-        provider: ProviderId,
-        origin: Option<String>,
+        app: OauthAppId,
         secret: Secret,
     },
     /// Forget a stored client secret. Its own variant rather than an empty [`Secret`], because
     /// clearing a credential should not look like setting one.
     ClearAppSecret {
-        provider: ProviderId,
-        origin: Option<String>,
+        app: OauthAppId,
     },
     /// Something in the connector family went wrong, outside any one flow.
     ConnectorError {
@@ -456,9 +492,10 @@ pub enum Message {
         /// whole list.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         search_excludes: Option<Vec<String>>,
-        /// Whether this project may be indexed locally. Absent leaves it as it is.
+        /// What to do with the project's indexing override. Absent leaves it as it is; see
+        /// [`IndexChange`] for why this is not an `Option<Option<_>>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        no_local_index: Option<bool>,
+        index: Option<IndexChange>,
     },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].

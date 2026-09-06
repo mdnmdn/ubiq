@@ -477,13 +477,15 @@ impl AppState {
             window,
             |this, input, event: &InputEvent, window, cx| match event {
                 // Two ways out of one field. With the navigator up, Enter is the row under the
-                // cursor; with it shut, Enter is the project content search it has always been.
+                // cursor — which opens on the search row, so Enter twice is a search. With it
+                // shut, Enter raises the navigator, exactly as ⌘K does; ⌘⏎ is the shortcut past
+                // it, straight to the search.
                 InputEvent::PressEnter { .. } => match this.navigator.as_ref() {
                     Some(nav) => {
                         let at = nav.cursor;
                         this.press_navigator(at, window, cx);
                     }
-                    None => this.submit_header_search(window, cx),
+                    None => this.open_navigator(&OpenNavigator, window, cx),
                 },
                 // The query is the navigator's, not the field's: a keystroke is new answers and
                 // the cursor back to the top.
@@ -824,6 +826,9 @@ impl AppState {
             explorer_filter_gen: 0,
             md_reflow: 0,
             md_reflow_gen: 0,
+            outline: Vec::new(),
+            outline_key: String::new(),
+            outline_gen: 0,
             log_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,

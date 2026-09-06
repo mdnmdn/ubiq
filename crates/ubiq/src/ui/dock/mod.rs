@@ -49,8 +49,8 @@ use crate::state::dock::{ChatId, PanelKind, Region};
 use crate::state::editor::ViewLayout;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, logs, orchestration, rail, search, sink,
-    terminal,
+    agents, board, chat, editor, empty, explorer, git, logs, orchestration, outline, rail, search,
+    sink, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -192,6 +192,10 @@ impl WorkbenchPanel {
             }
             PanelKind::Search => TabInfo {
                 label: "Search".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::Outline => TabInfo {
+                label: "Outline".into(),
                 ..TabInfo::default()
             },
             PanelKind::Explorer => TabInfo {
@@ -494,6 +498,7 @@ fn body(
         PanelKind::Terminal(pane_id) => terminal::pane(app, *pane_id, cx),
         PanelKind::Logs => logs::render(app, cx),
         PanelKind::Search => search::render(app, window, cx),
+        PanelKind::Outline => outline::render(app, window, cx),
         PanelKind::Explorer => explorer::render(app, window, cx),
         PanelKind::Chat(id) => chat::render(app, *id, window, cx).into_any_element(),
         PanelKind::Centre => drop_target(centre(app, window, cx), cx),
@@ -739,6 +744,22 @@ pub fn remove(
 ) {
     dock.update(cx, |dock, cx| {
         dock.remove_panel(panel.clone(), window, cx);
+    });
+}
+
+/// Close a panel from its own tab, going round the group that holds it.
+///
+/// **The library refuses to take the last panel out of a region**, so that a dock can never be
+/// emptied. Ubiq wants the opposite: an emptied region collapses (`AppState::hide_emptied_regions`)
+/// and comes back with a fresh panel in it, so a last terminal, chat, file or console is as
+/// closable as any other. The panel's own [`PanelKind::closable`] is still the whole of the policy;
+/// this only avoids asking [`TabGroup`] for permission it would refuse.
+pub fn close_panel(panel: &Entity<WorkbenchPanel>, window: &mut Window, cx: &mut App) {
+    let app = panel.read(cx).app.clone();
+    let panel = panel.clone();
+    _ = app.update(cx, |app, cx| {
+        let dock = app.dock().clone();
+        remove(&dock, &panel, window, cx);
     });
 }
 

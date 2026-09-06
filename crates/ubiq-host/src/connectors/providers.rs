@@ -12,6 +12,20 @@
 use serde_json::Value;
 use ubiq_proto::connectors::{ConnectError, ProviderId, origin};
 
+/// The providers this build ships a registered application for.
+///
+/// A compile-time fact — every `client_id` here is an `option_env!` — and the interface's only way
+/// to know it, which is why it rides [`Message::Connections`](ubiq_proto::messages::Message)
+/// rather than being guessed. A provider absent from this list has no browser flow until the user
+/// registers an application.
+pub fn bundled() -> Vec<ProviderId> {
+    ProviderId::all()
+        .iter()
+        .copied()
+        .filter(|provider| of(*provider).client_id.is_some())
+        .collect()
+}
+
 /// One provider's endpoints, as this build knows them.
 pub struct Provider {
     /// The API host for the provider's own cloud. Not always the web host — GitHub's API lives on

@@ -58,7 +58,16 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 }),
             )
         })
-        .child(div().flex_1().min_w(px(0.)))
+        // Back and forward belong to the project they walk, so they sit beside it rather than
+        // beside the field: project, its menu, a rule, then the two arrows.
+        .child(
+            div()
+                .w(px(1.))
+                .h(px(18.))
+                .mx_1()
+                .flex_none()
+                .bg(theme::border()),
+        )
         .child(nav_control(
             "nav-back",
             IconName::ChevronLeft,
@@ -71,14 +80,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
             nav_label(app, false, cx),
             cx.listener(|this, _, window, cx| this.forward(&NavForward, window, cx)),
         ))
-        .child(
-            div()
-                .w(px(1.))
-                .h(px(18.))
-                .mr_1()
-                .flex_none()
-                .bg(theme::border()),
-        )
+        .child(div().flex_1().min_w(px(0.)))
         .child(command_field(app, window, cx))
         .child(div().flex_1().min_w(px(0.)))
         .child(

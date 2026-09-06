@@ -131,6 +131,9 @@ pub enum PanelKind {
     File(String),
     /// Project content search.
     Search,
+    /// The definitions in the file on screen. Answered from the buffer, so unlike `Search` it
+    /// wants no project — only a file.
+    Outline,
 }
 
 impl PanelKind {
@@ -146,9 +149,11 @@ impl PanelKind {
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
-            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search | PanelKind::Chat(_) => {
-                PanelClass::Free
-            }
+            PanelKind::Terminal(_)
+            | PanelKind::Logs
+            | PanelKind::Search
+            | PanelKind::Outline
+            | PanelKind::Chat(_) => PanelClass::Free,
             PanelKind::Explorer => PanelClass::Edge,
             PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
         }
@@ -159,7 +164,7 @@ impl PanelKind {
     pub fn home(&self) -> Region {
         match self {
             PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
-            PanelKind::Explorer => Region::Left,
+            PanelKind::Explorer | PanelKind::Outline => Region::Left,
             PanelKind::Chat(_) => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
         }
@@ -180,6 +185,7 @@ impl PanelKind {
             PanelKind::Centre => "ubiq.centre",
             PanelKind::File(_) => "ubiq.file",
             PanelKind::Search => "ubiq.search",
+            PanelKind::Outline => "ubiq.outline",
         }
     }
 
@@ -197,6 +203,7 @@ impl PanelKind {
             "ubiq.explorer" => Some(PanelKind::Explorer),
             "ubiq.centre" => Some(PanelKind::Centre),
             "ubiq.search" => Some(PanelKind::Search),
+            "ubiq.outline" => Some(PanelKind::Outline),
             _ => None,
         }
     }
@@ -249,6 +256,9 @@ impl PanelKind {
             PanelKind::Centre => !at.is_ide || !at.any_file_open,
             PanelKind::File(_) => at.is_ide && at.file_open,
             PanelKind::Search => at.is_ide && at.has_project,
+            // No project clause: a file dropped in from outside every project still has an
+            // outline, because the buffer is the whole input.
+            PanelKind::Outline => at.is_ide && at.any_file_open,
         }
     }
 
@@ -263,6 +273,7 @@ impl PanelKind {
                 | PanelKind::File(_)
                 | PanelKind::Logs
                 | PanelKind::Search
+                | PanelKind::Outline
                 | PanelKind::Chat(_)
         )
     }

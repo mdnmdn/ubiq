@@ -41,6 +41,13 @@ pub struct Job {
     /// Application-wide and per-project excludes, already merged by the coordinator, as the
     /// search job's are.
     pub excludes: Vec<String>,
+    /// Where the same batch also goes, when the project keeps an index.
+    ///
+    /// A second destination rather than a relay through the coordinator: the push below goes
+    /// straight from this thread to its client, so the coordinator never sees a change and has
+    /// nothing to forward. The 150ms debounce has already coalesced the burst, so this is one
+    /// extra send per flush and never one per event.
+    pub index: Option<flume::Sender<crate::index::Job>>,
     pub reply_to: Mailbox,
 }
 
@@ -111,6 +118,21 @@ fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
 
 /// Send one batch. `false` means the window has gone and there is nothing left to tell.
 fn flush(job: &Job, changed: Vec<String>, truncated: bool, repository: bool) -> bool {
+    if let Some(index) = &job.index {
+        // The index is told before the interface, and its failure is not the interface's problem:
+        // an index thread that has gone means searches walk, which is what they did before one
+        // existed. Only a file change matters — repository plumbing moving changes no file's
+        // content.
+        if !changed.is_empty() || truncated {
+            let _ = index.send(crate::index::Job::Changed {
+                project_id: job.project_id,
+                root: job.root.clone(),
+                paths: changed.clone(),
+                truncated,
+            });
+        }
+    }
+
     job.reply_to.send(Message::ProjectFilesChanged {
         project_id: job.project_id,
         changed,

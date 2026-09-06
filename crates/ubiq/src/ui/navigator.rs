@@ -10,7 +10,7 @@
 
 use gpui::{
     Context, Div, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    StatefulInteractiveElement as _, Styled, anchored, deferred, div, point, px,
+    StatefulInteractiveElement as _, Styled, anchored, deferred, div, px,
 };
 
 use crate::app::AppState;
@@ -62,6 +62,9 @@ pub fn attach(field: Div, app: &AppState, cx: &mut Context<AppState>) -> Div {
         return field;
     };
     field
+        // The list is pinned to this field's own bottom-left corner, so the field has to be the
+        // box that corner is measured from.
+        .relative()
         .key_context(CONTEXT)
         .on_action(cx.listener(|this, _: &NavigatorUp, _, cx| this.move_navigator(false, cx)))
         .on_action(cx.listener(|this, _: &NavigatorDown, _, cx| this.move_navigator(true, cx)))
@@ -75,8 +78,13 @@ pub fn attach(field: Div, app: &AppState, cx: &mut Context<AppState>) -> Div {
         .child(panel(app, nav, cx))
 }
 
-/// The list itself, dropped the height of the titlebar so it sits under the field rather than over
-/// it — `anchored` with no position anchors at the element it is a child of.
+/// The list itself, hung off the bottom-left corner of the field it is typed into.
+///
+/// **`anchored` anchors at wherever the layout put it**, which for a deferred child of a centred
+/// flex row is the middle of that row — the list then covered the very field the user was typing
+/// in. So the corner is named rather than inferred: a zero-sized absolute box at the field's
+/// bottom-left is what `anchored` reads as its position, and the list drops from there with its
+/// left edge on the field's.
 fn panel(app: &AppState, nav: &NavigatorState, cx: &mut Context<AppState>) -> impl IntoElement {
     let found = app.navigator_rows(cx);
     let at = nav.cursor.min(found.len().saturating_sub(1));
@@ -112,27 +120,26 @@ fn panel(app: &AppState, nav: &NavigatorState, cx: &mut Context<AppState>) -> im
         );
     }
 
-    deferred(
-        anchored()
-            .offset(point(px(0.), px(theme::TITLEBAR_HEIGHT)))
-            .snap_to_window_with_margin(px(8.))
-            .child(
-                div()
-                    .id("navigator-panel")
-                    .w(px(420.))
-                    .max_h(px(420.))
-                    .flex()
-                    .flex_col()
-                    .overflow_y_scroll()
-                    .bg(theme::surface_raised())
-                    .border_l(px(theme::ACCENT_EDGE))
-                    .border_color(theme::accent())
-                    .shadow_lg()
-                    .children(children),
-            ),
+    let list = deferred(
+        anchored().snap_to_window_with_margin(px(8.)).child(
+            div()
+                .id("navigator-panel")
+                .w(px(420.))
+                .max_h(px(420.))
+                .flex()
+                .flex_col()
+                .overflow_y_scroll()
+                .bg(theme::surface_raised())
+                .border_l(px(theme::ACCENT_EDGE))
+                .border_color(theme::accent())
+                .shadow_lg()
+                .children(children),
+        ),
     )
     // Above the kit's dropdowns, which sit at 1: the navigator is raised over the whole chrome.
-    .priority(2)
+    .priority(2);
+
+    div().absolute().bottom_0().left_0().w_0().h_0().child(list)
 }
 
 /// One row: what it is called, and what it says at its far end.
@@ -145,7 +152,7 @@ fn line(
     on_cursor: bool,
     cx: &mut Context<AppState>,
 ) -> gpui::AnyElement {
-    let colour = match (row.dest.is_some(), row.adrift) {
+    let colour = match (row.dest.is_some() || row.action.is_some(), row.adrift) {
         (false, _) => theme::text_faint(),
         // A bookmark that has lost its line says so rather than pretending to still hold it.
         (true, true) => theme::warning(),
@@ -187,7 +194,7 @@ fn line(
         gpui_component::tooltip::Tooltip::new(whole.clone()).build(window, cx)
     });
 
-    if row.dest.is_some() {
+    if row.dest.is_some() || row.action.is_some() {
         line = line.on_click(
             cx.listener(move |this, _, window, cx| this.press_navigator(index, window, cx)),
         );

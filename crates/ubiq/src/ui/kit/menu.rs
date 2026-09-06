@@ -17,6 +17,12 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::theme;
 use crate::ui::kit::{Action, IndexedAction, field};
 
+/// Where a dropdown is painted: above the shell, below a modal.
+const MENU_LAYER: usize = 1;
+
+/// Where a dropdown inside a modal is painted, over the modal's own overlay.
+const MODAL_MENU_LAYER: usize = 3;
+
 /// Anchor for a menu that must open upward, clear of the window's bottom edge.
 pub const MENU_ANCHOR_UP: Anchor = Anchor::BottomLeft;
 
@@ -51,6 +57,7 @@ pub struct Picker {
     /// A filter field drawn at the top of the panel: the buffer, and whether it holds focus.
     /// `None` is every picker that has not opted in — see [`Self::search`].
     search: Option<(Entity<InputState>, bool)>,
+    layer: usize,
 }
 
 impl Picker {
@@ -70,6 +77,7 @@ impl Picker {
             on_pick: None,
             on_dismiss: None,
             search: None,
+            layer: MENU_LAYER,
         }
     }
 
@@ -146,6 +154,16 @@ impl Picker {
         self.search = Some((state.clone(), focused));
         self
     }
+
+    /// Raise the list over a modal.
+    ///
+    /// A dropdown is painted at [`MENU_LAYER`], which is above the shell and **below** the layer
+    /// [`crate::ui::kit::modal`] paints at — so a picker inside a modal would open underneath the
+    /// panel holding it, which reads as a control that does nothing. A picker in a modal says so.
+    pub fn above_modal(mut self) -> Self {
+        self.layer = MODAL_MENU_LAYER;
+        self
+    }
 }
 
 impl RenderOnce for Picker {
@@ -165,6 +183,7 @@ impl RenderOnce for Picker {
             on_pick,
             on_dismiss,
             search,
+            layer,
         } = self;
 
         let panel_id = ElementId::Name(format!("{id:?}-menu").into());
@@ -216,7 +235,7 @@ impl RenderOnce for Picker {
         if open {
             trigger = trigger.child(menu_panel(
                 panel_id, anchor, items, disabled, separators, selected, on_pick, on_dismiss,
-                search,
+                search, layer,
             ));
         }
 
@@ -238,6 +257,7 @@ fn menu_panel(
     on_pick: Option<IndexedAction>,
     on_dismiss: Option<Action>,
     search: Option<(Entity<InputState>, bool)>,
+    layer: usize,
 ) -> impl IntoElement {
     // The caller has already filtered `items` — an empty result is said, once, rather than left
     // as a panel with nothing in it.
@@ -361,7 +381,7 @@ fn menu_panel(
                     }),
             ),
     )
-    .priority(1)
+    .priority(layer)
 }
 
 /// One row in a context menu. `enabled` is what a prepared action that has nothing behind it yet

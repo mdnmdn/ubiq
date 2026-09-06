@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: Named authenticated identities at GitHub, GitLab, Gitea, Azure DevOps, Atlassian and Google Workspace — cloud or self-hosted, several per provider — created by completing a flow, with the token in the OS keychain and an untrusted certificate resolved by pinning one confirmed fingerprint to the instance.
 read_when: you are changing how Ubiq authenticates against an external service, where those tokens live, or how a browser-based login reaches the application
-updated: 2026-09-05
-verified: 2026-09-05
-code_anchors: [crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/mod.rs, crates/ubiq-host/src/connectors/flow.rs, crates/ubiq-host/src/connectors/tls.rs, crates/ubiq-host/src/connectors/providers.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/app/settings.rs]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/mod.rs, crates/ubiq-host/src/connectors/flow.rs, crates/ubiq-host/src/connectors/tls.rs, crates/ubiq-host/src/connectors/providers.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/connectors/app.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/app/settings.rs]
 depends_on: [tech-transport, tech-agent-manager, feat-workbench]
 review_cycle: quarterly
 ---
@@ -49,12 +49,35 @@ fork with the same API surface and the same base path.
   GitLab behind `example.com/gitlab`, an Azure DevOps Server collection at
   `server/tfs/DefaultCollection` — so what the user typed is stored and the API base is appended to
   it. Nothing reconstructs a URL from a host name.
-- **A browser flow against a self-hosted instance asks for a client id first**, because an OAuth
-  application on that install is registered *on that install*, by whoever administers it. There is
-  no built-in id to fall back to.
+- **A browser flow against a self-hosted instance authenticates as a registration**, because an
+  OAuth application on that install is registered *on that install*, by whoever administers it.
+  There is no built-in id to fall back to.
 - **Azure DevOps Server is never offered a browser flow at all.** Entra ID covers Azure DevOps
   *Services*; the on-premises product authenticates with a token. The interface reads which flows
   are offered from the provider table rather than special-casing a provider.
+
+**An application registration is named, and several may exist for one install.** A registration is
+what Ubiq authenticates *as*: a name, a provider, the base URL it is registered at, the client id
+the provider issued, and optionally a client secret. It is keyed by its own id and by nothing else,
+because a company registers one application per team and a provider-and-instance pair no longer
+names a single one. The name and the URL are the user's to change; the id is what a connection and a
+stored client secret reference, so both survive a rename and a move to another install.
+
+**The callback URL is shown rather than described.** A registration is only usable if the provider
+was told which address to return to, and that address is not something a user can guess. The
+registration surface prints it, exactly as the host binds it, with a control that copies it.
+
+**The connect flow picks an application rather than asking twice where an install lives.** A
+registration already knows its own instance, so choosing one sets the instance and the client id
+together and neither can disagree with the other. A **Default** entry is offered only where the host
+says this build ships a registered application for that provider — never guessed at, because a
+browser sent to an authorization URL with no client id fails at the provider rather than in Ubiq.
+Typing a base URL by hand stays on offer beside the registrations, since a pasted token needs no
+application at all and a self-hosted install must stay reachable without one registered.
+
+**Deleting a registration leaves the connections made under it alone.** Each connection holds the
+client id it was made with, so it keeps working; what goes is the registration, its client secret,
+and the possibility of connecting under it again.
 
 **A personal access token is a first-class flow, not a fallback.** It is the only one that needs no
 registered application, no client id, no callback and no round trip beyond one validation call — and
@@ -91,7 +114,15 @@ the variants, their payloads and their direction. Two of them carry material, in
 The records — `connections`, `oauth_apps` and `trusted_certs` — ride the host settings blob, which
 is persisted, versioned and round-tripped. The host owns those three fields: the interface
 mirrors the whole record and writes the whole of it back, so its older copy must not be allowed to
-carry away a connection a flow has just made.
+carry away a connection a flow has just made. A registration therefore reaches the file only through
+`SaveOauthApp` and `DeleteOauthApp`, the way a client secret reaches the keychain only through
+`SetAppSecret` and `ClearAppSecret`, and every one of the four is answered with the settings blob
+itself or with `ConnectorError`.
+
+The callback URL is `ubiq_proto::connectors::OAUTH_REDIRECT`, and the port under it
+`OAUTH_REDIRECT_PORT`. They are constants on the contract rather than a payload because both halves
+need the same string for different reasons — the host binds it, the interface displays it — and a
+second spelling of it would be a string that drifts from the one actually listened on.
 
 ## Implementation
 
@@ -109,12 +140,25 @@ first and only then consults the pin.
 
 The token lives in the harness library's `SecretStore` under `connector:<provider>`, as one
 `token.json` — JSON rather than a bare string, which is what lets `credential_validity` read its
-expiry unmodified. The engine is chosen rather than inherited: the secure store explicitly, never
+expiry unmodified. A registration's client secret lives in the same store under `connector-app`,
+named by the registration's id, which is what lets two registrations on one install hold two
+different secrets. The engine is chosen rather than inherited: the secure store explicitly, never
 the library's plaintext default.
 
+`connectors/app.rs` decides which application a flow authenticates as, over four sources in order of
+how specific they are: the connection's own client id, the registration the connection or the flow
+names, a registration matching the provider and origin, and the id compiled into the build.
+`ClientIdSource` says which answered and carries the registration where one did, so the client
+secret and the client id are never resolved by two different rules.
+
 `crates/ubiq/src/ui/settings.rs` draws the section as a list, not a form: one row per connection with
-its status, a "Connect…" control opening a modal that draws whatever the current stage says, and
-below them the configured applications and the pinned certificates. The certificate dialog is the
+its status, a "Connect…" control opening a modal that draws whatever the current stage says, an
+"App registration…" control beside it opening the registration form, and below them the pinned
+certificates and the registrations. The registrations are drawn whether or not there are any, since
+a section that vanishes when the list is empty is a section with no way to add the first row. The
+form's provider picker is drawn over the modal holding it, which a picker inside a modal has to ask
+for; the four fields it draws are the connect modal's own, because the two modals occlude each other
+and a fifth buffer for the same four questions is a buffer that goes stale. The certificate dialog is the
 one place the interface asks the user to take a risk, so it states what failed, shows the facts to
 check against, names the instance the answer applies to, and its confirming action is named for what
 it does.
@@ -130,6 +174,12 @@ it does.
   worse than a flow to repeat.
 - **No secure credential store.** The flow fails before any browser opens. The application never
   writes a bearer token to a plaintext file.
+- **A registration is saved with no name or no client id.** The host refuses it with
+  `ConnectorError` and writes nothing; the form stays up with what was typed.
+- **A client secret is typed for a registration that does not exist yet.** The id is the host's to
+  mint, so the interface holds the secret until the written record comes back and files it against
+  the registration matching the name and client id it just sent. One that matches nothing is
+  dropped, since the save it belonged to was refused.
 - **The instance URL is wrong, or is not the product it claims.** The one validation call fails
   before anything is stored, so a Gitea URL typed into a GitLab connection fails here rather than at
   first use.

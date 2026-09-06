@@ -19,7 +19,7 @@ use agent_manager::credentials::{
 };
 use serde::{Deserialize, Serialize};
 use ubiq_proto::connectors::ProviderId;
-use ubiq_proto::ids::ConnectionId;
+use ubiq_proto::ids::{ConnectionId, OauthAppId};
 use ubiq_proto::messages::LoginStatus;
 
 /// The one file a connection's credential is made of.
@@ -125,32 +125,20 @@ impl Store {
         serde_json::from_slice(&blob.bytes).ok()
     }
 
-    pub fn set_app_secret(
-        &self,
-        provider: ProviderId,
-        origin: Option<&str>,
-        secret: &str,
-    ) -> Result<(), String> {
+    pub fn set_app_secret(&self, app: OauthAppId, secret: &str) -> Result<(), String> {
         self.inner
-            .set(
-                &app_key(provider, origin),
-                &[blob(secret.as_bytes().to_vec())],
-            )
+            .set(&app_key(app), &[blob(secret.as_bytes().to_vec())])
             .map_err(|error| error.to_string())
     }
 
-    pub fn clear_app_secret(
-        &self,
-        provider: ProviderId,
-        origin: Option<&str>,
-    ) -> Result<(), String> {
+    pub fn clear_app_secret(&self, app: OauthAppId) -> Result<(), String> {
         self.inner
-            .delete(&app_key(provider, origin))
+            .delete(&app_key(app))
             .map_err(|error| error.to_string())
     }
 
-    pub fn app_secret(&self, provider: ProviderId, origin: Option<&str>) -> Option<String> {
-        let blobs = self.inner.get(&app_key(provider, origin)).ok().flatten()?;
+    pub fn app_secret(&self, app: OauthAppId) -> Option<String> {
+        let blobs = self.inner.get(&app_key(app)).ok().flatten()?;
         let blob = blobs.first()?;
         String::from_utf8(blob.bytes.clone()).ok()
     }
@@ -167,12 +155,15 @@ pub fn key(provider: ProviderId, id: ConnectionId) -> CredentialId {
     }
 }
 
-/// Where an application's client *secret* is filed — a different namespace, because it identifies
-/// Ubiq rather than the user, and there is one per instance rather than one per connection.
-pub fn app_key(provider: ProviderId, origin: Option<&str>) -> CredentialId {
+/// Where a registration's client *secret* is filed — a different namespace, because it identifies
+/// Ubiq rather than the user, and there is one per registration rather than one per connection.
+///
+/// Keyed by the registration's id and not by its provider and instance, which is what lets two
+/// registrations on one install hold two different secrets.
+pub fn app_key(app: OauthAppId) -> CredentialId {
     CredentialId {
-        harness: format!("connector-app:{}", slug(provider)),
-        name: origin.unwrap_or("cloud").to_string(),
+        harness: "connector-app".to_string(),
+        name: app.to_string(),
     }
 }
 

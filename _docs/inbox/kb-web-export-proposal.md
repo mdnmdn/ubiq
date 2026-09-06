@@ -6,7 +6,7 @@ status: proposal
 summary: Fills the empty KB rail with a per-project curation of marked docs, a native explorer/reader/assistant panel, and an on-demand local web server — one process, one port, projects and shares told apart by URL segment — that serves the curated knowledge base or the whole project as a read-only, searchable site.
 read_when: you are building the KB rail mode, or deciding whether and how Ubiq exposes a project over HTTP
 updated: 2026-09-03
-depends_on: [tech-architecture, tech-structure, tech-transport, feat-workbench, feat-chat, inbox-indexing, inbox-omni, inbox-markdown]
+depends_on: [tech-architecture, tech-structure, tech-transport, feat-workbench, feat-chat, wip-indexing, inbox-omni, inbox-markdown]
 ---
 
 # Proposal — KB mode and local web export
@@ -43,7 +43,7 @@ rather than introducing an async web framework for a read-only file server.
 
 **Knowledge base mode (native).** A per-project curation — folders and files marked "doc" — browsable
 and searchable inside Ubiq, three regions: left an explorer scoped to what is marked, titled from the
-symbol index's heading extraction ([`inbox-indexing`](./indexing-fswatch-proposal.md) §4.3) where
+symbol index's heading extraction ([`wip-indexing`](../wip/indexing.md) §4.3) where
 available; centre the same native markdown viewer `inbox-markdown` already establishes, not a second
 renderer; right an assistant — a `ConversationView`
 (`crates/ubiq/src/ui/conversation/mod.rs`) scoped to the knowledge base's content rather than the
@@ -69,7 +69,7 @@ inverted.
 `projects/<ulid>/`, behind the same store trait `crates/ubiq-host/src/store/` already gives those two
 — not the interface's `ui/` workarea, which `tech-structure` reserves for what the user would not
 miss, and a curation list is exactly what they would. It holds a set of project-relative paths and
-nothing else; a title is never stored redundantly, it is read at display time from `inbox-indexing`'s
+nothing else; a title is never stored redundantly, it is read at display time from `wip-indexing`'s
 symbol index.
 
 **Where the action lives:** the explorer's own context menu, once it exists (`G70`) — mark/unmark
@@ -79,7 +79,7 @@ rides that menu rather than growing a second one.
 
 Explorer sub-tree scoped to marked paths, an empty state pointing at "mark a folder to add it here,"
 a centre pane reusing the existing markdown viewer unchanged, and the assistant on the right as
-above. Refreshed by `inbox-indexing`'s `ProjectChanged` push, folded through the same merge-by-path
+above. Refreshed by `wip-indexing`'s `ProjectChanged` push, folded through the same merge-by-path
 principle the main explorer already uses.
 
 ## 5. The web server
@@ -113,18 +113,18 @@ stacking two exports of one project under two slugs.
   `node_modules/`), with source files rendered using the same `tree-sitter` grammars Ubiq's editor
   already highlights with, so a browsed source file's colours are the code Ubiq already knows, not a
   second highlighter learning the same languages again. Symbol definitions become link targets, per
-  `inbox-indexing` §4.3's stated ceiling — a definition is a destination, a use site is not yet.
+  `wip-indexing` §4.3's stated ceiling — a definition is a destination, a use site is not yet.
 
 **Rendering:** `pulldown-cmark` becomes a direct dependency of `ubiq-host`. It is already in the
 workspace's dependency graph — pulled in by the interface crate through `gpui-component`'s diagram
 renderer — so this is a new edge from `ubiq-host`, not a new crate for the workspace to audit.
 
-**Search:** the export's search box is answered server-side by `inbox-indexing`'s full-text index
+**Search:** the export's search box is answered server-side by `wip-indexing`'s full-text index
 (§4.2 there), scoped to whatever the export covers — never a client-side JSON dump rebuilt per
 request the way `refs/markdown-web` does it, because Ubiq already keeps a persisted index and a JSON
 dump would duplicate it.
 
-**Live update:** one SSE endpoint per export, fed by `inbox-indexing`'s `ProjectChanged` push — a
+**Live update:** one SSE endpoint per export, fed by `wip-indexing`'s `ProjectChanged` push — a
 connected browser tab is told to reload, the same mechanism `refs/markdown-web`'s watcher already
 proves out, debounced and coalesced by the same upstream event rather than a second timer.
 
@@ -181,7 +181,7 @@ full-project export, since that one has nothing to do with curation.
 3. **The web server, knowledge-base mode** — the direct `refs/markdown-web` analogue, loopback only.
 4. **Full-project export**, with `tree-sitter` code highlighting and symbol links.
 5. **LAN sharing** — share-slugs.
-6. **Server-side search**, once `inbox-indexing`'s full-text phase lands.
+6. **Server-side search**, once `wip-indexing`'s full-text phase lands.
 
 ## 11. What this asks to be decided
 
@@ -192,7 +192,7 @@ full-project export, since that one has nothing to do with curation.
 - URL routing distinguishes projects and shares by path segment, under one port, not by port per
   project.
 - Loopback access needs no token; LAN access needs an ephemeral, revocable share-slug.
-- The export's search and live-reload both ride `inbox-indexing`'s index and push rather than
+- The export's search and live-reload both ride `wip-indexing`'s index and push rather than
   reimplementing either.
 
 Backlog rows this leaves open: whether a project-slug should be user-editable and stable across
@@ -200,12 +200,12 @@ restarts rather than derived fresh each session; whether knowledge-base-only and
 can run for the same project at once, under different slugs, or must stay one at a time; scoping a
 share to something narrower than a whole export's root; anything durable about shares beyond the
 serving session; the assistant's context model once `feat-chat` exists; whether "code exploration"
-ever grows past definition links into `find all references`, which waits on `inbox-indexing`'s own
+ever grows past definition links into `find all references`, which waits on `wip-indexing`'s own
 symbol-index ceiling.
 
 ## Related docs
 
-- [`indexing-fswatch-proposal.md`](./indexing-fswatch-proposal.md) — the watcher and indexes this
+- [`../wip/indexing.md`](../wip/indexing.md) — the watcher and indexes this
   serves from
 - [`omni-search-proposal.md`](./omni-search-proposal.md) — `Source::Kb`, which this is what finally
   gives content to search
