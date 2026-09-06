@@ -609,7 +609,10 @@ fn fill_node_gives_an_expanded_folder_its_children_exactly_once() {
         false,
     )]);
 
-    assert!(picker.expanded_needing_load().is_empty(), "not expanded yet");
+    assert!(
+        picker.expanded_needing_load().is_empty(),
+        "not expanded yet"
+    );
     picker.toggle_folder("/home/mdn/projects");
     assert_eq!(
         picker.expanded_needing_load(),
@@ -618,7 +621,11 @@ fn fill_node_gives_an_expanded_folder_its_children_exactly_once() {
 
     picker.fill_node(
         "/home/mdn/projects",
-        vec![PickerNode::dir("ubiq", "/home/mdn/projects/ubiq", Vec::new())],
+        vec![PickerNode::dir(
+            "ubiq",
+            "/home/mdn/projects/ubiq",
+            Vec::new(),
+        )],
         false,
     );
 
@@ -658,7 +665,11 @@ fn filling_a_path_that_is_no_longer_in_the_forest_does_nothing() {
     )]);
 
     // No panic, and the forest is exactly as it was.
-    picker.fill_node("/nowhere", vec![PickerNode::file("x", "/nowhere/x", 1)], false);
+    picker.fill_node(
+        "/nowhere",
+        vec![PickerNode::file("x", "/nowhere/x", 1)],
+        false,
+    );
     assert_eq!(names(&picker.rows()), vec!["projects"]);
 }
 
@@ -668,7 +679,9 @@ fn filling_a_path_that_is_no_longer_in_the_forest_does_nothing() {
 #[test]
 fn an_unreadable_folder_is_neither_opened_nor_picked() {
     let mut picker = FilePickerState::open(host_request(), Vec::new(), PickerView::Tree);
-    picker.set_forest(vec![PickerNode::dir_unfetched("root", "/root", false, false)]);
+    picker.set_forest(vec![PickerNode::dir_unfetched(
+        "root", "/root", false, false,
+    )]);
 
     let row = &picker.rows()[0];
     assert!(!row.readable);
@@ -680,7 +693,11 @@ fn an_unreadable_folder_is_neither_opened_nor_picked() {
     // Even forced open — say, by a stray keyboard toggle — an unreadable folder is never asked
     // about: there would be nothing a listing of it could answer.
     picker.toggle_folder("/root");
-    assert!(!picker.expanded_needing_load().contains(&"/root".to_string()));
+    assert!(
+        !picker
+            .expanded_needing_load()
+            .contains(&"/root".to_string())
+    );
 }
 
 /// The complement: a readable folder in a folders-only picker is picked by a click on its row —

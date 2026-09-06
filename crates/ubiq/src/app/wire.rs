@@ -179,7 +179,11 @@ impl AppState {
     /// the pump threads gave up (the socket failed, or the connection was dropped on purpose), so
     /// this also removes it from `Bus` and says so where every window already reads its log —
     /// `tracing::warn!` reaches the console panel through `ubiq_proto::log`.
-    pub(super) fn route_host(host: HostRef, from_host: flume::Receiver<Message>, cx: &mut Context<Self>) {
+    pub(super) fn route_host(
+        host: HostRef,
+        from_host: flume::Receiver<Message>,
+        cx: &mut Context<Self>,
+    ) {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             while let Ok(message) = from_host.recv_async().await {
                 if this

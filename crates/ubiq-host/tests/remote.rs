@@ -16,8 +16,8 @@ const PATIENCE: Duration = Duration::from_secs(5);
 
 fn start() -> (remote::Serving, bus::Hub, bus::HostEnd) {
     let (hub, host) = bus::hub();
-    let serving = remote::serve(hub.clone(), "127.0.0.1:0".parse().unwrap())
-        .expect("the listener to bind");
+    let serving =
+        remote::serve(hub.clone(), "127.0.0.1:0".parse().unwrap()).expect("the listener to bind");
     (serving, hub, host)
 }
 
@@ -29,9 +29,8 @@ fn connect(addr: std::net::SocketAddr) -> TcpStream {
 }
 
 fn send_attach(stream: &mut TcpStream, token: &str) {
-    let request = format!(
-        "GET /attach?token={token} HTTP/1.1\r\nHost: localhost\r\nUpgrade: ubiq\r\n\r\n"
-    );
+    let request =
+        format!("GET /attach?token={token} HTTP/1.1\r\nHost: localhost\r\nUpgrade: ubiq\r\n\r\n");
     stream.write_all(request.as_bytes()).unwrap();
 }
 
@@ -50,7 +49,11 @@ fn read_status_line(stream: &mut TcpStream) -> String {
         }
     }
     let text = String::from_utf8_lossy(&buf);
-    text.lines().next().unwrap_or_default().trim_end().to_string()
+    text.lines()
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_string()
 }
 
 fn read_full_response(stream: &mut TcpStream) -> String {
@@ -77,11 +80,7 @@ fn a_correct_token_attaches_and_a_frame_reaches_the_coordinator_side_with_a_repl
     };
 
     let pane_id = PaneId::generate();
-    wire::write_frame(
-        &mut stream,
-        &Message::Focus { pane_id },
-    )
-    .unwrap();
+    wire::write_frame(&mut stream, &Message::Focus { pane_id }).unwrap();
 
     match host.recv_timeout(PATIENCE).expect("Said") {
         FromClient::Said { client, message } => {

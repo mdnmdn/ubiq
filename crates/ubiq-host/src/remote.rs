@@ -67,8 +67,7 @@ fn generate_token() -> String {
 /// A tiny base64url encoder so this module needs no new dependency for what is, in the end, one
 /// call site. Standard base64url alphabet, no `=` padding.
 fn base64_url_no_pad(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity((bytes.len() * 4).div_ceil(3));
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0] as u32;
@@ -281,7 +280,9 @@ fn write_response(stream: &mut TcpStream, code: u16, reason: &str, body: &str) -
 }
 
 fn write_response_line(stream: &mut TcpStream, status: &str) -> io::Result<()> {
-    stream.write_all(format!("HTTP/1.1 {status}\r\nUpgrade: ubiq\r\nConnection: Upgrade\r\n\r\n").as_bytes())
+    stream.write_all(
+        format!("HTTP/1.1 {status}\r\nUpgrade: ubiq\r\nConnection: Upgrade\r\n\r\n").as_bytes(),
+    )
 }
 
 /// How often the writer thread wakes to check whether the reader has given up, when nothing has
