@@ -1159,7 +1159,12 @@ ever dropped.
 3. Add a row to the table above, in the same commit.
 4. Handle it in the coordinator's dispatch. A message the coordinator receives but ignores is worse
    than one that does not exist.
-5. If the variant makes a structural choice, append a row to [`decisions.md`](./decisions.md).
+5. If it carries a `pane_id`, add it to `pane_id_of` in `crates/ubiq/src/app/hosts.rs`. That match
+   is how the interface decides which of its hosts a message belongs to, and its catch-all arm
+   answers "no pane" — so a pane-carrying variant left out of it routes to whichever host is
+   active rather than to the one that owns the pane. With one host attached nothing goes wrong,
+   which is what makes the omission worth a step of its own here.
+6. If the variant makes a structural choice, append a row to [`decisions.md`](./decisions.md).
 
 Response-direction variants are never received by the coordinator; its dispatch rejects them rather
 than falling through silently.
