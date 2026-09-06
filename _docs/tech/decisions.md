@@ -1319,6 +1319,25 @@ config root can be read, diffed and hand-corrected; this one needs a tool. That 
 record nobody hand-writes, and it is the reason the boundary is drawn here rather than moved: the
 catalogue, the settings and the view blobs stay TOML.
 
+### D79 — The socket wire format is MessagePack, not postcard or bincode
+
+`crates/ubiq-proto/src/wire.rs` frames a `Message` as a 4-byte length prefix and a body encoded with
+`rmp-serde`'s `to_vec_named`. Postcard and bincode were the obvious choices for a Rust-only wire —
+smaller, faster, no schema of their own — and both were rejected because the contract relies on
+properties they cannot provide. `ProjectSnapshot` flattens a `ProjectRecord` into itself with
+`#[serde(flatten)]`, and dozens of optional fields across the message set carry
+`skip_serializing_if`; both need a format that deserialises into a self-describing shape
+(`deserialize_any`), which a positional encoding has no map to support. MessagePack is binary and
+fast, keeps that property, and buys a second one for free: a remote host and a UI built at different
+revisions do not have to agree on field order to decode each other's frames.
+
+**Cost:** a MessagePack body is larger than postcard's for the same struct, field names included on
+every frame rather than agreed on once — and a `Vec<u8>` costs one MessagePack integer per byte
+unless it carries `serde_bytes`, which is why the three byte-vector fields on the hot path
+(`TerminalOutput.bytes`, `TerminalInput.bytes`, `WriteProjectFile.bytes`) are marked with it. Losing
+that attribute on a future field would silently blow up that field's frame size, and nothing but the
+size test in `wire.rs` would catch it.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

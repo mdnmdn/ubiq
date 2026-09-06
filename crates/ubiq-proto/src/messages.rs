@@ -32,6 +32,12 @@ pub enum Message {
     /// Raw pseudo-terminal output, chunked as it was read.
     TerminalOutput {
         pane_id: PaneId,
+        // A bare `Vec<u8>` encodes as one msgpack int per byte under rmp-serde, which would make
+        // the terminal hot path slower than JSON; `serde_bytes` encodes it as a single `bin`
+        // blob instead. Does not change the JSON form: serde_json renders a byte-marked slice
+        // the same way it renders a plain one, a number array, so the bus tape and JSON tests
+        // are unaffected.
+        #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
     },
     /// The harness ended. The UI closes the pane.
@@ -49,6 +55,8 @@ pub enum Message {
     /// Raw keystrokes from the focused pane. Effects come back as [`Message::TerminalOutput`].
     TerminalInput {
         pane_id: PaneId,
+        // See the comment on `TerminalOutput::bytes`: same reasoning, same fix.
+        #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
     },
     /// New geometry in cells. The coordinator sets the pseudo-terminal size and the kernel
@@ -648,6 +656,8 @@ pub enum Message {
     WriteProjectFile {
         project_id: ProjectId,
         rel_path: String,
+        // See the comment on `Message::TerminalOutput::bytes`: same reasoning, same fix.
+        #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
         expected: Option<FileVersion>,
     },
