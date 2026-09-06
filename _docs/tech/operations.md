@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands.
 read_when: you are setting the project up, running or testing it, or adding a command
-updated: 2026-09-04
-verified: 2026-09-04
-code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh]
+updated: 2026-09-06
+verified: 2026-09-06
+code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -38,6 +38,22 @@ only as a shell incantation in someone's history is a command that does not exis
 | `just dev` | Run Ubiq |
 | `just verbose` | Run Ubiq with `RUST_LOG=debug`, which collects every subsystem at debug |
 | `just build` | Release build of the whole workspace |
+| `ubiq --serve` | Run Ubiq and also listen for a remote UI on `0.0.0.0:7420` |
+| `ubiq --serve=<addr>` | Same, on a chosen address — a bare port, an `ip:port`, or an ip on the default port |
+
+`--serve` binds every interface, which is the point of the bare flag; `--serve=127.0.0.1:7420` is
+how a tunnel-only setup is spelled. The value is always attached with `=`, never a separate
+argument — `argv_paths` skips a `-`-prefixed token without knowing the next one belongs to it, so a
+separated value would be read as a project path. A bind failure prints an error and exits 2 rather
+than opening a window that is not listening. On success a banner goes to stdout, not through
+`tracing`, so no log filter can hide it: the bind address, a generated token, and a
+`http://<ip>:<port>?token=<token>` string to paste into a remote UI.
+
+**Whoever holds that token gets a terminal on this machine, and the connection is not encrypted.**
+There is no TLS and no other authentication — tunnel the connection (an SSH tunnel or similar) if
+the network is not trusted. `crates/ubiq-host/src/remote.rs` is the listener;
+[`architecture.md`](./architecture.md) covers the rule it follows, and [`../backlog.md`](../backlog.md)
+(`G165`) covers what it lacks.
 
 `RUST_LOG` decides what the log collector keeps, and the collector feeds both the log console and a
 writer on standard error — so `just dev` in a terminal reports without the console being open. With

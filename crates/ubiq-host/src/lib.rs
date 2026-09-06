@@ -43,6 +43,7 @@ pub mod links;
 pub mod mcp_server;
 pub mod projects;
 pub mod pty;
+pub mod remote;
 pub mod reply;
 pub mod repos;
 pub mod search;

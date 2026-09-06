@@ -1338,6 +1338,24 @@ unless it carries `serde_bytes`, which is why the three byte-vector fields on th
 that attribute on a future field would silently blow up that field's frame size, and nothing but the
 size test in `wire.rs` would catch it.
 
+### D80 — A remote attach is a bearer token over plaintext TCP, bound to every interface by default
+
+`crates/ubiq-host/src/remote.rs` authenticates a connecting UI with one long random token, generated
+at startup and printed once; it runs no TLS, so the handshake and every frame after it cross the
+network as sent. `ubiq-app --serve` binds `0.0.0.0` unless told otherwise, because a single-interface
+default would require the operator to know in advance which address their machine is reachable at,
+which is exactly what a first `--serve` run cannot assume. Each piece follows the transport contract's
+"Adding a variant" step 5: a structural choice, not a defect deferred — the alternative was
+certificates and a trust decision about them before a first connection could ever be made, which
+turns a one-flag feature into a setup flow.
+
+**Cost:** the token is the whole of authentication — no rotation, no expiry, no per-client identity,
+and whoever has it has a terminal on that machine for as long as the process runs — and the
+connection is readable and tamperable by anything on the path between the two machines. Both are
+usable only behind a trusted network or a tunnel the operator adds themselves, which
+[`operations.md`](./operations.md) says plainly rather than leaving to be discovered. Closing the
+gap is `G165`, the backlog's register of open items.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

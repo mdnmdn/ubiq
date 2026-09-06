@@ -9,6 +9,7 @@
 //! behaviour that only works because something was registered is a bug `just verify` catches by
 //! never registering anything.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 
 use gpui::{App, KeyBinding, actions};
@@ -142,6 +143,20 @@ pub fn run(boot: Boot) {
     let (hub, host) = bus::hub();
     coordinator::start(host, root, projects, work, settings, pending);
 
+    // After the coordinator, so a client that attaches in the same breath has something to talk
+    // to, and before the first window, so a `--serve` run that never opens one still serves.
+    if let Some(bind) = serve_bind(std::env::args().skip(1)) {
+        match ubiq_host::remote::serve(hub.clone(), bind) {
+            Ok(serving) => announce(&serving),
+            // The user asked for a server. Falling through into a window would leave them with
+            // something that looks like it worked and is not listening to anything.
+            Err(error) => {
+                eprintln!("ubiq: could not listen on {bind}: {error}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     // One batch per arrival, because an arrival with no path in it is a bare `ubiq` asking for the
     // window's attention and has to reach the loop below all the same.
     let (path_tx, path_rx) = flume::unbounded::<Vec<PathBuf>>();
@@ -250,6 +265,83 @@ fn argv_paths(mut args: impl Iterator<Item = String>, cwd: &Path) -> Vec<PathBuf
     paths
 }
 
+/// The port a `--serve` with no address of its own lands on.
+const SERVE_PORT: u16 = 7420;
+
+/// Where `--serve` should listen, or `None` when it was not asked for.
+///
+/// `--serve` alone binds every interface, which is the point of the flag; `--serve=<addr>` narrows
+/// it, and `--serve=127.0.0.1:7420` is how a tunnel-only setup is spelled. The value is attached
+/// with `=` and never separated by a space: `argv_paths` skips a token because it starts with `-`
+/// and has no way to know the next one belongs to it, so a separated value would be read as a
+/// project path. `--config-root` can afford the separated form because it is consumed there by
+/// name; a second such flag is a parser, and this codebase has decided it does not want one.
+fn serve_bind(args: impl Iterator<Item = String>) -> Option<SocketAddr> {
+    for arg in args {
+        if arg == "--serve" {
+            return Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, SERVE_PORT)));
+        }
+        if let Some(value) = arg.strip_prefix("--serve=") {
+            return Some(parse_bind(value).unwrap_or_else(|| {
+                eprintln!("ubiq: --serve={value} is not an address or a port");
+                std::process::exit(2);
+            }));
+        }
+    }
+    None
+}
+
+/// A bare port, an address with a port, or an address on the default port.
+fn parse_bind(value: &str) -> Option<SocketAddr> {
+    if let Ok(port) = value.parse::<u16>() {
+        return Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)));
+    }
+    if let Ok(addr) = value.parse::<SocketAddr>() {
+        return Some(addr);
+    }
+    value
+        .parse::<IpAddr>()
+        .ok()
+        .map(|ip| SocketAddr::new(ip, SERVE_PORT))
+}
+
+/// What to print as `<ip>` in the connection string.
+///
+/// Bound to one interface, that address is the answer. Bound to all of them, `0.0.0.0` is useless
+/// to paste, so ask the routing table which source address it would use to leave this machine —
+/// a connected UDP socket assigns one without sending a packet or needing a reachable peer, which
+/// is why the address it is pointed at does not matter and no traffic is generated. A machine with
+/// no route out has nothing to advertise, and the bind address is printed unchanged.
+fn advertised_ip(addr: SocketAddr) -> IpAddr {
+    if !addr.ip().is_unspecified() {
+        return addr.ip();
+    }
+    UdpSocket::bind(("0.0.0.0", 0))
+        .and_then(|socket| {
+            socket.connect(("192.0.2.1", 53))?;
+            socket.local_addr()
+        })
+        .map(|local| local.ip())
+        .unwrap_or_else(|_| addr.ip())
+}
+
+/// The banner: where it is listening, the token, and the string to paste into a UI.
+///
+/// Printed to stdout rather than logged, because it is the whole output of a `--serve` run and
+/// must not depend on a log filter. The warning is here because the flag hands a shell on this
+/// machine to whoever holds the token — said plainly, once, rather than buried in a document.
+fn announce(serving: &ubiq_host::remote::Serving) {
+    let addr = serving.addr;
+    let ip = advertised_ip(addr);
+    println!("ubiq host listening on {addr}");
+    println!();
+    println!("  token  {}", serving.token);
+    println!("  connect  http://{ip}:{}?token={}", addr.port(), serving.token);
+    println!();
+    println!("Anyone who reaches this port with that token gets a terminal on this machine.");
+    println!("The connection is not encrypted — tunnel it if the network is not trusted.");
+}
+
 /// A `file://` URL as Finder or a dock-icon drop hands it over, decoded back to a path. macOS
 /// marks a folder with a trailing slash; the path itself never wants one. Anything not `file://`
 /// is not ours — Ubiq registers no URL scheme of its own.
@@ -324,6 +416,65 @@ mod tests {
             );
             drop((projects, pending, stores.tasks, stores.settings));
         }
+    }
+
+    fn argv(args: &[&str]) -> impl Iterator<Item = String> {
+        args.iter().map(|a| a.to_string()).collect::<Vec<_>>().into_iter()
+    }
+
+    /// Not asked for is the default, and every other flag stays somebody else's.
+    #[test]
+    fn without_the_flag_nothing_listens() {
+        assert_eq!(serve_bind(argv(&[])), None);
+        assert_eq!(serve_bind(argv(&["--config-root", "/tmp/x", "."])), None);
+    }
+
+    /// The bare flag is the one that binds every interface — that is what the flag is for.
+    #[test]
+    fn the_bare_flag_binds_every_interface_on_the_default_port() {
+        let bind = serve_bind(argv(&["--serve"])).expect("a bind");
+        assert!(bind.ip().is_unspecified());
+        assert_eq!(bind.port(), SERVE_PORT);
+    }
+
+    /// The three shapes a value may take, including the loopback one a tunnel-only setup uses.
+    #[test]
+    fn a_value_may_be_a_port_an_address_or_both() {
+        assert_eq!(
+            serve_bind(argv(&["--serve=9000"])).map(|b| b.port()),
+            Some(9000)
+        );
+        let loopback = serve_bind(argv(&["--serve=127.0.0.1:7420"])).expect("a bind");
+        assert!(loopback.ip().is_loopback());
+        assert_eq!(loopback.port(), 7420);
+        let bare_ip = serve_bind(argv(&["--serve=127.0.0.1"])).expect("a bind");
+        assert!(bare_ip.ip().is_loopback());
+        assert_eq!(bare_ip.port(), SERVE_PORT);
+    }
+
+    /// The reason the value is attached with `=`: a separated one would be read as a project path,
+    /// and a path silently becoming a bind address is worse than the flag not taking that form.
+    #[test]
+    fn the_flag_and_its_attached_value_are_never_mistaken_for_paths() {
+        let cwd = Path::new("/work");
+        assert!(argv_paths(argv(&["--serve"]), cwd).is_empty());
+        assert!(argv_paths(argv(&["--serve=0.0.0.0:7420"]), cwd).is_empty());
+        assert_eq!(
+            argv_paths(argv(&["--serve", "."]), cwd),
+            vec![PathBuf::from("/work/.")]
+        );
+    }
+
+    /// An unspecified bind is not something anyone can paste, so the string carries a real one.
+    #[test]
+    fn the_advertised_address_is_never_the_unspecified_one() {
+        let advertised = advertised_ip(SocketAddr::from((Ipv4Addr::UNSPECIFIED, SERVE_PORT)));
+        // A sandbox with no route out has nothing better to offer, and says so by handing the
+        // bind address back rather than by inventing one.
+        assert!(!advertised.is_unspecified() || advertised == IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        // Bound to one interface, that interface is the answer, with no guessing at all.
+        let pinned = SocketAddr::from((Ipv4Addr::LOCALHOST, 1234));
+        assert_eq!(advertised_ip(pinned), IpAddr::V4(Ipv4Addr::LOCALHOST));
     }
 
     #[test]
