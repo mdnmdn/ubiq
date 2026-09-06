@@ -55,10 +55,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         ),
         RemoteConnectStep::Failed { reason } => (
             "Not connected",
-            div()
-                .pt_3()
-                .child(modal_note(reason))
-                .into_any_element(),
+            div().pt_3().child(modal_note(reason)).into_any_element(),
             div()
                 .flex()
                 .items_center()

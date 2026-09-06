@@ -297,7 +297,13 @@ pub fn forest_from_explorer(nodes: &[FileNode]) -> Vec<PickerNode> {
             // built from this forest and one filled from a host draw by the same rule.
             hidden: false,
             listed: true,
-            truncated: matches!(&node.kind, NodeKind::Dir { truncated: true, .. }),
+            truncated: matches!(
+                &node.kind,
+                NodeKind::Dir {
+                    truncated: true,
+                    ..
+                }
+            ),
             children: match &node.kind {
                 NodeKind::Dir { children, .. } => Some(forest_from_explorer(children)),
                 NodeKind::File => None,

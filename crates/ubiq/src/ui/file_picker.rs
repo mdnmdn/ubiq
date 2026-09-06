@@ -340,7 +340,10 @@ fn field(
             )
             .child(
                 mono(
-                    browse.root.clone().unwrap_or_else(|| "\u{2026}".to_string()),
+                    browse
+                        .root
+                        .clone()
+                        .unwrap_or_else(|| "\u{2026}".to_string()),
                     theme::text_faint(),
                 )
                 .text_size(px(10.5))
@@ -379,7 +382,11 @@ fn field(
                 .bg(theme::surface_raised()),
         );
 
-    filter_bar(Input::new(&app.picker_filter).appearance(false), trailing, focused)
+    filter_bar(
+        Input::new(&app.picker_filter).appearance(false),
+        trailing,
+        focused,
+    )
 }
 
 /// One row: what it is, what it is called, and what it says at its far end.

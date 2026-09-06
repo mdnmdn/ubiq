@@ -146,7 +146,8 @@ impl AppState {
             // The host this folder came from lives in `host_browse`, not in the owner itself — see
             // `state::file_picker::PickerOwner::HostProject`'s own doc.
             PickerOwner::HostProject => {
-                if let (Some(path), Some(browse)) = (picked.into_iter().next(), self.host_browse.take())
+                if let (Some(path), Some(browse)) =
+                    (picked.into_iter().next(), self.host_browse.take())
                 {
                     self.adding = true;
                     self.bus.send_to(

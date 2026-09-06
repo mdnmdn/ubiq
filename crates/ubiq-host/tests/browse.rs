@@ -101,7 +101,10 @@ fn an_unreadable_directory_is_reported_rather_than_crashing() {
 
     if enforced {
         let error = answer.unwrap_err();
-        assert!(matches!(error, HostPathError::Denied(_)), "answered {error:?}");
+        assert!(
+            matches!(error, HostPathError::Denied(_)),
+            "answered {error:?}"
+        );
     }
 }
 

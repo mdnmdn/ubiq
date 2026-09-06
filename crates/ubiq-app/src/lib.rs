@@ -336,7 +336,11 @@ fn announce(serving: &ubiq_host::remote::Serving) {
     println!("ubiq host listening on {addr}");
     println!();
     println!("  token  {}", serving.token);
-    println!("  connect  http://{ip}:{}?token={}", addr.port(), serving.token);
+    println!(
+        "  connect  http://{ip}:{}?token={}",
+        addr.port(),
+        serving.token
+    );
     println!();
     println!("Anyone who reaches this port with that token gets a terminal on this machine.");
     println!("The connection is not encrypted — tunnel it if the network is not trusted.");
@@ -419,7 +423,10 @@ mod tests {
     }
 
     fn argv(args: &[&str]) -> impl Iterator<Item = String> {
-        args.iter().map(|a| a.to_string()).collect::<Vec<_>>().into_iter()
+        args.iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// Not asked for is the default, and every other flag stays somebody else's.

@@ -50,9 +50,14 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
         address: "example.internal:7420".to_string(),
     };
     let json = serde_json::to_value(&record).unwrap();
-    let object = json.as_object().expect("a saved host serialises as an object");
+    let object = json
+        .as_object()
+        .expect("a saved host serialises as an object");
     assert_eq!(
-        object.keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>(),
+        object
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
         std::collections::BTreeSet::from(["name", "address"]),
         "a saved host must carry nothing beyond name and address \u{2014} in particular, no token"
     );
