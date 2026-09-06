@@ -82,14 +82,13 @@ pub struct HostSettings {
     ///
     /// **Deliberately not a token.** `Bus::register_remote`'s `Client` and the token that dials it
     /// live only in the window's own memory, never here — a bearer token is credential material
-    /// exactly as
-    /// [`AGENTS.md`] rules ("Accounts carry credential references, never credential material"),
-    /// and this is a plaintext file on disk. The `connections`/`oauth_apps` precedent above keeps
-    /// material off this record too, but by putting it in the OS-level `SecretStore` the harness
-    /// library already has; a remote host's token has no such home to go to without adding a
-    /// keychain dependency this phase was told not to take on, so the honest answer is not to
-    /// persist it at all. Reconnecting to a saved host asks for the token again, the same as the
-    /// first dial did.
+    /// exactly as `AGENTS.md` rules ("Accounts carry credential references, never credential
+    /// material"), and this is a plaintext file on disk. The `connections`/`oauth_apps` precedent
+    /// above keeps material off this record too, but by putting it in the OS-level `SecretStore`
+    /// the harness library already has; a remote host's token has no such home to go to short of
+    /// adding a keychain dependency this phase was told not to take on, so the honest answer is
+    /// not to persist it at all. Reconnecting to a saved host asks for the token again, the same
+    /// as the first dial did.
     ///
     /// **Why this field is UI-mutated, unlike the three above it.** Each of those exists because a
     /// background flow — a login polling a device code, a certificate confirmation — can complete

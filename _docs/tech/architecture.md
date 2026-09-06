@@ -142,8 +142,11 @@ window's, no message family is special-cased for it, and closing the socket is t
 `FromClient::Gone` a window losing its connection produces. `crates/ubiq/src/app/remote_connect.rs`
 is the other end of the same handshake: it dials, sends the `GET /attach?token=…` upgrade request,
 and on a `101` hands the socket to `bus::detached()` behind its own pair of pump threads — the
-mirror image of `remote.rs`'s accept side, one binding and one dialing. What still does not exist is
-the surface *around* a live remote: `../backlog.md` (`G166`) names it.
+mirror image of `remote.rs`'s accept side, one binding and one dialing. The surface *around* a
+live remote — a saved-hosts list and a dropdown to tell two attached hosts apart, and switching
+`Bus::active` without moving a pane or a project the window has routed to a different host — is
+application settings' Hosts section, which the workbench document describes; what it still
+leaves undone is named in `../backlog.md` (`G166`).
 
 **Remote harnesses.** A harness running on another host or in a container is structurally the same
 problem as a terminal stream crossing a machine boundary. The coordinator stops assuming the

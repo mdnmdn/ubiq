@@ -1400,8 +1400,8 @@ it, so there is nothing for a path to be contained inside.
 **Cost:** the contract gains a fourteenth family for one request and two replies, and `D32`'s plan is
 half superseded by the decision register's own next entry — its body still correctly explains why
 `AddProject`/`LocateProject` read the *local* dialog, but its closing sentence about the remote case
-describes a path the tree does not take. `G165`'s last clause is the up-to-date account of what this
-family does and what it leaves undone.
+describes a path the tree does not take. `G166` is the up-to-date account of what this family does
+and what it leaves undone.
 
 ## Related docs
 

@@ -57,12 +57,19 @@ pub enum RemoteConnectStep {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteConnectState {
     pub step: RemoteConnectStep,
+    /// Set when this dial was started from the Hosts section's "connect" row on a saved host,
+    /// rather than typed fresh from the titlebar — the saved host's own name. Carried through so
+    /// a successful attach is attributed to that name instead of the bare address it dialled
+    /// under, the same way `saved` marks this as a reconnect worth reflecting in
+    /// `SettingsState::failed_hosts` rather than an ordinary first dial.
+    pub saved_name: Option<String>,
 }
 
 impl Default for RemoteConnectState {
     fn default() -> Self {
         Self {
             step: RemoteConnectStep::Editing,
+            saved_name: None,
         }
     }
 }
@@ -97,7 +104,11 @@ pub fn parse_connection_string(input: &str) -> ParsedPaste {
         None => (without_scheme, None),
     };
     let token = query
-        .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("token=")))
+        .and_then(|query| {
+            query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("token="))
+        })
         .filter(|token| !token.is_empty())
         .map(|token| token.trim().to_string());
     ParsedPaste {
@@ -111,7 +122,9 @@ pub fn parse_connection_string(input: &str) -> ParsedPaste {
 /// parser, since neither survives past the handshake's own upgrade anyway.
 fn strip_scheme(input: &str) -> &str {
     for scheme in ["http://", "https://"] {
-        if input.len() >= scheme.len() && input.as_bytes()[..scheme.len()].eq_ignore_ascii_case(scheme.as_bytes()) {
+        if input.len() >= scheme.len()
+            && input.as_bytes()[..scheme.len()].eq_ignore_ascii_case(scheme.as_bytes())
+        {
             return &input[scheme.len()..];
         }
     }

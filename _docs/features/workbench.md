@@ -535,8 +535,11 @@ remote host attached it opens the "Connect to a remote host" modal instead of a 
 row is the only place a first-time user learns the feature exists at all. With one remote it raises
 the file picker walking that host's own filesystem, rooted at whatever `BrowseHostDir { path: None
 }` answers with; choosing a folder there sends `AddProject` to that host rather than to the local
-one. **With more than one remote attached it opens the first by attach order** — there is no host
-list or dropdown yet to choose among them; [`../backlog.md`](../backlog.md) (`G166`) is that gap.
+one. **With more than one remote attached it opens the one application settings' Hosts section has
+active** — `AppState::preferred_remote_host()` reads `Bus::active` and falls back to the first
+remote attached when `active` is Local (the common case, since nothing points it anywhere else
+until the Hosts dropdown, below, is used), so the row never refuses to act just because a second
+remote showed up.
 
 **The clone registers the project itself.** There is no Add afterwards and no success dialog: the
 project arriving in every window's picker is what says the clone finished. Until then the modal
@@ -748,13 +751,30 @@ separately**, and steps through editing, connecting, connected and failed-with-r
 `crate::state::remote::RemoteConnectStep` names the four. Pasting a whole
 `http://host:port?token=…` into the address field splits it across both fields at once, so the one
 string a running `ubiq --serve` printed is the only thing a user has to paste. `Connected` attaches
-the dialled host to the window's `Bus` as a `HostRef::Remote`, labelled by the address it was
-dialled under — what `Bus::remotes()` hands back to the project picker's "Open remote project…"
-row (above) so a project can be opened on it. What is still missing is a saved-hosts list to
-reconnect from and a dropdown for telling two attached hosts apart, rather than the row's own
-first-by-attach-order stopgap — [`../backlog.md`](../backlog.md) (`G166`). The transport underneath the modal —
+the dialled host to the window's `Bus` as a `HostRef::Remote`, labelled — for a fresh dial, by the
+address it was dialled under, or the saved host's own name for a reconnect started from the Hosts
+settings section, below — what `Bus::remotes()` hands back to the project picker's "Open remote
+project…" row (above) so a project can be opened on it. A dial that succeeds is saved automatically,
+address and label, so it can be offered again after a restart — the Hosts section, below, is where
+that record is managed. The transport underneath the modal —
 `crates/ubiq/src/app/remote_connect.rs`'s dial, handshake and pump threads — is
 [`../tech/architecture.md`](../tech/architecture.md)'s to describe, not this document's.
+
+**Application settings' Hosts section is where a window says which host an unaddressed message
+reaches, and where a saved host is managed.** A dropdown lists `Local` first, always attached; then
+every remote this window has dialled, each read as attached; then every saved host with no live
+connection of its own, read as not attached or, if the last reconnect from this list failed to
+reach it, failed — a saved host already reached over a live connection is folded into that attached
+row rather than drawn a second time. Picking `Local` or an attached remote calls `Bus::set_active`
+and nothing else: **switching the active host does not move a pane or a project that is already
+open** — each stays routed to the host that owns it, exactly as `D81` has every unaddressed message
+resolve against whichever host `active` names. Picking a saved-but-unattached or failed row instead
+raises the same connect modal described above, address prefilled and the token left blank — a token
+is never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows every remembered host with
+a per-entry **Forget**, which drops the record and nothing else — a live connection under that
+address, if this window still has one, is untouched. **A saved host is named after the address it
+was first reached at, and renaming is not offered** — only forgetting; [`../backlog.md`](../backlog.md)
+(`G166`) names both that and the always-blank token as the gaps this section leaves open.
 
 **How much of a project Ubiq indexes is a setting, per project, with an application-wide
 default.** Application settings' Search section offers three levels — Off, Full text, and Full text

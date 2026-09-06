@@ -516,12 +516,16 @@ fn clone_row(cx: &mut Context<AppState>) -> impl IntoElement {
 /// finishing what the row asked for, not a dead end explaining why it cannot be done yet. Once
 /// dialled, the click goes straight to the folder browser.
 ///
-/// **More than one remote picks the first.** Choosing *which* host to browse is Phase 5's
-/// saved-hosts list; until then this is the one place in the interface that has to decide anyway,
-/// and picking deterministically (attach order) beats refusing to act at all.
+/// **More than one remote picks the active one.** The Hosts settings section is where that choice
+/// is made explicit — `AppState::preferred_remote_host` reads `Bus::active`, so a user who cares
+/// which remote this row opens sets it there first. With nothing chosen (the common case, since
+/// `active` starts and mostly stays `Local`) this still resolves to a host — the first one
+/// attached, on the same "usable the moment one remote exists" grounds the old attach-order
+/// fallback stood on — so the row never goes from working to refusing to act just because a
+/// second remote showed up.
 fn remote_row(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let remotes = app.remote_hosts();
-    let label = match remotes.first() {
+    let preferred = app.preferred_remote_host();
+    let label = match &preferred {
         Some((_, label)) => format!("Open a project on {label}\u{2026}"),
         None => "Open remote project\u{2026}".to_string(),
     };
@@ -549,10 +553,12 @@ fn remote_row(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .text_color(theme::text_muted())
                 .child(label),
         )
-        .on_click(cx.listener(move |this, _, window, cx| match this.remote_hosts().first() {
-            Some((host, label)) => this.open_remote_project_picker(*host, label.clone(), window, cx),
-            None => this.open_remote_connect(window, cx),
-        }))
+        .on_click(cx.listener(
+            move |this, _, window, cx| match this.preferred_remote_host() {
+                Some((host, label)) => this.open_remote_project_picker(host, label, window, cx),
+                None => this.open_remote_connect(window, cx),
+            },
+        ))
 }
 
 /// What the host last refused to do. Dismissible, because it is history the moment it is read.
