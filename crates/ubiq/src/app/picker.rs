@@ -68,6 +68,9 @@ impl AppState {
                 if let Some(at) = at {
                     self.picker_scroll.scroll_to_item(at);
                 }
+                // A right-arrow or `enter` on a shut folder may just have expanded one a host
+                // owns — the same folder a twisty click would have asked about.
+                self.sync_host_browse(cx);
                 cx.notify();
                 true
             }
@@ -89,10 +92,23 @@ impl AppState {
         cx.notify();
     }
 
+    /// Show or hide dotfiles. A toggle rather than a one-way filter — see
+    /// `state::file_picker::FilePickerState::show_hidden`'s own doc on why one has to exist at
+    /// all: a folder a user needs, like `.config`, must stay reachable.
+    pub fn toggle_picker_hidden(&mut self, cx: &mut Context<Self>) {
+        if let Some(picker) = self.file_picker.as_mut() {
+            let show = !picker.show_hidden();
+            picker.set_show_hidden(show);
+        }
+        cx.notify();
+    }
+
     pub fn toggle_picker_folder(&mut self, path: String, cx: &mut Context<Self>) {
         if let Some(picker) = self.file_picker.as_mut() {
             picker.toggle_folder(&path);
         }
+        // The twisty may just have opened a folder a host still owes a listing to.
+        self.sync_host_browse(cx);
         cx.notify();
     }
 
@@ -106,6 +122,9 @@ impl AppState {
             self.commit_file_picker(window, cx);
             return;
         }
+        // An unpickable click on a folder in tree view opens it — the same event a twisty click
+        // asks the host about.
+        self.sync_host_browse(cx);
         cx.notify();
     }
 
@@ -124,7 +143,27 @@ impl AppState {
             // typed: the picker adds to the prompt rather than replacing it, because the sentence
             // around the paths is usually written first.
             PickerOwner::Composer { slot, .. } => self.mention_files(slot, &picked, window, cx),
+            // The host this folder came from lives in `host_browse`, not in the owner itself — see
+            // `state::file_picker::PickerOwner::HostProject`'s own doc.
+            PickerOwner::HostProject => {
+                if let (Some(path), Some(browse)) =
+                    (picked.into_iter().next(), self.host_browse.take())
+                {
+                    self.adding = true;
+                    self.bus.send_to(
+                        HostRef::Remote(browse.host),
+                        Message::AddProject {
+                            path,
+                            name: None,
+                            colour: None,
+                            custom_colour: None,
+                            temporary: false,
+                        },
+                    );
+                }
+            }
         }
+        self.close_host_browse();
         cx.notify();
     }
 
@@ -201,7 +240,11 @@ impl AppState {
                     input.update(cx, |state, cx| state.focus(window, cx));
                 }
             }
+            // Nothing to write back here either — closing the dialog with nothing chosen leaves
+            // no project to open.
+            PickerOwner::HostProject => {}
         }
+        self.close_host_browse();
         cx.notify();
     }
 

@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
-use crate::files::{DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, PathOp};
+use crate::files::{
+    DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
+    HostPathError, PathOp,
+};
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
     CloneId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId,
@@ -32,6 +35,12 @@ pub enum Message {
     /// Raw pseudo-terminal output, chunked as it was read.
     TerminalOutput {
         pane_id: PaneId,
+        // A bare `Vec<u8>` encodes as one msgpack int per byte under rmp-serde, which would make
+        // the terminal hot path slower than JSON; `serde_bytes` encodes it as a single `bin`
+        // blob instead. Does not change the JSON form: serde_json renders a byte-marked slice
+        // the same way it renders a plain one, a number array, so the bus tape and JSON tests
+        // are unaffected.
+        #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
     },
     /// The harness ended. The UI closes the pane.
@@ -49,6 +58,8 @@ pub enum Message {
     /// Raw keystrokes from the focused pane. Effects come back as [`Message::TerminalOutput`].
     TerminalInput {
         pane_id: PaneId,
+        // See the comment on `TerminalOutput::bytes`: same reasoning, same fix.
+        #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
     },
     /// New geometry in cells. The coordinator sets the pseudo-terminal size and the kernel
@@ -625,6 +636,42 @@ pub enum Message {
         error: Option<String>,
     },
 
+    // ── The host browse family: UI → host ───────────────────────────
+    /// List one absolute directory on the host's own filesystem, with no project in scope yet.
+    ///
+    /// `path` absent asks for a sensible starting place instead of a listing of one the interface
+    /// named — the host's own choice, typically the user's home directory, on the rule that the
+    /// interface never composes a path it cannot itself resolve (`D32`, the same one that keeps
+    /// `AddProject.path` coming from the platform's own dialog). Unlike the file family, `path` is
+    /// absolute and is resolved against nothing: there is no project root yet for it to be
+    /// relative to. Answered with [`Message::HostDirListing`] or [`Message::HostDirError`].
+    BrowseHostDir {
+        path: Option<String>,
+    },
+
+    // ── The host browse family: host → UI ───────────────────────────
+    /// One absolute directory, listed. Sent in answer to [`Message::BrowseHostDir`].
+    HostDirListing {
+        /// The path that was listed, canonicalised — so the interface shows where it actually
+        /// landed, not the string it asked for (or asked for nothing and got the default).
+        path: String,
+        /// `path`'s parent, canonicalised. Absent only at the filesystem root, so a picker knows
+        /// when to stop offering to walk up.
+        parent: Option<String>,
+        entries: Vec<HostDirEntry>,
+        /// Whether the entry ceiling cut the listing short, on [`crate::files::DirListing`]'s own
+        /// rule.
+        truncated: bool,
+    },
+    /// The path could not be listed: it does not exist, is not a directory, or the host could not
+    /// read it.
+    HostDirError {
+        /// Echoes the request's own `path` — `None` when the failure was in finding a default
+        /// starting place rather than in listing a named one.
+        path: Option<String>,
+        error: HostPathError,
+    },
+
     // ── File family: UI → host ──────────────────────────────────────
     /// One level of a project's tree. `rel_path` is empty for the root; `depth` is how many levels
     /// below it to list, clamped by the host, and one is what an expand asks for.
@@ -648,6 +695,8 @@ pub enum Message {
     WriteProjectFile {
         project_id: ProjectId,
         rel_path: String,
+        // See the comment on `Message::TerminalOutput::bytes`: same reasoning, same fix.
+        #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
         expected: Option<FileVersion>,
     },

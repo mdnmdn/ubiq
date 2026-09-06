@@ -122,6 +122,30 @@ fn a_broadcast_with_nobody_attached_is_not_a_failure() {
 }
 
 #[test]
+fn a_detached_client_speaks_and_listens_with_no_hub_behind_it() {
+    let (client, detached) = bus::detached();
+
+    // What the client says arrives on the detached receiver, as a socket pump would read it to
+    // write onward.
+    client.send(Message::Focus {
+        pane_id: PaneId::generate(),
+    });
+    match detached.said().recv_timeout(PATIENCE).unwrap() {
+        FromClient::Said { client: id, .. } => assert_eq!(id, client.id()),
+        other => panic!("expected Said, got {other:?}"),
+    }
+
+    // What a socket pump read from the wire is handed to the client exactly as a `Hub` would
+    // route it.
+    let id = PaneId::generate();
+    detached.deliver().send(pane(id, b'z')).unwrap();
+    assert_eq!(
+        which(client.from_host().recv_timeout(PATIENCE).unwrap()),
+        id
+    );
+}
+
+#[test]
 fn the_host_ends_when_the_hub_and_every_client_have_gone() {
     let (hub, host) = bus::hub();
     let client = hub.connect();

@@ -94,6 +94,56 @@ pub struct DirListing {
     pub truncated: bool,
 }
 
+/// One entry in a listing of an absolute host path, with no project in scope yet.
+///
+/// Deliberately not [`DirEntry`]: that type's `rel_path` is built from a project's root and would
+/// name nothing here, and its `size` is not something a folder picker needs. [`EntryKind`] is
+/// reused as-is, because the three-way split it makes — directory, file, or something the host
+/// will not follow or open — is exactly what a picker needs here too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostDirEntry {
+    /// The leaf name.
+    pub name: String,
+    pub kind: EntryKind,
+    /// A dotfile, by the Unix convention. Marked rather than dropped: unlike [`LIST_HIDE`], a
+    /// dotfile is real user content (`.ssh`, `.config`), so silently omitting it would make this
+    /// the one listing in the contract that lies about what is there. Whether to show it is the
+    /// picker's call, not this message's.
+    pub hidden: bool,
+    /// Whether the host could open or enter this entry when it looked — a directory it could
+    /// list, or a file it could open for reading. A hint for greying out a row before the click,
+    /// not a promise: the filesystem can still change before the next request.
+    pub readable: bool,
+}
+
+/// What went wrong listing an absolute host path.
+///
+/// Smaller than [`FileError`] on purpose: there is no project root here for a path to escape, so
+/// there is no `Refused` for containment, and nothing here is ever written, so there is no
+/// `Conflict`. What is left is the plain set a stat and a directory read can fail at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostPathError {
+    /// Nothing is there.
+    Missing,
+    /// Something is there, but it is not a directory.
+    NotADirectory,
+    /// The operating system refused, in its own words.
+    Denied(String),
+    /// Anything else the operating system said.
+    Failed(String),
+}
+
+impl std::fmt::Display for HostPathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostPathError::Missing => write!(f, "it is not there"),
+            HostPathError::NotADirectory => write!(f, "that is not a directory"),
+            HostPathError::Denied(reason) => write!(f, "{reason}"),
+            HostPathError::Failed(reason) => write!(f, "{reason}"),
+        }
+    }
+}
+
 /// What a file was when it was read: enough to refuse a write that would land on somebody else's
 /// change, and free from the metadata the read already takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-04
-verified: 2026-09-05
+updated: 2026-09-06
+verified: 2026-09-06
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -288,6 +288,12 @@ A pane belongs to the window that spawned it: the host records the owner before 
 everything that pane emits back to that window alone, and refuses a message about it from any
 other. When a window goes, the host reaps the pseudo-terminals it owned — nothing else drops now
 that the host outlives every window.
+
+Inside the window, a pane also belongs to one of its hosts — recorded in `Bus::note_pane` the moment
+`WorkspaceSpawned` arrives — which is how its keystrokes and its resizes reach the connection
+actually running it rather than whichever the window happens to be pointed at. The routing itself,
+and why the local host is always one of them, is
+[`../tech/architecture.md`](../tech/architecture.md)'s.
 
 **`AppState` in `crates/ubiq/src/app/mod.rs` owns one `OpenProject` per project the window holds**, and
 each of those owns that project's panes and which of them is focused. The emulators do not move with

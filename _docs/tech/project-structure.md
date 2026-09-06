@@ -137,12 +137,15 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-proto/src/settings.rs` | Which half owns a settings blob, and the host's own record | A Ui-layer field |
 | `ubiq-proto/src/ids.rs` | The contract's id newtypes, and the one generator behind them | A second id scheme |
 | `ubiq-proto/src/bus.rs` | The hub, a client's end of it, and a pane's `Read`/`Write` byte-stream ends | A pane's contents, a descriptor, or any knowledge of what the bytes mean |
+| `ubiq-proto/src/wire.rs` | The socket wire format — a length-prefixed MessagePack frame, via `rmp-serde` — that a later network pump drives over `bus::detached()`'s endpoints | A socket, a thread, or any notion of a connection |
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
 | `ubiq-proto/src/repos.rs` | A remote repository, a clone's request, its stages and its errors, and the one repository-URL parser both halves call | A token, a credential, or a `git2` type |
 | `ubiq-proto/src/git.rs` | A project's repository as it crosses the bus: overview, working-tree map, errors | A `git2` type, a path on disk |
 | `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
+| `ubiq-host/src/remote.rs` | The listener that lets a UI on another machine attach: an accept thread, a thread per connection, a token handshake over HTTP, then raw `wire` frames onto an ordinary `Hub::connect()` client | A special case for any message family, TLS, or a second kind of client |
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
 | `ubiq-host/src/repos/` | Listing a remote's repositories, and cloning one into a folder, on a thread of its own per clone | A read of an existing repository — that is `git/` — or a write into one |
+| `ubiq-host/src/files/browse.rs` | Listing one absolute directory on the host's own filesystem before any project exists — the host browse family's worker logic, with its own 2,000-entry ceiling independent of the file family's | A project-relative path, or the containment `path.rs` enforces once a project's root is known |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
 | `ubiq-host/src/store/` | What the host writes down: the catalogue, a project's tasks, the view state and settings behind four traits, and the concrete stores that need no trait beside them | Any opinion about what a Ui-layer blob means |
@@ -154,6 +157,10 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
 | `ubiq-host/src/mcp_server.rs` | The MCP surface Ubiq exposes to the agents it hosts | Anything the hosted agent should not reach |
 | `ubiq/src/app/` | `AppState`: the panes, the focused pane, the dock and its panels, the workbench state, and window creation. `mod.rs` holds the struct, the free window functions and the key bindings; `boot.rs` the constructor; `shell.rs` chrome and the `Render` impl; `wire.rs` `receive()` and the pane calls; `panels.rs` the dock; and one file per screen — `explorer`, `editor`, `git`, `agents`, `graph`, `board`, `chat`, `sink`, `picker`, `projects`, `settings` | Process handles, PTY handles, disk |
+| `ubiq/src/app/hosts.rs` | `Bus`, the window's multiplexer over every host it is attached to; `HostRef`, the UI-local `HostId`, and the routing that resolves a message to one host | A `HostId` in a `Message`, or any knowledge that a host has of another host |
+| `ubiq/src/state/remote.rs` | The "Connect to a remote host" modal's state and steps, the `AttemptId` a stale dial result is checked against, and the pure `parse_connection_string` / `with_default_port` a test pins down with no socket | A socket, a thread, or any blocking call |
+| `ubiq/src/app/remote_connect.rs` | The client half of the remote-attach transport: dial, the `GET /attach` handshake, and the two pump threads that drive a dialled `TcpStream` through `bus::detached()` onto a `Client` the modal registers | A special case for any message family, or a GPUI type |
+| `ubiq/src/ui/remote_connect.rs` | The modal itself: its four steps drawn as the body and footer change | A socket call, or parsing of a connection string |
 | `ubiq/src/web_export/` | The on-demand local HTTP server that serves a project's own files read-only, for browsing in a web browser — its own project-root reads, its own `tiny_http` thread, no bus traffic | A proto message, a call into `ubiq-host` |
 | `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, settings overlay, `chat/`, `agents/`, `orchestration/`, `board/` | Anything that names the host |
 | `ubiq/src/ui/agents/` | The Agents screen: the sidebar of every agent the host reports, and one column per conversation — its tabs, its thread and its composer | Anything that ends an agent; a close that means more than benching one |
@@ -169,6 +176,12 @@ interface does not depend on the host, so a module in the wrong crate does not c
 The "never holds" column is the enforcement of the architecture's rules in file terms. A
 `portable-pty` type under `ui/`, or a GPUI type in `messages.rs`, is a violation you can grep for —
 and the crate split makes most of them a violation you cannot compile.
+
+`ubiq-proto/Cargo.toml` carries two dependencies for `wire.rs`: `rmp-serde` encodes and decodes the
+MessagePack body a frame carries, and `serde_bytes` is what keeps the three byte-vector fields on
+the hot path a single `bin` blob apiece instead of one MessagePack integer per byte.
+[`transport-contract.md`](./transport-contract.md)'s framing section says why this format and not
+postcard or bincode.
 
 ## Where a new file goes
 

@@ -4,7 +4,7 @@
 //! schema and versions it**. A blob that fails to parse, or that carries a schema this build does
 //! not know, is discarded and the window opens on defaults.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
@@ -32,6 +32,7 @@ pub enum SettingsSection {
     Search,
     Harnesses,
     Connectors,
+    Hosts,
     CommandLine,
 }
 
@@ -44,6 +45,7 @@ impl SettingsSection {
             SettingsSection::Search,
             SettingsSection::Harnesses,
             SettingsSection::Connectors,
+            SettingsSection::Hosts,
             SettingsSection::CommandLine,
         ]
     }
@@ -56,6 +58,7 @@ impl SettingsSection {
             SettingsSection::Search => "Search",
             SettingsSection::Harnesses => "Harnesses",
             SettingsSection::Connectors => "Connectors",
+            SettingsSection::Hosts => "Hosts",
             SettingsSection::CommandLine => "Command line",
         }
     }
@@ -399,6 +402,13 @@ pub struct SettingsState {
     pub connection_status: HashMap<ConnectionId, LoginStatus>,
     /// The `ubiq` command's shortcut, as the host last reported it. Absent until it answers.
     pub cli: Option<CliShortcut>,
+    /// Whether the Hosts section's dropdown list is down.
+    pub host_picker_open: bool,
+    /// Addresses a reconnect started from the Hosts section most recently failed to reach —
+    /// see [`crate::app::hosts::host_menu_rows`]'s `failed` parameter. An address leaves this set
+    /// the moment it attaches, so the dropdown never shows a stale failure for a host that is now
+    /// up.
+    pub failed_hosts: HashSet<String>,
     /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
     /// user acts: opens a dialog, starts a login, or dismisses it.
     pub error: Option<String>,
@@ -436,6 +446,8 @@ impl Default for SettingsState {
             statuses: HashMap::new(),
             connection_status: HashMap::new(),
             cli: None,
+            host_picker_open: false,
+            failed_hosts: HashSet::new(),
             error: None,
         }
     }

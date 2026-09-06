@@ -1192,6 +1192,13 @@ impl Coordinator {
                 }
             }
 
+            // ── the host browse family ───────────────────────────────
+            // No project to look up, and so no syscall here either: the request goes straight to
+            // the same worker the file family uses.
+            Message::BrowseHostDir { path } => {
+                self.browse_job(client, path);
+            }
+
             // ── the file family ─────────────────────────────────────
             // Five arms, no syscall: the record is a lookup in memory and the work goes to the
             // worker with the root it resolved against.
@@ -2039,9 +2046,22 @@ impl Coordinator {
         };
 
         self.files.submit(files::Job {
-            project_id,
-            root: PathBuf::from(&record.path),
-            request,
+            kind: files::JobKind::File {
+                project_id,
+                root: PathBuf::from(&record.path),
+                request,
+            },
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
+    /// Hand one host-browse request to the worker.
+    ///
+    /// No project to look up first: unlike [`Self::file_job`], the whole point of this family is
+    /// browsing before a project's record exists.
+    fn browse_job(&self, client: ClientId, path: Option<String>) {
+        self.files.submit(files::Job {
+            kind: files::JobKind::Browse { path },
             reply_to: self.host.mailbox(To::Client(client)),
         });
     }

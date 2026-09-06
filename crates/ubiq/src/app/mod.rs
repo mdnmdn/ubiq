@@ -70,7 +70,7 @@ use gpui_component::input::{
     EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
 };
 use gpui_terminal::TerminalView;
-use ubiq_proto::bus::{self, Client};
+use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
@@ -79,7 +79,7 @@ use ubiq_proto::ids::{
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
-use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
+use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SavedRemoteHost, SettingsLayer};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
 /// How much of a file the interface asks for. The host has a ceiling of its own and this never
@@ -383,9 +383,10 @@ pub struct AppState {
 
     /// The window's session — the grouping every workspace it spawns belongs to.
     session: SessionId,
-    /// This window's connection to the one host. Nothing else reaches it, and dropping this is
-    /// how the host learns the window has gone.
-    bus: Client,
+    /// This window's connection to every host it is attached to — always the local one, and, from
+    /// a later phase on, any remote ones added beside it. Nothing else reaches a host directly,
+    /// and dropping the local connection inside it is how that host learns the window has gone.
+    bus: Bus,
     /// One emulator per pane, keyed the way every message is.
     terminals: HashMap<PaneId, PaneTerminal>,
     /// Geometry an emulator measured for itself, on its way back into `PaneState`.
@@ -455,6 +456,9 @@ pub struct AppState {
     /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
     /// who is owed the answer.
     pub file_picker: Option<FilePickerState>,
+    /// Which host the picker above is browsing, and the walk it has done so far — set only while
+    /// `file_picker` is a host-project one, and torn down alongside it. See `app::host_browse`.
+    pub host_browse: Option<HostBrowseState>,
     /// The ⌘K navigator, when it is up. Beside the picker rather than inside it: the two are
     /// siblings — flat and single-select against a forest with a picked set — and either may be
     /// raised without the other.
@@ -598,6 +602,11 @@ pub struct AppState {
     // ponytail: this kit has no masked field, so a pasted token is on screen until the modal
     // closes. Add masking to `kit::field` if that ceiling ever matters.
     pub connect_secret_input: Entity<InputState>,
+    /// The remote-connect modal's two fields: an address (which absorbs a whole pasted connection
+    /// string — see `remote_connect::apply_remote_address_input`) and a token. Read at dial time
+    /// rather than mirrored, for the same reason `connect_instance_input` is.
+    pub remote_address_input: Entity<InputState>,
+    pub remote_token_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -673,10 +682,18 @@ pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 mod git;
 mod graph;
+mod host_browse;
+mod hosts;
+pub use host_browse::HostBrowseState;
+pub use hosts::{
+    Bus, HostEntry, HostId, HostRef, HostStatus, RemoteConn, host_menu_rows, host_row_label,
+    preferred_remote,
+};
 mod nav;
 mod panels;
 mod picker;
 mod projects;
+mod remote_connect;
 mod settings;
 mod shell;
 mod sink;

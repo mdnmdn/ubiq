@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-06
 verified: 2026-09-06
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -530,6 +530,17 @@ listing for a bare URL — the destination folder is chosen in the platform's di
 checkbox. **https only:** an `ssh` remote is recognised and named as unsupported rather than
 attempted. The connection last used is remembered, so the modal reopens where it was left.
 
+**"Open remote project…" is the picker's third way in**, sitting below Add and Clone. With no
+remote host attached it opens the "Connect to a remote host" modal instead of a dead end, since the
+row is the only place a first-time user learns the feature exists at all. With one remote it raises
+the file picker walking that host's own filesystem, rooted at whatever `BrowseHostDir { path: None
+}` answers with; choosing a folder there sends `AddProject` to that host rather than to the local
+one. **With more than one remote attached it opens the one application settings' Hosts section has
+active** — `AppState::preferred_remote_host()` reads `Bus::active` and falls back to the first
+remote attached when `active` is Local (the common case, since nothing points it anywhere else
+until the Hosts dropdown, below, is used), so the row never refuses to act just because a second
+remote showed up.
+
 **The clone registers the project itself.** There is no Add afterwards and no success dialog: the
 project arriving in every window's picker is what says the clone finished. Until then the modal
 names the stage it is on — resolving, counting, receiving, checking out, registering — rather than a
@@ -730,9 +741,41 @@ group that holds a terminal or the console, in the pane region even when it hold
 while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
 machine has, and a row that puts the console on screen. What the rows are and what a click does is
-`feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a browser button,
-a gear that raises application settings, and the theme switch. The gear lights while settings are
-up. Settings are interface-wide, so the overlay opens with no project.
+`feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a network button
+that raises the "Connect to a remote host" modal, a browser button, a gear that raises application
+settings, and the theme switch. The gear lights while settings are up; the network button lights
+while its modal is up. Settings are interface-wide, so the overlay opens with no project.
+
+**The network button's modal takes a pasted connection string or an address and token typed
+separately**, and steps through editing, connecting, connected and failed-with-reason —
+`crate::state::remote::RemoteConnectStep` names the four. Pasting a whole
+`http://host:port?token=…` into the address field splits it across both fields at once, so the one
+string a running `ubiq --serve` printed is the only thing a user has to paste. `Connected` attaches
+the dialled host to the window's `Bus` as a `HostRef::Remote`, labelled — for a fresh dial, by the
+address it was dialled under, or the saved host's own name for a reconnect started from the Hosts
+settings section, below — what `Bus::remotes()` hands back to the project picker's "Open remote
+project…" row (above) so a project can be opened on it. A dial that succeeds is saved automatically,
+address and label, so it can be offered again after a restart — the Hosts section, below, is where
+that record is managed. The transport underneath the modal —
+`crates/ubiq/src/app/remote_connect.rs`'s dial, handshake and pump threads — is
+[`../tech/architecture.md`](../tech/architecture.md)'s to describe, not this document's.
+
+**Application settings' Hosts section is where a window says which host an unaddressed message
+reaches, and where a saved host is managed.** A dropdown lists `Local` first, always attached; then
+every remote this window has dialled, each read as attached; then every saved host with no live
+connection of its own, read as not attached or, if the last reconnect from this list failed to
+reach it, failed — a saved host reached over a live connection is folded into that attached row
+rather than drawn a second time. Picking `Local` or an attached remote calls `Bus::set_active` and
+nothing else: **switching the active host does not move a pane or a project the window has open** —
+each stays routed to the host that owns it, exactly as `D81` has every unaddressed message resolve
+against whichever host `active` names. Picking a saved-but-unattached or failed row instead raises
+the same connect modal described above, address prefilled and the token left blank — a token is
+never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows
+every remembered host with a per-entry **Forget**, which drops the record and nothing else — a live
+connection under that address, if this window still has one, is untouched. **A saved host is named
+after the address it was first reached at, and renaming is not offered** — only forgetting;
+[`../backlog.md`](../backlog.md) (`G166`) names both that and the always-blank token as the gaps
+this section leaves open.
 
 **How much of a project Ubiq indexes is a setting, per project, with an application-wide
 default.** Application settings' Search section offers three levels — Off, Full text, and Full text
@@ -2071,9 +2114,20 @@ whole of what a caller says — owner, title, root, prefilter, kind, count, comm
 `FilePickerState::open` roots the forest it was handed at the requested folder, opens the top of it
 and holds the rest: the view, the filter, which folders are open, what has been picked in pick order,
 and the size the corner drag has put it at. `rows()` is the only thing the screen reads, and it
-arranges the same set two ways. The forest is handed in rather than fetched, which is what lets the
-sink raise a picker with no project open and what will let the host's listings fill the same dialog
-when a screen needs one over a real project — `PickerNode` is the shape a `DirListing` becomes.
+arranges the same set two ways. The forest is handed in rather than fetched — `PickerNode` is the
+shape a `DirListing` becomes — which is what lets the sink raise a picker with no project open, and
+it can also grow after the picker is open: `set_forest` replaces the whole top level on a re-root,
+and `fill_node` gives one folder real children once an answer for it lands. `PickerNode::dir_unfetched`
+is the placeholder a folder holds until then — `needs_load()` tells it apart from one already
+listed, and `expanded_needing_load()` is what a caller asks to know which open folders still owe a
+listing. `readable`, `hidden` and `truncated` ride on every node for the same reason `size` does:
+an entry a source could not open draws dim with no twisty and does not accept a click,
+`show_hidden`/`set_show_hidden` is the toggle that keeps a dotfile like `.config` reachable while
+keeping one off by default, and a folder's own truncation is a row's mark rather than a silent
+under-count. `crate::app::host_browse` is the one caller that fills a forest this way today, over a
+remote host's filesystem before any project exists on it — see the Behaviour section above and the
+host browse family (`tech/transport-contract.md`) — walking the tree straight from an already-loaded
+explorer's `forest_from_explorer` still needs none of it.
 
 `AppState` holds `file_picker: Option<FilePickerState>`, `picker_filter` and `picker_scroll`, because
 exactly one dialog may be up per window and the field above its rows is one of the window's like every
@@ -2088,7 +2142,9 @@ registered later.
 
 `click_picker_row` asks the picker what the click meant and commits on the spot when the request said
 a single pick is final on it; `commit_file_picker` and `cancel_file_picker` take the dialog down and
-route the answer by `PickerRequest::owner` — one variant today, the sink's page. `ui/file_picker.rs` draws it, painted
+route the answer by `PickerRequest::owner` — the sink's page, the composer's mention field, and
+`PickerOwner::HostProject`, which sends `AddProject` to the host `AppState::host_browse` names
+rather than writing back into any field of the picker's own. `ui/file_picker.rs` draws it, painted
 from `ui/sink/mod.rs` for the same reason the modal is: where a dialog is asked for is not where it
 is painted. `crates/ubiq/tests/file_picker.rs` asserts every rule above with no frame at all, over
 the sink's own fixture tree.
