@@ -20,7 +20,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::state::agents::{AgentsView, BenchRow, COLUMNS_MAX, COMPOSER_SLOTS};
+use crate::state::agents::{
+    AgentsView, BenchRow, COLUMNS_MAX, COMPOSER_ROW_HEIGHT, COMPOSER_ROWS_MAX,
+    COMPOSER_ROWS_MAX_DEFAULT, COMPOSER_ROWS_MIN, COMPOSER_SLOTS,
+};
 use crate::state::board::{BoardState, Field};
 use crate::state::chat::{ChatPick, ChatPicks, attach_choices, chat_picks, free_chat_slot};
 use crate::state::conversation::{Conversation, Run};
@@ -40,9 +43,9 @@ use crate::state::nav::{
 use crate::state::navigator::NavigatorState;
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
-    self as ui_settings, AccountDialog, AppForm, CertPrompt, CliShortcut, ConnectApp, ConnectState,
-    ConnectStep, ConnectorDialog, LoginState, LoginStep, MAX_LOGIN_LINKS, MarkdownOpen,
-    PendingSecret, SettingsSection,
+    self as ui_settings, AccountDialog, AppForm, AssistInfo, CertPrompt, CliShortcut, ConnectApp,
+    ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep, MAX_LOGIN_LINKS,
+    MarkdownOpen, PendingSecret, SettingsSection,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -70,12 +73,14 @@ use gpui_component::input::{
     EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
 };
 use gpui_terminal::TerminalView;
+use ubiq_proto::assist::AssistProvider;
 use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{
-    ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId, StepId, TaskId,
+    ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId, StepId, SuggestId,
+    TaskId,
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
@@ -459,6 +464,10 @@ pub struct AppState {
     pub logs: LogState,
     /// The project search panel's state: query, options, results.
     pub search: SearchState,
+    /// The suggestion this window is waiting on, if any. One at a time, and the only thing that
+    /// tells an answer to the request in flight from one to a request abandoned since — see
+    /// [`AppState::receive_assist`].
+    pub suggest: Option<SuggestId>,
     /// The file picker, when one is up. It belongs to the window rather than to the screen that
     /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
     /// who is owed the answer.
@@ -532,6 +541,20 @@ pub struct AppState {
     /// stays where it was put. A [`Cell`] because `render` holds `&AppState` and there is no
     /// mutable path to it from inside an element.
     pub transcript_scrolls: Vec<(ScrollHandle, Cell<u64>)>,
+    /// How tall each composer slot has been dragged to, in text rows, indexed exactly as
+    /// `column_inputs` is. `None` is the pool's own behaviour — one row, growing to
+    /// [`COMPOSER_ROWS_MAX_DEFAULT`] as what is typed needs it. `Some(rows)` is a field the user
+    /// has sized by hand, and it is that tall whether it is empty or full: a writing space asked
+    /// for is a writing space that stays.
+    ///
+    /// Per slot rather than per conversation, because the field itself is per slot: the height and
+    /// the entity it is applied to have to be indexed the same way or a drag would resize
+    /// somebody else's composer. Session-only, like the file picker's own size.
+    pub composer_rows: Vec<Option<usize>>,
+    /// Which composer slot is being resized, where the drag went down, and how many rows it stood
+    /// at then. Measured from where it started rather than from the last frame, so a drag that
+    /// outruns the pointer does not drift.
+    pub composer_drag: Option<(usize, f32, usize)>,
     pub file_filter: Entity<InputState>,
     /// What a file dialog is typing into: a new path's name, a rename, or where an untitled buffer
     /// is to be saved. One field, because one dialog is up at a time.

@@ -194,3 +194,10 @@ ulid_id! {
     /// has typed past is discarded by id, the same discipline [`SearchId`] buys for search.
     RepoQueryId
 }
+
+ulid_id! {
+    /// One suggestion, from the `Suggest` that asks for it to the single `Suggestion` or
+    /// `SuggestError` that ends it. Minted by the interface so a reply naming a suggestion it is
+    /// no longer holding is discarded by id, the same discipline [`SearchId`] buys for a search.
+    SuggestId
+}

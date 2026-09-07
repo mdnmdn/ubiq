@@ -119,6 +119,10 @@ pub fn render(
     let panel =
         div()
             .id("file-picker-panel")
+            // Named for the tests: the dialog is mounted once, at the window root, and a mount
+            // moved back into a page would leave every other caller setting the state and
+            // drawing nothing. `tests/dismiss.rs` looks the dialog up by this name.
+            .debug_selector(|| "file-picker".into())
             .key_context(CONTEXT)
             .on_action(
                 cx.listener(|this, _: &PickerUp, window, cx| {

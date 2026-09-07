@@ -50,7 +50,11 @@ fn ask(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         "kind",
         pills(
             "sink-pick-kind",
-            &[("files", PickKind::Files), ("folders", PickKind::Folders)],
+            &[
+                ("files", PickKind::Files),
+                ("folders", PickKind::Folders),
+                ("either", PickKind::Either),
+            ],
             demo.kind,
             cx,
             |this, value, cx| this.set_sink_pick_kind(value, cx),

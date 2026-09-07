@@ -146,7 +146,11 @@ that is not a soft default: a layer's `~`-relative grant expands against the run
 home, so a replaced home aims every toolchain grant the policy carries — `~/.cargo`, `~/.npm`,
 `~/.dotnet` — at a directory nothing populated, and the agent holds `cargo` on its `PATH` and
 cannot build. Inheriting grants nothing extra by itself: only the paths a resolved layer names are
-reachable inside the home. What stays per-run is the configuration, which `CLAUDE_CONFIG_DIR` and
+reachable inside the home. **A toolchain installed somewhere other than its default location is
+discovered rather than configured**, which narrows what `extra_grants` is for: `compose_run` calls
+`IsolateOptions::grant_toolchains_from_env()` before it applies the settings' grants, so a
+`CARGO_HOME` or `GOPATH` pointing outside `~` needs no host setting, and the user's own grant —
+applied last — stays the last word. Which variables that reads is the library's list, not Ubiq's. What stays per-run is the configuration, which `CLAUDE_CONFIG_DIR` and
 its siblings pin to the run directory. A `~`-prefixed grant is expanded by Ubiq against
 `isolate::real_home` before it is passed, because inside a layer `~` means the effective home
 rather than the user's — which is exactly the confusion the default avoids.

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-06
-verified: 2026-09-06
+updated: 2026-09-07
+verified: 2026-09-07
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -1354,7 +1354,7 @@ and whoever has it has a terminal on that machine for as long as the process run
 connection is readable and tamperable by anything on the path between the two machines. Both are
 usable only behind a trusted network or a tunnel the operator adds themselves, which
 [`operations.md`](./operations.md) says plainly rather than leaving to be discovered. Closing the
-gap is `G165`, the backlog's register of open items.
+gap is `G168`, the backlog's register of open items.
 
 ### D81 — `HostId` stays out of the contract; the local host is always attached
 
@@ -1402,6 +1402,92 @@ half superseded by the decision register's own next entry — its body still cor
 `AddProject`/`LocateProject` read the *local* dialog, but its closing sentence about the remote case
 describes a path the tree does not take. `G166` is the up-to-date account of what this family does
 and what it leaves undone.
+
+### D83 — Ubiq may call a model directly for the small namings, behind a provider seam
+
+Every model interaction in the tree goes through a spawned harness, and that stays the rule for
+anything a user reads as work. It is the wrong shape for the half-sentence namings Ubiq performs
+mechanically — a conversation called `claude 3`, a session named after its project, a commit box
+with nothing in it. Spawning a harness to produce eleven characters costs a process, a credential
+and a round trip to a paid endpoint.
+
+So there is now one narrow exception, and it is drawn as a seam rather than as a special case. A
+`Assist` trait in `crates/ubiq-host/src/assist/` answers three questions — can you run, what can you
+hold, produce this text — and every backend behind it is chosen in one function from one setting.
+The first backend is the operating system's own on-device model, which is what makes the exception
+affordable: no account, no key, no network, nothing to leak. API providers and a local inference
+server are further backends and no further exception.
+
+Two rules keep the seam from widening. **The interface names a subject and never a prompt** — a
+request says *this project's commit message*, carrying ids only, and every prompt string, every
+instruction and every truncation budget lives in the host. A message family that accepted prompt
+text would be a generic model console whatever it was called, and every later feature would reach
+for it; keeping the prompt host-side also puts it where the rest of the host is tested, against a
+fake backend, with no window. **A suggestion is advisory** — it fills an editable field the user was
+going to type in, renames nothing behind anyone's back and writes nothing into a repository, so a
+suggestion that never arrives leaves the mechanical name exactly as it was.
+
+`generate` is blocking. The host has no async runtime — it is threads and `flume` — and one blocking
+signature suits a Swift FFI hop and an HTTP POST equally, which is the whole of what makes the trait
+ready for a remote provider. A request runs on a one-off named thread holding a `Mailbox`, because
+the coordinator must keep answering every other window while a model thinks.
+
+**Cost:** the contract gains a fifteenth family, `crates/ubiq-host` gains its first cargo feature and
+its first target-specific dependency, and the claim "Ubiq calls no model" is no longer true without
+qualification — it now reads *Ubiq spawns a harness for every piece of work, and calls a model
+directly only for a name it would otherwise invent mechanically*. The setting defaults to `Off`, so
+an existing user's behaviour is unchanged by upgrading, and every call site has to read correctly
+against a stub backend that reports assistance unavailable, which is the normal case on most
+platforms.
+
+### D84 — A vendor name reaches the interface only for a provider the user configured
+
+Availability is a reason code from a closed set and a sentence the host wrote. The framework's own
+strings are re-written in Rust rather than forwarded, and a unit test asserts that no detail string
+from the on-device backend names a vendor. The failure mode it prevents is concrete: a settings
+panel reporting that *Apple Intelligence is not enabled* on a Windows machine.
+
+The blanket form of that rule — no vendor name ever reaches the interface — does not survive the
+next backend. A user who configures an API key needs to see which provider they configured, in the
+panel where they configured it; hiding it would be a worse interface, not a purer one. So the rule
+is drawn at the line the user's own choice makes: **the host writes every label, and a vendor name
+appears only for a provider the user chose.** A backend nobody asked for describes itself as *the
+on-device model*; one the user named describes itself by that name.
+
+Availability is also asked, never inferred. There is no OS-version comparison and no device
+allow-list anywhere in Ubiq's code — the framework is asked whether it can run, and its answer is
+mapped onto the closed set. That is why an ineligible device, a model still downloading and a
+disabled system setting each read differently in the panel instead of collapsing into one shrug.
+
+**Cost:** two rules where the proposal that prompted this had one, and the no-vendor test guards
+only the on-device backend rather than the whole interface — so a future provider backend has to be
+trusted not to paste a raw API error into a label. `D83` is why that is a small trust: the host owns
+every string the interface renders.
+
+### D85 — A window merges its hosts' catalogues, and losing a host takes its panes and projects with it
+
+A window attached to several hosts holds one project list for all of them. Attaching a remote asks
+it for its catalogue (`AppState::attach_remote` sends `ListProjects`), and the answer is applied as
+a partial replacement: `Bus::projects_not_on` names every row belonging to some other host and
+`WindowRegistry::replace_all_except` keeps them. The alternative was one catalogue at a time, swapped
+as the active host changes, which was rejected for the same reason `D81` rejected a single active
+connection — a remote appearing or vanishing would rearrange work that has nothing to do with it,
+and the local machine's projects are the ones a user would lose.
+
+The other half is what a loss does. `Bus::client_for` answers with nothing at all for a host the
+window no longer holds, rather than falling back to the local client: a dropped remote's pane ids
+were minted by that remote and mean nothing locally, so sending its keystrokes or the close that
+kills it to the local coordinator is not a near-miss but a coordinator being asked about panes it
+never created. An undeliverable message is dropped and logged. `Bus::drop_remote` then forgets that
+host's projects, resets `active` to `Local`, and hands its panes back for `AppState::disconnect_host`
+to close, so a lost host leaves nothing of itself behind on either list.
+
+**Cost:** a catalogue answer is now only as scoped as the host tagging behind it, so a project whose
+host was never recorded (`Bus::note_project` missed at the one place it is first announced) is
+either erased by the next host's answer or kept forever by every one of them. And a loss is
+destructive by design: a connection that drops for a second takes the window's remote panes with it,
+because there is no reconnect and nothing on the host side outlives the socket — `G189` and `G190`
+are what would make a blip survivable.
 
 ## Related docs
 

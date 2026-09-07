@@ -37,7 +37,7 @@ impl AppState {
                 cx.new(|cx| {
                     TextareaState::new(window, cx)
                         .placeholder("Ask me\u{2026}")
-                        .auto_grow(1, 5)
+                        .auto_grow(1, COMPOSER_ROWS_MAX_DEFAULT)
                         .submit_on_enter(true)
                 })
             })
@@ -776,15 +776,16 @@ impl AppState {
 
         // This window's connection to the local host, which is process-wide and already running.
         // The window never starts one: two hosts would race the catalogue and disagree about what
-        // exists. `Bus` wraps it and is the room for the remote connections a later phase adds
-        // beside it — see `crates/ubiq/src/app/hosts.rs`.
+        // exists. `Bus` wraps it and holds the remote connections attached beside it — see
+        // `crates/ubiq/src/app/hosts.rs`.
         let bus = Bus::new(BusHub::read(cx).connect());
 
         // One router task per connection, each tagging its arrivals with the `HostRef` they came
         // from before handing them to `receive` — a message must say which host said it before
         // `AppState` can record ownership or keep two hosts' projections apart. `connections()` is
-        // read once, here: today it names exactly the local connection just opened above, and
-        // nothing yet adds a remote one after boot for this loop to miss.
+        // read once, here, where it names exactly the local connection just opened above; a
+        // remote dialled later spawns its own router from `attach_remote`, so this loop is not
+        // the place that would miss one.
         for (host, from_host) in bus.connections() {
             Self::route_host(host, from_host, cx);
         }
@@ -854,6 +855,7 @@ impl AppState {
             navigator: None,
             logs: LogState::default(),
             search: SearchState::new(search_query.clone()),
+            suggest: None,
             adopt_on_list: false,
             adding: false,
             adding_select: None,
@@ -867,6 +869,8 @@ impl AppState {
             agent_input,
             column_inputs,
             transcript_scrolls: (0..COMPOSER_SLOTS).map(|_| Default::default()).collect(),
+            composer_rows: vec![None; COMPOSER_SLOTS],
+            composer_drag: None,
             file_filter,
             file_name,
             git_search,
@@ -948,6 +952,10 @@ impl AppState {
         this.bus.send(Message::GetSettings {
             layer: SettingsLayer::Host,
         });
+        // Whether assistance can run here at all is the host's to answer, and asked rather than
+        // inferred: the interface knows neither the platform this host runs on nor what it found
+        // there. Re-asked whenever the provider changes — see `set_assist_provider`.
+        this.bus.send(Message::GetAssist);
 
         // Whatever the registry says this window holds, it now holds — including the pane a
         // project gets when it is first entered. A window opening on nothing spawns nothing.

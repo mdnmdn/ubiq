@@ -137,7 +137,23 @@ impl WindowRegistry {
     /// A window holding a project that no longer exists loses it and stays open on nothing, because
     /// the catalogue arriving is not the user closing anything.
     pub fn replace_all(&mut self, projects: Vec<ProjectSnapshot>) {
-        self.projects = projects.into_iter().map(|p| (p.record.id, p)).collect();
+        self.replace_all_except(projects, &[]);
+    }
+
+    /// Replace the catalogue, keeping the rows named in `keep`.
+    ///
+    /// A window attached to several hosts holds one catalogue for all of them, but each host's
+    /// `ProjectList` is the whole truth about that host alone — applied as a plain replacement it
+    /// would take away every project belonging to any *other* host, which is how attaching a
+    /// remote used to make the local machine's projects vanish. `keep` is what the caller knows
+    /// this answer has no opinion about; see `Bus::projects_not_on`.
+    pub fn replace_all_except(&mut self, projects: Vec<ProjectSnapshot>, keep: &[ProjectId]) {
+        let mut kept: BTreeMap<ProjectId, ProjectSnapshot> = keep
+            .iter()
+            .filter_map(|id| self.projects.remove(id).map(|p| (*id, p)))
+            .collect();
+        kept.extend(projects.into_iter().map(|p| (p.record.id, p)));
+        self.projects = kept;
         let known: Vec<ProjectId> = self.projects.keys().copied().collect();
         for slot in &mut self.windows {
             slot.projects.retain(|id| known.contains(id));

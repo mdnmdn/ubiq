@@ -10,6 +10,7 @@
 //! forbidden.
 //!
 //! - `messages`: the message set, serialisable by construction
+//! - `assist`: whether a suggestion can be asked for, and what one names
 //! - `connectors`: an authenticated identity at an external service, and the providers there are
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
@@ -24,6 +25,7 @@
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
 //! - `wire`: the binary framing a socket transport puts the contract in
 
+pub mod assist;
 pub mod bus;
 pub mod connectors;
 pub mod conversation;

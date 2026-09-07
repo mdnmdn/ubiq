@@ -9,6 +9,7 @@
 //!
 //! - `config`: where Ubiq's config root is, and how it is found
 //! - `connectors`: the identities Ubiq holds at external services, and the flows that obtain them
+//! - `assist`: whether a suggestion can be asked for, and the backend that writes one
 //! - `atomic`: writing a file so a crash never leaves half of one
 //! - `store`: the catalogue, a project's tasks, the interface's view state and settings, behind four traits
 //! - `health`: what is actually at a project's path
@@ -28,6 +29,7 @@
 //! - `mcp_server`: the MCP surface Ubiq exposes to the agents it hosts
 
 pub mod agent;
+pub mod assist;
 pub mod atomic;
 pub mod cli_shortcut;
 pub mod config;

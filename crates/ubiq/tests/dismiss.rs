@@ -5,7 +5,10 @@
 //! order from the top. Which surface Escape means is therefore a list, and a list is the one thing
 //! worth asserting: a modal added to `ui::shell` without a rung here is a modal Escape walks past.
 //!
-//! A window with no project and no host, because none of these overlays needs either.
+//! A window with no project and no host, because none of the overlays in the peel order needs
+//! either. The second test does open one: the file picker is the window's dialog that a project's
+//! own surfaces raise, and where it is *mounted* is the other half of what makes a rung in that
+//! list mean anything.
 
 use ubiq::app::{AppState, BusHub, DialogCancel};
 use ubiq::state::sink::ColourField;
@@ -114,4 +117,131 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
 
     escape(&state, cx);
     state.read_with(cx, |state, _| assert!(state.sink.modal.is_none()));
+}
+
+/// The other half of the same claim: **a modal is drawn where it is mounted, and the picker is
+/// mounted at the window root.**
+///
+/// The file picker is the window's one dialog, raised by a composer's `+`, by an explorer gesture
+/// and by a remote project's Open — and for a while it was painted only by the kitchen-sink page,
+/// so every other caller set `AppState::file_picker` and no dialog appeared. Escape would have
+/// peeled a layer nobody could see. So this asks the composer's own entry point for a picker with
+/// the rail anywhere but the sink, and looks for the dialog in the frame the window drew.
+#[gpui::test]
+fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::state::RailMode;
+    use ubiq_proto::bus::To;
+    use ubiq_proto::files::{DirEntry, DirListing, EntryKind};
+    use ubiq_proto::ids::ProjectId;
+    use ubiq_proto::messages::Message;
+    use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
+
+    // A project, because the composer's picker is raised over the open project's explorer tree and
+    // does nothing at all without one.
+    let project = ProjectId::generate();
+    let snapshot = ProjectSnapshot {
+        record: ProjectRecord {
+            id: project,
+            name: "ubiq".to_string(),
+            path: "/tmp/ubiq".to_string(),
+            colour: 0,
+            custom_colour: None,
+            temporary: false,
+            created_at: chrono::Utc::now(),
+            last_opened_at: None,
+            search_excludes: Vec::new(),
+            index: None,
+        },
+        health: ProjectHealth::Ok,
+        open_panes: 0,
+        ephemeral: false,
+        workarea: "/tmp/ubiq-workarea".to_string(),
+    };
+
+    let (hub, host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(Some(project), 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    // The tree the picker will be built from, arriving the way the host sends one.
+    host.send(
+        To::Everyone,
+        Message::ProjectTreeListing {
+            project_id: project,
+            rel_path: String::new(),
+            listings: vec![DirListing {
+                rel_path: String::new(),
+                entries: vec![
+                    DirEntry {
+                        name: "crates".to_string(),
+                        rel_path: "crates".to_string(),
+                        kind: EntryKind::Dir,
+                        size: None,
+                        symlink: false,
+                    },
+                    DirEntry {
+                        name: "README.md".to_string(),
+                        rel_path: "README.md".to_string(),
+                        kind: EntryKind::File,
+                        size: Some(12),
+                        symlink: false,
+                    },
+                ],
+                truncated: false,
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    // The rail is on the IDE, which is the point: the sink's page is not in the tree, so nothing
+    // but the window root can be drawing this dialog.
+    state.read_with(cx, |state, _| {
+        assert_ne!(
+            state.workbench.rail_mode,
+            RailMode::Sink,
+            "the sink's page would paint its own picker"
+        );
+    });
+
+    let agent = AgentId::generate();
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.raise_composer_picker(agent, 0, window, cx)
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    state.read_with(cx, |state, _| {
+        assert!(
+            state.file_picker.is_some(),
+            "the composer's + never raised one"
+        );
+    });
+
+    let mut vcx = gpui::VisualTestContext::from_window(handle.into(), cx);
+    assert!(
+        vcx.debug_bounds("file-picker").is_some(),
+        "the picker is in the window's state and not in its tree — `ui::shell` lost the mount"
+    );
 }

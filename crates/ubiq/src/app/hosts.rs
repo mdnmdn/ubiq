@@ -1,10 +1,9 @@
 //! The multiplexer: one window's connection to every host it is attached to.
 //!
-//! Today that is exactly one host, the local, in-process one — the rest of this file exists so
-//! that stays true by construction rather than by nobody having tried the alternative yet. The
-//! rule set for it, from `AGENTS.md`: the local host is always attached, and a remote host is
-//! added *alongside* it rather than swapped in, so a window's terminals never all move because one
-//! remote connection dropped.
+//! Always the local, in-process host, plus every remote the connect flow has dialled and not yet
+//! lost. The rule set for it, from `AGENTS.md`: the local host is always attached, and a remote
+//! host is added *alongside* it rather than swapped in, so a window's terminals never all move
+//! because one remote connection dropped.
 //!
 //! [`Bus`] stands in for the `ubiq_proto::bus::Client` field `AppState` used to hold, and exposes
 //! the same four methods a `Client` does — `send`, `sender`, `input`, and (through
@@ -35,11 +34,7 @@ use ubiq_proto::messages::Message;
 use ubiq_proto::settings::SavedRemoteHost;
 
 /// Which host something is about: the one every window is always attached to, or one of the
-/// (currently zero) remote ones attached beside it.
-///
-/// `Local` is the only value this phase ever produces or stores — nothing yet builds a
-/// `Remote(HostId)`. The type exists now so the routing it drives, and everything that reads a
-/// `HostRef` back, does not have to be rewritten the day a connect flow starts minting one.
+/// remote ones attached beside it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HostRef {
     /// The one host this process starts before the first window and that outlives every one of
@@ -61,10 +56,9 @@ pub struct HostId(u64);
 
 /// One connection to a host that is not the local, in-process one.
 ///
-/// Nothing builds one yet: there is no socket transport and no connect flow, so
-/// [`Bus::remotes`](Bus) stays empty for the whole of this phase. `Detached`'s pump is what will
-/// eventually sit behind the `Client` here — see `ubiq_proto::bus::detached` and
-/// `_docs/tech/architecture.md`'s "Remote harnesses" section.
+/// Built by `app::remote_connect`'s dial, which hands the `Client` a `Detached` pump drives over
+/// the socket — see `ubiq_proto::bus::detached` and `_docs/tech/architecture.md`'s "Remote
+/// harnesses" section.
 pub struct RemoteConn {
     pub id: HostId,
     pub client: Client,
@@ -104,18 +98,18 @@ fn pane_id_of(message: &Message) -> Option<PaneId> {
 ///
 /// Replaces the `ubiq_proto::bus::Client` field `AppState` used to hold. `local` takes over
 /// exactly what that field did — nothing about the local connection's lifecycle, or what dropping
-/// it tells the host, changes. `remotes` and `active` are the room this phase makes and does not
-/// yet use.
+/// it tells the host, changes.
 pub struct Bus {
     /// Always present, never dropped while the window lives. Dropping this — which happens only
     /// when `Bus`, and so `AppState`, is dropped — is how the host learns the window has gone,
     /// exactly as when the field held a bare `Client`.
     local: Client,
-    /// Other hosts this window is attached to, beside the local one. Always empty in this phase.
+    /// Other hosts this window is attached to, beside the local one. Empty until a dial lands.
     remotes: Vec<RemoteConn>,
     /// Which host a message naming neither a pane nor a project should reach — the destination of
     /// "new terminal", "new project" and anything else the user has not pointed at a specific
-    /// remote. `HostRef::Local` is the only value this phase ever sets it to.
+    /// remote. Moved by the Hosts section's dropdown, and reset to `Local` by
+    /// [`Bus::drop_remote`] when the host it named goes away.
     active: HostRef,
     /// Every pane this window has been told about, and which host reported it.
     ///
@@ -146,19 +140,20 @@ impl Bus {
         }
     }
 
-    /// The client behind a [`HostRef`]. Falls back to the local client for a `Remote` id this
-    /// `Bus` no longer holds — the connection dropped mid-flight is a lost destination, not a
-    /// panic, and the local host answering nothing for it is no worse than the message going
-    /// nowhere.
-    fn client_for(&self, host: HostRef) -> &Client {
+    /// The client behind a [`HostRef`], or nothing at all for a remote this `Bus` no longer holds.
+    ///
+    /// Deliberately not "fall back to the local host": a dropped remote's pane ids were minted by
+    /// that remote and mean nothing here, so sending its keystrokes, its resizes or the close that
+    /// kills it to the local host is not a harmless near-miss — it is the local coordinator being
+    /// asked about panes it never created. A lost destination is a dropped message.
+    fn client_for(&self, host: HostRef) -> Option<&Client> {
         match host {
-            HostRef::Local => &self.local,
+            HostRef::Local => Some(&self.local),
             HostRef::Remote(id) => self
                 .remotes
                 .iter()
                 .find(|remote| remote.id == id)
-                .map(|remote| &remote.client)
-                .unwrap_or(&self.local),
+                .map(|remote| &remote.client),
         }
     }
 
@@ -199,20 +194,31 @@ impl Bus {
     /// repositories, before any project on it has been opened — there is no pane and no project
     /// yet to resolve from, and the host in question is not necessarily `active`.
     pub fn send_to(&self, host: HostRef, message: Message) {
-        self.client_for(host).send(message);
+        match self.client_for(host) {
+            Some(client) => client.send(message),
+            None => tracing::debug!("dropped a message for a host that is gone: {message:?}"),
+        }
     }
 
     /// A sender for callbacks that need to reach a host with no window in hand — today, only the
     /// terminal emulator's own resize measurement. Resolves against `active`, exactly as `send`
     /// would for a message naming neither a pane nor a project, because an `Outbox` is minted with
     /// no message to resolve from.
+    ///
+    /// An `Outbox` has to exist, so this is the one place a gone host resolves to the local
+    /// client anyway — which never actually happens, because [`Bus::drop_remote`] puts `active`
+    /// back on `Local` as it removes the connection.
     pub fn sender(&self) -> Outbox {
-        self.client_for(self.active).sender()
+        self.client_for(self.active).unwrap_or(&self.local).sender()
     }
 
     /// The write half for one pane's keystrokes. Resolves against the pane's own recorded host —
     /// falling back to `active` for a pane this `Bus` was never told about, which today never
     /// happens, since every pane is recorded when its workspace is drawn.
+    ///
+    /// A `PaneInput` has to exist, so a host that has gone since falls back to the local client
+    /// with a word in the log rather than nothing. Nothing types into one: losing a host closes
+    /// every pane it was running, and a closed pane's emulator is dropped with it.
     pub fn input(&self, pane_id: PaneId) -> PaneInput {
         let host = self
             .panes
@@ -220,7 +226,11 @@ impl Bus {
             .get(&pane_id)
             .copied()
             .unwrap_or(self.active);
-        self.client_for(host).input(pane_id)
+        let client = self.client_for(host).unwrap_or_else(|| {
+            tracing::warn!("keystrokes for pane {pane_id}, whose host is gone");
+            &self.local
+        });
+        client.input(pane_id)
     }
 
     /// Every connection's inbound stream, tagged with the [`HostRef`] it came from — what the
@@ -273,8 +283,7 @@ impl Bus {
         self.active
     }
 
-    /// Point `active` at a different host. Unused this phase — nothing yet builds a `HostRef`
-    /// other than `Local` to pass it — kept minimal for the connect flow to call.
+    /// Point `active` at a different host, as the Hosts section's dropdown does.
     pub fn set_active(&mut self, host: HostRef) {
         self.active = host;
     }
@@ -296,16 +305,47 @@ impl Bus {
         (id, from_host)
     }
 
-    /// Drop a remote connection. Anything still recorded under it in `panes` or `projects` is left
-    /// as it is — `client_for` falls back to the local host for an id it no longer holds, which is
-    /// the same "nowhere to send it" outcome a dropped host implies either way.
-    pub fn remove_remote(&mut self, id: HostId) {
+    /// Lose a remote: drop the connection, forget every project recorded under it, and put
+    /// `active` back on the local host if it was pointed at this one — otherwise every message
+    /// naming neither a pane nor a project would go on resolving to a host that is not there.
+    ///
+    /// Hands back the panes it was running rather than forgetting them, because closing one is
+    /// the caller's job and `AppState::close_pane` still sends a `CloseWorkspace` for it: with the
+    /// pane still recorded here that close resolves to this now-absent host and is dropped, where
+    /// forgetting it first would resolve it to `active` and ask the local host about a pane id it
+    /// never minted. `close_pane` forgets each as it goes.
+    pub fn drop_remote(&mut self, id: HostId) -> Vec<PaneId> {
+        let host = HostRef::Remote(id);
         self.remotes.retain(|remote| remote.id != id);
+        self.projects.borrow_mut().retain(|_, owner| *owner != host);
+        if self.active == host {
+            self.active = HostRef::Local;
+        }
+        self.panes
+            .borrow()
+            .iter()
+            .filter(|(_, owner)| **owner == host)
+            .map(|(pane_id, _)| *pane_id)
+            .collect()
+    }
+
+    /// Every project this window knows of that some host other than `host` reported.
+    ///
+    /// What keeps one host's catalogue answer from erasing another's: a `ProjectList` is the whole
+    /// truth about the host that sent it and says nothing at all about any other, so the rows to
+    /// keep are named here and handed to
+    /// [`WindowRegistry::replace_all_except`](crate::state::windows::WindowRegistry).
+    pub fn projects_not_on(&self, host: HostRef) -> Vec<ProjectId> {
+        self.projects
+            .borrow()
+            .iter()
+            .filter(|(_, owner)| **owner != host)
+            .map(|(project_id, _)| *project_id)
+            .collect()
     }
 
     /// Every remote this window is attached to beside the local host, with the label it was
-    /// dialled under. Empty in every build before Phase 3b's connect flow lands a `Client` — and,
-    /// even after, empty until the user has actually connected to something.
+    /// dialled under. Empty until the user has actually connected to something.
     pub fn remotes(&self) -> impl Iterator<Item = (HostId, &str)> {
         self.remotes
             .iter()
@@ -733,6 +773,52 @@ mod tests {
         assert!(matches!(local_messages[0], Message::RefreshProject { .. }));
         assert!(matches!(local_messages[1], Message::Focus { .. }));
         assert!(remote_end.said().try_recv().is_err());
+    }
+
+    /// Losing a host takes everything recorded under it with it: its projects are forgotten, its
+    /// panes are handed back for the caller to close, and `active` — which pointed at it — is put
+    /// back on the local host so an unaddressed message has somewhere real to go.
+    #[test]
+    fn drop_remote_forgets_the_hosts_projects_and_resets_active() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _) = bus.register_remote(ubiq_proto::bus::detached().0, "gone".to_string());
+
+        let theirs = a_project_id();
+        let ours = a_project_id();
+        bus.note_project(theirs, HostRef::Remote(remote));
+        bus.note_project(ours, HostRef::Local);
+        let pane_id = PaneId::generate();
+        bus.note_pane(pane_id, HostRef::Remote(remote));
+        bus.set_active(HostRef::Remote(remote));
+
+        assert_eq!(bus.drop_remote(remote), vec![pane_id]);
+
+        assert_eq!(bus.active(), HostRef::Local);
+        assert_eq!(bus.remotes().count(), 0);
+        // The local host's project survives; the remote's is gone.
+        assert_eq!(bus.projects_not_on(HostRef::Local), Vec::<ProjectId>::new());
+        assert_eq!(bus.projects_not_on(HostRef::Remote(remote)), vec![ours]);
+    }
+
+    /// The poison this replaces: after a remote goes, its pane ids mean nothing to the local
+    /// host, so a message still addressed to it is dropped rather than delivered there.
+    #[test]
+    fn a_dropped_remotes_messages_do_not_land_on_the_local_host() {
+        let (local, local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _) = bus.register_remote(ubiq_proto::bus::detached().0, "gone".to_string());
+
+        let pane_id = PaneId::generate();
+        bus.note_pane(pane_id, HostRef::Remote(remote));
+        bus.drop_remote(remote);
+
+        // The pane is still recorded — `close_pane` forgets it — so this resolves to the host
+        // that is no longer there, which is exactly the case that must go nowhere.
+        bus.send(Message::CloseWorkspace { pane_id });
+        bus.send_to(HostRef::Remote(remote), Message::ListProjects);
+
+        assert!(local_end.said().try_recv().is_err());
     }
 
     /// With nothing attached, there is nothing to prefer.

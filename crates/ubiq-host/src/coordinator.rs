@@ -11,18 +11,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use ubiq_proto::assist::SuggestSubject;
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
 use ubiq_proto::files::FileError;
-use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId};
+use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SuggestId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth};
 use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, PendingLogin};
+use crate::assist::{self, Assist};
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::connectors::{Answer, Connectors};
@@ -51,6 +53,31 @@ const INITIAL_ROWS: u16 = 24;
 /// finishes on another thread is collected promptly rather than only on the next unrelated
 /// message. See the wait computation in `run` for why this is needed at all.
 const CONVERSATION_POLL: Duration = Duration::from_millis(500);
+
+/// How long one suggestion may take before it is answered with a failure instead. Generation
+/// cannot be interrupted, so this bounds the wait rather than the work.
+const SUGGEST_DEADLINE: Duration = Duration::from_secs(60);
+
+/// Gather what a subject needs and compose its prompt. Off the coordinator's thread, so the
+/// repository read here is allowed to be slow.
+fn gather(
+    subject: &SuggestSubject,
+    root: &std::path::Path,
+    assist: &dyn Assist,
+) -> Result<assist::Request, String> {
+    match subject {
+        SuggestSubject::CommitMessage { .. } => {
+            let observation = git::observe(root, 0, true)
+                .map_err(|error| format!("read the repository: {error:?}"))?;
+            let entries = observation
+                .tree
+                .map(|tree| tree.entries)
+                .filter(|entries| !entries.is_empty())
+                .ok_or_else(|| "there is nothing changed here to name".to_string())?;
+            Ok(assist::subject::commit_message(&entries, &assist.limits()))
+        }
+    }
+}
 
 /// Start the coordinator on its own thread. One per process, started before the first window: the
 /// catalogue it will own is process-wide, and two of them would disagree about what exists.
@@ -113,6 +140,15 @@ struct Coordinator {
     /// search is over", set by the worker itself when it finishes, cancelled or not. `search_job`
     /// reaps entries where the flag is already set, the one place that mints them.
     active_searches: HashMap<ProjectId, (SearchId, Arc<AtomicBool>)>,
+    /// The backend that writes a suggestion. Held rather than selected per request: a backend can
+    /// mean an FFI handle and a loaded model, which is expensive enough to keep, where every other
+    /// setting here is re-read from `self.settings.host()` at each use. Rebuilt when a
+    /// `SetSettings` write changes the provider, which is the only thing that can change it.
+    assist: Arc<dyn Assist>,
+    /// One flag per suggestion asked for, flipped by `CancelSuggest`. Reaped the way
+    /// `active_searches` is: the worker sets the flag on its way out too, so an entry whose flag is
+    /// already set is over and can be dropped when the next suggestion mints one.
+    active_suggests: HashMap<SuggestId, Arc<AtomicBool>>,
     /// One filesystem watch per window per open project. Keyed by both because a project is open
     /// in exactly one window and a window shows one project at a time — there is no
     /// `CloseProject` message, so replacing a client's entry when it opens another project is how
@@ -570,6 +606,7 @@ impl Coordinator {
             agents
         };
         agents.sweep();
+        let assist_provider = settings.host().assist;
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
@@ -606,6 +643,8 @@ impl Coordinator {
             search: Search::start(),
             index: crate::index::Index::start(),
             active_searches: HashMap::new(),
+            assist: assist::select(assist_provider),
+            active_suggests: HashMap::new(),
             watchers: HashMap::new(),
             pending,
             pane_projects: HashMap::new(),
@@ -1174,11 +1213,31 @@ impl Coordinator {
                 self.answer(client, vec![reply]);
             }
 
+            // ── the assist family ───────────────────────────────────
+            // Whether a model is there is a fact about this machine, answered from the backend
+            // already held — no device is asked twice and no window learns a vendor's words.
+            Message::GetAssist => {
+                self.answer(client, vec![Reply::Asker(assist::describe(&*self.assist))]);
+            }
+            // Best effort, and that is the whole contract: the flag stops the reply being
+            // forwarded, it does not stop the model. A generation already inside the framework
+            // runs to its end and its answer is dropped.
+            Message::CancelSuggest { suggest_id } => {
+                if let Some(cancel) = self.active_suggests.get(&suggest_id) {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            }
+            Message::Suggest {
+                suggest_id,
+                subject,
+            } => self.suggest_job(client, suggest_id, subject),
+
             Message::GetSettings { layer } => {
                 let reply = self.settings.get(layer);
                 self.answer(client, vec![reply]);
             }
             Message::SetSettings { layer, value } => {
+                let was = self.settings.host().assist;
                 let replies = self.settings.set(layer, value);
                 // How an agent is confined is acted on at the next spawn, so the settings are
                 // re-read here rather than kept in a copy that could go stale.
@@ -1186,6 +1245,12 @@ impl Coordinator {
                 self.agents.set_isolate(host.isolate_agents);
                 self.agents
                     .set_policy(host.agent_home.clone(), host.extra_grants.clone());
+                // The assist backend is the exception to re-reading: selecting one can mean
+                // opening an FFI handle, so it is held and rebuilt only when the provider itself
+                // moved.
+                if host.assist != was {
+                    self.assist = assist::select(host.assist);
+                }
                 self.answer(client, replies);
                 // The default moved, so every project that never overrode it moved with it. Only
                 // open projects are settled: a closed one has no index either way, and builds one
@@ -2190,6 +2255,79 @@ impl Coordinator {
             home: self.projects.index_dir(project_id),
             excludes,
         });
+    }
+
+    /// Answer one [`Message::Suggest`].
+    ///
+    /// Generation blocks — an FFI hop into a model, or one day an HTTP round trip — so it happens
+    /// on a one-off named thread holding a mailbox, the same shape model discovery uses: the
+    /// coordinator must keep answering every other window while a model writes a sentence. The
+    /// repository read happens there too, for the reason the whole git family has its own thread:
+    /// a status walk is seconds on a large tree, and seconds here stall every pane's keystrokes.
+    fn suggest_job(&mut self, client: ClientId, suggest_id: SuggestId, subject: SuggestSubject) {
+        // Reap suggestions that are over — the flag means both "cancelled" and "finished", set by
+        // the worker on its way out. This is the one place `active_suggests` gains an entry, so it
+        // is the one place that drops stale ones.
+        self.active_suggests
+            .retain(|_, over| !over.load(Ordering::Relaxed));
+
+        let mailbox = self.host.mailbox(To::Client(client));
+        let fail = |error: String| {
+            mailbox.send(Message::SuggestError { suggest_id, error });
+        };
+
+        // What the subject names, resolved here because the catalogue lives on this thread. The
+        // material itself is gathered by the worker.
+        let root = match &subject {
+            SuggestSubject::CommitMessage { project_id } => {
+                match self.projects.record(*project_id) {
+                    Some(record) => PathBuf::from(&record.path),
+                    None => return fail("that project is not in the catalogue".to_string()),
+                }
+            }
+        };
+
+        if let Some(unavailable) = self.assist.availability() {
+            return fail(assist::unavailable_message(&unavailable));
+        }
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.active_suggests.insert(suggest_id, cancel.clone());
+        let assist = self.assist.clone();
+
+        thread::Builder::new()
+            .name(format!("suggest-{suggest_id}"))
+            .spawn(move || {
+                let answer = gather(&subject, &root, &*assist).and_then(|request| {
+                    // A deadline, because nothing below can be interrupted: a model that hangs
+                    // would otherwise leave the window waiting forever, and a mechanical name is
+                    // better than a control that never comes back. The generation itself runs on
+                    // one more thread only so this one can stop waiting for it.
+                    let (done, waiting) = std::sync::mpsc::channel();
+                    thread::Builder::new()
+                        .name(format!("suggest-run-{suggest_id}"))
+                        .spawn(move || {
+                            let _ = done.send(assist.generate(request));
+                        })
+                        .map_err(|error| format!("assist thread: {error}"))?;
+                    waiting
+                        .recv_timeout(SUGGEST_DEADLINE)
+                        .unwrap_or_else(|_| Err("the model did not answer in time".to_string()))
+                });
+
+                // Cancelled: the answer is dropped rather than forwarded. Setting the flag here
+                // as well is what marks this suggestion over, for the reaping above.
+                if !cancel.swap(true, Ordering::Relaxed) {
+                    mailbox.send(match answer {
+                        Ok(text) => Message::Suggestion {
+                            suggest_id,
+                            text: text.trim().to_string(),
+                        },
+                        Err(error) => Message::SuggestError { suggest_id, error },
+                    });
+                }
+            })
+            .ok();
     }
 
     fn search_job(

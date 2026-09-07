@@ -123,7 +123,99 @@ impl IsolateOptions {
             extra_rw: Vec::new(),
         }
     }
+
+    /// Grant the toolchain roots this host has relocated, read from the
+    /// environment.
+    ///
+    /// The shipped layers grant a toolchain's *default* location — `~/.cargo`,
+    /// `~/.rustup`, `~/go` — so a host that installed one elsewhere gets a
+    /// policy that names the wrong directory and a run that cannot build.
+    /// [`ENV_PASS`] already forwards the variables that say where a root
+    /// really is; this grants what those variables name, because forwarding
+    /// `CARGO_HOME` tells `cargo` where to look and opens nothing.
+    ///
+    /// **The environment read is the caller's, deliberately.** [`plan`] must
+    /// answer identically for a given `IsolateOptions` — that is the
+    /// front-end-agnostic invariant this module keeps — so a host calls this
+    /// where it decides to consult its own environment, and `plan` still only
+    /// consumes options. Call it before appending a user's own grants, so an
+    /// explicit grant is the last word on a path the environment also named.
+    pub fn grant_toolchains_from_env(&mut self) {
+        self.grant_toolchains(|name| std::env::var_os(name));
+    }
+
+    /// [`grant_toolchains_from_env`](Self::grant_toolchains_from_env) over a
+    /// caller-supplied lookup, which is what makes it testable: a test that
+    /// mutated the process environment would race every other test in the
+    /// binary.
+    fn grant_toolchains<F>(&mut self, lookup: F)
+    where
+        F: Fn(&str) -> Option<std::ffi::OsString>,
+    {
+        for (name, writable) in TOOLCHAIN_ROOT_VARS {
+            let Some(value) = lookup(name) else { continue };
+            let path = PathBuf::from(value);
+            // A relative value would resolve against nothing — isol8 grants
+            // absolute paths, so naming one relatively grants the wrong tree
+            // rather than failing. Not existence-filtered, for the same reason
+            // `DEV_RW_HOME_ROOTS` is not: a root the tool creates on first use
+            // needs the grant in order to be created.
+            if !path.is_absolute() {
+                continue;
+            }
+            let grants = match writable {
+                true => &mut self.extra_rw,
+                false => &mut self.extra_ro,
+            };
+            if !grants.contains(&path) {
+                grants.push(path);
+            }
+        }
+    }
 }
+
+/// Toolchain roots a host may have relocated, and the access a build needs at
+/// each.
+///
+/// These names are the relocation half of [`ENV_PASS`], and the two must stay
+/// in step: passing a variable without granting what it names leaves a tool
+/// pointed at a path it cannot read, which is the failure that looks like a
+/// broken toolchain rather than a policy.
+///
+/// An SDK tree is read-only — a build writes to its cache, not to `GOROOT` or
+/// `JAVA_HOME` — and everything else is a cache, a registry or an install root
+/// a build genuinely writes to. `SDKMAN_DIR` is read-only to match the choice
+/// a real tuned setup already made for it.
+///
+/// A writable root can hold a credential: `CARGO_HOME` carries
+/// `credentials.toml`, a crates.io token, and the same is true of `~/.npmrc`
+/// under a relocated npm prefix. That is not a posture this table invents —
+/// `toolchains/rust` already grants `~/.cargo` read-write on a default
+/// install, so relocating the root changes where the exposure is and not
+/// whether it exists. Narrowing it means a deny on the credential file
+/// specifically, which needs a generated layer rather than a path list; until
+/// something asks for one, a confined agent can read the tokens its own
+/// toolchain uses.
+const TOOLCHAIN_ROOT_VARS: &[(&str, bool)] = &[
+    // (variable, writable)
+    ("CARGO_HOME", true),  // registry, git checkouts, .package-cache
+    ("RUSTUP_HOME", true), // toolchains, downloads, tmp
+    ("GOROOT", false),
+    ("GOPATH", true),
+    ("GOMODCACHE", true),
+    ("GOCACHE", true),
+    ("JAVA_HOME", false),
+    ("SDKMAN_DIR", false),
+    ("PYENV_ROOT", true),
+    ("MISE_DATA_DIR", true),
+    ("NPM_CONFIG_PREFIX", true),
+    ("PNPM_HOME", true),
+    ("VOLTA_HOME", true),
+    ("BUN_INSTALL", true),
+    ("DOTNET_ROOT", true),
+    ("NUGET_PACKAGES", true),
+    ("PUB_CACHE", true),
+];
 
 /// The user's real home, whatever a run's own `$HOME` was set to.
 ///
@@ -224,10 +316,13 @@ pub const DEV_LAYERS: &[&str] = &[
 /// Layers that must never be named: each one breaks *every* confined run, not
 /// just its own feature.
 ///
-/// The first seven carry `[macos] raw` blocks calling `home-literal` or
-/// `home-subpath`, Scheme macros isol8's macOS backend never defines. There is
-/// no partial failure: `sandbox-exec` rejects the whole policy with `unbound
-/// variable` and nothing starts. Granting
+/// Nine of them carry `[macos] raw` blocks naming a symbol isol8's macOS
+/// backend never defines — `home-literal` and `home-subpath` as macros, and
+/// `HOME_DIR` as a bare variable inside a `string-append`. The rendered policy
+/// opens `(version 1)\n(deny default)\n` and carries no `(define ...)` prelude
+/// at all, so all three are unbound. There is no partial failure:
+/// `sandbox-exec` rejects the whole policy with `unbound variable` and nothing
+/// starts, however unrelated the layer is to what the run was doing. Granting
 /// `toolchains/apple-toolchain-core` directly is the standing workaround for
 /// the `integrations/xcode` case.
 ///
@@ -243,13 +338,19 @@ pub const DEV_LAYERS: &[&str] = &[
 /// None of this stops a user naming one explicitly through
 /// `Isolation::Sandboxed`; it stops *this* module choosing one for them.
 pub const BROKEN_LAYERS: &[&str] = &[
+    // `home-literal` / `home-subpath`
     "integrations/xcode",
-    "integrations/ssh",
-    "integrations/1password",
     "integrations/kubectl",
     "integrations/chromium-headless",
     "integrations/chromium-full",
+    // both families
+    "integrations/ssh",
+    "integrations/1password",
     "integrations/container-runtime-default-deny",
+    // `HOME_DIR`
+    "integrations/docker",
+    "integrations/ssh-agent-default-deny",
+    // Not broken, just a bad default — see above.
     "integrations/shell-init",
 ];
 
@@ -1241,6 +1342,93 @@ mod tests {
         assert!(confined.spec.profiles.contains(&"base".to_string()));
         assert!(confined.spec.profiles.contains(&system_layer.to_string()));
         assert!(confined.spec.profiles.contains(&"no-network".to_string()));
+    }
+
+    // A relocated toolchain root is granted, split by what a build needs
+    // there: a cache is written, an SDK tree is only read. Without this a
+    // policy names `~/.cargo` on a machine whose cargo lives elsewhere, and
+    // `cargo` fails in a way that looks like a broken toolchain — the
+    // variable reaches the run through ENV_PASS and opens no path by itself.
+    #[test]
+    fn toolchain_env_roots_become_grants() {
+        let mut options = IsolateOptions::new("/state");
+        options.grant_toolchains(|name| match name {
+            "CARGO_HOME" => Some("/opt/rust/sdk/cargo".into()),
+            "RUSTUP_HOME" => Some("/opt/rust/sdk/rustup".into()),
+            "GOROOT" => Some("/opt/go/sdk/1.26.1".into()),
+            "GOMODCACHE" => Some("/opt/go/pkg/mod".into()),
+            _ => None,
+        });
+
+        assert!(
+            options
+                .extra_rw
+                .contains(&PathBuf::from("/opt/rust/sdk/cargo"))
+        );
+        assert!(
+            options
+                .extra_rw
+                .contains(&PathBuf::from("/opt/rust/sdk/rustup")),
+            "rustup writes its toolchains and downloads: {:?}",
+            options.extra_rw
+        );
+        assert!(options.extra_rw.contains(&PathBuf::from("/opt/go/pkg/mod")));
+        // An SDK tree a build reads and never writes.
+        assert!(
+            options
+                .extra_ro
+                .contains(&PathBuf::from("/opt/go/sdk/1.26.1"))
+        );
+        assert!(
+            !options
+                .extra_rw
+                .contains(&PathBuf::from("/opt/go/sdk/1.26.1"))
+        );
+    }
+
+    // A relative or empty value grants nothing: isol8 resolves a grant against
+    // no working directory, so honouring one would grant some other tree
+    // rather than fail.
+    #[test]
+    fn toolchain_env_roots_skip_relative_and_empty() {
+        let mut options = IsolateOptions::new("/state");
+        options.grant_toolchains(|name| match name {
+            "CARGO_HOME" => Some("relative/cargo".into()),
+            "GOROOT" => Some("".into()),
+            _ => None,
+        });
+
+        assert!(options.extra_rw.is_empty(), "{:?}", options.extra_rw);
+        assert!(options.extra_ro.is_empty(), "{:?}", options.extra_ro);
+    }
+
+    // Not existence-filtered, for the same reason DEV_RW_HOME_ROOTS is not: a
+    // root the tool creates on first use needs the grant to be created at all,
+    // and a grant on an absent path is inert.
+    #[test]
+    fn toolchain_env_roots_need_not_exist() {
+        let mut options = IsolateOptions::new("/state");
+        options.grant_toolchains(|name| {
+            (name == "NUGET_PACKAGES").then(|| "/nowhere/nuget/packages".into())
+        });
+
+        assert_eq!(
+            options.extra_rw,
+            vec![PathBuf::from("/nowhere/nuget/packages")]
+        );
+    }
+
+    // Every variable this grants a path for must also be forwarded into the
+    // run: a granted path the tool is never told about is dead policy, and a
+    // forwarded variable with no grant is the bug this pair exists to prevent.
+    #[test]
+    fn every_toolchain_root_var_is_also_passed_through() {
+        for (name, _) in TOOLCHAIN_ROOT_VARS {
+            assert!(
+                ENV_PASS.contains(name),
+                "{name} is granted but not in ENV_PASS"
+            );
+        }
     }
 
     // THE test for DEV_LAYERS. Every name must exist in the pinned isol8

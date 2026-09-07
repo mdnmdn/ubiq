@@ -104,6 +104,27 @@ project root or a full `ubiq://` opens that place in the window, `http`, `https`
 the operating system, and anything else does nothing — see
 [`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
 
+**A running turn is drawn at the tail of the transcript.** While the run is `Working` and nothing is
+waiting on a permission answer, the last thing in the transcript is `ui::conversation::writing_mark`
+— three dots pulsing a third of a cycle out of phase, in the colour `Activity` already gives that
+turn, with the activity's own word beside them. A turn can be a minute of silence between two
+sentences, and silence reads as nothing happening; movement is the only honest thing to draw there,
+since a spinner would claim progress nothing measures. It is not drawn while an ask is up: the
+question on screen is what is happening, and two marks would compete to say so. The run is folded
+into `tail_signature`, so the mark appearing scrolls the tail into view the way a new block does.
+
+**A run of the same kind of tool call is folded to its last card.** Three or more consecutive tool
+blocks of one kind — `GROUP_MIN` — are drawn as the last of them plus one `tool_group` row standing
+for the ones before it, wearing that kind's own colour and reading `N earlier calls`, which opens on
+click to show them all in place. Twelve `READ`s in a row are twelve rows of furniture between two
+sentences, and what a reader is following is the last of them; two cards would become a row plus a
+card, which is no shorter and one more thing to learn, which is where the floor of three comes from.
+A `Delegate` call is never folded, because a spawned agent is a second transcript rather than a
+step, and neither is a call with a permission ask attached, because a prompt behind a counter is a
+turn that deadlocks. Which runs are open is `Conversation::open_groups`, keyed by the run's first
+call id — UI arrangement the host never hears about, like a tool block's own open flag — toggled
+through `AppState::toggle_conversation_tool_group`.
+
 **A permission ask is drawn on the tool call it authorises, not in a dialog.** A harness that stops
 to ask stops mid-operation, and the operation is already on screen: the prompt is joined to that
 block by the tool call id, the block reads as awaiting approval, and the buttons sit under it in the
@@ -184,6 +205,23 @@ every token the conversation has ever billed, subagents included, which only gro
 is a ring and the other a number, and every readout in the row says which it is on hover: the
 identity chip, the ring, `ctx`, `tot` with its per-way and per-subagent breakdown, and the
 composer's model, thinking and mode chips.
+
+**A second ring beside `tot` says how much of that total was read back out of the cache.** It sits
+at `cached_tokens` over `total_tokens`, in the `info` tokens rather than the accent ones — a second
+accent ring beside the context one would read as the same fact twice — and says
+`cached X / Y Z%` on hover. It is off unless asked for, because it is a cost-of-running reading
+rather than a how-is-this-turn-going one and the footer row is glanced at; the setting that turns it
+on is [`workbench.md`](./workbench.md)'s.
+
+**Stop is there for the whole of a running turn, and it is a filled square.** The moment a message
+is sent is the moment a reader most wants it back, so a control that appears only while the field is
+empty is a control that vanishes as soon as the follow-up is being typed. It sends `CancelTurn`: the
+turn in flight ends, the conversation and the harness stay, and the next message goes to the same
+agent — which is why it is a square and not a cross, a cross reading as *close this* and this
+closing nothing. When a running turn also has something typed, Enqueue sits beside Stop, because a
+turn is not interrupted by typing at it and what is typed goes out when it ends; an idle
+conversation keeps the one Send button. All three are what Enter answers through
+`AppState::send_or_enqueue`, so the buttons and the key never disagree.
 
 **The status glyph and the three-dots lifecycle menu are the one exception: the tab's own header
 draws them, not the shared view.** `ConversationView::header` tells the shared view whether to draw
@@ -272,7 +310,17 @@ too: `crates/ubiq/src/state/conversation.rs` holds `Pending` — the request id,
 and the options — in `Conversation::pending`, with `oldest_pending()` for what the keyboard means,
 `answered()` for one request leaving, `Pending::option_for` for the first option of a reading, and
 `tool_block_index()` for the id join the prompt draws through; `crates/ubiq/src/ui/conversation/mod.rs`'s
-`permission()` draws the block-attached prompt, its fallback and the counting strip.
+`permission()` draws the block-attached prompt, its fallback and the counting strip. The same module
+holds the rest of the transcript's own furniture: `transcript()` walks the visible blocks, folding
+each run of same-kind calls into one `tool_group()` row plus the run's last card — `one_block()` is
+the arm it reuses for a card it does not fold and for the ones it unfolds — `writing_mark()` is the
+tail's running mark, and `tail_signature()` is what the follow-the-tail scroll compares. The fold's
+open set is `Conversation::open_groups` with `toggle_group()` beside it in
+`crates/ubiq/src/state/conversation.rs`, reached from the row through
+`AppState::toggle_conversation_tool_group` in `crates/ubiq/src/app/agents.rs`. `footer()` reads
+`show_cache_ring` off the workbench's UI settings and draws the cache ring from `cached_tokens()`
+over `total_tokens()`; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
+the `action_button()` the Send and Enqueue states share.
 `AppState::answer_permission` in `crates/ubiq/src/app/agents.rs` sends one answer and forgets that
 one request only, `answer_oldest_permission` is what the keyboard resolves through
 `read_conversation`, and `cancel_turn` clears the whole set. The `AllowPermission` and
@@ -309,6 +357,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | An attached file is deleted or moved before the turn is sent | The mention goes out anyway and the harness answers for it; the interface reads no disk, so it has nothing newer to know |
 | A permission request names a tool call the transcript does not hold | The prompt draws self-contained at the end of the transcript, with the options it carries |
 | A permission request offers no option of the reading ⌘⌥Y or ⌘⌥N asks for | The keyboard does nothing; the buttons the harness did offer are still there to press |
+| A conversation reports a total but no cached figure, or a total of zero | The cache ring is not drawn; a ring at nothing over nothing is not a reading |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
 | The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
 

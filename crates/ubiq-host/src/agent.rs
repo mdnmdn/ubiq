@@ -747,6 +747,9 @@ impl Agents {
         // both are settings a person set on this machine, and the library has no way to ask.
         let mut options = IsolateOptions::new(self.root.join("isol8"));
         options.home = home_mode(&self.home);
+        // Before the user's own grants, so an explicit one is the last word on
+        // a path the environment also named.
+        options.grant_toolchains_from_env();
         for grant in &self.extra_grants {
             let path = expand_home(&grant.path);
             if grant.write {

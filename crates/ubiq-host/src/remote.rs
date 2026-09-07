@@ -31,6 +31,13 @@ use ubiq_proto::wire;
 /// of it is read — an unauthenticated peer gets no chance to make this host buffer without bound.
 const MAX_HEADER: usize = 8 * 1024;
 
+/// How long a peer has to finish its handshake. The header block is read a byte at a time from an
+/// unauthenticated socket, so without a deadline a peer that connects and then says nothing pins a
+/// connection thread for the life of the process — the `MAX_HEADER` cap bounds the memory that
+/// costs and nothing bounds the time. Cleared the moment the upgrade is written, because a session
+/// is idle between frames by design.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// What starting the listener hands back: where it ended up bound, and the token a client must
 /// present to attach.
 pub struct Serving {
@@ -128,6 +135,7 @@ fn accept_loop(listener: TcpListener, hub: Hub, token: String) {
 /// One accepted socket, from the handshake through the life of the session.
 fn handle_connection(mut stream: TcpStream, hub: Hub, token: &str) {
     let _ = stream.set_nodelay(true);
+    let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
 
     let request = match read_request(&mut stream) {
         Ok(request) => request,
@@ -143,6 +151,9 @@ fn handle_connection(mut stream: TcpStream, hub: Hub, token: &str) {
             if write_response_line(&mut stream, "101 Switching Protocols").is_err() {
                 return;
             }
+            // The deadline was the handshake's, not the session's: a client that says nothing for
+            // an hour is an idle window, not a stalled peer.
+            let _ = stream.set_read_timeout(None);
             pump(stream, hub);
         }
         Request::Root => {

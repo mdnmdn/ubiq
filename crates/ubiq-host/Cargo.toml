@@ -89,8 +89,23 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # a `None` on a platform that will not say. Draws nothing.
 memory-stats = "1"
 
+[features]
+# The on-device assist backend. Off, `assist::select` answers with the stub backend, which reports
+# assistance unavailable — a complete build, and the only one possible on a machine without a
+# Swift toolchain and the macOS 26 SDK. Not a default here: `ubiq-app` turns it on, so switching it
+# off there is enough to switch it off everywhere.
+assist-apple = ["dep:foundation-models"]
+
 [dev-dependencies]
 tempfile = "3"
 # The pin verifier's own test drives it through `ServerCertVerifier`, which means naming rustls'
 # types. The same version the dependency above resolves to, so there is one rustls in the build.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The on-device assist backend, pulled in only by `assist-apple`. Wraps Apple's FoundationModels
+# through a Swift bridge it compiles, because the framework is Swift-only and carries no
+# Objective-C metadata for `objc2` to consume — which is why it needs a Swift toolchain and the
+# macOS 26 SDK at build time, and why it sits behind a feature. It draws nothing; `just host`
+# stays green.
+foundation-models = { version = "0.11", features = ["macos_26_0"], optional = true }

@@ -493,6 +493,12 @@ impl AppState {
     fn attach_remote(&mut self, client: Client, label: String, cx: &mut Context<Self>) {
         let (host_id, from_host) = self.bus.register_remote(client, label);
         Self::route_host(HostRef::Remote(host_id), from_host, cx);
+        // Nothing about a remote is known until it says so, and it says nothing unasked: the one
+        // `ListProjects` boot.rs sends went to the local host, long before this connection
+        // existed. Addressed rather than sent, because `active` still points wherever the user
+        // left it — attaching a host is not choosing it.
+        self.bus
+            .send_to(HostRef::Remote(host_id), Message::ListProjects);
     }
 }
 

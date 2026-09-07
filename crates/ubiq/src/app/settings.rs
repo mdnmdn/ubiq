@@ -229,6 +229,13 @@ impl AppState {
         cx.notify();
     }
 
+    /// Show or hide the cached-token ring in a conversation footer.
+    pub fn toggle_cache_ring(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.show_cache_ring = !self.workbench.settings.ui.show_cache_ring;
+        self.remember_settings();
+        cx.notify();
+    }
+
     pub fn set_markdown_open(&mut self, choice: MarkdownOpen, cx: &mut Context<Self>) {
         self.workbench.settings.ui.markdown_open = choice;
         self.remember_settings();
@@ -240,6 +247,19 @@ impl AppState {
     pub fn toggle_isolate_agents(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.host.isolate_agents = !self.workbench.settings.host.isolate_agents;
         self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Which backend, if any, writes a suggestion. Host-owned, so this writes the Host layer
+    /// like the toggle above.
+    ///
+    /// The answer to "can assistance run here" changes with the provider — `Off` is itself a
+    /// reason it cannot — so the host is asked again rather than the interface deciding what its
+    /// own write must have meant.
+    pub fn set_assist_provider(&mut self, provider: AssistProvider, cx: &mut Context<Self>) {
+        self.workbench.settings.host.assist = provider;
+        self.remember_host_settings();
+        self.bus.send(Message::GetAssist);
         cx.notify();
     }
 

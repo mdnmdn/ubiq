@@ -346,3 +346,26 @@ fn a_project_the_catalogue_does_not_hold_cannot_be_opened() {
     assert!(!registry.open_in(id(2), stranger));
     assert_eq!(registry.slot(id(2)).unwrap().projects, vec![p[0]]);
 }
+
+/// A catalogue answer belongs to the host that sent it and to no other. With a remote attached,
+/// the local host's `ProjectList` must leave the remote's rows where they are — replacing the map
+/// wholesale is what used to make one host's projects vanish the moment the other answered.
+#[test]
+fn a_catalogue_answer_replaces_only_its_own_hosts_projects() {
+    let p = ids(3);
+    let mut registry = WindowRegistry::default();
+    registry.replace_all(vec![
+        snapshot(p[0], "local-one", "~/dev/one", None),
+        snapshot(p[2], "remote", "/srv/remote", None),
+    ]);
+
+    // The local host answers again, naming a different project and never having heard of the
+    // remote's — which is kept because the caller said this answer has no opinion about it.
+    registry.replace_all_except(
+        vec![snapshot(p[1], "local-two", "~/dev/two", None)],
+        &[p[2]],
+    );
+
+    let held: Vec<ProjectId> = registry.all().map(|p| p.record.id).collect();
+    assert_eq!(held, vec![p[1], p[2]]);
+}

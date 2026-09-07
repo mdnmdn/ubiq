@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::assist::AssistProvider;
 use crate::connectors::{Connection, OauthApp, TrustedCert};
 use crate::projects::IndexLevel;
 
@@ -36,6 +37,13 @@ pub struct HostSettings {
     /// Ubiq owns, because Ubiq is what spawns the pane.
     #[serde(default = "isolate_agents_default")]
     pub isolate_agents: bool,
+    /// Which backend answers a suggestion — a commit message the user asked Ubiq to write.
+    ///
+    /// [`AssistProvider::Off`] by default, and that default is today's behaviour: Ubiq calls no
+    /// model at all, so an existing user's behaviour is unchanged by upgrading and nothing leaves
+    /// the machine until they say so.
+    #[serde(default)]
+    pub assist: AssistProvider,
     /// Which `$HOME` a confined agent runs with.
     ///
     /// [`AgentHome::Inherit`] by default, and that is not a soft default: a replaced home aims
@@ -181,7 +189,11 @@ pub struct SavedRemoteHost {
 /// for the same reason: an older build drops both on its next write, and the one it would drop
 /// silently is the grant list a user added to make their toolchain reachable — a setting whose
 /// absence shows up as a build failing inside an agent, nowhere near this file.
-pub const HOST_SETTINGS_SCHEMA: u32 = 8;
+///
+/// Nine adds [`HostSettings::assist`], and earns the bump on the same footing: an older build
+/// reads the record fine — the field defaults to off — but drops it on its next write, silently
+/// reverting a user's provider choice to calling no model at all.
+pub const HOST_SETTINGS_SCHEMA: u32 = 9;
 
 fn isolate_agents_default() -> bool {
     true
@@ -218,6 +230,7 @@ impl Default for HostSettings {
         Self {
             schema: HOST_SETTINGS_SCHEMA,
             isolate_agents: isolate_agents_default(),
+            assist: AssistProvider::default(),
             agent_home: AgentHome::default(),
             extra_grants: Vec::new(),
             search_excludes: search_excludes_default(),

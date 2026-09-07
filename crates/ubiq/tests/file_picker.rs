@@ -166,6 +166,35 @@ fn a_folders_picker_draws_no_files_in_either_view() {
     assert!(!paths(&rows).contains(&""), "the root listed itself");
 }
 
+/// An either picker draws both kinds and lets both be the answer — what the composer's `+` asks
+/// for, where a folder handed to a harness is as good a reference as one of the files in it.
+#[test]
+fn an_either_picker_draws_both_kinds_and_picks_both() {
+    let tree = open(request().kind(PickKind::Either), PickerView::Tree);
+    let rows = tree.rows();
+    assert!(rows.iter().any(|row| row.is_dir), "{:?}", names(&rows));
+    assert!(rows.iter().any(|row| !row.is_dir), "{:?}", names(&rows));
+    assert!(rows.iter().all(|row| row.pickable), "{:?}", names(&rows));
+
+    let list = open(request().kind(PickKind::Either), PickerView::List);
+    let rows = list.rows();
+    assert!(paths(&rows).contains(&"docs/adr"), "{:?}", paths(&rows));
+    assert!(
+        paths(&rows).contains(&"docs/architecture.md"),
+        "{:?}",
+        paths(&rows)
+    );
+    // The folder the dialog is rooted at is the ground, never a row of its own in the flat view.
+    assert!(!paths(&rows).contains(&""), "the root listed itself");
+
+    // What the footer calls the ask, in the words for a dialog that takes either.
+    let single = open(
+        request().kind(PickKind::Either).count(PickerCount::Single),
+        PickerView::Tree,
+    );
+    assert_eq!(single.tally(), "No files or folders chosen");
+}
+
 /// The prefilter cuts files down and never hides a folder — a folder it hid would take the files
 /// under it with it.
 #[test]
@@ -281,6 +310,32 @@ fn a_click_opens_a_folder_it_cannot_pick_and_picks_one_it_can() {
     assert!(
         !names(&folders.rows()).contains(&"adr"),
         "the pick also opened it"
+    );
+}
+
+/// A folder is chosen by its row where either kind is an answer — its chevron is what opens it —
+/// and comes back with no size, because a folder has none to report.
+#[test]
+fn an_either_picker_picks_a_folder_by_its_row_and_reports_no_size() {
+    let mut picker = open(request().kind(PickKind::Either), PickerView::Tree);
+
+    picker.click("docs");
+    assert_eq!(picker.picked(), ["docs"]);
+    assert_eq!(picker.picked_with_sizes(), [("docs".to_string(), None)]);
+    assert!(
+        !names(&picker.rows()).contains(&"architecture.md"),
+        "the pick also opened it"
+    );
+
+    // A file is still an answer in the same dialog, size and all.
+    picker.click("README.md");
+    assert_eq!(picker.picked(), ["docs", "README.md"]);
+    assert_eq!(
+        picker.picked_with_sizes(),
+        [
+            ("docs".to_string(), None),
+            ("README.md".to_string(), Some(4_000))
+        ]
     );
 }
 

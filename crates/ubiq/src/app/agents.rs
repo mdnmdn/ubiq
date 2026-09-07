@@ -355,6 +355,75 @@ impl AppState {
         true
     }
 
+    // ── how tall a composer is ────────────────────────────────────────
+
+    /// Note where a drag on a composer's top edge began, and how tall it was then. Everything
+    /// after it is measured from here.
+    ///
+    /// A field nobody has resized has no height of its own to read — it is however tall what is
+    /// typed makes it, and the figure the library computes for that is not reachable from here. So
+    /// the drag starts from an estimate of what is on screen: the lines in the draft, inside the
+    /// same bounds the field grows between. Estimating is what keeps the first pixel of the drag
+    /// from jumping — beginning at the ceiling would take a one-line field to six rows the moment
+    /// the pointer moved.
+    pub fn start_composer_resize(&mut self, slot: usize, at: f32, cx: &mut Context<Self>) {
+        let rows = match self.composer_rows.get(slot).copied().flatten() {
+            Some(rows) => rows,
+            None => self
+                .column_inputs
+                .get(slot)
+                .map(|input| input.read(cx).value().lines().count().max(1))
+                .unwrap_or(1)
+                .clamp(COMPOSER_ROWS_MIN, COMPOSER_ROWS_MAX_DEFAULT),
+        };
+        self.composer_drag = Some((slot, at, rows));
+        cx.notify();
+    }
+
+    /// Follow the pointer. The top edge is what is being dragged, so up is taller — the pointer
+    /// rising by a row's height is one more row of writing space.
+    pub fn drag_composer_resize(&mut self, at: f32, cx: &mut Context<Self>) {
+        let Some((slot, from, rows)) = self.composer_drag else {
+            return;
+        };
+        let grown = (from - at) / COMPOSER_ROW_HEIGHT;
+        let rows = (rows as f32 + grown)
+            .round()
+            .clamp(COMPOSER_ROWS_MIN as f32, COMPOSER_ROWS_MAX as f32) as usize;
+        self.set_composer_rows(slot, Some(rows), cx);
+    }
+
+    /// Let the edge go. The height it was dragged to stays; only the drag ends.
+    pub fn end_composer_resize(&mut self, cx: &mut Context<Self>) {
+        if self.composer_drag.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Put one composer at a height. `None` hands it back to the pool's own behaviour — one row,
+    /// growing with what is typed — which is what a double-click on the edge asks for.
+    ///
+    /// A resized field is that tall empty or full: `min` and `max` are the same number, because a
+    /// space asked for that collapsed the moment it was emptied would not be a space.
+    pub fn set_composer_rows(&mut self, slot: usize, rows: Option<usize>, cx: &mut Context<Self>) {
+        let Some(current) = self.composer_rows.get_mut(slot) else {
+            return;
+        };
+        if *current == rows {
+            return;
+        }
+        *current = rows;
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return;
+        };
+        let (min, max) = match rows {
+            Some(rows) => (rows, rows),
+            None => (1, COMPOSER_ROWS_MAX_DEFAULT),
+        };
+        input.update(cx, |state, cx| state.set_auto_grow(min, max, cx));
+        cx.notify();
+    }
+
     /// Take a queued prompt back out and load it into the composer — a queue row's edit control.
     pub fn edit_queued_message(
         &mut self,
@@ -735,6 +804,24 @@ impl AppState {
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
             conversation.toggle_tool(&call_id);
+            cx.notify();
+        }
+    }
+
+    /// Open or shut one collapsed run of same-kind tool calls, named by its first call's id.
+    pub fn toggle_conversation_tool_group(
+        &mut self,
+        agent_id: AgentId,
+        key: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.toggle_group(&key);
             cx.notify();
         }
     }

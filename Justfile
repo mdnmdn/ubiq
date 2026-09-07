@@ -72,6 +72,10 @@ ui:
 # Type-check everything, tests and examples included
 check:
     cargo check --workspace --all-targets
+    # And with no on-device model backend. `assist-apple` is on by default and needs a Swift
+    # toolchain and the macOS 26 SDK; a build without it answers every suggestion from the stub
+    # backend, and every call site has to read correctly against that.
+    cargo check -p ubiq-app --no-default-features --all-targets
 
 # Lint, warnings are errors
 clippy:

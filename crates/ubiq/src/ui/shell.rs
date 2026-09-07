@@ -195,6 +195,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::file_dialog::render(app, window, cx)),
         )
+        // The file picker, raised by a composer's `+`, by an explorer gesture or by a remote
+        // project's Open — painted here for the reason every dialog above it is: one may be up at
+        // a time, and where it is asked for is not where it is drawn. A picker raised from inside
+        // a dock panel and painted from that panel would be a picker with no element in the tree,
+        // because the panel that raised it is not what the window puts on top.
+        .children(
+            app.file_picker
+                .as_ref()
+                .map(|picker| crate::ui::file_picker::render(app, picker, window, cx)),
+        )
         // The file-tab context menu, named a file and a point by a right-click in the dock. It
         // lives at the window root rather than in a panel, so it stays on screen whether a file
         // closes or a panel moves.

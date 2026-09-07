@@ -37,8 +37,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             div()
                 .pt_3()
                 .child(modal_note(&format!(
-                    "Attached to {label}. Its panes and projects are not shown yet \u{2014} this \
-                     build only keeps the connection open."
+                    "Attached to {label}. Its projects join the ones already listed; the menus \
+                     for what a new pane can run stay this machine's."
                 )))
                 .into_any_element(),
             div()

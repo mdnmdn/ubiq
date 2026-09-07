@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector and repository families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository and assist families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-07
 verified: 2026-09-07
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/wire.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -704,7 +704,7 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Thirty-three records travel inside payloads.
+Thirty-five records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -742,6 +742,8 @@ Thirty-three records travel inside payloads.
 | `RemoteRepo` | `id`, `name`, `full_name`, `description?`, `default_branch?`, `private`, `clone_url`, `pushed_at?` |
 | `CloneRequest` | `clone_id`, `source`, `branch?`, `shallow`, `parent`, `name`, `ephemeral` |
 | `ParsedRepo` | `host`, `owner`, `name`, `clone_url` |
+| `SuggestSubject` | one of: `CommitMessage` — which carries `project_id` and nothing else |
+| `AssistLimits` | `label`, `context_tokens` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
 what stops a stale health flag or a pane count from being written down and believed at the next
@@ -753,7 +755,7 @@ field on a task is like `health` or `open_panes`, which can only be known at the
 asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round — per-request payloads
 with no store behind them, in the class `DirEntry` and `DirListing` are in.
 
-Thirteen enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
+Fifteen enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
 or `Failed`, and the file family's section says what each one asks the interface to do.
 
@@ -771,7 +773,7 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` — at 8 — and `isolate_agents`, which is whether an agent runs
+`HostSettings` carries a `schema` — at 9 — and `isolate_agents`, which is whether an agent runs
 confined, the one setting the host acts on rather than stores, read again at every spawn.
 `agent_home` and `extra_grants` are the confined run's other two answers: an `AgentHome` of
 `Inherit`, `Ephemeral` or `Named(String)`, defaulting to `Inherit`, and a list of `Grant` — a
@@ -783,7 +785,9 @@ boundary, not here. It also
 carries `projects_root` and `ephemeral_root`, the two folders a clone lands in: an absent or blank
 one means the host's own default under its config root, so the interface offers a placeholder rather
 than inventing a path it cannot read. `index_level` is how much of a project is indexed for every
-project that does not say otherwise, and is `light` when nothing says. A record written by
+project that does not say otherwise, and is `light` when nothing says. `assist` is an
+`AssistProvider`, the one setting the assist family reads, and it passes through `Settings::set`
+unchanged like the interface's own fields above. A record written by
 an older build still parses, because every field added since carries a default; only a newer schema
 is refused.
 
@@ -817,7 +821,12 @@ offered: the first candidate is created on install.
 `DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
 textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.
 
-Six of the twelve are the work's, and all but `Speaker` carry the words they answer to — a `label()`,
+`AssistReason` and `AssistProvider` are the assist family's, in
+`crates/ubiq-proto/src/assist.rs`. The first is the closed set an unavailable answer maps onto and
+carries a `code()` giving its kebab-case wire string; the second is `Off` or `OnDevice`, defaults to
+`Off`, and is the whole of what a `HostSettings` says about which backend runs.
+
+Six of the fifteen are the work's, and all but `Speaker` carry the words they answer to — a `label()`,
 plus a `note()`, an `all()` or a `bucket()` where there is one — because the host needs those as much
 as the interface does: it seeds the columns, it writes a `Status` down, and it classifies its own
 agents. `Status` is
@@ -1186,6 +1195,63 @@ rather than a kind of its own, because a listing fails for the same reasons and 
 the same sentence. `CancelClone` and a failure are the same outcome on disk: the partial destination is
 removed, so nothing half-cloned is ever registered.
 
+## The assist family
+
+The fifteenth family. **No variant carries prompt text**, because a request names a subject and the
+host owns every word that reaches a model — the availability pair asks about the host, and the other
+four ride a `SuggestId` the interface mints before its first request hits the wire.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `GetAssist` | UI → host | — | `Assist` |
+| `Suggest` | UI → host | `suggest_id`, `subject` | `Suggestion` or `SuggestError` |
+| `CancelSuggest` | UI → host | `suggest_id` | — |
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `Assist` | host → UI | `available`, `reason?`, `detail?`, `limits?` | — |
+| `Suggestion` | host → UI | `suggest_id`, `text` | — |
+| `SuggestError` | host → UI | `suggest_id`, `error` | — |
+
+**The interface names a subject and never a prompt.** A `SuggestSubject` carries ids only —
+`CommitMessage { project_id }` says *this project's commit message* and nothing about how to ask for
+one. Every prompt string, every instruction and every truncation budget lives in
+`crates/ubiq-host/src/assist/subject.rs`, so the host is where a wording is tested, against a fake
+backend and with no window. A family that accepted prompt text would be a generic model console
+whatever it was called, and every later feature would reach for it (`D83`).
+
+**A suggestion is advisory.** It fills an editable field the user was going to type in: it renames
+nothing behind anyone's back and writes nothing into a repository, so a suggestion that never
+arrives leaves the mechanical name exactly as it was. That is why `SuggestError` is a sentence and
+never a state the interface has to unwind (`D83`).
+
+**Availability is asked, never inferred.** `GetAssist` is the only way the interface learns whether
+a suggestion can be produced — there is no OS-version comparison and no device allow-list on either
+side. `AssistReason` is the closed set the answer maps onto — `UnsupportedPlatform`,
+`DisabledBySetting`, `UnsupportedOs`, `DeviceNotEligible`, `NotEnabled`, `ModelNotReady`,
+`Unavailable`, each with a kebab-case `code()` for the wire — and `detail` is a sentence the host
+wrote. A vendor name appears in it only for a provider the user configured; a backend nobody asked
+for describes itself as the on-device model (`D84`).
+
+**`AssistLimits` is the backend's fact, not the host's.** Its `label` and `context_tokens` come from
+whichever backend `assist::select` chose, and the truncation in `subject.rs` measures a subject's
+material against that number rather than a constant — so the same subject is cut differently behind
+a different model, and the interface reads the label rather than composing one.
+
+**Cancellation is best effort.** `CancelSuggest` sets the flag that stops the reply from being sent;
+it does not stop the model. A suggestion runs on a one-off named thread with a deadline because
+generation blocks, and the coordinator must keep answering every other window while it thinks — so a
+cancelled request costs the rest of one generation and produces nothing on the wire.
+
+**`Suggest` is the one variant whose project is inside its payload's payload.**
+`Message::project_id()` has its own arm for it, reaching through the subject, because a project id
+sits in `SuggestSubject` rather than beside it. Nothing in the family names a pane, so no variant
+appears in `pane_id_of`.
+
+**The setting is host-layer and off by default.** `HostSettings.assist` is an `AssistProvider` —
+`Off` or `OnDevice`, defaulting to `Off` — and `HOST_SETTINGS_SCHEMA` is at 9 for it. `Off` is what
+`DisabledBySetting` reports, and it is distinct from every reason that describes the machine.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -1244,7 +1310,8 @@ ever dropped.
    to**, the host browse family.
    If it names a **connection** at an external service, or a flow authenticating one, the connector
    family. If it names a **remote repository** — listing one, or cloning one into a project that
-   does not exist yet — the repository family.
+   does not exist yet — the repository family. If it names a **subject Ubiq wants a sentence for**
+   and carries no prompt, the assist family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

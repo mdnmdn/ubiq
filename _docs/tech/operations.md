@@ -65,7 +65,9 @@ into a remote UI.
 There is no TLS and no other authentication — tunnel the connection (an SSH tunnel or similar) if
 the network is not trusted. `crates/ubiq-host/src/remote.rs` is the listener;
 [`architecture.md`](./architecture.md) covers the rule it follows, and [`../backlog.md`](../backlog.md)
-(`G165`) covers what it lacks.
+(`G168`) covers what it lacks. A peer has ten seconds to finish its handshake and unlimited time
+afterwards, so a port scan or a stalled dial costs one connection thread for ten seconds rather than
+for the life of the process, and an attached window that says nothing all afternoon is left alone.
 
 `RUST_LOG` decides what the log collector keeps, and the collector feeds both the log console and a
 writer on standard error — so `just dev` in a terminal reports without the console being open. With

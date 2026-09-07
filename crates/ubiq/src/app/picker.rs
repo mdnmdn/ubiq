@@ -191,8 +191,9 @@ impl AppState {
         }
         let request = crate::state::file_picker::PickerRequest::new(
             PickerOwner::Composer { agent, slot },
-            "Attach files to the prompt",
-        );
+            "Attach files or folders to the prompt",
+        )
+        .kind(PickKind::Either);
         self.open_file_picker(request, forest, PickerView::Tree, window, cx);
     }
 

@@ -22,12 +22,13 @@ use gpui::{
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
+use ubiq::state::agents::{COMPOSER_ROWS_MAX, COMPOSER_ROWS_MIN};
 use ubiq::state::conversation::{Run, short_model_label};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate, StopReason,
-    Subagent, ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
+    Subagent, ToolCallPatch, ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
 };
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
@@ -1267,4 +1268,307 @@ fn up_in_an_empty_composer_recalls_the_last_turn(cx: &mut TestAppContext) {
         })
         .expect("the window is open");
     assert!(!recalled, "a draft was overwritten by the recall");
+}
+
+/// One `READ`, at whichever status the run has reached.
+fn a_read(id: &str, status: ToolStatus) -> ConvUpdate {
+    ConvUpdate::ToolCall(ToolCallRecord {
+        id: id.to_string(),
+        title: format!("read {id}"),
+        kind: ToolKind::Read,
+        status,
+        content: Vec::new(),
+        locations: Vec::new(),
+        subagent: None,
+    })
+}
+
+/// A run of same-kind calls is folded, and the fold holds the last card out only while that call
+/// is still going: a call in flight is the one part of the run a reader is following, and a
+/// finished run has nothing left to follow, so the row becomes the whole of it.
+#[gpui::test]
+fn a_finished_run_of_calls_folds_whole_and_a_running_one_keeps_its_last_card(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(id, 1, a_read("t1", ToolStatus::Completed), cx);
+    fixture.update(id, 2, a_read("t2", ToolStatus::Completed), cx);
+    fixture.update(id, 3, a_read("t3", ToolStatus::InProgress), cx);
+
+    // The card selectors are block indices, so the transcript's shape is pinned before it is read.
+    assert_eq!(
+        fixture.state.read_with(cx, |state, cx| state
+            .conversation(id, cx)
+            .expect("the conversation")
+            .blocks
+            .len()),
+        3,
+        "three calls, three blocks, indices 0 through 2"
+    );
+
+    let window = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: false,
+        footer: false,
+        composer: false,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+
+    assert!(
+        vcx.debug_bounds("tool-group-t1-2-earlier-calls").is_some(),
+        "the two calls behind the one in flight are the row, and the row says so"
+    );
+    assert!(
+        vcx.debug_bounds("tool-card-2").is_some(),
+        "the call still running stays on screen"
+    );
+    assert!(
+        vcx.debug_bounds("tool-card-0").is_none() && vcx.debug_bounds("tool-card-1").is_none(),
+        "the calls before it are under the fold"
+    );
+
+    // The harness stamps the last call done — the same patch the bridge sends, not a poke at the
+    // record — and the run has no moving part left.
+    fixture.update(
+        id,
+        4,
+        ConvUpdate::ToolCallUpdate(ToolCallPatch {
+            id: "t3".to_string(),
+            status: Some(ToolStatus::Completed),
+            ..ToolCallPatch::default()
+        }),
+        cx,
+    );
+    vcx.run_until_parked();
+
+    assert!(
+        vcx.debug_bounds("tool-group-t1-3-calls").is_some(),
+        "a finished run is the one row, and it stands for all three — no `earlier` left to be \
+         earlier than"
+    );
+    assert!(
+        vcx.debug_bounds("tool-card-2").is_none(),
+        "the last card joins the fold the moment it finishes"
+    );
+    assert!(
+        vcx.debug_bounds("tool-group-t1-2-earlier-calls").is_none(),
+        "and the row that stood for part of the run is gone with it"
+    );
+}
+
+/// Two is not a run. Folding it would replace a card with a row of the same height and one more
+/// thing to learn, so both cards are drawn whatever their status.
+#[gpui::test]
+fn two_same_kind_calls_are_left_as_they_are(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(id, 1, a_read("t1", ToolStatus::Completed), cx);
+    fixture.update(id, 2, a_read("t2", ToolStatus::Completed), cx);
+
+    let window = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: false,
+        footer: false,
+        composer: false,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+
+    assert!(
+        vcx.debug_bounds("tool-group-t1-2-calls").is_none(),
+        "nothing was folded"
+    );
+    assert!(
+        vcx.debug_bounds("tool-card-0").is_some() && vcx.debug_bounds("tool-card-1").is_some(),
+        "both calls are drawn as themselves"
+    );
+}
+
+/// Which folded runs are open is the conversation's own state, so a run shown stays shown while
+/// the transcript grows around it, and a second click puts it back.
+#[gpui::test]
+fn a_folded_run_opens_and_shuts_on_its_first_call_id(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(id, 1, a_read("t1", ToolStatus::Completed), cx);
+    fixture.update(id, 2, a_read("t2", ToolStatus::Completed), cx);
+    fixture.update(id, 3, a_read("t3", ToolStatus::Completed), cx);
+
+    let open = |cx: &mut TestAppContext| {
+        fixture.state.read_with(cx, |state, cx| {
+            state
+                .conversation(id, cx)
+                .expect("the conversation")
+                .open_groups
+                .contains("t1")
+        })
+    };
+    assert!(!open(cx), "a run arrives folded");
+
+    fixture.state.update(cx, |state, cx| {
+        state.toggle_conversation_tool_group(id, "t1".to_string(), cx)
+    });
+    assert!(open(cx), "the chevron shows the calls the row stands for");
+
+    fixture.state.update(cx, |state, cx| {
+        state.toggle_conversation_tool_group(id, "t1".to_string(), cx)
+    });
+    assert!(!open(cx), "and puts them back");
+}
+
+// ── how tall a composer is ────────────────────────────────────────
+
+/// The grip on the composer's top edge sizes the field: up is more writing space, down is less,
+/// and every step is measured from where the drag went down rather than from the last frame — a
+/// drag that outruns the pointer must not drift.
+#[gpui::test]
+fn dragging_the_composer_grip_sizes_the_field_from_where_it_went_down(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let rows = |cx: &mut TestAppContext| {
+        fixture
+            .state
+            .read_with(cx, |state, _| state.composer_rows[0])
+    };
+
+    assert_eq!(
+        rows(cx),
+        None,
+        "an untouched composer grows with what is typed"
+    );
+
+    // A pointer crossing the view with no drag live is somebody else's gesture.
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(100.0, cx));
+    assert_eq!(rows(cx), None, "a drag nobody started resized a field");
+
+    // An empty field nobody has sized draws one row, and that is the height the drag counts from:
+    // a grip that jumped to some other size on the first pixel would be a size nobody asked for.
+    fixture
+        .state
+        .update(cx, |state, cx| state.start_composer_resize(0, 500.0, cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(460.0, cx));
+    assert_eq!(
+        rows(cx),
+        Some(COMPOSER_ROWS_MIN + 2),
+        "two rows' worth of pointer is two more rows of writing space"
+    );
+
+    // The same position again is the same answer: the height is a function of where the pointer
+    // is, not of how many moves it took to get there.
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(460.0, cx));
+    assert_eq!(
+        rows(cx),
+        Some(COMPOSER_ROWS_MIN + 2),
+        "the drag accumulated instead of measuring from where it began"
+    );
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.end_composer_resize(cx));
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.composer_drag.is_none()),
+        "the release left a drag live for the next pointer that crosses the view"
+    );
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(100.0, cx));
+    assert_eq!(
+        rows(cx),
+        Some(COMPOSER_ROWS_MIN + 2),
+        "a move after the release still resized the field"
+    );
+
+    // And downward, from a field with rows to lose — the same arithmetic, counted from the size
+    // this one already stands at rather than from the one row an empty field draws.
+    fixture
+        .state
+        .update(cx, |state, cx| state.set_composer_rows(0, Some(8), cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.start_composer_resize(0, 500.0, cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(560.0, cx));
+    assert_eq!(rows(cx), Some(5), "three rows down is three rows shorter");
+}
+
+/// A drag past either end stops at it. The floor is a field with a row in it; the ceiling is what
+/// leaves a transcript on screen.
+#[gpui::test]
+fn a_drag_past_either_end_stops_at_the_bounds(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let rows = |cx: &mut TestAppContext| {
+        fixture
+            .state
+            .read_with(cx, |state, _| state.composer_rows[0])
+    };
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.start_composer_resize(0, 500.0, cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(-5_000.0, cx));
+    assert_eq!(rows(cx), Some(COMPOSER_ROWS_MAX));
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(5_000.0, cx));
+    assert_eq!(rows(cx), Some(COMPOSER_ROWS_MIN));
+}
+
+/// A double-click on the grip hands the field back to growing with what is typed — a size dragged
+/// by hand needs a way back that is not dragging it to exactly where it was. What it goes back to
+/// is the pool's own behaviour, so the next drag counts from the row an empty field draws rather
+/// than from the size it was reset out of.
+#[gpui::test]
+fn resetting_a_composer_returns_it_to_growing_with_what_is_typed(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let rows = |cx: &mut TestAppContext| {
+        fixture
+            .state
+            .read_with(cx, |state, _| state.composer_rows[0])
+    };
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.start_composer_resize(0, 500.0, cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(400.0, cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.end_composer_resize(cx));
+    assert_eq!(rows(cx), Some(COMPOSER_ROWS_MIN + 5));
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.set_composer_rows(0, None, cx));
+    assert_eq!(rows(cx), None, "the field is the pool's own again");
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.start_composer_resize(0, 500.0, cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.drag_composer_resize(480.0, cx));
+    assert_eq!(
+        rows(cx),
+        Some(COMPOSER_ROWS_MIN + 1),
+        "a reset field was dragged from the size it was reset out of"
+    );
 }

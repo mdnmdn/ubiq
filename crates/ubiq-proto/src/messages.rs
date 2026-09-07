@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::assist::{AssistLimits, AssistReason, SuggestSubject};
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::files::{
@@ -18,7 +19,7 @@ use crate::files::{
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
     CloneId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId,
-    SessionId, StepId, TaskId,
+    SessionId, StepId, SuggestId, TaskId,
 };
 use crate::projects::{IndexChange, ProjectSnapshot, Scope};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
@@ -1195,6 +1196,47 @@ pub enum Message {
         search_id: SearchId,
         error: search::SearchError,
     },
+
+    // ── Assist family: UI → host ────────────────────────────────────
+    /// Ask whether assistance can run here at all, answered with [`Message::Assist`]. A window
+    /// asks as it opens a control that would use it, because whether a model is there is a fact
+    /// about the host's machine and can change while a window is open.
+    GetAssist,
+    /// Ask for one suggestion. `subject` names what is being written and carries no prompt: the
+    /// prompt is the host's, which is what keeps it out of the interface and out of the bus tape.
+    /// The interface mints `suggest_id` and discards every reply naming one it is not holding.
+    Suggest {
+        suggest_id: SuggestId,
+        subject: SuggestSubject,
+    },
+    /// Give up on a suggestion. Best effort: the model may already be running, and a
+    /// [`Message::Suggestion`] for a cancelled id can still arrive — which is what the id is for.
+    CancelSuggest {
+        suggest_id: SuggestId,
+    },
+
+    // ── Assist family: host → UI ────────────────────────────────────
+    /// Whether assistance can run, and what is behind it. `reason` is present exactly when
+    /// `available` is false, in words that name no vendor the user did not configure; `detail` is
+    /// an optional sentence to sit under it, and `limits` is present when a backend is there.
+    Assist {
+        available: bool,
+        reason: Option<AssistReason>,
+        detail: Option<String>,
+        limits: Option<AssistLimits>,
+    },
+    /// One suggestion, as prose. It is advisory and nothing has been renamed, written or
+    /// committed: the interface puts the text where the user can edit or discard it.
+    Suggestion {
+        suggest_id: SuggestId,
+        text: String,
+    },
+    /// The suggestion could not be made. The subject keeps its mechanical name — nothing was
+    /// changed on the way to failing — so this is a line to show beside the control, not a repair.
+    SuggestError {
+        suggest_id: SuggestId,
+        error: String,
+    },
 }
 
 impl Message {
@@ -1258,6 +1300,11 @@ impl Message {
             | Message::SearchProgress { project_id, .. }
             | Message::SearchFinished { project_id, .. }
             | Message::SearchError { project_id, .. } => Some(*project_id),
+            // The project is inside the subject rather than beside it, so this arm stands alone.
+            Message::Suggest {
+                subject: SuggestSubject::CommitMessage { project_id },
+                ..
+            } => Some(*project_id),
             Message::ProjectError { project_id, .. } => *project_id,
             _ => None,
         }

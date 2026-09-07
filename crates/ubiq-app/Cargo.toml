@@ -16,6 +16,17 @@ path = "src/lib.rs"
 name = "ubiq"
 path = "src/main.rs"
 
+[features]
+# On by default: an on-device model is part of the application, not an extra. It is a feature
+# rather than a plain dependency so that `--no-default-features` builds a complete Ubiq without
+# a Swift toolchain or a macOS 26 SDK — the host then answers with its stub backend, which
+# reports assistance unavailable, and every call site already reads correctly against that.
+default = ["assist-apple"]
+
+# Forwarded to the host, which owns the backend; the interface never names one. `ubiq-host` does
+# not default it, so switching it off here is enough to switch it off everywhere.
+assist-apple = ["ubiq-host/assist-apple"]
+
 [dependencies]
 ubiq = { path = "../ubiq" }
 ubiq-host = { path = "../ubiq-host" }

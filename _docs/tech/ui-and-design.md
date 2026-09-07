@@ -424,7 +424,8 @@ points, a dashed outline, a trail of grains, a ring at a percentage. Those go th
 that fills its parent absolutely, takes no click, and knows nothing about what it is drawing, so a
 caller stacks them in the order they should read. The canvas element itself is sized to fill that
 layer; a canvas that only laid out to its content would paint into a strip at the top of the pane. `progress_ring` in `controls.rs` is the same
-device inline.
+device inline; it is one line over `progress_ring_in`, which takes the fill as an argument, so a
+second ring on a surface can carry its own token rather than a second accent.
 
 **The kit knows nothing about the workbench.** Its interactive helpers take a plain
 `Fn(&mut Window, &mut App)`, and call sites bridge to the root view with `ui::handler` and

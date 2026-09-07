@@ -15,12 +15,15 @@
 //! the other half too.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::time::Duration;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ClickEvent, ClipboardItem, Context, ElementId, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window,
-    anchored, deferred, div, point, px,
+    Animation, AnimationExt, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, ElementId,
+    Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
+    deferred, div, point, pulsating_between, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
@@ -39,7 +42,8 @@ use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 use crate::ui::kit::{
     ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, ghost_button,
-    icon_button, mono, pill, primary_button, progress_ring, removable_tag, status_dot,
+    icon_button, mono, pill, primary_button, progress_ring, progress_ring_in, removable_tag,
+    status_dot,
 };
 use crate::ui::work::activity_colour;
 use crate::ui::{handler, indexed};
@@ -78,7 +82,30 @@ pub fn render(
 
     let subagents = conversation.subagents();
 
-    let mut root = div().flex().flex_col().flex_1().min_h(px(0.));
+    // The composer's resize is tracked on the whole view rather than on the grip: dragging the
+    // field's top edge upward means the pointer spends the drag over the transcript, so a handler
+    // that only listened on the handle would lose the pointer on the first row. A move arriving
+    // with no button down is a release that happened somewhere else, and ends the drag rather than
+    // leaving one live for the next pointer that crosses the view.
+    let mut root = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+            if this.composer_drag.is_none() {
+                return;
+            }
+            if event.dragging() {
+                this.drag_composer_resize(f32::from(event.position.y), cx);
+            } else {
+                this.end_composer_resize(cx);
+            }
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| this.end_composer_resize(cx)),
+        );
     if view.header {
         root = root.child(lifecycle_header(app, conversation, &view, cx));
     }
@@ -127,8 +154,17 @@ pub fn render(
             .flex()
             .flex_col()
             .flex_none()
+            .relative()
             .border_t_1()
             .border_color(theme::border());
+        // The block's own top border is the edge a reader would reach for to make the field
+        // bigger, so that is what the grip sits on — over the border rather than beside it, so
+        // nothing is added to the layout and the row below does not move to make room for a
+        // handle. Only where there is a field to resize: a footer on its own has no height to
+        // give.
+        if view.composer && conversation.accepts_input {
+            bottom = bottom.child(composer_grip(&view, cx));
+        }
         // Topmost in the block, above the footer as well as the composer: it opens upward over
         // the transcript, so nothing under it moves when it does. Only where a subagent exists —
         // a conversation that spawned none looks exactly as it did before, the same discipline
@@ -137,7 +173,11 @@ pub fn render(
             bottom = bottom.child(agent_switcher(conversation, &subagents, &view, cx));
         }
         if view.footer {
-            bottom = bottom.child(footer(conversation, &view));
+            bottom = bottom.child(footer(
+                conversation,
+                app.workbench.settings.ui.show_cache_ring,
+                &view,
+            ));
         }
         if view.composer {
             bottom = bottom.child(composer(app, conversation, &view, window, cx));
@@ -464,7 +504,132 @@ fn tail_signature(conversation: &Conversation) -> u64 {
         }
         None => 0,
     };
-    (conversation.blocks.len() as u64).wrapping_mul(1_000_003) ^ tail as u64
+    // The run is part of it: the writing indicator appears and disappears without a block being
+    // added, and a tail that did not notice would leave it under the fold.
+    let run = conversation.run as u64;
+    (conversation.blocks.len() as u64).wrapping_mul(1_000_003) ^ tail as u64 ^ run.wrapping_mul(31)
+}
+
+/// How many same-kind tool cards in a row it takes before the run is folded. Below this the fold
+/// would replace a card with a row of the same height, which is not a saving.
+const GROUP_MIN: usize = 3;
+
+/// One transcript block, drawn as itself — the arm the grouping loop reuses for the cards it does
+/// not fold away, and for the ones it unfolds.
+#[allow(clippy::too_many_arguments)]
+fn one_block(
+    conversation: &Conversation,
+    id: AgentId,
+    ix: usize,
+    block: &ConvBlock,
+    attached: &HashMap<usize, Vec<&Pending>>,
+    view: &ConversationView,
+    root: &gpui::Entity<AppState>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    match block {
+        ConvBlock::User(text) => copyable(view, ix, text, user_turn(text)),
+        ConvBlock::Agent { body, .. } => copyable(
+            view,
+            ix,
+            body,
+            TextView::markdown(
+                view.eid(&format!("md-{ix}")),
+                SharedString::from(body.clone()),
+            )
+            .on_link_click(crate::ui::on_link(root.clone(), None))
+            .into_any_element(),
+        ),
+        ConvBlock::Thought { body, .. } => copyable(view, ix, body, thought(body)),
+        ConvBlock::Tool { call, open } => {
+            // A delegation is a way in to the agent it spawned, and the way in exists only
+            // once that agent has said something: the instance id *is* this call's id.
+            let delegate = (call.kind == ToolKind::Delegate && conversation.has_subagent(&call.id))
+                .then(|| call.id.clone());
+            let waiting = attached.get(&ix);
+            let card = tool_block(id, ix, call, *open, delegate, waiting.is_some(), view, cx);
+            // The prompt belongs to the call, so it is drawn under it rather than somewhere
+            // the reader has to go and find. Several are possible on one call.
+            match waiting {
+                None => card,
+                Some(requests) => div()
+                    .flex()
+                    .flex_none()
+                    .flex_col()
+                    .child(card)
+                    .children(
+                        requests
+                            .iter()
+                            .copied()
+                            .map(|request| permission(id, request, Some(call), view, cx))
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_any_element(),
+            }
+        }
+    }
+}
+
+/// The row that stands for the folded part of a run: what kind they were, how many, and a chevron
+/// that shows them. It borrows the kind's own colour and the tool card's own shape, so a reader
+/// sees a stack of the same thing rather than a new kind of object.
+///
+/// `trailing` is whether a card is still drawn under the row. It decides one word: calls the row
+/// stands for are `earlier` ones only while there is a later one to be earlier *than*. Once the
+/// run has finished the row is the whole of it, and it says so.
+#[allow(clippy::too_many_arguments)]
+fn tool_group(
+    agent: AgentId,
+    key: &str,
+    kind: ToolKind,
+    hidden: usize,
+    trailing: bool,
+    open: bool,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let colour = tool_colour(kind);
+    let key = key.to_string();
+    let word = if hidden == 1 { "call" } else { "calls" };
+    let count = if trailing {
+        format!("{hidden} earlier {word}")
+    } else {
+        format!("{hidden} {word}")
+    };
+    // Which run the row stands for and what it says about it, in one name — the fold's whole
+    // decision is how much of the run the row swallowed, so a selector naming only the run could
+    // not tell a finished fold from one still holding its last card out.
+    let selector = format!("tool-group-{key}-{}", count.replace(' ', "-"));
+    div()
+        .id(view.eid(&format!("group-{key}")))
+        .debug_selector(move || selector)
+        .min_h(px(24.))
+        .px_2()
+        .py_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .border_l_2()
+        .border_color(theme::fade(colour, 0.5))
+        .bg(theme::surface())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(if open {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronRight
+            })
+            .with_size(Size::XSmall)
+            .text_color(theme::text_faint()),
+        )
+        .child(mono(kind.label(), colour).text_size(px(11.5)))
+        .child(mono(count, theme::text_faint()).text_size(px(11.5)))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.toggle_conversation_tool_group(agent, key.clone(), cx)
+        }))
+        .into_any_element()
 }
 
 /// What has been said, oldest first — and, when anything new has landed, scrolled to.
@@ -492,52 +657,96 @@ fn transcript(
 
     // One agent's turns, never two interleaved — and the indices are the real ones, because the
     // element ids and the tool-toggle listener both key off a block's position in `blocks`.
-    let mut blocks: Vec<AnyElement> = conversation
-        .visible_blocks()
-        .into_iter()
-        .map(|(ix, block)| match block {
-            ConvBlock::User(text) => copyable(view, ix, text, user_turn(text)),
-            ConvBlock::Agent { body, .. } => copyable(
-                view,
-                ix,
-                body,
-                TextView::markdown(
-                    view.eid(&format!("md-{ix}")),
-                    SharedString::from(body.clone()),
-                )
-                .on_link_click(crate::ui::on_link(root.clone(), None))
-                .into_any_element(),
-            ),
-            ConvBlock::Thought { body, .. } => copyable(view, ix, body, thought(body)),
-            ConvBlock::Tool { call, open } => {
-                // A delegation is a way in to the agent it spawned, and the way in exists only
-                // once that agent has said something: the instance id *is* this call's id.
-                let delegate = (call.kind == ToolKind::Delegate
-                    && conversation.has_subagent(&call.id))
-                .then(|| call.id.clone());
-                let waiting = attached.get(&ix);
-                let card = tool_block(id, ix, call, *open, delegate, waiting.is_some(), view, cx);
-                // The prompt belongs to the call, so it is drawn under it rather than somewhere
-                // the reader has to go and find. Several are possible on one call.
-                match waiting {
-                    None => card,
-                    Some(requests) => div()
-                        .flex()
-                        .flex_none()
-                        .flex_col()
-                        .child(card)
-                        .children(
-                            requests
-                                .iter()
-                                .copied()
-                                .map(|request| permission(id, request, Some(call), view, cx))
-                                .collect::<Vec<_>>(),
-                        )
-                        .into_any_element(),
+    //
+    // A run of same-kind tool calls is drawn as one row standing for the whole of it: twelve
+    // `READ`s in a row are twelve rows of furniture between two sentences. While the run's last
+    // call is still going that one card stays out of the fold, because a call in flight is the
+    // part a reader is following; once it finishes the row is the entire run. Either way the row
+    // says how many it stands for and opens to show them.
+    let visible = conversation.visible_blocks();
+    let mut blocks: Vec<AnyElement> = Vec::new();
+    let mut at = 0usize;
+    while at < visible.len() {
+        let (ix, block) = visible[at];
+        // A delegation is never folded away: a spawned agent is a second transcript, not a step.
+        // Nor is a call somebody is being asked to authorise — a prompt hidden behind a counter is
+        // a turn that deadlocks.
+        if let ConvBlock::Tool { call, .. } = block
+            && call.kind != ToolKind::Delegate
+            && !attached.contains_key(&ix)
+        {
+            let kind = call.kind;
+            let mut end = at + 1;
+            while end < visible.len() {
+                match visible[end].1 {
+                    ConvBlock::Tool { call: next, .. }
+                        if next.kind == kind && !attached.contains_key(&visible[end].0) =>
+                    {
+                        end += 1;
+                    }
+                    _ => break,
                 }
             }
-        })
-        .collect();
+            // Two cards become a row plus a card, which is no shorter and one more thing to learn.
+            // Three is where folding starts paying.
+            if end - at >= GROUP_MIN {
+                let key = call.id.clone();
+                let open = conversation.open_groups.contains(&key);
+                // The last card is held out of the fold only while it is still going: a call in
+                // flight is the one thing in the run a reader is actually following, and folding
+                // it away would hide the only part still changing. The moment it finishes there
+                // is nothing left to follow, so it joins the ones before it and the whole run
+                // becomes the one row — which is what a finished run of twelve READs should cost.
+                let (last_ix, last) = visible[end - 1];
+                let running = matches!(
+                    last,
+                    ConvBlock::Tool { call, .. }
+                        if matches!(call.status, ToolStatus::Pending | ToolStatus::InProgress)
+                );
+                let hidden = if running { end - at - 1 } else { end - at };
+                blocks.push(tool_group(id, &key, kind, hidden, running, open, view, cx));
+                if open {
+                    for &(hidden_ix, block) in &visible[at..at + hidden] {
+                        blocks.push(one_block(
+                            conversation,
+                            id,
+                            hidden_ix,
+                            block,
+                            &attached,
+                            view,
+                            &root,
+                            cx,
+                        ));
+                    }
+                }
+                if running {
+                    blocks.push(one_block(
+                        conversation,
+                        id,
+                        last_ix,
+                        last,
+                        &attached,
+                        view,
+                        &root,
+                        cx,
+                    ));
+                }
+                at = end;
+                continue;
+            }
+        }
+        blocks.push(one_block(
+            conversation,
+            id,
+            ix,
+            block,
+            &attached,
+            view,
+            &root,
+            cx,
+        ));
+        at += 1;
+    }
 
     // A request whose call the transcript does not hold — the patch carried nothing but an id, or
     // the request outran the call announcing it. Self-contained, and still answerable.
@@ -555,6 +764,17 @@ fn transcript(
                 .text_size(px(11.5))
                 .into_any_element(),
         );
+    }
+
+    // And after everything, while the turn is still running: the tail of a transcript is where a
+    // reader waits, so that is where the waiting is drawn. Not while a prompt is up — the question
+    // on screen is what is happening, and two marks would compete to say so.
+    if conversation.run == Run::Working && conversation.pending.is_empty() {
+        blocks.push(writing_mark(
+            conversation.activity(),
+            mark_variant(conversation),
+            view,
+        ));
     }
 
     let mut root = div()
@@ -583,6 +803,152 @@ fn transcript(
     }
 
     root.children(blocks).into_any_element()
+}
+
+/// The hit area of the strip that resizes the composer. Wide enough to grab, and drawn as nothing
+/// at all: the block's own top border is already the line, so a bar of its own would be a second
+/// edge one pixel from the first.
+const COMPOSER_GRIP: f32 = 5.0;
+
+/// The strip on the composer block's top edge that makes the field taller.
+///
+/// Dragging up is more writing space, which is the whole of it. Double-clicking hands the field
+/// back to growing with what is typed, because a size dragged by hand needs a way back that is not
+/// dragging it to exactly where it was.
+fn composer_grip(view: &ConversationView, cx: &mut Context<AppState>) -> AnyElement {
+    let slot = view.slot;
+    div()
+        .id(view.eid("composer-grip"))
+        .absolute()
+        .top(px(-COMPOSER_GRIP / 2.0))
+        .left_0()
+        .w_full()
+        .h(px(COMPOSER_GRIP))
+        .cursor_row_resize()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.start_composer_resize(slot, f32::from(event.position.y), cx);
+            }),
+        )
+        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+            if event.click_count() >= 2 {
+                this.end_composer_resize(cx);
+                this.set_composer_rows(slot, None, cx);
+            }
+        }))
+        .into_any_element()
+}
+
+/// How many squares the scanner sweeps across. Five is enough for the sweep to read as travel
+/// rather than as a blink, and short enough to sit on one line beside a word.
+const SCAN_CELLS: u32 = 5;
+
+/// One square of the waiting mark. Square rather than round, and the accent rather than a colour
+/// of its own: this is the same blue and the same corner every chip, ring and pill in the window
+/// is drawn with, so the mark reads as part of the application rather than as a widget visiting
+/// from somewhere else.
+fn mark_cell(colour: Rgba) -> Div {
+    div().size(px(5.)).rounded(px(1.)).flex_none().bg(colour)
+}
+
+/// Which of the two waiting marks a turn draws.
+///
+/// Not a random number: the answer has to be the same on every frame of one turn, because a mark
+/// that re-rolled per frame would strobe between two animations instead of playing either. So it
+/// is a hash of the conversation and of which turn this is — fixed for exactly as long as the turn
+/// lasts, and different from one turn to the next, which is all "pick one of two" needs.
+fn mark_variant(conversation: &Conversation) -> u64 {
+    // Which turn this is, counted from the end: the last thing the user said cannot move while
+    // that turn is still running, so this is stable for precisely the mark's lifetime.
+    let turn = conversation
+        .blocks
+        .iter()
+        .rposition(|block| matches!(block, ConvBlock::User(_)))
+        .map_or(0, |at| at + 1);
+    let mut hasher = DefaultHasher::new();
+    conversation.id.hash(&mut hasher);
+    turn.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The mark that says the agent is mid-turn: small accent squares in motion, and the word for what
+/// it is doing right now.
+///
+/// A turn can be a minute of silence between two sentences, and silence in a chat reads as
+/// nothing happening. Movement is the only honest thing to draw there — a spinner would claim
+/// progress it cannot measure, and a percentage would be a lie with a decimal point.
+///
+/// **Two animations, one per turn, chosen by [`mark_variant`].** A wave of squares breathing out
+/// of phase, or a single light sweeping the row and coming back. Both say the same thing and
+/// neither says more than the other; a mark a reader waits minutes in front of is worth not being
+/// identical every time. Which one is drawn is never a status — the word beside them is what
+/// carries the activity.
+fn writing_mark(activity: Activity, variant: u64, view: &ConversationView) -> AnyElement {
+    let colour = theme::accent();
+    let scanning = variant % 2 == 1;
+    let cells: Vec<AnyElement> = if scanning {
+        (0..SCAN_CELLS)
+            .map(|n| {
+                let at = n as f32;
+                mark_cell(colour)
+                    .with_animation(
+                        view.eid(&format!("writing-scan-{n}")),
+                        Animation::new(Duration::from_millis(1_400))
+                            .repeat()
+                            .with_easing(move |delta| {
+                                // A triangle wave, so the light runs to the end of the row and
+                                // comes back rather than jumping home: one pass out and one pass
+                                // back per cycle.
+                                let head = if delta < 0.5 {
+                                    delta * 2.0
+                                } else {
+                                    (1.0 - delta) * 2.0
+                                } * (SCAN_CELLS - 1) as f32;
+                                // How near the head is to this square, softened so the squares
+                                // beside it glow too and the row reads as one moving light rather
+                                // than five taking turns to blink.
+                                let near = 1.0 - ((head - at).abs() / 1.8).min(1.0);
+                                0.15 + near * 0.85
+                            }),
+                        |this, delta| this.opacity(delta),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    } else {
+        (0..3u32)
+            .map(|n| {
+                // Each square a third of a cycle behind the one before it, which is what makes
+                // the row read as a wave rather than as a blink.
+                let phase = n as f32 / 3.0;
+                mark_cell(colour)
+                    .with_animation(
+                        view.eid(&format!("writing-pulse-{n}")),
+                        Animation::new(Duration::from_millis(1_100))
+                            .repeat()
+                            .with_easing(move |delta| {
+                                pulsating_between(0.2, 1.0)((delta + phase) % 1.0)
+                            }),
+                        |this, delta| this.opacity(delta),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        // The scanner's squares sit closer together: a light travelling a row has to look like
+        // one row, and a wave of three has to look like three things.
+        .gap(if scanning { px(3.) } else { px(6.) })
+        .px_1()
+        .py_0p5()
+        .children(cells)
+        .child(mono(activity.label(), theme::text_faint()).text_size(px(11.)))
+        .into_any_element()
 }
 
 /// One message, with its own copy control in the lower right — hidden until the pointer is over
@@ -774,6 +1140,9 @@ fn tool_block(
     // paragraph's centre.
     let mut header = div()
         .id(view.eid(&format!("tool-{index}")))
+        // Named by the block it draws, so a fold is legible from outside: which cards a run left
+        // on screen is the question, and a card that answers only "some card" cannot settle it.
+        .debug_selector(move || format!("tool-card-{index}"))
         .min_h(px(30.))
         .px_2()
         .py_1()
@@ -1139,7 +1508,7 @@ fn spend_tip(conversation: &Conversation) -> String {
 ///
 /// The ring is drawn only where a window was reported. A percentage of a size nobody named is a
 /// wrong ring, and a wrong ring is worse than none.
-fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
+fn footer(conversation: &Conversation, cache_ring: bool, view: &ConversationView) -> AnyElement {
     // Which harness, and which identity answered — one chip, because they are one answer: this
     // conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
     // once, in the New agent menu, because a turn already taken was taken as somebody.
@@ -1206,6 +1575,30 @@ fn footer(conversation: &Conversation, view: &ConversationView) -> AnyElement {
             spend_tip(conversation),
             theme::text_muted(),
         ));
+    }
+
+    // How much of that total was context read back out of the cache rather than paid for again.
+    // Off by default and asked for in settings: it is a cost-of-running reading, not a
+    // how-is-this-turn-going one, and the row is glanced at. Its own colour, because a second
+    // accent ring beside the context one would read as the same fact twice.
+    if cache_ring
+        && let (Some(total), Some(cached)) =
+            (conversation.total_tokens(), conversation.cached_tokens())
+        && total > 0
+    {
+        let pct = ((cached as f64 / total as f64) * 100.0).round() as u8;
+        let tip = format!("cached {cached} / {total} {pct}%");
+        row = row.child(
+            div()
+                .id(view.eid("cache-ring"))
+                .flex()
+                .flex_none()
+                .items_center()
+                .child(progress_ring_in(pct.min(100), 12., theme::info()))
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                }),
+        );
     }
 
     if let Some(pct) = conversation.context_pct() {
@@ -1343,6 +1736,44 @@ fn action_button(
                 .on_click(on_click)
         })
         .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(label).build(window, cx))
+        .into_any_element()
+}
+
+/// Stop, which is a square and not a cross.
+///
+/// The distinction is the whole of what the control means: a cross reads as *close this*, and this
+/// closes nothing. It ends the turn in flight — the transcript stays, the harness stays, and the
+/// next message goes to the same agent — which is what a square over a stream has meant since
+/// tape decks. Drawn rather than iconised because the icon set ships no square, and a square is
+/// four sides.
+fn stop_button(
+    id: ElementId,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .size(px(26.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .bg(theme::danger())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::fade(theme::danger(), 0.8)))
+        .child(
+            div()
+                .size(px(9.))
+                .rounded(px(1.5))
+                .flex_none()
+                .bg(theme::on_accent()),
+        )
+        .on_click(on_click)
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(
+                "Stop this turn \u{2014} the agent stays, and takes the next message",
+            )
+            .build(window, cx)
+        })
         .into_any_element()
 }
 
@@ -1529,38 +1960,39 @@ fn composer(
         )
         .child(div().flex_1().min_w(px(0.)));
 
-    // One control, and which it is depends on the turn and the draft: idle sends, a running turn
-    // with nothing typed offers Stop, and a running turn with something typed queues it instead
-    // of writing into a harness mid-turn — the same three states the Enter key answers through
-    // `AppState::send_or_enqueue`, so the button and the key never disagree.
-    let action = if working && !can_send {
-        action_button(
+    // Stop is there for the whole of a running turn, not only while the field is empty: the moment
+    // a message is sent is the moment the reader most wants it back, and a control that appears
+    // only when nothing is typed is a control that vanishes as soon as they start writing the
+    // follow-up. Beside it, when there is something to send, Enqueue — the turn in flight is not
+    // interrupted by typing at it, and what is typed goes out when it ends. Idle keeps one button.
+    // All three are what the Enter key answers through `AppState::send_or_enqueue`, so the buttons
+    // and the key never disagree.
+    let mut actions: Vec<AnyElement> = Vec::new();
+    if working {
+        actions.push(stop_button(
             view.eid("stop"),
-            IconName::Close,
-            "Stop",
-            theme::danger(),
-            true,
             cx.listener(move |this, _, _, cx| this.cancel_turn(id, cx)),
-        )
-    } else if working {
-        action_button(
-            view.eid("send"),
-            IconName::Inbox,
-            "Enqueue",
-            theme::accent(),
-            can_send,
-            cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
-        )
+        ));
+        if can_send {
+            actions.push(action_button(
+                view.eid("send"),
+                IconName::Inbox,
+                "Enqueue",
+                theme::accent(),
+                true,
+                cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
+            ));
+        }
     } else {
-        action_button(
+        actions.push(action_button(
             view.eid("send"),
             IconName::ArrowUp,
             "Send",
             theme::accent(),
             can_send,
             cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),
-        )
-    };
+        ));
+    }
 
     // "Unloaded" is said once already — the glyph beside the three-dots menu, top left of the
     // view, with the word itself in its tooltip. A composer that also spelled it out in prose
@@ -1600,7 +2032,7 @@ fn composer(
                     input.update(cx, |state, cx| state.focus(window, cx));
                 })),
         )
-        .child(controls.child(action));
+        .child(controls.children(actions));
 
     let mut extras: Vec<AnyElement> = Vec::new();
     // Attachments first, so they sit directly under the token and context row and above anything

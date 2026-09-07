@@ -2609,6 +2609,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundation-models"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dab48621670bd35c13e8c44be0c837e6da284c1108f89388b905415f6b8c8115"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "freetype-sys"
 version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9539,6 +9549,7 @@ dependencies = [
  "chrono",
  "directories",
  "flume",
+ "foundation-models",
  "git2",
  "grep-matcher",
  "grep-regex",

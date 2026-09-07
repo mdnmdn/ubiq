@@ -234,15 +234,25 @@ tools (mise, cargo) validate TLS through the trust daemon rather than a CA file,
 `integrations/macos-gui`, because a TUI harness calling `CGSEventSourceForID`
 deadlocks on a WindowServer mutex when the lookup is denied.
 
-**`BROKEN_LAYERS` records the 8 that must never be named.** Seven carry `[macos] raw`
-SBPL calling `home-literal` / `home-subpath`, macros isol8's macOS backend never
-defines, so `sandbox-exec` rejects the **whole** policy and nothing starts;
-`integrations/shell-init` is the eighth. `integrations/ssh` is excluded twice over:
+**`BROKEN_LAYERS` records the 10 that must never be named.** Nine carry `[macos] raw`
+SBPL naming a symbol isol8's macOS backend never defines: `home-literal` / `home-subpath`
+(xcode, kubectl, chromium-headless, chromium-full), both families at once (ssh, 1password,
+container-runtime-default-deny), or the bare variable `HOME_DIR` inside `string-append`
+(docker, ssh-agent-default-deny). The rendered policy opens `(version 1)` and
+`(deny default)` with no `(define …)` prelude at all, so each of those is an unbound
+variable that fails the **whole** policy — nothing starts, however unrelated the layer is
+to the run. `integrations/shell-init` is the tenth: not broken, but a bad default.
+`integrations/ssh` is excluded twice over:
 beyond the macro bug it denies `~/.ssh` as a subpath, and Seatbelt is
 last-match-wins with denies rendered after allows, so it swallows the
 `~/.ssh/known_hosts` read `integrations/git` grants.
 
-**Two gaps are filled by hand.** `DEV_RW_HOME_ROOTS` grants `~/.dotnet`, `~/.nuget`,
+**Docker therefore cannot be enabled by naming `integrations/docker`.** A run that needs
+it grants the daemon socket and `~/.docker` by hand, the same hand-replication a tuned
+setup already does for xcode and chromium — and the shipped layer's own header calls
+socket access "High-risk", since a container daemon socket is a route out of the sandbox.
+
+**Three gaps are filled by hand.** `DEV_RW_HOME_ROOTS` grants `~/.dotnet`, `~/.nuget`,
 `~/.templateengine`, `~/.aspnet`, `~/.microsoft` and `~/.local/share/NuGet`
 read-write, because isol8 ships no dotnet layer at all; the list is deliberately
 **not** existence-filtered, since `~/.dotnet` does not exist until the first
@@ -254,6 +264,31 @@ relocation roots (`CARGO_HOME`, `GOROOT`, `JAVA_HOME`, …). `GIT_*` and `XDG_*`
 left out on purpose: an inherited `GIT_DIR` would retarget the agent's own git at
 the wrong repository, and a relocated `XDG_*` points every lookup away from the
 `~/.config` paths the layers grant.
+
+And `IsolateOptions::grant_toolchains_from_env()` covers the relocated install. The shipped
+`toolchains/*` layers grant a toolchain's **default** location (`~/.cargo`, `~/.rustup`,
+`~/go`), so on a machine whose install lives elsewhere the policy names the wrong directory
+and `cargo`, `rustc` and `go` fail while `npm`, `node`, `dotnet`, `python` and `mise` work —
+forwarding `CARGO_HOME` tells a tool where to look and grants nothing. The method walks
+`TOOLCHAIN_ROOT_VARS`, 17 variable names each paired with whether a build writes there, and
+appends every absolute value it reads to `extra_ro` — `GOROOT`, `JAVA_HOME`, `SDKMAN_DIR`,
+SDK trees a build reads and never writes — or to `extra_rw`: the caches, registries and
+install roots `CARGO_HOME`, `RUSTUP_HOME`, `GOPATH`, `GOMODCACHE`, `GOCACHE`, `PYENV_ROOT`,
+`MISE_DATA_DIR`, `NPM_CONFIG_PREFIX`, `PNPM_HOME`, `VOLTA_HOME`, `BUN_INSTALL`,
+`DOTNET_ROOT`, `NUGET_PACKAGES`, `PUB_CACHE`. Three rules carry the reasons. A relative or
+empty value is skipped, because isol8 resolves a grant against no working directory, so
+honouring one would grant a different tree rather than fail. The paths are not
+existence-filtered, for `DEV_RW_HOME_ROOTS`'s reason: a root the tool creates on first use
+needs the grant in order to be created, and a grant on an absent path is inert. And **the
+environment read is the caller's, not `plan`'s** — `plan` must answer identically for a
+given `IsolateOptions`, the front-end-agnostic invariant this module keeps — so a host calls
+it where it decides to consult its own environment: `compose_run` in
+`crates/ubiq-host/src/agent.rs` and `isolate_options` in `crates/agent-manager/src/cli/run.rs`,
+both one line, both **before** the caller's own extra grants so an explicit grant is the last
+word. `TOOLCHAIN_ROOT_VARS` is the relocation half of `ENV_PASS` and the two stay in step;
+the test `every_toolchain_root_var_is_also_passed_through` is what makes that hold. The
+private `grant_toolchains(lookup)` the method delegates to takes the lookup as an argument
+because a test that mutated the process environment would race the rest of the binary.
 
 Either way the two axes compose cleanly:
 

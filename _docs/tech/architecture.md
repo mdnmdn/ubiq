@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-06
-verified: 2026-09-06
-code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
+updated: 2026-09-07
+verified: 2026-09-07
+code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -129,7 +129,7 @@ the change is confined to the channel: add framing and serialisation, swap the i
 Coordinator and UI logic go untouched — and that is what unlocks tmux-style detach and reattach,
 where the window can die while the agents keep running.
 
-**A listener drives the framing; no UI attaches to one yet.** The socket wire format
+**A listener drives the framing, and a UI attaches to it.** The socket wire format
 predicted above is built — `crates/ubiq-proto/src/wire.rs` frames a `Message` as a length-prefixed
 MessagePack body; the transport contract's framing section owns the shape and why the format is
 self-describing. `crates/ubiq-host/src/remote.rs` accepts TCP connections, checks a bearer token
@@ -137,18 +137,35 @@ handed out at startup, and upgrades each one to raw `wire` frames. `ubiq-app --s
 `--serve=<addr>`, `--bind`, `--port`) starts it, and that run opens no window: it is the machine's
 host, reporting to the terminal it was started in. [`operations.md`](./operations.md) documents the
 flags and
-[`../backlog.md`](../backlog.md) (`G165`) what it still lacks — TLS chief among them. **A remote
+[`../backlog.md`](../backlog.md) (`G168`) what it still lacks — TLS chief among them. The handshake
+is the one part of a connection that is timed: an unauthenticated peer has ten seconds
+(`HANDSHAKE_TIMEOUT`) to finish it, cleared the moment the `101` upgrade is written, because a
+session is idle between frames by design. **A remote
 connection is an ordinary client of the same `Hub`:** `remote.rs` does nothing but
 `Hub::connect()` plus two pumps, so a connection is a `ClientId` in the routing table like any
 window's, no message family is special-cased for it, and closing the socket is the same
 `FromClient::Gone` a window losing its connection produces. `crates/ubiq/src/app/remote_connect.rs`
 is the other end of the same handshake: it dials, sends the `GET /attach?token=…` upgrade request,
 and on a `101` hands the socket to `bus::detached()` behind its own pair of pump threads — the
-mirror image of `remote.rs`'s accept side, one binding and one dialing. The surface *around* a
-live remote — a saved-hosts list and a dropdown to tell two attached hosts apart, and switching
+mirror image of `remote.rs`'s accept side, one binding and one dialing. **Attaching asks the new
+host for its catalogue:** `AppState::attach_remote` sends `ListProjects` over the fresh connection,
+addressed rather than resolved, since attaching a host is not choosing it. **A catalogue answer is
+host-scoped:** a `ProjectList` is the whole truth about the host that sent it and says nothing about
+any other, so `Bus::projects_not_on` names the rows belonging to every other host and
+`WindowRegistry::replace_all_except` keeps them, which is what lets one window hold the local
+machine's projects and a remote's in one list. **Only the local host's `HostInfo` is applied:** the
+config root the status bar names, and the shells, agent types, accounts and profiles a new pane is
+started from, stay the local machine's (`../backlog.md`, `G188`). Losing a host is a defined
+teardown rather than a reroute — `Bus::client_for` has no fall back to the local client, so a
+message addressed to a host that is gone is dropped and logged instead of reaching a coordinator
+that never minted the pane it names; `Bus::drop_remote` forgets that host's projects, resets
+`active` to `Local` and hands back its panes for `AppState::disconnect_host` to close. Both ways of
+losing one run it: the socket ending under `route_host`, which also marks the address as a failed
+attempt, and the Disconnect button, which does not. The surface *around* a live remote — that
+button, a saved-hosts list and a dropdown to tell two attached hosts apart, and switching
 `Bus::active` without moving a pane or a project the window has routed to a different host — is
 application settings' Hosts section, which the workbench document describes; what it still
-leaves undone is named in `../backlog.md` (`G166`).
+leaves undone is named in `../backlog.md` (`G169`).
 
 **Remote harnesses.** A harness running on another host or in a container is structurally the same
 problem as a terminal stream crossing a machine boundary. The coordinator stops assuming the
@@ -166,7 +183,7 @@ the transport beneath the contract.
 | The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | A project's tasks, and the sessions and agents over them | `crates/ubiq-host/src/work/` | Tasks are the user's data, written down per project; sessions and agents are the host's mocks, minted per project and never written |
 | Window, panes, chrome, focus | `crates/ubiq/src/app/`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
-| The window's multiplexer over every host it is attached to | `crates/ubiq/src/app/hosts.rs` | `Bus`, `HostRef`, the UI-local `HostId`; the local host is always attached, remotes are added alongside it |
+| The window's multiplexer over every host it is attached to | `crates/ubiq/src/app/hosts.rs` | `Bus`, `HostRef`, the UI-local `HostId`; the local host is always attached, remotes are added alongside it, and `drop_remote` takes a lost one's panes and projects with it rather than rerouting them |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
 | Build/bundle version | `crates/ubiq/src/version.rs` | `option_env!("UBIQ_VERSION")`, baked in at compile time by the Justfile from `_devops/scripts/bundle-version.sh`, `"dev"` when unset. Read by the status bar and the web-export footer |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor, chat, agents, orchestration and board state, and the projection of a project's work. A window holds one tree, one set of open files and one projection of the work per project |
@@ -182,6 +199,7 @@ the transport beneath the contract.
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
+| A short line of prose the host writes itself | `crates/ubiq-host/src/assist/` | One `Assist` trait, one backend chosen from one setting, and every prompt string. The platform's on-device model behind the `assist-apple` feature, a stub everywhere else; the interface names a subject and never a prompt (`D83`) |
 | Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
 
 **Version control is read in two places, both in the host, both through `git2`.** A one-file diff

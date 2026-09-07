@@ -46,7 +46,8 @@ crates/ubiq-proto/src/
 ├── connectors.rs
 ├── repos.rs
 ├── stats.rs
-└── wire.rs
+├── wire.rs
+└── assist.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -110,7 +111,12 @@ crates/ubiq-host/src/
 │   ├── clone.rs
 │   ├── list.rs
 │   └── mod.rs
-└── remote.rs
+├── remote.rs
+└── assist/
+    ├── apple.rs
+    ├── mod.rs
+    ├── stub.rs
+    └── subject.rs
 
 crates/ubiq/src/
 ├── state/
@@ -361,6 +367,7 @@ the documents in its row.
 | `crates/ubiq-host/src/work/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/tests/usage.rs` | [`features/stats.md`](../features/stats.md) |
 | `crates/ubiq-proto/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq-proto/src/assist.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/bus.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/connectors.rs` | [`features/connectors.md`](../features/connectors.md), [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-proto/src/conversation.rs` | [`transport-contract.md`](./transport-contract.md) |
@@ -536,6 +543,10 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | File |
 |---|
 | `crates/ubiq-app/src/handoff.rs` |
+| `crates/ubiq-host/src/assist/apple.rs` |
+| `crates/ubiq-host/src/assist/mod.rs` |
+| `crates/ubiq-host/src/assist/stub.rs` |
+| `crates/ubiq-host/src/assist/subject.rs` |
 | `crates/ubiq-host/src/atomic.rs` |
 | `crates/ubiq-host/src/config.rs` |
 | `crates/ubiq-host/src/connectors/http.rs` |

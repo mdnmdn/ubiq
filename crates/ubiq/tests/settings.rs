@@ -32,6 +32,7 @@ fn a_blob_survives_the_round_trip() {
         rail_projects: false,
         markdown_open: MarkdownOpen::Source,
         vim_mode: true,
+        show_cache_ring: true,
         last_connection: Some("01J0".to_string()),
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
@@ -48,6 +49,7 @@ fn missing_fields_open_on_defaults() {
     assert_eq!(back.markdown_open, MarkdownOpen::Preview);
     // A blob written before vim mode existed opens with it off, rather than being discarded.
     assert!(!back.vim_mode);
+    assert!(!back.show_cache_ring);
 }
 
 #[test]

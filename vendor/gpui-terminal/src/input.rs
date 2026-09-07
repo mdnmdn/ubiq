@@ -553,7 +553,10 @@ mod tests {
         assert_eq!(keystroke_to_bytes(&space, mode), Some(b" ".to_vec()));
 
         let alt_space = Keystroke::parse("alt-space").unwrap();
-        assert_eq!(keystroke_to_bytes(&alt_space, mode), Some(b"\x1b ".to_vec()));
+        assert_eq!(
+            keystroke_to_bytes(&alt_space, mode),
+            Some(b"\x1b ".to_vec())
+        );
     }
 
     #[test]

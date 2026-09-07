@@ -1,9 +1,10 @@
 //! The file picker: what it was asked for, what it is showing, and what has been picked.
 //!
-//! **One picker, asked for in six ways.** A screen that needs a path says what it wants — files or
-//! folders, one or many, from which folder down, through which prefilter, final on the click or on
-//! the button, holding the window or dismissed by a click outside — and gets the same dialog every
-//! time. The request is [`PickerRequest`]; everything else here is what the dialog does with it.
+//! **One picker, asked for in six ways.** A screen that needs a path says what it wants — files,
+//! folders or either, one or many, from which folder down, through which prefilter, final on the
+//! click or on the button, holding the window or dismissed by a click outside — and gets the same
+//! dialog every time. The request is [`PickerRequest`]; everything else here is what the dialog
+//! does with it.
 //!
 //! **Tree and list are the same set, arranged twice.** The tree is the folders the user walked
 //! into; the list is every match under the root, flat, each with the folder it came from. Which one
@@ -28,6 +29,10 @@ use crate::state::explorer::{FileNode, NodeKind};
 pub enum PickKind {
     Files,
     Folders,
+    /// A folder is as good an answer as a file — what the composer's `+` asks for: a harness reads
+    /// `@src/state` as readily as `@src/state/mod.rs`, and which of the two the user means is
+    /// theirs to decide, not the dialog's.
+    Either,
 }
 
 impl PickKind {
@@ -36,15 +41,18 @@ impl PickKind {
         match self {
             PickKind::Files => "files",
             PickKind::Folders => "folders",
+            PickKind::Either => "files or folders",
         }
     }
 
-    /// Whether a row of this kind is an answer rather than a way to one. A folder is drawn in both
-    /// modes — it is how the files are reached — and is only ever picked in one of them.
+    /// Whether a row of this kind is an answer rather than a way to one. A folder is drawn in
+    /// every mode — it is how the files are reached — and is picked only in the two that asked for
+    /// one.
     pub fn picks(self, is_dir: bool) -> bool {
         match self {
             PickKind::Files => !is_dir,
             PickKind::Folders => is_dir,
+            PickKind::Either => true,
         }
     }
 }
@@ -489,9 +497,9 @@ impl FilePickerState {
                 continue;
             }
 
-            // Folders-only never draws a file: a row that cannot be the answer and leads nowhere is
-            // noise in a dialog whose whole job is to be scanned.
-            if self.request.kind == PickKind::Folders || !self.shows(node, needle) {
+            // A dialog that cannot pick a file never draws one: a row that cannot be the answer
+            // and leads nowhere is noise in a dialog whose whole job is to be scanned.
+            if !self.request.kind.picks(false) || !self.shows(node, needle) {
                 continue;
             }
             out.push(self.row(node, depth, false, size_label(node.size)));
@@ -519,14 +527,14 @@ impl FilePickerState {
             if node.is_dir() {
                 // The folder the dialog is rooted at is the ground everything is measured from,
                 // never a row of its own in the flat view.
-                if self.request.kind == PickKind::Folders
+                if self.request.kind.picks(true)
                     && !node.path.is_empty()
                     && self.shows(node, needle)
                 {
                     out.push(node);
                 }
                 self.flatten(node.children(), needle, out);
-            } else if self.request.kind == PickKind::Files && self.shows(node, needle) {
+            } else if self.request.kind.picks(false) && self.shows(node, needle) {
                 out.push(node);
             }
         }
@@ -555,7 +563,7 @@ impl FilePickerState {
         }
         node.children().iter().any(|child| match child.is_dir() {
             true => self.subtree_matches(child, needle),
-            false => self.request.kind == PickKind::Files && self.shows(child, needle),
+            false => self.request.kind.picks(false) && self.shows(child, needle),
         })
     }
 

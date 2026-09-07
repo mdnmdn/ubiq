@@ -798,10 +798,23 @@ against whichever host `active` names. Picking a saved-but-unattached or failed 
 the same connect modal described above, address prefilled and the token left blank — a token is
 never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows
 every remembered host with a per-entry **Forget**, which drops the record and nothing else — a live
-connection under that address, if this window still has one, is untouched. **A saved host is named
+connection under that address, if this window still has one, is untouched. Each row carries a chip
+saying which of attached, saved and last-attempt-failed it is, and an attached row gains a
+**Disconnect** beside Forget: it closes every pane that host was running and drops the socket while
+leaving the record, where Forget drops the record and leaves the connection — a host can be either
+without being the other. A socket that fails on its own runs the same teardown and marks the address
+as a failed attempt; a Disconnect does not, because nothing about the host went wrong.
+**A saved host is named
 after the address it was first reached at, and renaming is not offered** — only forgetting;
-[`../backlog.md`](../backlog.md) (`G166`) names both that and the always-blank token as the gaps
+[`../backlog.md`](../backlog.md) (`G169`) names both that and the always-blank token as the gaps
 this section leaves open.
+
+**A remote's projects sit in the same list as the local machine's.** Attaching a host asks it for
+its catalogue, and its answer adds its projects to the picker beside the ones already there rather
+than replacing them — each row is opened, closed and worked in exactly as a local one is, and
+nothing on it says which machine it lives on. Losing that host takes its projects out of the list
+again, along with its panes. What a new pane's menus offer stays the local machine's whichever host
+is active (`G188`).
 
 **How much of a project Ubiq indexes is a setting, per project, with an application-wide
 default.** Application settings' Search section offers three levels — Off, Full text, and Full text
@@ -886,15 +899,20 @@ a screenshot. Nothing crosses the bus.
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Five sections ship: **Appearance** (whether the rail carries the open-project badges, and whether
-the titlebar's capture control and its keystroke are offered at all), **File
+it dismisses project settings, and the reverse. Ten sections ship: **Appearance** (whether the rail carries the open-project badges, and whether
+the titlebar's capture control and its keystroke are offered at all, and whether a conversation
+footer draws a second ring comparing cached tokens to the total — off by default), **File
 explorer** (whether a
 single click opens a preview tab, and the two folders a clone lands in — the default project folder
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
 default as a placeholder rather than a path the interface invented), **Editor** (whether a new markdown file opens in preview or
 source), **Harnesses** (the accounts
 registered here, the profiles defined here, and an Add button for each), **Isolation** (whether an
-agent is confined, whose home it runs in, and the directories it may reach beyond its policy), and
+agent is confined, whose home it runs in, and the directories it may reach beyond its policy),
+**Search** (what every project's search skips, and what a project is indexed to), **Connectors**
+(the named identities at each provider, and the registrations a flow picks from), **Hosts** (the
+remote hosts a window may attach to), **Assistance** (which backend writes the short lines Ubiq
+would otherwise invent mechanically, and what that backend reports about itself), and
 **Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
@@ -2003,7 +2021,16 @@ and the Ui-layer schema, and a toggle sends `SetSettings`. Its Command line sect
 directories the host considered; `app/settings.rs` is the traffic, `ask_cli_shortcut()` out and
 `apply_cli_shortcut()` back, with `set_settings_nav()` asking a `Query` whenever the section is
 opened. `SettingsState::cli` in `state/settings.rs` holds the answer, and it is `None` until one
-arrives, which is what lets the section say it is looking rather than say there is no shortcut. The
+arrives, which is what lets the section say it is looking rather than say there is no shortcut. Its
+Assistance section is `assist()` over `assist_provider_choice()`, and it reads the same way for the
+same reason: `SettingsState::assist` is `None` until `Assist` answers, so the chip says it is
+checking rather than say there is no backend. What may be switched on is
+`AssistInfo::switchable()` — available, or off by the user's own choice — because a backend the
+host says is not there is not a thing to turn on; the sentence under the row is the host's own, and
+the interface authors no sentence about a platform. `app/settings.rs` is the traffic,
+`set_assist_provider()` out and `receive_assist()` in `app/wire.rs` back, with `GetAssist` asked
+once on attach and again whenever the provider changes, because availability is asked and never
+inferred (`D84`). The
 half that knows anything about a path is the host's `crates/ubiq-host/src/cli_shortcut.rs`:
 `handle()` takes the action, `candidates()` and `install_dir()` decide where, `script()` writes the
 launcher, `marked_target()` reads the marker line, and `state()` is the answer all three actions

@@ -746,6 +746,7 @@ impl PickerDemo {
         let title = match self.kind {
             PickKind::Files => "Select documentation files",
             PickKind::Folders => "Select a folder",
+            PickKind::Either => "Select files or folders",
         };
         PickerRequest::new(PickerOwner::Sink, title)
             .root(PICKER_ROOTS[self.root.min(PICKER_ROOTS.len() - 1)].1)

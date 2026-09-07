@@ -458,6 +458,9 @@ fn isolate_options(
         .context("could not determine a config directory for this OS")?;
 
     let mut options = crate::isolate::IsolateOptions::new(base.join("isol8"));
+    // A relocated toolchain root is named by the environment and granted by
+    // nothing else: the shipped layers cover a default install only.
+    options.grant_toolchains_from_env();
 
     if let Some(mode) = settings.isolate.home.as_deref() {
         let id = spec

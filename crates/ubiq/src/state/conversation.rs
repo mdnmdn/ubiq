@@ -11,7 +11,7 @@
 //! the context ring. Those are read off the stream rather than asked for,
 //! because a second round trip per token would be a round trip per token.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ubiq_proto::conversation::{
     ConfigOption, ConfigValue, ConvContent, ConvUpdate, PermissionOption, PlanEntry,
@@ -237,6 +237,12 @@ pub struct Conversation {
     /// the window. Read through [`Self::viewing_subagent`], which discounts an id the transcript
     /// no longer has.
     pub viewing: Option<String>,
+    /// Which collapsed runs of same-kind tool calls the reader has opened, keyed by the id of the
+    /// run's first call. A run of `READ`s is drawn as its last card plus one row standing for the
+    /// rest, and this says which of those rows have been asked to show what they stand for. Keyed
+    /// by call id rather than by block index because a run's position is a property of the
+    /// transcript's current shape and its first call's id is not.
+    pub open_groups: HashSet<String>,
     /// Whether the subagent panel is open. Collapsed by default and per conversation, beside
     /// [`Self::viewing`] and for its reason: several conversations are on screen at once, and each
     /// reader opens the ones they are following.
@@ -289,6 +295,7 @@ impl Conversation {
             chosen: BTreeMap::new(),
             open_config: None,
             viewing: None,
+            open_groups: HashSet::new(),
             subagents_open: false,
             queued: Vec::new(),
             next_queued_id: 0,
@@ -722,6 +729,13 @@ impl Conversation {
             self.tools.get(id).map(|ix| &mut self.blocks[*ix])
         {
             *open = !*open;
+        }
+    }
+
+    /// Open or shut one collapsed run of tool calls, named by its first call's id.
+    pub fn toggle_group(&mut self, id: &str) {
+        if !self.open_groups.remove(id) {
+            self.open_groups.insert(id.to_string());
         }
     }
 

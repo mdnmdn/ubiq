@@ -12,6 +12,7 @@ use gpui::{
 };
 use gpui_component::IconName;
 use gpui_component::input::Input;
+use ubiq_proto::assist::AssistProvider;
 use ubiq_proto::connectors::{
     AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
     TrustedCert, origin,
@@ -21,10 +22,10 @@ use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileI
 use ubiq_proto::projects::IndexLevel;
 use ubiq_proto::settings::AgentHome;
 
-use crate::app::{AppState, HostEntry, HostRef, host_menu_rows, host_row_label};
+use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
-    AccountDialog, CliShortcut, ConnectApp, ConnectStep, ConnectorDialog, LoginStep, MarkdownOpen,
-    SettingsSection, connect_error_note, describe_status,
+    AccountDialog, AssistInfo, CliShortcut, ConnectApp, ConnectStep, ConnectorDialog, LoginStep,
+    MarkdownOpen, SettingsSection, connect_error_note, describe_status,
 };
 use crate::theme;
 use crate::ui::kit::{
@@ -156,6 +157,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
         SettingsSection::Search => IconName::Search,
         SettingsSection::Harnesses => IconName::Asterisk,
         SettingsSection::Isolation => IconName::Frame,
+        SettingsSection::Assist => IconName::Cpu,
         SettingsSection::Connectors => IconName::Globe,
         SettingsSection::Hosts => IconName::Network,
         SettingsSection::CommandLine => IconName::SquareTerminal,
@@ -170,6 +172,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Search => search(app, cx),
         SettingsSection::Harnesses => harnesses(app, cx),
         SettingsSection::Isolation => isolation(app, cx),
+        SettingsSection::Assist => assist(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::Hosts => hosts_section(app, cx),
         SettingsSection::CommandLine => command_line(app, cx),
@@ -212,6 +215,17 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "app-settings-capture",
                 app.workbench.settings.ui.capture_enabled,
                 cx.listener(|this, _, _, cx| this.toggle_capture(cx)),
+            )
+            .into_any_element(),
+        ),
+        setting_row(
+            "Cache token ring",
+            "Show a second ring beside the total-token readout comparing cached tokens to the \
+             total.",
+            check_box(
+                "app-settings-cache-ring",
+                app.workbench.settings.ui.show_cache_ring,
+                cx.listener(|this, _, _, cx| this.toggle_cache_ring(cx)),
             )
             .into_any_element(),
         ),
@@ -396,6 +410,106 @@ fn search(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     ])
 }
 
+/// Whether Ubiq may write a line of prose for the user, and which backend writes it.
+///
+/// **Every sentence about the backend comes from the host.** Whether assistance can run, which
+/// model is running and why it cannot are the host's answers — asked with `GetAssist` and never
+/// inferred here — so this section names no platform and no vendor of its own. What it authors is
+/// only what Ubiq does with the answer.
+fn assist(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let state = app.workbench.settings.assist.clone();
+    // Nothing has answered yet reads as "checking", never as a refusal: a window that has just
+    // opened knows nothing about this machine, which is not the same as being told no.
+    let chip = match &state {
+        None => state_chip(
+            "Checking what this host can do\u{2026}",
+            theme::text_faint(),
+            1.0,
+        )
+        .into_any_element(),
+        Some(info) if info.available => {
+            state_chip(assist_available(info), theme::success(), 1.0).into_any_element()
+        }
+        Some(_) => {
+            state_chip("Assistance is unavailable here", theme::warning(), 1.0).into_any_element()
+        }
+    };
+
+    // The switch is offered only where a backend could actually answer. The setting being off is
+    // the one negative answer the user can undo from here, so it keeps its controls live.
+    let switchable = state.as_ref().is_none_or(AssistInfo::switchable);
+
+    let mut rows = vec![
+        heading(
+            "Assistance",
+            "Ubiq writing a short line of prose it would otherwise invent mechanically \u{2014} a \
+             commit message from what is staged. Off by default, and never more than a \
+             suggestion: it fills an editable field, and it renames nothing.",
+        ),
+        div().flex().flex_none().child(chip).into_any_element(),
+        setting_row(
+            "Suggestions",
+            "Which backend writes one. Off calls no model at all, which is what a build with \
+             this untouched does.",
+            assist_provider_choice(app.workbench.settings.host.assist, switchable, cx),
+        ),
+    ];
+
+    // The host's own sentence about why, kept on screen rather than hidden: the harnesses section
+    // makes the same choice for a harness that is not installed.
+    if let Some(detail) = state.as_ref().and_then(|info| info.detail.clone()) {
+        rows.push(note(&detail, theme::text_muted()));
+    }
+
+    column(rows)
+}
+
+/// What an available backend's chip says: the name the host gave it, and how much it can hold.
+fn assist_available(info: &AssistInfo) -> String {
+    match &info.limits {
+        Some(limits) => format!(
+            "{} \u{b7} {} tokens of context",
+            limits.label, limits.context_tokens
+        ),
+        None => "Assistance is available on this host".to_string(),
+    }
+}
+
+/// The two providers, one lit. The closed-choice shape [`index_level_choice`] draws, drawn at half
+/// opacity with dead listeners where the host says there is no backend to switch on.
+fn assist_provider_choice(
+    current: AssistProvider,
+    switchable: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let pill = |id: &'static str, label: &'static str, provider: AssistProvider| {
+        choice_pill(
+            id,
+            label,
+            current == provider,
+            cx.listener(move |this, _, _, cx| {
+                if switchable {
+                    this.set_assist_provider(provider, cx);
+                }
+            }),
+        )
+    };
+
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .when(!switchable, |row| row.opacity(0.5))
+        .child(pill("app-settings-assist-off", "Off", AssistProvider::Off))
+        .child(pill(
+            "app-settings-assist-on-device",
+            "On-device",
+            AssistProvider::OnDevice,
+        ))
+        .into_any_element()
+}
+
 /// The three indexing levels, one lit.
 ///
 /// Named for what they cost the user rather than for what they are: "Full text" and "Full text +
@@ -462,7 +576,11 @@ fn isolation(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .flex()
             .flex_none()
             .child(match supported {
-                true => state_chip("Confinement available on this machine", theme::success(), 1.0),
+                true => state_chip(
+                    "Confinement available on this machine",
+                    theme::success(),
+                    1.0,
+                ),
                 false => state_chip(
                     "Confinement is macOS only \u{2014} agents here run unconfined",
                     theme::warning(),
@@ -484,7 +602,13 @@ fn isolation(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "The agent's home",
                 "Which $HOME a confined agent runs with.",
             ))
-            .child(div().flex().flex_col().gap_2().children(home_cards(host, cx)))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .children(home_cards(host, cx)),
+            )
             .when(matches!(host.agent_home, AgentHome::Named(_)), |this| {
                 this.child(
                     field(theme::border(), false)
@@ -543,7 +667,8 @@ fn home_cards(
                 "named" => AgentHome::Named(String::new()),
                 _ => AgentHome::Inherit,
             };
-            let selected = std::mem::discriminant(&host.agent_home) == std::mem::discriminant(&home);
+            let selected =
+                std::mem::discriminant(&host.agent_home) == std::mem::discriminant(&home);
 
             card(
                 ElementId::Name(format!("app-settings-home-{key}").into()),
@@ -1983,25 +2108,38 @@ fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             } else {
                 None
             })
-            .children(
-                saved
+            .children(saved.iter().map(|host| {
+                // A live connection is labelled with the saved name when it was reconnected from
+                // here and with the address when it was dialled fresh, so a row matches on
+                // either — see `AppState::address_of_host`, which reads the same pairing back the
+                // other way round.
+                let attached = remotes
                     .iter()
-                    .map(|host| host_row(host, &app.workbench.settings.failed_hosts, cx)),
-            )
+                    .find(|(_, label)| *label == host.name || *label == host.address)
+                    .map(|(id, _)| *id);
+                host_row(host, attached, &app.workbench.settings.failed_hosts, cx)
+            }))
             .into_any_element(),
     ])
 }
 
-/// One saved host: its address, whether it last failed to reach, and a way to forget it. The
-/// token it was dialled with is never shown here, because it was never kept — see
+/// One saved host: its address, whether it is attached or last failed to reach, and a way to let
+/// it go. The token it was dialled with is never shown here, because it was never kept — see
 /// [`ubiq_proto::settings::HostSettings::remote_hosts`].
+///
+/// `attached` names the live connection to this host, when there is one. Disconnect closes every
+/// pane it was running and drops the socket, but leaves the saved record alone — Forget is the
+/// other way round, and a host can be either without being the other.
 fn host_row(
     host: &ubiq_proto::settings::SavedRemoteHost,
+    attached: Option<HostId>,
     failed: &std::collections::HashSet<String>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let address = host.address.clone();
-    let (chip, colour) = if failed.contains(&host.address) {
+    let (chip, colour) = if attached.is_some() {
+        ("attached", theme::text_faint())
+    } else if failed.contains(&host.address) {
         ("last attempt failed", theme::danger())
     } else {
         ("saved", theme::text_faint())
@@ -2015,6 +2153,16 @@ fn host_row(
             .items_center()
             .gap_2()
             .child(badge(chip, colour))
+            .children(attached.map(|id| {
+                ghost_button(
+                    ElementId::Name(format!("app-settings-host-{address}-disconnect").into()),
+                    None,
+                    "Disconnect",
+                    cx.listener(move |this, _, _, cx| {
+                        this.disconnect_host(id, cx);
+                    }),
+                )
+            }))
             .child(ghost_button(
                 ElementId::Name(format!("app-settings-host-{address}-forget").into()),
                 None,

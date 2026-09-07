@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use ubiq_proto::assist::{AssistLimits, AssistReason};
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
 use ubiq_proto::ids::{ConnectId, ConnectionId, OauthAppId, PaneId};
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
@@ -32,6 +33,7 @@ pub enum SettingsSection {
     Search,
     Harnesses,
     Isolation,
+    Assist,
     Connectors,
     Hosts,
     CommandLine,
@@ -46,6 +48,7 @@ impl SettingsSection {
             SettingsSection::Search,
             SettingsSection::Harnesses,
             SettingsSection::Isolation,
+            SettingsSection::Assist,
             SettingsSection::Connectors,
             SettingsSection::Hosts,
             SettingsSection::CommandLine,
@@ -60,6 +63,7 @@ impl SettingsSection {
             SettingsSection::Search => "Search",
             SettingsSection::Harnesses => "Harnesses",
             SettingsSection::Isolation => "Isolation",
+            SettingsSection::Assist => "Assistance",
             SettingsSection::Connectors => "Connectors",
             SettingsSection::Hosts => "Hosts",
             SettingsSection::CommandLine => "Command line",
@@ -79,6 +83,29 @@ pub struct CliShortcut {
     pub target: Option<String>,
     pub candidates: Vec<CliDir>,
     pub error: Option<String>,
+}
+
+/// What the host last said about assistance: whether it can run, and what is running.
+///
+/// Every field is the host's answer, `detail` included — the interface renders a reason and a
+/// sentence it was given rather than composing either, so no platform or vendor is ever named
+/// here. `None` on the state means nothing has answered yet, which reads differently from a
+/// negative answer: the same rule `accounts` and `cli` above follow.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AssistInfo {
+    pub available: bool,
+    pub reason: Option<AssistReason>,
+    pub detail: Option<String>,
+    pub limits: Option<AssistLimits>,
+}
+
+impl AssistInfo {
+    /// Whether the user may still pick a backend. A negative answer that is only the setting
+    /// being off is the one the user can undo from this panel; anything else is the machine's
+    /// answer, and offering a switch would offer a backend that is not there.
+    pub fn switchable(&self) -> bool {
+        self.available || self.reason == Some(AssistReason::DisabledBySetting)
+    }
 }
 
 /// How a newly opened markdown file is drawn. Split is a per-tab choice, not a default.
@@ -131,6 +158,11 @@ pub struct UiSettings {
     /// means the interceptor in `app/vim.rs` returns before it looks at anything.
     #[serde(default)]
     pub vim_mode: bool,
+    /// A second ring beside a conversation footer's total-token readout, comparing the cached
+    /// tokens to that total. Off by default: it is a reading only a user watching cache
+    /// behaviour wants, and the one ring is what the footer says today.
+    #[serde(default)]
+    pub show_cache_ring: bool,
     /// Which connection the clone modal opened on last, as its id in text. A string rather than a
     /// `ConnectionId` because this blob is written by the interface and read back by a build that
     /// may no longer hold that connection — an id nothing matches is simply not preselected.
@@ -151,6 +183,7 @@ impl Default for UiSettings {
             rail_projects: true,
             markdown_open: MarkdownOpen::Preview,
             vim_mode: false,
+            show_cache_ring: false,
             last_connection: None,
         }
     }
@@ -410,6 +443,8 @@ pub struct SettingsState {
     pub connection_status: HashMap<ConnectionId, LoginStatus>,
     /// The `ubiq` command's shortcut, as the host last reported it. Absent until it answers.
     pub cli: Option<CliShortcut>,
+    /// What the host last said about assistance. Absent until it answers — see [`AssistInfo`].
+    pub assist: Option<AssistInfo>,
     /// Whether the Hosts section's dropdown list is down.
     pub host_picker_open: bool,
     /// Addresses a reconnect started from the Hosts section most recently failed to reach —
@@ -454,6 +489,7 @@ impl Default for SettingsState {
             statuses: HashMap::new(),
             connection_status: HashMap::new(),
             cli: None,
+            assist: None,
             host_picker_open: false,
             failed_hosts: HashSet::new(),
             error: None,

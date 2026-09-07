@@ -55,6 +55,25 @@ pub const SINK_SLOT: usize = COLUMNS_MAX + CHATS_MAX;
 /// three ever crosses into another's range.
 pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX + 1;
 
+/// How many rows a composer nobody has resized grows to before it scrolls. What the pool is built
+/// with, and what a resized one is reset to.
+pub const COMPOSER_ROWS_MAX_DEFAULT: usize = 5;
+
+/// The fewest and the most rows a composer may be dragged to.
+///
+/// One row is the floor because a field with none is not a field; the ceiling is what leaves a
+/// transcript on screen — a composer that could eat the whole view would be a way to lose the
+/// conversation you are writing to. Between them the drag is free.
+pub const COMPOSER_ROWS_MIN: usize = 1;
+pub const COMPOSER_ROWS_MAX: usize = 24;
+
+/// How tall one row of a composer is, in pixels — the line height the field is laid out with, at
+/// its own `text_size(px(13.))`. Ubiq's own constant because the figure the library computes from
+/// the font is not reachable from here, and a drag has to turn pixels into rows somehow. Close
+/// enough is enough: the drag is answered by the pointer, and a row either fits or the next one
+/// does.
+pub const COMPOSER_ROW_HEIGHT: f32 = 20.0;
+
 /// The narrowest a column is drawn. Below this a transcript is a word per line, so the row scrolls
 /// sideways rather than squeezing further.
 pub const COLUMN_MIN_WIDTH: f32 = 360.0;

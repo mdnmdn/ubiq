@@ -139,6 +139,14 @@ check java    java    -version
 check ruby    ruby    --version
 check php     php     --version
 
+hdr "Containers"
+# `docker version` talks to the daemon socket; `--version` only reports the
+# client binary, so it would pass with no socket granted at all. isol8's
+# integrations/docker layer cannot be used (undefined HOME_DIR in its raw
+# SBPL), so a working docker needs the socket as a hand-written extra grant.
+check docker  docker  --version  -- docker version
+check podman  podman  --version
+
 hdr "Git"
 check git     git     --version   -- git config --get-regexp '^user\.'
 if command -v git >/dev/null 2>&1; then

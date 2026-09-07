@@ -194,11 +194,63 @@ impl AppState {
                 }
             }
             if let HostRef::Remote(id) = host {
-                let _ = this.update(cx, |this, _| this.bus.remove_remote(id));
-                tracing::warn!("remote host disconnected");
+                let _ = this.update(cx, |this, cx| {
+                    let label = this.disconnect_host(id, cx);
+                    // The socket failed rather than the user asking for this, so the Hosts
+                    // section has to say the connection to that address is no longer good — the
+                    // same mark a failed dial leaves, and cleared the same way, by reaching it.
+                    if let Some(address) = this.address_of_host(&label) {
+                        this.workbench.settings.failed_hosts.insert(address);
+                    }
+                    tracing::warn!("remote host {label} disconnected");
+                });
             }
         })
         .detach();
+    }
+
+    /// Let a remote host go: close every pane it was running, forget its projects, and drop the
+    /// connection — which is what tells the far side, over `FromClient::Gone`, that this window is
+    /// no longer attached.
+    ///
+    /// One method for both ways a host is lost: the socket ending under [`Self::route_host`], and
+    /// the Hosts section's Disconnect button. Answers with the label it was attached under, which
+    /// is all either caller needs afterwards and is gone from the `Bus` by then.
+    ///
+    /// Panes are closed *before* anything is forgotten about them — `close_pane` sends a
+    /// `CloseWorkspace` that has to resolve to this host to be dropped rather than misdelivered,
+    /// and forgets the pane itself as it goes. See [`Bus::drop_remote`].
+    pub fn disconnect_host(&mut self, id: HostId, cx: &mut Context<Self>) -> String {
+        let label = self
+            .bus
+            .remotes()
+            .find(|(host, _)| *host == id)
+            .map(|(_, label)| label.to_string())
+            .unwrap_or_default();
+        for pane_id in self.bus.drop_remote(id) {
+            self.close_pane(pane_id, cx);
+            // `close_pane` gives up on a pane whose project this window does not hold open, so it
+            // has not necessarily forgotten it. Nothing may stay recorded under a host that is
+            // gone.
+            self.bus.forget_pane(pane_id);
+        }
+        cx.notify();
+        label
+    }
+
+    /// The saved address a live connection's label belongs to.
+    ///
+    /// A remote is labelled with the saved host's name when it was reconnected from the Hosts
+    /// section and with the bare address when it was dialled fresh, so both are tried — the
+    /// address is what `failed_hosts` and every other saved-host lookup is keyed by.
+    fn address_of_host(&self, label: &str) -> Option<String> {
+        self.workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|host| host.name == label || host.address == label)
+            .map(|host| host.address.clone())
     }
 
     /// Everything the coordinator says, in the order it said it.
@@ -237,6 +289,9 @@ impl AppState {
             return;
         };
         let Some(message) = self.receive_search(host, message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_assist(host, message, cx) else {
             return;
         };
         let Some(message) = self.receive_repo(host, message, cx) else {
@@ -345,10 +400,14 @@ impl AppState {
                 // Every project this catalogue answer names belongs to whichever host sent it —
                 // recorded before `sync_projects` reads the registry, so a project this window
                 // adopts as it reconciles already resolves to the right host.
+                // Read before `cx.global_mut` borrows the app: every project some *other* host
+                // reported, which this answer knows nothing about and must not take away.
+                let keep = self.bus.projects_not_on(host);
                 for project in &projects {
                     self.bus.note_project(project.record.id, host);
                 }
-                cx.global_mut::<WindowRegistry>().replace_all(projects);
+                cx.global_mut::<WindowRegistry>()
+                    .replace_all_except(projects, &keep);
                 self.adopt_if_owed(cx);
                 // A catalogue that no longer names a project this window held takes it away, so
                 // what the window holds is reconciled before anything is drawn from it.
@@ -1093,16 +1152,25 @@ impl AppState {
     /// Answers with the message when it belongs to another family.
     fn receive_session(
         &mut self,
-        _host: HostRef,
+        host: HostRef,
         message: Message,
         cx: &mut Context<Self>,
     ) -> Option<Message> {
         match message {
             // What the host is. The status bar says so when the root is not the usual one.
+            //
+            // Only the local host's answer is taken. Every host greets a new client with this
+            // unsolicited, so a remote's would otherwise arrive on attach and repaint the config
+            // root — and, worse, re-ask for the shells, harnesses, accounts and profiles, whose
+            // answers replace those lists whole. The menus name what can be started on *this*
+            // machine; a remote's belong to a per-host set of them that does not exist yet.
             Message::HostInfo {
                 config_root,
                 is_default,
             } => {
+                if host != HostRef::Local {
+                    return None;
+                }
                 self.workbench.config_root = Some(config_root);
                 self.workbench.config_root_is_default = is_default;
                 // The new-pane menu offers what this machine has, and only the host can say what
@@ -1447,6 +1515,61 @@ impl AppState {
                 self.search.error = Some(error);
                 self.search.finished = true;
                 self.search.active = None;
+                cx.notify();
+            }
+
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The assist family: whether assistance can run, and what one asked-for suggestion came back
+    /// with.
+    ///
+    /// Nothing here names a pane, so the family is routed by its variants alone. `Assist` is the
+    /// host's standing answer and is simply kept — a window that has not been told yet draws
+    /// "checking" rather than "unavailable". A suggestion is matched against the id the interface
+    /// is waiting on and discarded otherwise, the search family's discipline and for its reason:
+    /// an answer to a request nobody is waiting for has nowhere to be put.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_assist(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
+        match message {
+            Message::Assist {
+                available,
+                reason,
+                detail,
+                limits,
+            } => {
+                self.workbench.settings.assist = Some(AssistInfo {
+                    available,
+                    reason,
+                    detail,
+                    limits,
+                });
+                cx.notify();
+            }
+
+            Message::Suggestion { suggest_id, text } => {
+                if self.suggest != Some(suggest_id) {
+                    return None;
+                }
+                tracing::debug!("suggestion for {suggest_id}: {} bytes", text.len());
+                self.suggest = None;
+                cx.notify();
+            }
+
+            Message::SuggestError { suggest_id, error } => {
+                if self.suggest != Some(suggest_id) {
+                    return None;
+                }
+                tracing::warn!("suggestion {suggest_id} failed: {error}");
+                self.suggest = None;
                 cx.notify();
             }
 

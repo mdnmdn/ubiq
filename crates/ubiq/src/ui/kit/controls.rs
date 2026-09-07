@@ -225,9 +225,14 @@ pub fn ghost_button(
 ///
 /// Drawn rather than approximated with a border, because the arc is the whole point of it.
 pub fn progress_ring(pct: u8, diameter: f32) -> impl IntoElement {
+    progress_ring_in(pct, diameter, theme::accent())
+}
+
+/// The same donut in a colour of the caller's choosing, for the rings that sit beside the context
+/// one: two accent rings in a row read as one fact drawn twice, which is exactly what they are not.
+pub fn progress_ring_in(pct: u8, diameter: f32, fill: Rgba) -> impl IntoElement {
     let fraction = (pct as f32 / 100.0).clamp(0.0, 1.0);
     let track = theme::text_faint();
-    let fill = theme::accent();
 
     div().size(px(diameter)).flex_none().child(canvas(
         |_, _, _| {},

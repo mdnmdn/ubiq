@@ -84,14 +84,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             },
         })
         .children(app.sink.modal.map(|which| raised(app, which, window, cx)))
-        // The picker belongs to the window rather than to this page — one may be up at a time —
-        // but it is painted from here, like the modal above it and for the same reason: where a
-        // dialog is asked for is not where it is drawn.
-        .children(
-            app.file_picker
-                .as_ref()
-                .map(|picker| crate::ui::file_picker::render(app, picker, window, cx)),
-        )
+        // The picker this page raises is painted by the window root, not from here: every surface
+        // that raises one needs it drawn, and one mount point above all of them is what gives
+        // them that. See `ui::shell`.
         .into_any_element()
 }
 
