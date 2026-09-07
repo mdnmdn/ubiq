@@ -39,3 +39,8 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 [dev-dependencies]
 # `handoff`'s tests claim a lock in a throwaway root rather than the real config dir.
 tempfile = "3"
+
+[target.'cfg(windows)'.build-dependencies]
+# Embeds res/AppIcon.ico into the Windows executable. macOS builds it never enables,
+# so the reference platform carries no icon-compilation dependency.
+embed-resource = "3"

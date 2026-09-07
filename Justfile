@@ -36,6 +36,13 @@ bundle:
     cp target/AppIcon.icns target/Ubiq.app/Contents/Resources/AppIcon.icns
     cp _tools/Info.plist target/Ubiq.app/Contents/Info.plist
 
+# Assemble the Windows release in target/ubiq-windows-x86_64/ — the .exe
+bundle-win:
+    cargo build -p ubiq-app --release
+    rm -rf target/ubiq-windows-x86_64
+    mkdir -p target/ubiq-windows-x86_64
+    cp target/release/ubiq.exe target/ubiq-windows-x86_64/ubiq.exe
+
 # ── the harness library ────────────────────────────────────────────
 
 # Run the `am` CLI: `just am claude --print-config`
