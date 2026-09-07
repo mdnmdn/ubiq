@@ -237,17 +237,22 @@ impl AppState {
         let Some(input) = self.column_inputs.get(slot) else {
             return;
         };
-        let text = input.read(cx).value().trim().to_string();
+        let typed = input.read(cx).value().to_string();
+        let Some(conversation) = self.conversation(agent_id, cx) else {
+            return;
+        };
+        if !conversation.accepts_input {
+            return;
+        }
+        // Attachments are composed into the one prompt text as `@path` mentions — nothing new
+        // crosses the bus for them. Which is also why a turn with attachments and nothing typed
+        // is still something to send.
+        let text = conversation.compose_prompt(&typed);
         if text.is_empty() {
             return;
         }
-        if !self
-            .conversation(agent_id, cx)
-            .is_some_and(|conversation| conversation.accepts_input)
-        {
-            return;
-        }
         self.bus.send(Message::PromptAgent { agent_id, text });
+        self.clear_attachments(agent_id, cx);
         self.clear_composer(slot, window, cx);
         cx.notify();
     }
@@ -277,18 +282,38 @@ impl AppState {
         let Some(input) = self.column_inputs.get(slot) else {
             return;
         };
-        let text = input.read(cx).value().trim().to_string();
-        if text.is_empty() {
+        let typed = input.read(cx).value().to_string();
+        // A queued prompt is one string, so its attachments are composed into it here rather than
+        // held per entry: a queue row that carried its own tag list would need its own tag row,
+        // its own removes and its own colouring, which is a second composer. The paths are in the
+        // text the row previews, and an edit brings them back into the field as text.
+        let Some(text) = self
+            .conversation(agent_id, cx)
+            .map(|conversation| conversation.compose_prompt(&typed))
+            .filter(|text| !text.is_empty())
+        else {
             return;
-        }
+        };
         if let Some(id) = self.project(cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
             conversation.enqueue(text);
+            conversation.clear_attached();
         }
         self.clear_composer(slot, window, cx);
         cx.notify();
+    }
+
+    /// Drop every attachment a conversation was holding — what a prompt leaving consumes, the
+    /// same moment the draft is cleared.
+    fn clear_attachments(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.clear_attached();
+        }
     }
 
     /// Put the last thing said to this composer's agent back into it, and say whether it did.
@@ -380,9 +405,43 @@ impl AppState {
     }
 
     /// Interrupt the turn in flight.
+    ///
+    /// Every prompt still up goes with it: the host answers each outstanding request as cancelled
+    /// on its way to the cancel, so a prompt left on screen would offer an answer to a question
+    /// already closed.
     pub fn cancel_turn(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         self.bus.send(Message::CancelTurn { agent_id });
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.pending.clear();
+        }
         cx.notify();
+    }
+
+    /// Go ahead with what the conversation being read is asking about — ⌘⌥Y.
+    pub fn allow_permission(
+        &mut self,
+        _: &AllowPermission,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(agent_id) = self.read_conversation(cx) {
+            self.answer_oldest_permission(agent_id, true, cx);
+        }
+    }
+
+    /// Refuse it — ⌘⌥N.
+    pub fn reject_permission(
+        &mut self,
+        _: &RejectPermission,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(agent_id) = self.read_conversation(cx) {
+            self.answer_oldest_permission(agent_id, false, cx);
+        }
     }
 
     /// End a conversation outright — unlike [`Self::cancel_turn`], this closes it rather than
@@ -492,20 +551,55 @@ impl AppState {
         option_id: String,
         cx: &mut Context<Self>,
     ) {
+        // This prompt goes as its answer does — and only this one: a second request outstanding
+        // under another id is still waiting, and clearing it here would strand the turn on a
+        // question nobody can answer any more.
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.answered(&request_id);
+        }
         self.bus.send(Message::AnswerPermission {
             agent_id,
             request_id,
             option_id,
         });
-        // The dialog goes as the answer does: leaving it up would offer a second answer to a
-        // question already settled.
-        if let Some(id) = self.project(cx)
-            && let Some(open) = self.projects.get_mut(&id)
-            && let Some(conversation) = open.conversations.get_mut(&agent_id)
-        {
-            conversation.pending = None;
-        }
         cx.notify();
+    }
+
+    /// Answer the oldest request this conversation is waiting on, going ahead or refusing — what
+    /// ⌘⌥Y and ⌘⌥N do. The option is the first the harness offered of that reading; a harness that
+    /// offered none of it is left alone rather than answered with the other.
+    pub fn answer_oldest_permission(
+        &mut self,
+        agent_id: AgentId,
+        allow: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let Some(conversation) = open.conversations.get(&agent_id) else {
+            return;
+        };
+        let Some(pending) = conversation.oldest_pending() else {
+            return;
+        };
+        let Some(option) = pending.option_for(allow) else {
+            return;
+        };
+        let (request_id, option_id) = (pending.request_id.clone(), option.option_id.clone());
+        self.answer_permission(agent_id, request_id, option_id, cx);
+    }
+
+    /// The conversation the keyboard means: the active tab of the agents screen's focused column.
+    fn read_conversation(&self, cx: &App) -> Option<AgentId> {
+        let agents = self.agents(cx)?;
+        agents.columns.get(agents.focus)?.active_agent()
     }
 
     /// Pick a value for one launch-time config option before this conversation's harness has

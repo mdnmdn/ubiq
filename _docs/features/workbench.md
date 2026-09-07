@@ -4,10 +4,10 @@ title: The workbench
 kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
-read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
+read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-07
 verified: 2026-09-07
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -176,7 +176,9 @@ button's click and the Enter key both call it — and it is what a queued row's 
 `Message::ConversationUpdate`'s handler pops the front of the queue and sends it as a plain
 `PromptAgent` the instant `apply` leaves the conversation `Idle`. A queued prompt is drawn as its own
 small row above the field, oldest first, each with an edit (loads it back into the composer) and a
-delete (drops it); the block draws nothing when the queue is empty.
+delete (drops it); the block draws nothing when the queue is empty. Files attached to the turn are a
+second such block, drawn above the queue as one tag apiece; the chat panel's own document owns that,
+including why an attachment lives on the conversation and how it reaches the wire.
 
 **The ceiling is on columns, not on tabs.** Eight columns fit the row. Grouping into a column that
 is open always works, however many tabs it holds; a split that would need a ninth is refused and
@@ -765,7 +767,8 @@ while a project is open — because a pane runs in a project's folder. Beside it
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
 machine has, and a row that puts the console on screen. What the rows are and what a click does is
 `feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a network button
-that raises the "Connect to a remote host" modal, a browser button, a gear that raises application
+that raises the "Connect to a remote host" modal, a browser button, a capture button, a gear that
+raises application
 settings, and the theme switch. The gear lights while settings are up; the network button lights
 while its modal is up. Settings are interface-wide, so the overlay opens with no project.
 
@@ -867,10 +870,24 @@ the only way to reach a page. A theme flash on a full load is separately prevent
 blocking script at the top of `<head>` that sets `data-theme` from `localStorage` before the
 stylesheet paints, ahead of `script.js`'s own `DOMContentLoaded` handler.
 
+**The capture button photographs this window into a dirty untitled tab.** It wears
+`IconName::Frame`, carries the tooltip every icon-only control in the cluster does, and is drawn
+only with a project open and where the capture is offered — the Appearance switch is on, the
+platform is one whose frames this build decodes, and the runtime backend answers.
+`⌘⇧2` / `⌃⇧2` is the same act from the keyboard, and the switch removes the button, the tooltip and
+the keystroke together. The route is the operating system's screen capture, so a source is a
+display and never a window: one frame off the window's own display is streamed, cropped to the
+window's bounds at the window's scale, encoded PNG, and opened as `capture-{n}.png` — the same tab
+an image on the clipboard opens, dirty from the start. The stream ends on its first frame; a
+screenshot is start, take one, stop. Where the platform asks for consent the first press is what
+asks it, and where it does not the Appearance switch is the only thing between the application and
+a screenshot. Nothing crosses the bus.
+
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Five sections ship: **Appearance** (whether the rail carries the open-project badges), **File
+it dismisses project settings, and the reverse. Five sections ship: **Appearance** (whether the rail carries the open-project badges, and whether
+the titlebar's capture control and its keystroke are offered at all), **File
 explorer** (whether a
 single click opens a preview tab, and the two folders a clone lands in — the default project folder
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
@@ -1341,6 +1358,46 @@ in place — name, language, viewer — and writes the file as a creation, which
 anything is already there. The retitle happens on the confirmation rather than on the host's answer,
 the same bet a click on an explorer row makes, so a refusal is reported on a tab that already carries
 the name the user chose and the message reads correctly.
+
+**With an image on the clipboard, `⌘N` asks which one is wanted.** The modal offers the image as an untitled picture and the text buffer the keystroke has always meant; Escape and every other dismissal take the text file, and text or nothing on the clipboard skips the question entirely. Pasting outside a text field asks nothing: the image opens as `capture-{n}.png`, numbered past whatever is already open and dirty from the start so closing it asks. The name carries its extension, which is what selects the image viewer.
+
+**A capture is an editable picture, and only a capture is.** An untitled image tab holding a
+decodable picture grows an annotation scene over its bytes — the base PNG plus elements above it —
+and takes the keyboard through its panel rather than through a buffer, because its toolbar, its
+tools and its undo all live at Workbench depth. A PNG opened from the explorer and an
+`.excalidraw` document are neither untitled nor session-authored, so both stay read-only, and the
+same toolbar handlers are no-ops on them rather than errors.
+
+**A capture's header strip is its toolbar, in place of the layout toggle.** Eight tools — Select,
+Crop, Rect, Ellipse, Arrow, Draw, Text and Copy — then the style controls and the history: a stroke
+button cycling six colours, a width button cycling three, a Fill toggle that fills with the stroke
+colour, Undo, Redo and Delete. Changing a style control with something selected restyles it as one
+undoable step as well as arming the next element. Delete is the toolbar's button and has no
+keystroke. The tools sit on a transparent layer over the picture, and a gesture the layer declines
+reaches the viewport underneath, so the pan, zoom and fit every scene panel has keep working beside
+the tools rather than behind a mode.
+
+**The base image is never touched, and undo is elements rather than pixels.** Every tool appends,
+moves or removes one element above the base; crop only narrows what is shown, measured against the
+whole picture, so dragging wider brings back what an earlier crop took. The undo stack holds
+element snapshots and a crop's two bounds, so a freehand stroke costs its points rather than a
+second bitmap. `⌘Z` and `⌘⇧Z` reach it, bound at Workbench depth so a text buffer's own undo wins
+while one holds the keyboard.
+
+**Select and Copy are the two gestures over a picture rather than onto it.** Select on an element
+picks it up and a drag moves it, committed on the release as one step; Select on empty space is
+declined so the drag pans instead, and the selection stands. Copy drags a rectangle and writes that
+region — flattened, annotations included — to the system clipboard as a PNG, which is how a piece of
+a capture reaches somewhere else. Text opens the one-field modal at the click and annotates where
+the click was; an empty string leaves the question up rather than annotating nothing.
+
+**A save writes a flattened PNG and never the scene.** The flatten decodes the base, crops it to the
+scene's bounds, and paints the annotations over it at scene scale — scene units are base pixels.
+Because the base is held whole behind them, a covering rectangle is real redaction only in the
+flatten, which is why PNG is the only thing a capture writes. The write itself is the untitled path
+unchanged: `⌘S` raises the same single-field modal, and the flatten goes out over
+`WriteProjectFile` as a creation, with the version discipline any other write carries once the
+first one has answered.
 
 **`⌘S` writes the active file back, and names the version it read.** A save the host refuses because
 the file moved under it is reported on the tab and in the status bar, and the file is left alone —
@@ -2045,10 +2102,12 @@ footer's pills are drawn from; `is_next()` is the gap check. `AppState` holds th
 `refresh_agent_record()` writes the badge, the ring, the token count and the model onto the
 `WorkAgent` record, so the sidebar, the graph and a column's header keep one source.
 `ui/conversation/mod.rs` draws one — `render()` over a `ConversationView`, then `tool_block()`,
-`diff()`, `permission()`, `footer()`, `composer()` and `queue_list()` — `prompt_agent()` sends and
-appends nothing, `send_or_enqueue()` is what the composer's one button and the Enter key both call
-(send when idle, queue on `Conversation` when a turn is already running and the draft is not empty,
-nothing when it is), `steer_column()` resolves the slot's agent through `AppState::agent_for_slot`
+`diff()`, `permission()`, `footer()`, `composer()`, `attachment_tags()` and `queue_list()` —
+`prompt_agent()` sends what was typed with every attached path composed into it as an `@path`
+mention and appends nothing, `send_or_enqueue()` is what the composer's one button and the Enter key both call
+(send when idle, queue on `Conversation` when a turn is already running and there is anything to
+send — the composed text, so attachments with nothing typed still count — nothing when there is
+not), `steer_column()` resolves the slot's agent through `AppState::agent_for_slot`
 and chooses between `send_or_enqueue()` and the mock's path, and `pick_new_agent_menu()` starts a
 conversation on the harness at that row. `crates/ubiq/tests/conversation.rs` covers both.
 
@@ -2201,7 +2260,8 @@ registered later.
 
 `click_picker_row` asks the picker what the click meant and commits on the spot when the request said
 a single pick is final on it; `commit_file_picker` and `cancel_file_picker` take the dialog down and
-route the answer by `PickerRequest::owner` — the sink's page, the composer's mention field, and
+route the answer by `PickerRequest::owner` — the sink's page, the composer's attachments (taken as
+`picked_with_sizes()`, so a tag knows how big its file is without anything reading a disk), and
 `PickerOwner::HostProject`, which sends `AddProject` to the host `AppState::host_browse` names
 rather than writing back into any field of the picker's own. `ui/file_picker.rs` draws it, painted
 from `ui/sink/mod.rs` for the same reason the modal is: where a dialog is asked for is not where it
@@ -2261,6 +2321,26 @@ is what `tests/viewport.rs` asserts, because none of it needs a frame. A fence s
 through `diagram.rs` and `scene.rs` directly, at the picture's own size. None of them reaches a
 path or a handle; the camera is keyed by the tab and lives on the window.
 
+The capture is four modules over that machinery and one dependency line. `app/capture.rs` is the
+platform half: `capture_offered()` is the `cfg`, the setting and `cx.is_screen_capture_supported()`
+together, `capture_window()` streams one frame off `cx.screen_capture_sources()`, and
+`decode_window_png()`, `crop_rect()` and `crop_png()` are the crop and the encode — the frame
+becomes RGBA in `frame_rgba()` on the capturer's own thread, from `zed_scap::frame::Frame` on
+Windows and Linux and from a `CVImageBuffer` on macOS, which is why `gpui` and `gpui_platform` carry
+the `screen-capture` feature in `crates/ubiq/Cargo.toml` and `core-video` and `zed-scap` sit behind
+target `cfg`s there. The pixels land in `app/editor.rs`'s `open_untitled_image()`, and
+`clipboard.rs`'s `next_capture_name()` numbers the tab. `state/image_edit.rs` is the buffer:
+`ImageEdit::new()` builds the scene of `state/scene.rs` elements over the base bytes, `push()`,
+`commit_shape()`, `commit_draw()`, `append_text()`, `commit_move()`, `restyle_selected()`,
+`delete_selected()` and `set_crop()` each leave one `EditOp` for `undo()` and `redo()`,
+`display_scene()` adds the drag in progress for the painter, and `flatten()`/`flatten_rect()` are
+the only decode-and-re-encode in the interface — display stays GPUI's. `app/image_edit.rs` is the
+toolbar's handlers and the three gestures, every one of them a no-op through `ensure_image_edit()`
+on a tab that is not a capture. `ui/viewer/image_edit.rs` draws the strip and the tool layer, and
+converts a window point to a scene point through the stored panel and `scene::live_with_overlay()`.
+`FileBody::ImageEdit` is what `state/editor.rs` holds it in, and `editable_image()`, `savable()`,
+`touch_image()` and `saved()` are where a non-text body meets the tab's own lifecycle.
+
 `state/diagrams.rs` is the Mermaid renderer and its disk tier, and it is the only place in the
 interface that names `merman`. `render()` is one source in and one picture out, sized by `view_box()`
 off the SVG's own `viewBox`; `key()` is the content address — the source, the palette and the
@@ -2309,7 +2389,11 @@ open. `install_key_bindings()` binds `⌘S`, `cmd-w`/`ctrl-w` (`close_active_edi
 equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in), `cmd--` (zoom out),
 `ctrl--`, `ctrl-shift--`, `cmd-alt-k` and `cmd-k` for navigation, and `cmd-shift-o` (`OpenOutline` →
 `AppState::open_outline`/`reveal_outline`, bound in both `Workbench` and `Input` contexts, beside
-`OpenSearch` on `cmd-shift-f`)
+`OpenSearch` on `cmd-shift-f`), and `cmd-alt-y`/`cmd-alt-n` (`AllowPermission`/`RejectPermission` →
+`AppState::allow_permission`/`reject_permission`, in both contexts for the same reason: a permission
+prompt blocks the turn and the chat composer holds the keyboard while it is up), and `cmd-v`/`ctrl-v`
+(`PasteClipboardImage` → the clipboard's image as an untitled picture, in `Workbench` only so a
+field's own paste wins the tie)
 in the `Workbench` key context, then the file picker's, the navigator's and
 the explorer's keys — each bound for the surface and for the field inside it, after the component
 library's own so they win — and the binary calls it beside its own quit binding.
@@ -2447,6 +2531,13 @@ field's, instead of landing in the middle of the centred row and covering the te
 | The workarea cannot be read or written | Every failure is a cache miss, never an error: the diagram is rendered again and the picture is drawn. A half-written entry is a miss too, because it carries no usable size |
 | The palette is switched with a diagram on screen | The picture is rendered again for the new palette. The two palettes are two entries, so switching back is a cache hit |
 | A window has no project yet | A diagram still renders, with the memory tier alone. There is no workarea to write to until the catalogue has arrived |
+| The capture switch is off, the platform decodes no frame, or the backend does not answer | The titlebar has no capture button and the keystroke does nothing. There is nothing to dismiss and nothing to report |
+| The platform refuses the capture, offers no display, or sends a frame this build does not read | The reason is logged and no tab opens. A capture that cannot land is not a half-drawn picture |
+| The window is minimised or wholly off its display | The capture is refused rather than saved as whatever the compositor had. A window hanging off an edge is clamped to the frame and captured |
+| An untitled picture's bytes carry nothing decodable | The tab stays read-only bytes: it draws what it can and still saves, it just never annotates |
+| A tool gesture lands before the panel is measured | The gesture is declined. The next one, with a camera to convert through, lands |
+| A shape or a stroke is dragged to nothing | Nothing is committed and nothing goes on the undo stack. A copy region dragged to nothing writes nothing to the clipboard |
+| A picture does not flatten | The save is not attempted and the tab says the picture did not flatten. Nothing is written, so nothing is half-written |
 
 ## Related docs
 

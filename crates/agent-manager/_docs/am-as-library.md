@@ -368,7 +368,12 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
     `map_sandbox_mode` already accepted. `RunSpec.thinking` and
     `RunSpec.policy.permission_mode` are the launch-time counterparts —
     harness-native strings passed straight through, never interpreted,
-    mirroring `RunSpec.model`.
+    mirroring `RunSpec.model`. One caveat worth knowing before an embedder
+    leans on a mode: Claude Code **ignores `--permission-mode` in headless
+    (`-p`) runs** — a structured run's approvals are the
+    `control_request`/`AnswerPermission` handshake and nothing else (see
+    [`./harness/claude-code.md`](./harness/claude-code.md) §"Tool approval
+    in headless mode").
 
 ## 7. The credential copy-in / copy-back lifecycle
 

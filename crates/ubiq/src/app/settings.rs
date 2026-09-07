@@ -200,6 +200,14 @@ impl AppState {
         cx.notify();
     }
 
+    /// Show or hide the window-capture control. Off removes the keystroke with it — a
+    /// switch that left the shortcut live would not do what its label says.
+    pub fn toggle_capture(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.capture_enabled = !self.workbench.settings.ui.capture_enabled;
+        self.remember_settings();
+        cx.notify();
+    }
+
     /// Turn modal editing on or off. Reached from two places — the settings checkbox and the
     /// status bar's chip — so that the readout and the switch can never disagree.
     pub fn toggle_rail_projects(&mut self, cx: &mut Context<Self>) {

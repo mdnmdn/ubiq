@@ -51,7 +51,7 @@ harness's bridge speaks":
 
 | Harness         | Mechanism                                                                 |
 |------------------|---------------------------------------------------------------------------|
-| **Claude Code**  | stream-json (NDJSON): launch headless (`-p --input-format stream-json --output-format stream-json`); write the prompt as an NDJSON line on stdin; answer `control_request` tool-approvals with `control_response`. Contract fully spelled out in [`./harness/claude-code.md`](./harness/claude-code.md). |
+| **Claude Code**  | stream-json (NDJSON): launch headless (`-p --input-format stream-json --output-format stream-json`); write the prompt as an NDJSON line on stdin; opt into being asked with `--permission-prompt-tool stdio` and answer each `control_request` tool-approval with a `control_response` (the caller answers, not the bridge). Contract fully spelled out in [`./harness/claude-code.md`](./harness/claude-code.md). |
 | **codex**        | JSON-RPC over `codex app-server`: launch the `app-server` subcommand and exchange JSON-RPC requests/notifications over its stdio. See [`./harness/codex.md`](./harness/codex.md). |
 | **opencode**     | NDJSON one-shot: launch `opencode run --format json`, which streams one NDJSON event per line and exits. See [`./harness/opencode.md`](./harness/opencode.md). |
 | **GitHub Copilot** | NDJSON one-shot: launch headless (`-p --output-format json`), which streams one NDJSON event per line and exits. See [`./harness/copilot.md`](./harness/copilot.md). |
@@ -274,6 +274,21 @@ before it runs — how a caller forces, say, a background command into the
 foreground. Every pending permission request must be answered
 `PermissionOutcome::Cancelled` when a turn is cancelled.
 
+**Only the caller answers.** `JsonlBridge` (Claude Code) is the one bridge
+that really asks — it needs `--permission-prompt-tool stdio` to be asked at
+all, and an unanswered ask stalls the turn, so it holds each request
+outstanding until an `AnswerPermission` arrives and denies whatever is
+outstanding on a `Cancel` (see
+[`./harness/claude-code.md`](./harness/claude-code.md) §"Tool approval in
+headless mode"). Its `option_id`s are `allow`, `deny`, and one
+`allow_always:<n>` per `permission_suggestions` entry the request offered —
+choosing an "always" sends that suggestion back as `updatedPermissions`, so
+the memory is Claude's rather than the caller's. The unattended
+`am --io structured` CLI answers the plain "allow once" for itself; the other
+bridges launch their harness with approvals already skipped and emit either
+no `PermissionRequest` at all (opencode, Copilot) or one for visibility only
+(Codex).
+
 ### The events, complete
 
 ```rust
@@ -356,8 +371,9 @@ thread, an HTTP handler — while the pump thread is parked in `next_event`.
 (`AgentInputSink`) that feeds the same underlying process from any thread,
 independent of whoever owns the `IoBridge` itself. `JsonlBridge`
 (`src/io/jsonl.rs`) shares its child's stdin as an `Arc<Mutex<Option<
-ChildStdin>>>` between `send`, its `AgentInputSink`, and its own reader
-thread's auto-allow writes, which is exactly the shape this seam is for; see
+ChildStdin>>>` between `send` and its `AgentInputSink` — so a permission ask
+the pump thread reports can be answered from the thread that asked the human,
+which is exactly the shape this seam is for; see
 [am-as-library.md](./am-as-library.md) §6 for the embedder-facing pattern.
 
 **A `None` from `input()` is a real capability signal, not an omission.**

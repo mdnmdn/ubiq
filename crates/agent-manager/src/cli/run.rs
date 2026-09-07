@@ -291,6 +291,10 @@ fn run_structured(
             let _ = recorder.record_event(&ev);
         }
 
+        if let Some(answer) = unattended_answer(&ev) {
+            bridge.send(answer)?;
+        }
+
         let line = match output {
             OutputMode::Events => Some(serde_json::to_string(&ev)?),
             OutputMode::Acp => crate::io::to_acp(&ev)
@@ -310,6 +314,35 @@ fn run_structured(
     }
 
     Ok(())
+}
+
+/// The answer an *unattended* run gives a permission ask.
+///
+/// A CLI structured run has no dialog and no second thread to answer from, and the bridges no
+/// longer answer for themselves (`src/io/jsonl.rs` holds each ask outstanding until the caller
+/// speaks), so an unanswered ask would stall the turn forever. This takes the plain "allow once"
+/// the harness offered — falling back to whatever other option allows — and nothing else: a
+/// library embedder answers for itself. See `_docs/io-modes.md` §"Permissions".
+fn unattended_answer(ev: &crate::io::AgentEvent) -> Option<crate::io::AgentInput> {
+    let crate::io::AgentEvent::PermissionRequest {
+        request_id,
+        options,
+        ..
+    } = ev
+    else {
+        return None;
+    };
+    let option = options
+        .iter()
+        .find(|o| o.kind == crate::io::PermissionKind::AllowOnce)
+        .or_else(|| options.iter().find(|o| o.kind.allows()))?;
+    Some(crate::io::AgentInput::AnswerPermission {
+        request_id: request_id.clone(),
+        outcome: crate::io::PermissionOutcome::Selected {
+            option_id: option.option_id.clone(),
+        },
+        updated_input: None,
+    })
 }
 
 /// Build the account store for a run of `harness`.

@@ -14,6 +14,8 @@
 //! harness echoes it back — an interface that draws its own half of a conversation is inventing
 //! the other half too.
 
+use std::collections::HashMap;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ClickEvent, ClipboardItem, Context, ElementId, Focusable, InteractiveElement,
@@ -30,13 +32,14 @@ use ubiq_proto::work::{Activity, AgentId};
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::conversation::{
-    ConvBlock, Conversation, Pending, QueuedMessage, Run, short_model_label,
+    Attachment, ConvBlock, Conversation, Pending, QueuedMessage, Run, short_model_label,
 };
+use crate::state::file_picker::{SizeReading, size_label, size_reading};
 use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 use crate::ui::kit::{
     ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, ghost_button,
-    icon_button, mono, pill, progress_ring, status_dot,
+    icon_button, mono, pill, primary_button, progress_ring, removable_tag, status_dot,
 };
 use crate::ui::work::activity_colour;
 use crate::ui::{handler, indexed};
@@ -89,8 +92,13 @@ pub fn render(
     }
     root = root.child(transcript(app, conversation, &view, cx));
 
-    if let Some(pending) = &conversation.pending {
-        root = root.child(permission(id, pending, &view, cx));
+    if let Some(oldest) = conversation.oldest_pending() {
+        root = root.child(needs_you_strip(
+            conversation,
+            oldest,
+            conversation.pending.len(),
+            &view,
+        ));
     }
     if let Some(error) = &conversation.error {
         root = root.child(
@@ -468,9 +476,23 @@ fn transcript(
 ) -> AnyElement {
     let id = conversation.id;
     let root = cx.entity();
+
+    // Every prompt still up, joined onto the call it authorises by that call's id — which is the
+    // only field of a request's patch upstream guarantees. What matches nothing in the transcript
+    // is drawn on its own at the end rather than dropped: a request nobody can answer deadlocks
+    // the turn, so losing one is worse than drawing it out of place.
+    let mut attached: HashMap<usize, Vec<&Pending>> = HashMap::new();
+    let mut adrift: Vec<&Pending> = Vec::new();
+    for request in &conversation.pending {
+        match conversation.tool_block_index(&request.tool_call.id) {
+            Some(block) => attached.entry(block).or_default().push(request),
+            None => adrift.push(request),
+        }
+    }
+
     // One agent's turns, never two interleaved — and the indices are the real ones, because the
     // element ids and the tool-toggle listener both key off a block's position in `blocks`.
-    let blocks: Vec<AnyElement> = conversation
+    let mut blocks: Vec<AnyElement> = conversation
         .visible_blocks()
         .into_iter()
         .map(|(ix, block)| match block {
@@ -493,10 +515,47 @@ fn transcript(
                 let delegate = (call.kind == ToolKind::Delegate
                     && conversation.has_subagent(&call.id))
                 .then(|| call.id.clone());
-                tool_block(id, ix, call, *open, delegate, view, cx)
+                let waiting = attached.get(&ix);
+                let card = tool_block(id, ix, call, *open, delegate, waiting.is_some(), view, cx);
+                // The prompt belongs to the call, so it is drawn under it rather than somewhere
+                // the reader has to go and find. Several are possible on one call.
+                match waiting {
+                    None => card,
+                    Some(requests) => div()
+                        .flex()
+                        .flex_none()
+                        .flex_col()
+                        .child(card)
+                        .children(
+                            requests
+                                .iter()
+                                .copied()
+                                .map(|request| permission(id, request, Some(call), view, cx))
+                                .collect::<Vec<_>>(),
+                        )
+                        .into_any_element(),
+                }
             }
         })
         .collect();
+
+    // A request whose call the transcript does not hold — the patch carried nothing but an id, or
+    // the request outran the call announcing it. Self-contained, and still answerable.
+    blocks.extend(
+        adrift
+            .into_iter()
+            .map(|request| permission(id, request, None, view, cx))
+            .collect::<Vec<_>>(),
+    );
+
+    // Last, so a transcript holding only an unattached prompt reads as the question it is.
+    if blocks.is_empty() {
+        blocks.push(
+            mono("nothing said yet", theme::text_faint())
+                .text_size(px(11.5))
+                .into_any_element(),
+        );
+    }
 
     let mut root = div()
         .id(view.eid("transcript"))
@@ -523,16 +582,7 @@ fn transcript(
         root = root.track_scroll(handle);
     }
 
-    root.children(if blocks.is_empty() {
-        vec![
-            mono("nothing said yet", theme::text_faint())
-                .text_size(px(11.5))
-                .into_any_element(),
-        ]
-    } else {
-        blocks
-    })
-    .into_any_element()
+    root.children(blocks).into_any_element()
 }
 
 /// One message, with its own copy control in the lower right — hidden until the pointer is over
@@ -695,16 +745,26 @@ fn tool_title(kind: ToolKind, title: String) -> gpui::Div {
 /// whose spawned agent has spoken. Then the block switches the transcript instead of unfolding its
 /// own detail — what a reader wants from a delegation is the other transcript, not the summary of
 /// it. A delegation with no agent behind it yet stays inert.
+///
+/// `awaiting` is set where a permission prompt is drawn under this block. The card then reads as
+/// blocked on the reader rather than as whatever status the harness last stamped on it — which is
+/// `pending`, and `pending` alone cannot tell "input still streaming" from "waiting for you".
+#[allow(clippy::too_many_arguments)]
 fn tool_block(
     agent: AgentId,
     index: usize,
     call: &ubiq_proto::conversation::ToolCallRecord,
     open: bool,
     delegate: Option<String>,
+    awaiting: bool,
     view: &ConversationView,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let colour = tool_colour(call.kind);
+    let colour = if awaiting {
+        theme::warning()
+    } else {
+        tool_colour(call.kind)
+    };
     let expandable = !call.content.is_empty();
     let call_id = call.id.clone();
 
@@ -747,9 +807,13 @@ fn tool_block(
         );
 
     header = header.child(
-        mono(status_label(call.status), status_colour(call.status))
-            .text_size(px(11.5))
-            .mt(px(1.)),
+        if awaiting {
+            mono("needs you", theme::warning())
+        } else {
+            mono(status_label(call.status), status_colour(call.status))
+        }
+        .text_size(px(11.5))
+        .mt(px(1.)),
     );
 
     if let Some(target) = delegate {
@@ -861,36 +925,65 @@ fn diff_line(marker: &str, text: &str, fg: Rgba, bg: Rgba) -> AnyElement {
 
 /// What the agent is asking to be allowed to do, and the answers it offered.
 ///
-/// Nothing emits one of these today — every bridge auto-approves — but the vocabulary carries the
-/// request, and a surface that could not draw it would have to grow one the day a bridge stops.
+/// Drawn in the transcript, under the tool call it authorises — `call` is that call, where the
+/// transcript holds it. The request's own patch guarantees only a call id, so the title and the
+/// detail are read off the call first and the patch second; with neither, the prompt still says
+/// what it can and still offers every option, because a request left unanswered blocks the turn.
+///
+/// The element ids carry the `request_id`, not a position: two prompts on screen at once are two
+/// different questions, and an id that moved when the first was answered would hand the second
+/// one's clicks to whatever took its place.
 fn permission(
     agent: AgentId,
     pending: &Pending,
+    call: Option<&ubiq_proto::conversation::ToolCallRecord>,
     view: &ConversationView,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    let request_id = pending.request_id.clone();
     let what = pending
         .tool_call
         .title
         .clone()
+        .or_else(|| call.map(|call| call.title.clone()))
         .unwrap_or_else(|| "The agent is asking to go ahead".to_string());
+
+    // The request's own detail, which is what a `switch_mode` prompt's plan and a pre-approval
+    // diff arrive as. Only the patch's: the call's own content is the block above this one, and
+    // drawing it twice would read as two operations.
+    let detail: Vec<AnyElement> = pending
+        .tool_call
+        .content
+        .iter()
+        .flatten()
+        .map(content)
+        .collect();
 
     let buttons: Vec<AnyElement> = pending
         .options
         .iter()
-        .enumerate()
-        .map(|(ix, option)| {
-            let request_id = pending.request_id.clone();
+        .map(|option| {
+            let id = view.eid(&format!("permission-{request_id}-{}", option.option_id));
+            let request_id = request_id.clone();
+            // The option id is echoed back exactly as it arrived: it is the harness's token, and
+            // nothing here reads it. `kind` is the only thing this looks at, and only to draw.
             let option_id = option.option_id.clone();
-            ghost_button(
-                view.eid(&format!("permission-{ix}")),
-                None,
-                option.name.clone(),
-                cx.listener(move |this, _, _, cx| {
-                    this.answer_permission(agent, request_id.clone(), option_id.clone(), cx);
-                }),
-            )
-            .into_any_element()
+            let answer = cx.listener(move |this, _, _, cx| {
+                this.answer_permission(agent, request_id.clone(), option_id.clone(), cx);
+            });
+            let icon = Some(match (option.kind.allows(), option.kind.remembers()) {
+                (true, false) => IconName::Check,
+                (true, true) => IconName::CircleCheck,
+                (false, false) => IconName::Close,
+                (false, true) => IconName::Delete,
+            });
+            // Filled for going ahead, ghost for refusing; the icon is what separates "this time"
+            // from "and remember". Two axes, because `kind` has two.
+            if option.kind.allows() {
+                primary_button(id, icon, option.name.clone(), answer).into_any_element()
+            } else {
+                ghost_button(id, icon, option.name.clone(), answer).into_any_element()
+            }
         })
         .collect();
 
@@ -911,7 +1004,80 @@ fn permission(
                 .text_color(theme::text())
                 .child(SharedString::from(what)),
         )
+        .when(!detail.is_empty(), |this| {
+            this.child(div().flex().flex_col().gap_1().children(detail))
+        })
+        // A request that offered no option at all is still worth drawing: it says the turn is
+        // blocked, which is the thing the reader has to know. Answering it needs the harness to
+        // offer something.
+        .when(buttons.is_empty(), |this| {
+            this.child(
+                mono("the harness offered no answer to this", theme::text_faint())
+                    .text_size(px(11.)),
+            )
+        })
         .child(div().flex().items_center().gap_2().children(buttons))
+        .into_any_element()
+}
+
+/// That something is waiting, kept in view above the footer while the prompt itself is anywhere in
+/// the transcript.
+///
+/// Answering is blocking, so a prompt scrolled out of sight would read as an agent that had
+/// stopped for no reason. Compact on purpose: the answers live on the prompt, beside the operation
+/// they authorise, and duplicating them here would put the same question on screen twice.
+fn needs_you_strip(
+    conversation: &Conversation,
+    oldest: &Pending,
+    waiting: usize,
+    view: &ConversationView,
+) -> AnyElement {
+    // The same join the prompt itself does: the patch names the operation only sometimes, and the
+    // call in the transcript names it always.
+    let what = oldest
+        .tool_call
+        .title
+        .clone()
+        .or_else(|| {
+            match conversation
+                .tool_block_index(&oldest.tool_call.id)
+                .and_then(|ix| conversation.blocks.get(ix))
+            {
+                Some(ConvBlock::Tool { call, .. }) => Some(call.title.clone()),
+                _ => None,
+            }
+        })
+        .unwrap_or_else(|| "an operation".to_string());
+    let label = if waiting > 1 {
+        format!("{what} — and {} more waiting", waiting - 1)
+    } else {
+        what
+    };
+
+    div()
+        .id(view.eid("needs-you"))
+        .px_3()
+        .py_1p5()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .bg(theme::warning_soft())
+        .border_l(px(theme::ACCENT_EDGE))
+        .border_color(theme::warning())
+        .child(
+            Icon::new(IconName::TriangleAlert)
+                .with_size(Size::XSmall)
+                .text_color(theme::warning()),
+        )
+        .child(mono("NEEDS YOU", theme::warning()).text_size(px(10.5)))
+        .child(
+            mono(label, theme::text_muted())
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(px(11.5)),
+        )
+        .child(mono("⌘⌥Y / ⌘⌥N", theme::text_faint()).text_size(px(10.5)))
         .into_any_element()
 }
 
@@ -946,8 +1112,7 @@ fn spend_tip(conversation: &Conversation) -> String {
         return String::new();
     };
     let mut tip = format!(
-        "Total spent \u{2014} every token this conversation has billed, subagents included. \
-         It only grows; the ring beside it is what is in the window now, and that can fall. \
+        "Total \u{2014} \
          \u{b7} {} tokens \u{b7} in {} \u{b7} out {} \u{b7} thinking {} \u{b7} cache read {} \
          \u{b7} cache creation {}",
         spend.total(),
@@ -1213,7 +1378,9 @@ fn composer(
     let entity = cx.entity();
     let id = conversation.id;
     let slot = view.slot;
-    let can_send = !input.read(cx).value().trim().is_empty();
+    // Attachments alone are something to send: the prompt that goes out is what was typed *plus*
+    // every attached path as a mention, so a turn that is only files is not an empty one.
+    let can_send = !input.read(cx).value().trim().is_empty() || !conversation.attached.is_empty();
     let working = conversation.run == Run::Working;
 
     // What this turn runs as, for the conversation's whole life rather than only before it
@@ -1342,8 +1509,9 @@ fn composer(
         .items_center()
         .gap_1p5()
         .child(config_row)
-        // Files, as the harness reads a reference to one: `@path`, project-relative. The picker
-        // is the window's own, raised over the explorer's tree; with no project open there is no
+        // Files for this turn. The picker is the window's own, raised over the explorer's tree and
+        // taking as many files as are wanted; what comes back is a tag apiece above the field, and
+        // becomes `@path` in the prompt only when it is sent. With no project open there is no
         // tree and the button does nothing.
         .child(
             icon_button(
@@ -1435,6 +1603,11 @@ fn composer(
         .child(controls.child(action));
 
     let mut extras: Vec<AnyElement> = Vec::new();
+    // Attachments first, so they sit directly under the token and context row and above anything
+    // waiting to be sent: they belong to the turn being written, which is the field below them.
+    if !conversation.attached.is_empty() {
+        extras.push(attachment_tags(id, view, &conversation.attached, cx));
+    }
     if !conversation.queued.is_empty() {
         extras.push(queue_list(id, slot, view, &conversation.queued, cx));
     }
@@ -1516,6 +1689,15 @@ fn agent_switcher(
     }));
 
     let count = subagents.len();
+    let active = subagents
+        .iter()
+        .filter(|tab| {
+            matches!(
+                tab.status,
+                Some(ToolStatus::Pending | ToolStatus::InProgress)
+            )
+        })
+        .count();
     let mut header = div()
         .id(view.eid("agent-switcher-header"))
         .relative()
@@ -1537,13 +1719,7 @@ fn agent_switcher(
             .with_size(Size::XSmall)
             .text_color(theme::text_faint()),
         )
-        .child(
-            mono(
-                format!("{count} subagent{}", if count == 1 { "" } else { "s" }),
-                theme::text_muted(),
-            )
-            .text_size(px(11.)),
-        )
+        .child(mono(subagent_count_label(active, count), theme::text_muted()).text_size(px(11.)))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.toggle_conversation_subagents(id, cx);
         }));
@@ -1576,6 +1752,21 @@ fn agent_switcher(
     }
 
     header.into_any_element()
+}
+
+/// What the collapsed header says: how many delegates are still working, and — where some have
+/// already finished — out of how many. `3 active subagents of 10` while seven are done; plain
+/// `3 active subagents` while all three are still running, because `of 3` is the same number
+/// twice. With none running the count alone is the fact worth a line: `10 subagents`.
+fn subagent_count_label(active: usize, total: usize) -> String {
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+    if active == 0 {
+        return format!("{total} subagent{}", plural(total));
+    }
+    if active == total {
+        return format!("{active} active subagent{}", plural(active));
+    }
+    format!("{active} active subagent{} of {total}", plural(active))
 }
 
 /// What a delegate *is*, for the row's hover: the type the harness named, what it is answering
@@ -1661,6 +1852,80 @@ fn agent_row(
         })
     })
     .into_any_element()
+}
+
+/// The files this turn will carry, one tag each, wrapping onto as many lines as they need.
+///
+/// **A tag, not a path in the field.** A path spelled into the prompt cannot be clicked to see
+/// what it is, and cannot be taken back out without editing text the user did not type; a tag
+/// opens the file in the editor and drops itself. The mentions the harness reads are composed
+/// from these when the prompt is sent, so nothing new crosses the bus for an attachment.
+///
+/// **The colour is the size.** A file large enough to cost a noticeable part of the context window
+/// says so before the turn is spent on it, and a file large enough to fill it says so louder —
+/// [`size_reading`]'s three readings, drawn in the warning and danger tokens. A size no host
+/// reported is drawn plainly rather than guessed at. The whole path and the size in figures are
+/// the tooltip, because the tag itself has room for a file name and nothing else.
+fn attachment_tags(
+    agent_id: AgentId,
+    view: &ConversationView,
+    attached: &[Attachment],
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let tags: Vec<AnyElement> = attached
+        .iter()
+        .map(|file| {
+            let attachment = file.id;
+            let reading = size_reading(file.size);
+            let (fill, edge, colour) = match reading {
+                SizeReading::Huge => (theme::danger_soft(), theme::danger(), theme::danger()),
+                SizeReading::Large => (theme::warning_soft(), theme::warning(), theme::warning()),
+                SizeReading::Plain => (theme::surface(), theme::border(), theme::text_muted()),
+            };
+
+            // The row already says the name; what answers "which one is this" is the path from
+            // the project root, which is the shape every path in this interface is held in.
+            let name = match file.path.rsplit_once('/') {
+                Some((_, name)) => name.to_string(),
+                None => file.path.clone(),
+            };
+            let mut tip = file.path.clone();
+            let size = size_label(file.size);
+            if !size.is_empty() {
+                tip.push_str(" \u{00b7} ");
+                tip.push_str(&size);
+            }
+            if let Some(warning) = reading.warning() {
+                tip.push_str(" \u{2014} ");
+                tip.push_str(warning);
+            }
+
+            let open = file.path.clone();
+            removable_tag(
+                view.eid(&format!("attached-{attachment}")),
+                view.eid(&format!("attached-remove-{attachment}")),
+                name,
+                tip,
+                fill,
+                edge,
+                colour,
+                cx.listener(move |this, _, _, cx| this.select_file(open.clone(), cx)),
+                cx.listener(move |this, _, _, cx| this.detach_file(agent_id, attachment, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    div()
+        .px_2()
+        .pt_1()
+        .flex()
+        .flex_wrap()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .children(tags)
+        .into_any_element()
 }
 
 /// Prompts typed while a turn was running, oldest first — each with an edit that loads it back

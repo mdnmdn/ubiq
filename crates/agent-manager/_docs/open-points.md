@@ -213,3 +213,31 @@ the managed id when there is one), rebuild it in `spec_for_resume`, and decide w
 whose home was ephemeral is confined with a new scratch home or refused as unresumable. Until then a
 resume is a deliberate step down in confinement, which is the kind of thing that should be said out
 loud rather than inferred from a `None`.
+
+---
+
+## 11. Claude tool approval — two loose ends after the real handshake landed
+
+**What exists today.** `io/jsonl.rs` speaks the handshake verified against claude 2.1.258:
+`harness/claude.rs` passes `--permission-prompt-tool stdio` on structured runs, a `can_use_tool`
+`control_request` becomes an outstanding `AgentEvent::PermissionRequest`, nothing answers it but the
+caller, and `AgentInput::Cancel` denies whatever is outstanding before closing stdin. See
+[`harness/claude-code.md`](./harness/claude-code.md) §"Tool approval in headless mode".
+
+**Why it's open.** Two things in it are not verified to the same standard as the rest:
+
+1. **`updatedPermissions` is inferred, not captured.** An `allow_always:<n>` option echoes the
+   request's own `permission_suggestions[n]` back inside the `control_response`'s `response`
+   object, which is the Agent SDK's `PermissionResult` shape — but a live run confirming that the
+   session really switches mode (and that a subsequent edit is *not* asked about again) has not been
+   done. If it turns out to be ignored, the honest move is to stop offering the `AllowAlways`
+   option rather than to offer one that only allows once.
+2. **Only `can_use_tool` is understood.** Any other `control_request` subtype gets a `subtype:
+   "error"` response and a `warn!` rather than an event, so it cannot stall the turn — but the
+   error itself is untested against a real subtype. Nothing in `am`'s argv is known to produce one
+   (`hook_callback` and `mcp_message` belong to SDK-hosted hooks/MCPs, which this crate does not
+   use).
+
+**What to check / do next.** Run one live turn with an `allow_always` answer and read the second
+edit's ask (or absence of one) plus the `result`'s `permission_denials`. If `updatedPermissions`
+turns out to be ignored, stop offering `AllowAlways` rather than offer one that only allows once.

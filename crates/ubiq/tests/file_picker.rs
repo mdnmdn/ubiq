@@ -10,7 +10,8 @@
 
 use ubiq::state::file_picker::{
     Commit, FilePickerState, MIN_HEIGHT, MIN_WIDTH, PickKind, PickerCount, PickerKey, PickerNode,
-    PickerOwner, PickerRequest, PickerRow, PickerView, Pressed, matches_glob, size_label,
+    PickerOwner, PickerRequest, PickerRow, PickerView, Pressed, SIZE_HUGE, SIZE_LARGE, SizeReading,
+    matches_glob, size_label, size_reading,
 };
 use ubiq::state::sink::picker_tree;
 
@@ -537,6 +538,25 @@ fn a_size_is_reported_in_the_unit_it_is_read_in() {
     assert_eq!(size_label(Some(512)), "512 B");
     assert_eq!(size_label(Some(12_400)), "12 KB");
     assert_eq!(size_label(Some(5_000_000)), "4 MB");
+}
+
+/// The two thresholds an attachment tag is coloured by. Divided by the same KB the label prints
+/// in, so the colour and the number in the tooltip always agree; a size nobody reported reads as
+/// an ordinary file rather than as a small one.
+#[test]
+fn a_size_over_a_threshold_reads_as_large_or_huge() {
+    assert_eq!(size_reading(None), SizeReading::Plain);
+    assert_eq!(size_reading(Some(0)), SizeReading::Plain);
+    assert_eq!(size_reading(Some(SIZE_LARGE)), SizeReading::Plain);
+    assert_eq!(size_reading(Some(SIZE_LARGE + 1)), SizeReading::Large);
+    assert_eq!(size_reading(Some(SIZE_HUGE)), SizeReading::Large);
+    assert_eq!(size_reading(Some(SIZE_HUGE + 1)), SizeReading::Huge);
+
+    assert_eq!(SIZE_LARGE, 307_200);
+    assert_eq!(SIZE_HUGE, 512_000);
+    assert!(SizeReading::Plain.warning().is_none());
+    assert!(SizeReading::Large.warning().is_some());
+    assert!(SizeReading::Huge.warning().is_some());
 }
 
 /// A file has no children and a folder always has the vector, empty or not — which is what tells

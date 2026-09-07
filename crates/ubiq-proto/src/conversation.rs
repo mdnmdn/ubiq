@@ -272,12 +272,31 @@ pub enum ConfigValue {
 }
 
 /// The four answers a permission dialog can offer.
+///
+/// **A display hint, and only that.** What an option actually does is whatever the harness decided
+/// when it minted the option; [`PermissionOption::option_id`] is the opaque token that carries it,
+/// and it is echoed back unchanged. These four values are what lets a surface tell an allow from a
+/// reject without reading an id it has no business reading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PermissionKind {
     AllowOnce,
     AllowAlways,
     RejectOnce,
     RejectAlways,
+}
+
+impl PermissionKind {
+    /// Whether this reads as going ahead rather than refusing.
+    pub fn allows(self) -> bool {
+        matches!(self, Self::AllowOnce | Self::AllowAlways)
+    }
+
+    /// Whether the harness offered to remember the answer. **The harness remembers it, not
+    /// Ubiq**: there is no client-side allowlist here, and an "always" answer is one more
+    /// `option_id` echoed back like any other.
+    pub fn remembers(self) -> bool {
+        matches!(self, Self::AllowAlways | Self::RejectAlways)
+    }
 }
 
 /// One button on a permission dialog.

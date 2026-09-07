@@ -9,7 +9,7 @@
 
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
-use crate::app::{AppState, FocusFileFilter, SubmitSearch, ZoomIn, ZoomOut};
+use crate::app::{AppState, FocusFileFilter, ImageRedo, ImageUndo, SubmitSearch, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{rail, remote_connect, ribbon, settings, status_bar, titlebar};
@@ -28,6 +28,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .track_focus(&app.workbench_focus)
         .on_action(cx.listener(AppState::save_active_file))
         .on_action(cx.listener(AppState::new_untitled_file))
+        .on_action(cx.listener(AppState::capture_window))
+        .on_action(cx.listener(AppState::paste_clipboard_image))
         .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
         .on_action(cx.listener(AppState::open_outline))
@@ -35,6 +37,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::forward))
         .on_action(cx.listener(AppState::toggle_bookmark))
         .on_action(cx.listener(AppState::open_navigator))
+        // ⌘⌥Y and ⌘⌥N answer the permission prompt the conversation being read is blocked on.
+        // Both no-op when nothing is asking, so neither key is taken from anything else.
+        .on_action(cx.listener(AppState::allow_permission))
+        .on_action(cx.listener(AppState::reject_permission))
         // ⌘⏎ is the search itself, whether the navigator is up or not.
         .on_action(cx.listener(|this, _: &SubmitSearch, window, cx| {
             this.close_navigator(cx);
@@ -42,6 +48,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         }))
         .on_action(cx.listener(|this, _: &FocusFileFilter, window, cx| {
             this.reveal_explorer_filter(window, cx)
+        }))
+        // Undo and redo on the capture behind the active tab. Both no-op on anything else,
+        // so neither key is taken from a buffer with its own stack.
+        .on_action(cx.listener(|this, _: &ImageUndo, window, cx| {
+            this.undo_image_action(&ImageUndo, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ImageRedo, window, cx| {
+            this.redo_image_action(&ImageRedo, window, cx)
         }))
         // Enter and Escape answer the file question that is up. Both propagate when none is, so
         // the explorer's Escape and every field's Enter are untouched.

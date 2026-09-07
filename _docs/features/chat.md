@@ -7,7 +7,7 @@ summary: Editor-like chat tabs — many, movable to any dockable region, each a 
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
 updated: 2026-09-07
 verified: 2026-09-07
-code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
+code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
 ---
@@ -104,10 +104,41 @@ project root or a full `ubiq://` opens that place in the window, `http`, `https`
 the operating system, and anything else does nothing — see
 [`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
 
+**A permission ask is drawn on the tool call it authorises, not in a dialog.** A harness that stops
+to ask stops mid-operation, and the operation is already on screen: the prompt is joined to that
+block by the tool call id, the block reads as awaiting approval, and the buttons sit under it in the
+transcript. There is one button per `PermissionOption` the harness offered, labelled from the
+option's own `name` and differentiated by its `kind` — allow from reject, with an "always" variant
+marked as lasting. `kind` decides only how a button reads: the `option_id` is opaque, echoed back
+unchanged, and nothing on this side interprets it or remembers a choice.
+
+**The request carries an id and little else, so the prompt reads the call it is attached to.** The
+`tool_call` on a request is a patch whose id is the only field guaranteed present, so the title, the
+content and the diff are read off the call the transcript already holds. A request naming a call
+this transcript has never seen degrades to a self-contained prompt at the end of the transcript,
+which is a prompt with less to say rather than a question the user cannot answer.
+
+**Several asks may be up at once, and every one of them blocks.** They are held as an ordered list
+keyed by `request_id`, arrival order preserved, because a harness may raise a second question before
+the first is answered and there are no timeouts: a request left unanswered stalls the turn with
+nothing on screen to say so. A compact "needs you" strip above the footer counts what is
+outstanding, since a prompt attached to a block partway up the transcript can be scrolled out of
+view while the conversation waits on it. Cancelling the turn discharges all of them at once — the
+strip and the prompts go with it.
+
+**⌘⌥Y allows and ⌘⌥N rejects the oldest ask outstanding.** They answer the conversation being read —
+the active tab of the agents screen's focused column — with the first allow-kind or reject-kind
+option that request offered, and do nothing where it offered none of that reading rather than
+answering with the other. Both are bound in the `Workbench` and the `Input` key contexts, so a
+composer holding focus does not swallow the answer to a question blocking the very turn it is
+typing into.
+
 **Delegates are a line, and a list only when asked for.** A conversation that spawned subagents
 grows one row at the top of the bottom block — above the footer, above the composer — reading
-`3 subagents`, and nothing else; a conversation that spawned none grows nothing. Opening it draws
-one row per agent *upward*, over the transcript, through the same `anchored` + `deferred` pair
+`3 active subagents of 10`, and nothing else; the `of 10` is dropped while every delegate is still
+working — `3 active subagents` — and the row falls back to the bare `10 subagents` once none is,
+because a count twice over and a zero are both noise. A conversation that spawned none grows
+nothing. Opening it draws one row per agent *upward*, over the transcript, through the same `anchored` + `deferred` pair
 every menu in the window uses, so the composer never moves under the cursor. Each row says who and
 what it is doing, and clicking one switches the transcript to that agent; the main agent is always
 a row, because it is the way back. A subagent whose spawning call is not in the transcript reads
@@ -121,6 +152,31 @@ nothing, and `thinking` is `None` on every harness today because no stream state
 effort level. The `AGENT` block that spawned an agent is the
 same door: clicking it switches the transcript, and stays inert until that agent has said
 something.
+
+**Files are attached to the turn being written, as tags rather than as text.** The composer's `+`
+raises the window's own file picker over the project's explorer tree, taking as many files as are
+wanted, and what comes back is one tag per file in a wrapping row directly under the token and
+context readout and above anything queued — the turn's own furniture, immediately over the field it
+belongs to. Clicking a tag opens that file in the editor; its `×` takes it off. A tag says the file
+name, and its tooltip says the whole path from the project root with the size in figures, because a
+tag has room for a name and nothing else.
+
+**The colour of a tag is the size of the file.** Over 300 KiB it is drawn in the warning tokens and
+over 500 KiB in the danger ones, with the reason in the tooltip beside the figure: a file large
+enough to cost a noticeable part of the context window says so *before* the turn is spent on it. A
+file no host reported a size for is drawn plainly — an unknown size is not a small one, and it is
+not guessed at.
+
+**An attachment belongs to the conversation, not to the composer slot drawing it.** It sits beside
+the draft and the queue on `Conversation`, for the draft's reason: unsent composer content follows
+the conversation from one surface to another rather than being lost when a tab is switched. Nothing
+new crosses the bus for it — when the prompt is sent, every attached path is composed into that one
+`PromptAgent` text as an `@path` mention after what was typed, and the attachments are consumed with
+the draft. Which is also why attachments with nothing typed are still something to send. Enqueue
+does the same composition into the queued text and clears them: a queued prompt is one string, and a
+queue row that carried its own tag list would need its own tag row, its own removes and its own
+colouring — a second composer. An edit brings those paths back into the field as the text they now
+are.
 
 **`ctx` is a level, `tot` is a flow.** The footer's ring and its `ctx` count are how full the
 context window is *now* — a number that falls when the conversation is compacted — and `tot` is
@@ -162,7 +218,10 @@ the UI, the same as which column an agent's conversation is drawn in. No message
 and none carries a tab's arrangement; the host answers only about conversations, never about which
 surface is looking at one. Once a tab is attached, it speaks whatever
 [`../tech/transport-contract.md`](../tech/transport-contract.md)'s conversation family carries, the
-same as every other screen that hosts one.
+same as every other screen that hosts one. A permission ask arrives as
+`ConvUpdate::PermissionRequest` and leaves as one `AnswerPermission` naming the `request_id` and the
+`option_id` pressed; `CancelTurn` is what answers the rest. Which surface drew the buttons is not on
+the wire, so an ask answered here is answered for the conversation.
 
 ## Implementation
 
@@ -208,7 +267,28 @@ fresh tab when the user reopens an emptied right region.
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
 once — `attached`, read by both children below rather than asked twice — and hands it to the shared
 conversation renderer (`header: false`), or draws the empty page; `sidebar.rs` draws the one header
-row: the state mark and the unified control on the left, the three-dots on the right. The control
+row: the state mark and the unified control on the left, the three-dots on the right. The permission prompt is that shared renderer's
+too: `crates/ubiq/src/state/conversation.rs` holds `Pending` — the request id, the tool-call patch
+and the options — in `Conversation::pending`, with `oldest_pending()` for what the keyboard means,
+`answered()` for one request leaving, `Pending::option_for` for the first option of a reading, and
+`tool_block_index()` for the id join the prompt draws through; `crates/ubiq/src/ui/conversation/mod.rs`'s
+`permission()` draws the block-attached prompt, its fallback and the counting strip.
+`AppState::answer_permission` in `crates/ubiq/src/app/agents.rs` sends one answer and forgets that
+one request only, `answer_oldest_permission` is what the keyboard resolves through
+`read_conversation`, and `cancel_turn` clears the whole set. The `AllowPermission` and
+`RejectPermission` actions are declared in `crates/ubiq/src/app/mod.rs` and bound by
+`install_key_bindings` in both contexts. Attachments are the same division of labour. `crates/ubiq/src/state/conversation.rs` holds
+`Attachment` — a stable per-conversation id, a project-relative path, and the size the picker
+reported — in `Conversation::attached`, with `attach()` (dedupes by path, refreshing the size),
+`detach()`, `clear_attached()` and `compose_prompt()`, which is the one place the `@path` mentions
+are written. `crates/ubiq/src/state/file_picker.rs` owns the size vocabulary both the picker's rows
+and a tag are drawn from: `size_label` for the figure, `SIZE_LARGE` and `SIZE_HUGE` for the two
+thresholds, and `size_reading` for which of the three readings a size gets — one `KB` divisor, so
+the colour and the printed number can never disagree. `AppState::attach_files` in
+`crates/ubiq/src/app/picker.rs` is what the picker's commit routes into, taking each path's size off
+the picker's own nodes rather than reading a disk the interface may not even be on;
+`detach_file` is a tag's `×`. `crates/ubiq/src/ui/conversation/mod.rs`'s `attachment_tags()` draws
+the wrapping row as the composer's first `extras` entry, on `kit::removable_tag`. The control
 itself is `crates/ubiq/src/ui/kit/menu.rs`'s `Picker`, unchanged — its `disabled` set draws the
 headings and the rows another tab holds, its `separators` set the group lines, and its `search`
 field the filter. A grouped, searchable, partly-inert list was already what that primitive did.
@@ -224,6 +304,13 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A saved arrangement names a chat id this window never minted | The leaf is dropped, and the tree normalises around the gap, the same as an unfamiliar saved terminal leaf |
 | A picker's filter matches nothing | The panel says so; a row already disabled is never what a filter with no matches is confused for |
 | A menu is open and the user clicks elsewhere | The menu dismisses; no other menu opens on the same click |
+| The same file is picked twice, or picked again while already attached | One tag, not two — a second tag would be a second mention in the prompt and a remove that only half worked. The size on the tag it already had is refreshed from the newer listing |
+| No host ever reported a size for an attached file | The tag is drawn plainly, with no size in its tooltip; an unknown size is not a small one and is not guessed at |
+| An attached file is deleted or moved before the turn is sent | The mention goes out anyway and the harness answers for it; the interface reads no disk, so it has nothing newer to know |
+| A permission request names a tool call the transcript does not hold | The prompt draws self-contained at the end of the transcript, with the options it carries |
+| A permission request offers no option of the reading ⌘⌥Y or ⌘⌥N asks for | The keyboard does nothing; the buttons the harness did offer are still there to press |
+| The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
+| The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
 
 ## Related docs
 
@@ -238,4 +325,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 - Persist a chat tab's arrangement and attachment across a restart, rather than seeding one fresh
   unattached tab per project every time a window takes it.
 - Let a tool block open the file it names in the editor.
-- Attachments that carry a real file rather than a chip.
+- Attachments that carry the file's *content* over the bus as a `ResourceLink` — which
+  `agent-manager` already accepts — rather than an `@path` mention the harness has to resolve
+  itself. The tags, their sizes and their lifecycle are built;
+  [`../backlog.md`](../backlog.md) holds the wire half.

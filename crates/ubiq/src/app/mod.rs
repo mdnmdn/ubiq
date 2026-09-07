@@ -117,6 +117,8 @@ gpui::actions!(
         OpenOutline,
         SaveFile,
         NewFile,
+        PasteClipboardImage,
+        CaptureWindow,
         CloseEditor,
         ZoomIn,
         ZoomOut,
@@ -127,7 +129,11 @@ gpui::actions!(
         NavForward,
         ToggleBookmark,
         OpenNavigator,
-        SubmitSearch
+        SubmitSearch,
+        AllowPermission,
+        RejectPermission,
+        ImageUndo,
+        ImageRedo
     ]
 );
 
@@ -686,7 +692,9 @@ pub struct AppState {
 mod agents;
 mod board;
 mod boot;
+mod capture;
 mod chat;
+mod clipboard;
 mod clone;
 mod editor;
 mod explorer;
@@ -701,6 +709,7 @@ pub use hosts::{
     Bus, HostEntry, HostId, HostRef, HostStatus, RemoteConn, host_menu_rows, host_row_label,
     preferred_remote,
 };
+mod image_edit;
 mod nav;
 mod panels;
 mod picker;
@@ -787,6 +796,12 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("cmd-n", NewFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-n", NewFile, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-shift-2", CaptureWindow, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-shift-2", CaptureWindow, Some("Workbench")),
+        // Paste means a tab when nothing deeper wants the key: a field's own paste wins the tie,
+        // so this only ever sees the clipboard outside one.
+        gpui::KeyBinding::new("cmd-v", PasteClipboardImage, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-v", PasteClipboardImage, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("cmd-w", CloseEditor, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-w", CloseEditor, Some("Workbench")),
@@ -802,6 +817,17 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Workbench")),
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Workbench")),
         gpui::KeyBinding::new("cmd-enter", SubmitSearch, Some("Workbench")),
+        // Undo and redo on the capture behind the active tab. A text buffer's own undo wins
+        // while one holds the keyboard — its context is deeper — so these only ever see an
+        // image tab.
+        gpui::KeyBinding::new("cmd-z", ImageUndo, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-z", ImageUndo, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-shift-z", ImageRedo, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-shift-z", ImageRedo, Some("Workbench")),
+        // A permission prompt blocks the turn, so answering it must not need the pointer. ⌘⌥Y and
+        // ⌘⌥N answer the oldest one the conversation being read is waiting on.
+        gpui::KeyBinding::new("cmd-alt-y", AllowPermission, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-alt-n", RejectPermission, Some("Workbench")),
         // Enter answers whichever file question is up; Escape takes it away. Both are handed back
         // when no dialog is up — `AppState::confirm_dialog` says why that matters.
         gpui::KeyBinding::new("enter", DialogConfirm, Some("Workbench")),
@@ -831,6 +857,10 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Input")),
         // ⌘⏎ in the titlebar's field skips the navigator and searches for what is typed.
         gpui::KeyBinding::new("cmd-enter", SubmitSearch, Some("Input")),
+        // The chat composer holds the keyboard nearly all of the time a prompt is up, so both
+        // answers are bound at the field's own depth too, by the same device.
+        gpui::KeyBinding::new("cmd-alt-y", AllowPermission, Some("Input")),
+        gpui::KeyBinding::new("cmd-alt-n", RejectPermission, Some("Input")),
         gpui::KeyBinding::new("cmd-alt-f", gpui_component::input::Replace, Some("Input")),
         // The prompt dialogs put the keyboard in a field, and the component library binds keys at
         // the field's own depth — so Escape is bound there too, or it never reaches the window.

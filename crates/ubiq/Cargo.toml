@@ -11,12 +11,13 @@ publish = false
 ubiq-proto = { path = "../ubiq-proto" }
 
 # GPUI core
-gpui = { git = "https://github.com/zed-industries/zed" }
+gpui = { git = "https://github.com/zed-industries/zed", features = ["screen-capture"] }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
     "font-kit",
     "wayland",
     "x11",
     "runtime_shaders",
+    "screen-capture",
 ] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
     "tree-sitter-markdown",
@@ -88,14 +89,18 @@ tree-sitter-md = "0.5"
 # Utilities
 flume = "0.12"
 parking_lot = "0.12"
+# Small error type for the capture path, which spells one failure rather than an enum.
+anyhow = "1"
 
 # Local read-only doc/source viewer server (web_export module)
 tiny_http = "0.12"
 pulldown-cmark = "0.13"
 ignore = "0.4"
 
-# The dock icon the build ribbon swaps — AppKit's, and only AppKit's. Already in the tree behind
-# `gpui_platform`; named here because `ui/ribbon.rs` calls it directly.
+# PNG encode for the capture flatten, and base-image dimensions for the capture
+# scene. Decode for display stays GPUI's — this only measures and flattens.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [
@@ -104,8 +109,16 @@ objc2-app-kit = { version = "0.3", features = [
     "NSResponder",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSData"] }
-# The dock icon wants a margin the asset does not have — decode, inset, re-encode. PNG only.
-image = { version = "0.25", default-features = false, features = ["png"] }
+# The frame type behind gpui's `ScreenCaptureFrame` on macOS is a `CVImageBuffer`, and this
+# is what reads its pixels. Already in the graph behind gpui — named here because
+# `app/capture.rs` decodes a frame itself.
+core-video = "0.5"
+
+# The frame type behind gpui's `ScreenCaptureFrame` on Windows and Linux, so a captured
+# frame can be decoded. Same revision gpui resolves to — a skew would be two `scap` crates
+# and a match that never fires. macOS decodes `CVImageBuffer` through `core-video` above.
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+zed-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", package = "zed-scap", version = "0.0.8-zed", default-features = false }
 
 [build-dependencies]
 flate2 = "1"

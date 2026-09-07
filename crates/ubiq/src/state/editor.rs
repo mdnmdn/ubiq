@@ -15,6 +15,8 @@ use gpui::{Entity, Pixels, Point, Subscription};
 use gpui_component::input::EditorState;
 use ubiq_proto::files::{DiffBase, FileDiff, FileVersion};
 
+use super::image_edit::ImageEdit;
+
 /// The languages the editor highlights. Anything else opens as plain text, which is the general
 /// case rather than a fallback.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -142,7 +144,7 @@ impl ViewerKind {
 
     /// Whether this viewer draws the buffer itself for `layout` — the only thing in a tab worth
     /// handing the keyboard to today. The editor always does; Excalidraw draws its scene instead
-    /// and Image draws nothing editable, so neither ever does; Markdown and Mermaid only do in
+    /// and Image draws through its panel, so neither ever does; Markdown and Mermaid only do in
     /// the half of their toggle that shows source.
     pub fn shows_buffer(self, layout: ViewLayout) -> bool {
         match self {
@@ -150,6 +152,13 @@ impl ViewerKind {
             ViewerKind::Excalidraw | ViewerKind::Image => false,
             ViewerKind::Markdown | ViewerKind::Mermaid => layout.shows_source(),
         }
+    }
+
+    /// Whether the tab takes the keyboard through its panel rather than a buffer. An image tab —
+    /// a session-authored capture — does: the toolbar, the tools and undo all live at Workbench
+    /// depth, and the panel's own focus handle holds them. Nothing else does.
+    pub fn takes_panel_focus(self) -> bool {
+        matches!(self, ViewerKind::Image)
     }
 }
 
@@ -271,6 +280,9 @@ pub enum FileBody {
     /// Kept whole and undecoded, because the thing that draws them is a decoder: turning them into
     /// text first would be lossy in exactly the way that matters.
     Bytes(Vec<u8>),
+    /// A session-authored capture: the base PNG plus its annotation scene, undoable. The only
+    /// image body that edits — a PNG from the explorer stays [`FileBody::Bytes`], read-only.
+    ImageEdit(Box<ImageEdit>),
     /// Bytes the editor will not show.
     Binary,
     /// Why there are none.
@@ -451,6 +463,77 @@ impl OpenFile {
         self._change = None;
     }
 
+    /// Give an untitled tab clipboard bytes to draw: dirty from the start, because there is
+    /// nothing on disk they match.
+    pub fn set_bytes_untitled(&mut self, bytes: Vec<u8>) {
+        self.body = FileBody::Bytes(bytes);
+        self.save = SaveState::Idle;
+        self.dirty = true;
+        self._change = None;
+    }
+
+    /// Give an untitled tab an editable capture scene over its bytes. Bytes with no decodable
+    /// picture in them stay read-only bytes — the tab still saves, it just never annotates.
+    pub fn set_image_untitled(&mut self, bytes: Vec<u8>) {
+        match ImageEdit::new(&bytes, None) {
+            Some(edit) => {
+                self.body = FileBody::ImageEdit(Box::new(edit));
+                self.save = SaveState::Idle;
+                self.dirty = true;
+                self._change = None;
+            }
+            None => self.set_bytes_untitled(bytes),
+        }
+    }
+
+    /// Whether this tab is a capture the editor owns: untitled, image-viewed, and holding bytes
+    /// or their scene. A PNG from the explorer is none of the first, so it stays read-only.
+    pub fn editable_image(&self) -> bool {
+        self.untitled
+            && self.viewer.takes_panel_focus()
+            && matches!(self.body, FileBody::Bytes(_) | FileBody::ImageEdit(_))
+    }
+
+    /// The capture scene, upgrading untitled bytes to one on first use. A capture tab the
+    /// parallel phases left as bytes — Phase 2's window shot, Phase 4's paste — becomes
+    /// editable here rather than growing a second creation path.
+    pub fn ensure_image_edit(&mut self) -> Option<&mut ImageEdit> {
+        // Upgrade untitled bytes once. The guard keeps the swap from ever running on a body
+        // that is already a scene — a `replace` behind a failed pattern would drop it.
+        if self.untitled && matches!(self.body, FileBody::Bytes(_)) {
+            let previous = std::mem::replace(&mut self.body, FileBody::Loading);
+            if let FileBody::Bytes(bytes) = previous {
+                match ImageEdit::new(&bytes, None) {
+                    Some(edit) => self.body = FileBody::ImageEdit(Box::new(edit)),
+                    None => self.body = FileBody::Bytes(bytes),
+                }
+            }
+        }
+        match &mut self.body {
+            FileBody::ImageEdit(edit) => Some(edit),
+            _ => None,
+        }
+    }
+
+    /// The capture scene, when there is one.
+    pub fn image_edit(&self) -> Option<&ImageEdit> {
+        match &self.body {
+            FileBody::ImageEdit(edit) => Some(edit),
+            _ => None,
+        }
+    }
+
+    /// An image edit landed: dirty, and a promoted preview — the first annotation keeps the tab.
+    pub fn touch_image(&mut self) {
+        self.dirty = true;
+        if self.temporary {
+            self.temporary = false;
+        }
+        if matches!(self.save, SaveState::Failed(_)) {
+            self.save = SaveState::Idle;
+        }
+    }
+
     /// Whether the tab's bytes go to a viewer rather than into a buffer. A read still has to
     /// happen; what changes is what is done with the answer.
     pub fn draws_bytes(&self) -> bool {
@@ -479,14 +562,18 @@ impl OpenFile {
     /// write naming no version is refused anyway — under a real host reply the two conditions
     /// coincide, but a guest file is the first case that is un-truncated and version-less both.
     pub fn savable(&self) -> bool {
-        matches!(
-            self.body,
+        match &self.body {
             FileBody::Text {
                 truncated: false,
                 version: Some(_),
                 ..
-            }
-        )
+            } => true,
+            // A capture written once carries its version from there on, like any file.
+            FileBody::ImageEdit(edit) => edit.version.is_some(),
+            // A capture's bytes are what a save writes, with no buffer to read them from.
+            FileBody::Bytes(_) => true,
+            _ => false,
+        }
     }
 
     /// The buffer, for the one module that draws it.
@@ -555,13 +642,25 @@ impl OpenFile {
             SaveState::Saving(text) => text,
             _ => return,
         };
-        if let FileBody::Text {
-            baseline, version, ..
-        } = &mut self.body
-        {
-            *version = Some(written);
-            *baseline = text;
-            self.dirty = current != baseline;
+        match &mut self.body {
+            FileBody::ImageEdit(edit) => {
+                // No baseline text to rebase: the flatten was written, so nothing is unsaved.
+                edit.version = Some(written);
+                self.dirty = false;
+            }
+            // No version to file and no baseline to rebase: the bytes on disk are the bytes
+            // held, so nothing is unsaved.
+            FileBody::Bytes(_) => {
+                self.dirty = false;
+            }
+            FileBody::Text {
+                baseline, version, ..
+            } => {
+                *version = Some(written);
+                *baseline = text;
+                self.dirty = current != baseline;
+            }
+            _ => {}
         }
     }
 

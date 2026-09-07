@@ -288,17 +288,28 @@ impl Harness for Claude {
             args.push(id.clone());
         }
         if structured {
-            // Highest precedence: a mode `resolve` wrote onto `spec.policy` (from
-            // `--permission-mode` or a `--safe` preset) wins; unattended structured runs still
-            // default to `bypassPermissions` when nothing chose a mode, so every existing run
-            // stays byte-identical.
-            let permission_mode = spec
+            // The ask channel. Without `--permission-prompt-tool stdio` Claude emits no
+            // `control_request` at all in `-p` mode and auto-*denies* every gated tool (the
+            // refusal shows up only in `result.permission_denials[]`), so a caller that wants to
+            // approve anything has to opt in here — see `_docs/harness/claude-code.md`
+            // §"Tool approval in headless mode".
+            args.push("--permission-prompt-tool".to_string());
+            args.push("stdio".to_string());
+            // A mode `resolve` wrote onto `spec.policy` (from `--permission-mode` or a `--safe`
+            // preset) is still passed through, for the settings-level default it also renders.
+            // Nothing is passed when nothing chose a mode: `-p` runs report
+            // `permissionMode:"default"` whatever this flag says (verified against 2.1.258), so
+            // the old `bypassPermissions` default bought no bypass — it only hid the fact that
+            // the bridge, not the flag, decides what runs. With a prompt channel present that
+            // decision belongs to the caller.
+            let chosen_mode = spec
                 .policy
                 .as_ref()
-                .and_then(|p| p.permission_mode.as_deref())
-                .unwrap_or("bypassPermissions");
-            args.push("--permission-mode".to_string());
-            args.push(permission_mode.to_string());
+                .and_then(|p| p.permission_mode.as_deref());
+            if let Some(mode) = chosen_mode {
+                args.push("--permission-mode".to_string());
+                args.push(mode.to_string());
+            }
             args.push("--disallowedTools".to_string());
             args.push("AskUserQuestion".to_string());
         }
@@ -1215,8 +1226,17 @@ mod tests {
         assert!(launch.args.contains(&"stream-json".to_string()));
         assert!(launch.args.contains(&"--output-format".to_string()));
         assert!(launch.args.contains(&"--verbose".to_string()));
-        assert!(launch.args.contains(&"--permission-mode".to_string()));
-        assert!(launch.args.contains(&"bypassPermissions".to_string()));
+        // The permission ask channel, not a bypass: without it Claude never asks.
+        let prompt_tool = launch
+            .args
+            .windows(2)
+            .any(|w| w[0] == "--permission-prompt-tool" && w[1] == "stdio");
+        assert!(
+            prompt_tool,
+            "expected `--permission-prompt-tool stdio` in argv: {:?}",
+            launch.args
+        );
+        assert!(!launch.args.contains(&"bypassPermissions".to_string()));
         assert!(launch.args.contains(&"--disallowedTools".to_string()));
         assert!(launch.args.contains(&"AskUserQuestion".to_string()));
         // The prompt is delivered as NDJSON on stdin by the bridge, not
@@ -1237,6 +1257,8 @@ mod tests {
         assert!(!launch.args.contains(&"-p".to_string()));
         assert!(!launch.args.contains(&"--input-format".to_string()));
         assert!(!launch.args.contains(&"--permission-mode".to_string()));
+        // The stdio prompt channel is the structured bridge's; a tty run asks in the tty.
+        assert!(!launch.args.contains(&"--permission-prompt-tool".to_string()));
         assert!(!launch.args.contains(&"--disallowedTools".to_string()));
         // The mcp-config plumbing stays present in both modes.
         assert!(launch.args.contains(&"--mcp-config".to_string()));
@@ -1412,21 +1434,33 @@ mod tests {
         );
     }
 
+    /// With a prompt channel present, an unattended structured run no longer silently bypasses:
+    /// nothing chose a mode, so nothing is passed, and the caller answers the asks.
     #[test]
-    fn provision_structured_io_defaults_to_bypass_permissions_with_no_policy() {
+    fn provision_structured_io_does_not_bypass_permissions_with_no_policy() {
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.io = crate::spec::IoModes::Structured;
 
         let launch = Claude::new().provision(&spec, config_dir.path()).unwrap();
-        let pair = launch
+        assert!(
+            !launch.args.contains(&"--permission-mode".to_string()),
+            "no --permission-mode expected when no policy chose one: {:?}",
+            launch.args
+        );
+        assert!(
+            !launch.args.contains(&"bypassPermissions".to_string()),
+            "structured runs must not bypass by default: {:?}",
+            launch.args
+        );
+        let prompt_tool = launch
             .args
             .windows(2)
-            .any(|w| w[0] == "--permission-mode" && w[1] == "bypassPermissions");
+            .any(|w| w[0] == "--permission-prompt-tool" && w[1] == "stdio");
         assert!(
-            pair,
-            "expected default bypassPermissions in argv: {:?}",
+            prompt_tool,
+            "expected `--permission-prompt-tool stdio` in argv: {:?}",
             launch.args
         );
     }

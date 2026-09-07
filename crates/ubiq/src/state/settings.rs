@@ -114,6 +114,10 @@ pub struct UiSettings {
     /// Single click and Enter open a temporary preview tab. Off, they open permanently.
     #[serde(default = "default_true")]
     pub explorer_preview: bool,
+    /// The window-capture control in the titlebar, and its keystroke. Off removes both;
+    /// the editor stays reachable by opening a PNG and by pasting one.
+    #[serde(default = "default_true")]
+    pub capture_enabled: bool,
     /// The open projects, as coloured badges at the bottom of the activity rail.
     #[serde(default = "default_true")]
     pub rail_projects: bool,
@@ -140,6 +144,7 @@ impl Default for UiSettings {
         Self {
             schema: SCHEMA,
             explorer_preview: true,
+            capture_enabled: true,
             rail_projects: true,
             markdown_open: MarkdownOpen::Preview,
             vim_mode: false,

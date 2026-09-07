@@ -573,7 +573,7 @@ Event shapes emitted on stdout:
 {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"...","content":[]}]}}
 {"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"<model-id>":{"inputTokens":0,"contextWindow":200000}}}
 {"type":"log","log":{"level":"info","message":"..."}}
-{"type":"control_request","request_id":"...","request":{"type":"tool_use","tool_use":{"id":"...","name":"...","input":{}}}}
+{"type":"control_request","request_id":"...","request":{"subtype":"can_use_tool","tool_name":"...","display_name":"...","input":{},"description":"...","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"..."}}
 ```
 
 Note: token usage is best read from the per-model `modelUsage` map in the `result` event, falling
@@ -647,13 +647,59 @@ A coordinator materialises skills into `<workdir>/.claude/skills/<name>/SKILL.md
 
 ### Tool approval in headless mode
 
-With `--permission-mode bypassPermissions`, Claude Code still emits a `control_request` on stdout before each tool call and waits for a `control_response` on stdin. The coordinator answers:
+> Re-verified live against **claude 2.1.258** on 2026-09-07. Supersedes the earlier description of
+> this handshake, which had both the opt-in and the request shape wrong.
+
+**Asking is opt-in: `--permission-prompt-tool stdio`.** Without that flag a `-p` run emits **no
+`control_request` at all** and auto-*denies* every gated tool: the call comes back as a
+`tool_result` with `is_error:true` and the text "Claude requested permissions to write to X, but you
+haven't granted it yet.", `tool_result_meta[].non_execution_kind:"user-rejected"`, and the turn
+still ends `subtype:"success"` — the refusal is stated only in the `result` event's
+`permission_denials[]` array. A caller that wants to approve anything passes the flag;
+`crates/agent-manager`'s structured argv does (`harness/claude.rs`).
+
+**`--permission-mode <mode>` is ignored in `-p` mode.** `system`/`init` reports
+`permissionMode:"default"` whatever the flag says, including `bypassPermissions`. It is not a way
+to make a headless run ask, and not a way to make one stop asking; what decides is the prompt tool
+above plus the answers on stdin. (The mode is still written into the ephemeral
+`settings.json` as `permissions.defaultMode`, which *is* read.)
+
+With the flag, each gated call arrives as one `control_request` whose `request` describes the call
+inline — there is **no `request.tool_use` object**:
+
+```json
+{"type":"control_request","request_id":"eeffffe4-…","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/tmp/hi.txt","content":"hi"},"description":"hi.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_01WkSfrPem63SdjQ53orJbv9"}}
+```
+
+`tool_use_id` is the id of the `tool_use` block already in the transcript, so an ask joins the call
+a consumer can see rather than introducing a second one. `input` uses the same field names as a
+`tool_use` block (`file_path`, `path`, `command`, `pattern`, `url`), which is why
+`io/jsonl.rs` builds both from one helper. `permission_suggestions` are the "always" offers —
+`{"type":"setMode","mode":"acceptEdits","destination":"session"}` is "stop asking about edits for
+the rest of this session".
+
+The coordinator answers on stdin:
 
 ```json
 {"type":"control_response","response":{"subtype":"success","request_id":"...","response":{"behavior":"allow","updatedInput":{}}}}
 ```
 
-`updatedInput` may rewrite the tool input before execution — e.g. forcing `run_in_background: false` so no orphaned background tool survives the parent process. A `tool_result` carrying `status:"async_launched"` signals a still-running background tool.
+`behavior:"allow"` runs the tool normally (verified: the file is created, `permission_denials` is
+empty); `"deny"` rejects it. `updatedInput` may rewrite the tool input before execution — e.g.
+forcing `run_in_background: false` so no orphaned background tool survives the parent process. A
+`tool_result` carrying `status:"async_launched"` signals a still-running background tool.
+
+**An unanswered request stalls the turn indefinitely, and closing stdin first is worse than
+denying**: Claude then fails the call with "AbortError: Tool permission stream closed before
+response received". So a cancel answers every outstanding ask `deny` and only then closes stdin —
+which is exactly what `AgentInput::Cancel` does in `io/jsonl.rs`, per `_docs/io-modes.md`
+§"Permissions".
+
+**Nothing answers on the bridge's behalf.** `io/jsonl.rs` records each ask as outstanding, emits
+`AgentEvent::PermissionRequest` (options `allow`, one `allow_always:<n>` per `setMode` suggestion,
+`deny` — the ids the answer path reads back), and waits. The unattended `am --io structured` CLI
+answers the plain "allow once" itself (`cli/run.rs`), since there is no human on that stream; a
+library embedder decides for itself.
 
 **The launch result is also where the delegate's model is stated**: alongside `isAsync` and
 `status`, `tool_use_result` carries `resolvedModel`, plus `agentId`, `description`, `prompt` and

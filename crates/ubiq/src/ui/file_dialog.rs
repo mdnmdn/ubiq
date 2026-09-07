@@ -77,6 +77,23 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             window,
             cx,
         ),
+        // The image Text tool's click, waiting on its string. Answered into the capture;
+        // an empty string leaves the question up rather than annotating nothing.
+        Some(FileDialog::ImageText { .. }) => prompt_modal(
+            "app-file-image-text",
+            "Add text",
+            None,
+            "Text",
+            &app.file_name,
+            "Add",
+            !typed.is_empty(),
+            crate::ui::handler(&view, |this, window, cx| {
+                this.confirm_file_dialog(window, cx)
+            }),
+            crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+            window,
+            cx,
+        ),
         Some(FileDialog::Remove { path, dir, trash }) => {
             let contents = match dir {
                 true => " Everything inside it goes too.",
@@ -160,6 +177,43 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 body.into_any_element(),
                 footer,
                 crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
+        Some(FileDialog::PasteImage) => {
+            let body = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .pt_3()
+                .child(modal_note("The clipboard holds an image."))
+                .into_any_element();
+            let footer = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-paste-image-text",
+                    None,
+                    "New text file",
+                    cx.listener(|this, _, _, cx| this.decline_paste_image(cx)),
+                ))
+                .child(primary_button(
+                    "app-paste-image-confirm",
+                    None,
+                    "Paste image",
+                    cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
+                ))
+                .into_any_element();
+            // Every dismissal but the primary row takes the text file — the outside click and
+            // the header's close as well as Escape, which never reaches a modal of its own.
+            modal(
+                "app-paste-image",
+                theme::accent(),
+                "New file",
+                body,
+                footer,
+                crate::ui::handler(&view, |this, _, cx| this.decline_paste_image(cx)),
                 window,
             )
         }

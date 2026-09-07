@@ -30,8 +30,8 @@ use crate::theme;
 use crate::ui::kit::{
     ContextItem, Picker, PickerStyle, ROW_FONT, Tab, badge, card, choice_pill, context_panel,
     disclosure, file_row, filter_bar, ghost_button, icon_button, kind_icon, meter, mono,
-    panel_header, pill, primary_button, progress_ring, section_label, slab, state_chip, status_dot,
-    stepper, tab_strip, toggle_pill, view_switch,
+    panel_header, pill, primary_button, progress_ring, removable_tag, section_label, slab,
+    state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -444,6 +444,50 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         ),
     ]);
 
+    // The three readings of the `fill`/`edge`/`colour` triple, side by side, because the triple is
+    // the whole of what a call site chooses about a tag.
+    let tags = row(vec![labelled(
+        "removable_tag",
+        div()
+            .flex()
+            .flex_wrap()
+            .gap_1()
+            .child(removable_tag(
+                "sink-tag-neutral",
+                "sink-tag-neutral-remove",
+                "neutral",
+                "A tag in the neutral reading",
+                theme::surface(),
+                theme::border(),
+                theme::text_muted(),
+                |_, _, _| {},
+                |_, _, _| {},
+            ))
+            .child(removable_tag(
+                "sink-tag-warning",
+                "sink-tag-warning-remove",
+                "warning",
+                "A tag in the warning reading",
+                theme::warning_soft(),
+                theme::warning(),
+                theme::warning(),
+                |_, _, _| {},
+                |_, _, _| {},
+            ))
+            .child(removable_tag(
+                "sink-tag-danger",
+                "sink-tag-danger-remove",
+                "danger",
+                "A tag in the danger reading",
+                theme::danger_soft(),
+                theme::danger(),
+                theme::danger(),
+                |_, _, _| {},
+                |_, _, _| {},
+            ))
+            .into_any_element(),
+    )]);
+
     let reports = row(vec![
         labelled(
             "status_dot",
@@ -497,7 +541,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         "Controls",
         "A toggle is an independent facet; a choice is one value of a set. Off keeps its outline \
          so turning it back on does not move the row.",
-        vec![buttons, pills, reports, level],
+        vec![buttons, pills, tags, reports, level],
     )
 }
 

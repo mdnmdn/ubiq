@@ -659,7 +659,7 @@ impl AppState {
     }
 
     /// Put a file question up, with the field seeded and holding the keyboard.
-    fn open_file_dialog(
+    pub(super) fn open_file_dialog(
         &mut self,
         dialog: FileDialog,
         seed: &str,
@@ -829,6 +829,22 @@ impl AppState {
                     return;
                 }
                 self.save_untitled_as(&key, typed, cx);
+            }
+            FileDialog::ImageText { key } => {
+                if typed.is_empty() {
+                    return;
+                }
+                self.commit_image_text(&key, typed, cx);
+            }
+            FileDialog::PasteImage => {
+                // Re-read: the board may have changed under the question, and then the
+                // keystroke falls back to what it has always meant.
+                let pasted = clipboard::clipboard_image(cx);
+                self.close_file_dialog(cx);
+                match pasted {
+                    Some(bytes) => self.open_untitled_image(bytes, cx),
+                    None => self.open_untitled_text(cx),
+                }
             }
             // Answered above, before the project was looked up.
             FileDialog::DiscardChanges { .. }

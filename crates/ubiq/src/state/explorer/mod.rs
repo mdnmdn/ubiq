@@ -105,6 +105,9 @@ pub struct FileNode {
     /// Project-relative, as every path the interface holds is.
     pub path: String,
     pub kind: NodeKind,
+    /// Size in bytes, as the host reported it. Absent for anything that is not a regular file, so
+    /// a folder never carries one. It is what lets a dialog warn before opening something large.
+    pub size: Option<u64>,
     /// What version control says about the file, when anything does.
     pub git: Option<GitStatus>,
     /// Whether the host will open or list it. Something it will not follow — a symlink out of the
@@ -132,6 +135,7 @@ impl FileNode {
             name: entry.name,
             path: entry.rel_path,
             kind,
+            size: entry.size,
             git: None,
             readable: entry.kind != EntryKind::Other,
         }
@@ -141,6 +145,7 @@ impl FileNode {
     /// which is what keeps an expanded tree expanded across a re-listing.
     fn refreshed(mut self, entry: DirEntry) -> Self {
         self.path = entry.rel_path;
+        self.size = entry.size;
         self.readable = entry.kind != EntryKind::Other;
         self
     }

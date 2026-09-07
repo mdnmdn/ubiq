@@ -2,8 +2,10 @@
 //!
 //! Excalidraw is **data with a closed vocabulary**, not a language, so there is nothing here to
 //! delegate to: the file becomes shapes in [`crate::state::scene`], and this module walks them with
-//! `canvas()` and `PathBuilder`. **The viewer is read-only.** It draws the scene and nothing else;
-//! editing is not proposed and is not built.
+//! `canvas()` and `PathBuilder`. **A scene read from a file is read-only.** It draws and nothing
+//! else. The one scene that is edited is the capture editor's, which Ubiq authored in this session
+//! and which reaches this painter through `live_with_overlay` — the tools live in
+//! `ui/viewer/image_edit.rs`, and nothing here edits anything.
 //!
 //! The scene is fitted to the panel with a margin and its aspect ratio preserved. The wheel zooms
 //! about the pointer, a drag pans, a double-click restores the fit. A scene in a Markdown fence is
@@ -20,9 +22,9 @@
 //! - **Hachure and cross-hatch fills render solid.** `fillStyle` is read as "there is a fill".
 //! - **Text is never rotated**, because a glyph run is painted, not transformed. Every other shape
 //!   honours `angle`.
-//! - **An embedded image draws as a placeholder box**, as it does in the reference renderer, which
-//!   emits nothing for one. Decoding PNG and JPEG would mean a new dependency in the interface
-//!   crate for a case `_docs/design/` does not contain.
+//! - **An embedded image paints its bytes at its box**, where the mime type names a format
+//!   the platform decodes. An image with no bytes, or one whose mime type names nothing
+//!   decodable, draws as a placeholder box instead.
 //! - **An element type this painter does not know is skipped and the rest of the scene draws** —
 //!   the parser drops it, and one unknown type is a missing shape rather than a blank panel.
 //!
@@ -31,19 +33,27 @@
 //! `_docs/tech/ui-and-design.md` forbids a literal colour outside `theme.rs`, and **this module
 //! breaks no part of it.** A scene's own strokes and fills are read out of the file: they are data,
 //! the way a photograph's pixels are, and passing them to `paint_path` is not a design decision.
-//! Every colour *this module chooses* — the placeholder an image draws as, the text of a failure
-//! note — is a theme token, and there is no literal here. The ground behind a scene that names
+//! Every colour *this module chooses* — the placeholder a missing image draws as, the text of a
+//! failure note — is a theme token, and there is no literal here. The ground behind a scene that names
 //! none is Excalidraw's own white canvas ([`Rgba8::DEFAULT_BACKGROUND`]), which is data from the
 //! format, the way a stroke colour is.
+//!
+//! A missing image's placeholder is a theme token; a present image's pixels are data, the way a
+//! stroke colour is.
+
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, IntoElement, ParentElement, PathBuilder, Pixels, Point, Rgba,
-    Styled, TextRun, Window, canvas, div, fill, point, px, size,
+    AnyElement, App, Bounds, Context, Image, ImageFormat, ImageSource, IntoElement, ParentElement,
+    PathBuilder, Pixels, Point, Rgba, Styled, TextRun, Window, canvas, div, fill, img, point, px,
+    size,
 };
 
 use crate::app::AppState;
 use crate::state::scene::{
-    Element, ElementKind, FontFamily, Rgba8, Scene, SceneError, StrokeStyle, TextAlign,
+    Element, ElementKind, EmbeddedFile, FontFamily, Rgba8, Scene, SceneError, StrokeStyle,
+    TextAlign,
 };
 use crate::state::viewport::{self, Camera, Content};
 use crate::theme;
@@ -105,9 +115,11 @@ fn draw_static(scene: Scene) -> AnyElement {
     let panel_h = content.height.max(1.0) + viewport::MARGIN * 2.0;
     let camera = viewport::Viewport::default().camera(content, panel_w, panel_h);
     let ground = ground_of(&scene);
+    let pictures = images_static(&scene, camera);
 
     div()
         .flex_none()
+        .relative()
         .w(px(panel_w))
         .h(px(panel_h))
         .bg(ground)
@@ -117,41 +129,68 @@ fn draw_static(scene: Scene) -> AnyElement {
                 move |bounds, _, window, cx| {
                     let view = View::from_camera(camera, bounds.origin);
                     for element in &scene.elements {
-                        paint(element, &view, window, cx);
+                        paint(element, &scene.files, &view, window, cx);
                     }
                 },
             )
             .w(px(panel_w))
             .h(px(panel_h)),
         )
+        .children(pictures)
         .into_any_element()
 }
 
 fn draw_live(app: &AppState, key: &str, scene: Scene, cx: &mut Context<AppState>) -> AnyElement {
-    let content = content_of(&scene);
+    live_with_overlay(app, key, &scene, div().into_any_element(), cx)
+}
+
+/// The same scene live on its camera, with one element above the picture: the image editor's
+/// tool layer. The overlay sits over the viewport's own hit layer, so a tool drag lands on the
+/// tool and anything it declines reaches pan and zoom underneath.
+pub(crate) fn live_with_overlay(
+    app: &AppState,
+    key: &str,
+    scene: &Scene,
+    overlay: AnyElement,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let content = content_of(scene);
     let camera_at = app.viewport(key);
+    // The overlay positions follow the stored panel, as the diagram viewer does; the canvas
+    // re-fits to its live bounds each paint, and the two agree once the panel is measured.
+    let overlay_cam = camera_at.camera(content, camera_at.panel_w, camera_at.panel_h);
+    let pictures = images_static(scene, overlay_cam);
     super::viewport::surface(
         app,
         key,
-        ground_of(&scene),
+        ground_of(scene),
         content,
-        canvas(
-            |_, _, _| {},
-            move |bounds, _, window, cx| {
-                let camera = camera_at.camera(
-                    content,
-                    f32::from(bounds.size.width),
-                    f32::from(bounds.size.height),
-                );
-                let view = View::from_camera(camera, bounds.origin);
-                for element in &scene.elements {
-                    paint(element, &view, window, cx);
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
-        .size_full(),
+        div()
+            .absolute()
+            .inset_0()
+            .size_full()
+            .relative()
+            .child(
+                canvas(|_, _, _| {}, {
+                    let scene = scene.clone();
+                    move |bounds, _, window, cx| {
+                        let camera = camera_at.camera(
+                            content,
+                            f32::from(bounds.size.width),
+                            f32::from(bounds.size.height),
+                        );
+                        let view = View::from_camera(camera, bounds.origin);
+                        for element in &scene.elements {
+                            paint(element, &scene.files, &view, window, cx);
+                        }
+                    }
+                })
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
+            .children(pictures)
+            .child(overlay),
         cx,
     )
 }
@@ -250,7 +289,13 @@ fn pen(view: &View, width: f32, style: StrokeStyle) -> PathBuilder {
 // The elements
 // ------------------------------------------------------------------------------------------- //
 
-fn paint(element: &Element, view: &View, window: &mut Window, cx: &mut App) {
+fn paint(
+    element: &Element,
+    files: &HashMap<String, EmbeddedFile>,
+    view: &View,
+    window: &mut Window,
+    cx: &mut App,
+) {
     match &element.kind {
         ElementKind::Rectangle { rounded } => rectangle(element, *rounded, view, window),
         ElementKind::Ellipse => outline(element, ellipse_points(element), view, window),
@@ -273,7 +318,13 @@ fn paint(element: &Element, view: &View, window: &mut Window, cx: &mut App) {
             family,
             align,
         } => label(element, text, *font_size, *family, *align, view, window, cx),
-        ElementKind::Image { .. } => placeholder(element, view, window),
+        ElementKind::Image { file_id } => {
+            // A resolvable image paints as an overlay child, not on the canvas; the rest fall
+            // through to the placeholder so a missing picture never leaves a hole.
+            if resolved_image(files, file_id, element.angle).is_none() {
+                placeholder(element, view, window);
+            }
+        }
     }
 }
 
@@ -595,8 +646,73 @@ fn shape(
         .shape_line(text.to_string().into(), px(size), &[run], None)
 }
 
-/// What an embedded image draws as. The bytes are in the scene; decoding them is not this crate's
-/// job today, so the reader gets the box the image occupies rather than a hole in the layout.
+/// The platform format a `data:` URI's mime type names. `None` is "not decodable here", and
+/// the image keeps its placeholder. Mirrors [`super::image`]'s extension mapping.
+fn image_format(mime: &str) -> Option<ImageFormat> {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/png" => Some(ImageFormat::Png),
+        "image/jpeg" | "image/jpg" => Some(ImageFormat::Jpeg),
+        "image/gif" => Some(ImageFormat::Gif),
+        "image/webp" => Some(ImageFormat::Webp),
+        "image/svg+xml" | "image/svg" => Some(ImageFormat::Svg),
+        "image/bmp" | "image/x-bmp" | "image/x-ms-bmp" => Some(ImageFormat::Bmp),
+        "image/tiff" | "image/x-tiff" => Some(ImageFormat::Tiff),
+        "image/x-icon" | "image/vnd.microsoft.icon" => Some(ImageFormat::Ico),
+        _ => None,
+    }
+}
+
+/// A paintable image: bytes the file carried, in a decodable format, unrotated. Rotation has no
+/// `img` equivalent, so a rotated image keeps its placeholder rather than painting unrotated.
+fn resolved_image<'a>(
+    files: &'a HashMap<String, EmbeddedFile>,
+    file_id: &str,
+    angle: f32,
+) -> Option<(ImageFormat, &'a [u8])> {
+    if angle != 0.0 {
+        return None;
+    }
+    let file = files.get(file_id)?;
+    Some((image_format(&file.mime)?, &file.bytes))
+}
+
+/// One positioned `img` per paintable image, in the camera's coordinates — the same absolute
+/// placement [`super::diagram`] uses for its picture.
+fn images_static(scene: &Scene, camera: Camera) -> Vec<AnyElement> {
+    scene
+        .elements
+        .iter()
+        .filter_map(|element| {
+            let ElementKind::Image { file_id } = &element.kind else {
+                return None;
+            };
+            let (format, bytes) = resolved_image(&scene.files, file_id, element.angle)?;
+            let (x, w) = if element.width >= 0.0 {
+                (element.x, element.width)
+            } else {
+                (element.x + element.width, -element.width)
+            };
+            let (y, h) = if element.height >= 0.0 {
+                (element.y, element.height)
+            } else {
+                (element.y + element.height, -element.height)
+            };
+            let picture = Arc::new(Image::from_bytes(format, bytes.to_vec()));
+            Some(
+                img(ImageSource::Image(picture))
+                    .absolute()
+                    .left(px(camera.offset_x + x * camera.scale))
+                    .top(px(camera.offset_y + y * camera.scale))
+                    .w(px(w * camera.scale))
+                    .h(px(h * camera.scale))
+                    .opacity(element.opacity)
+                    .into_any_element(),
+            )
+        })
+        .collect()
+}
+
+/// What a missing image draws as. The bytes are not in the scene, or nothing here decodes
 fn placeholder(element: &Element, view: &View, window: &mut Window) {
     let colour = theme::fade(theme::text_faint(), element.opacity.min(0.7));
     let mapped: Vec<Point<Pixels>> = corner_points(element)

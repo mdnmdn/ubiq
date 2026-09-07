@@ -97,6 +97,11 @@ fn accumulate(into: &mut TokenSpend, add: &TokenSpend) {
 }
 
 /// A permission the agent is waiting on.
+///
+/// `tool_call` is a *patch*, and upstream guarantees only its id: everything else may be absent.
+/// So what a prompt says about the operation is read off the call already in the transcript —
+/// [`Conversation::tool_block_index`] does that join — and this carries only what the request itself
+/// added.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
     pub request_id: String,
@@ -104,11 +109,42 @@ pub struct Pending {
     pub options: Vec<PermissionOption>,
 }
 
+impl Pending {
+    /// The first option that reads as going ahead, or as refusing — what the keyboard answers
+    /// with. `kind` is a hint, so this picks by hint and echoes the `option_id` it found: nothing
+    /// here interprets an id.
+    pub fn option_for(&self, allow: bool) -> Option<&PermissionOption> {
+        self.options
+            .iter()
+            .find(|option| option.kind.allows() == allow)
+    }
+}
+
 /// A prompt typed while a turn was already running, held until it ends.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueuedMessage {
     pub id: u64,
     pub text: String,
+}
+
+/// One file the composer will hand this conversation with the next prompt.
+///
+/// **Held here rather than in the composer's own field**, beside [`Conversation::draft`] and for
+/// its reason: unsent composer content belongs to the conversation, so it follows it from one
+/// surface to another rather than being lost when a tab is switched or a slot is handed on.
+///
+/// Nothing is read from a disk to build one: the size is whatever the picker already reported for
+/// that node, which is what the host said when it listed the folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Attachment {
+    /// Stable per conversation, on the same reasoning as [`QueuedMessage::id`]: an element id and
+    /// a removal name the same entry even as others are added or removed around it.
+    pub id: u64,
+    /// Project-relative — the one path shape the interface holds.
+    pub path: String,
+    /// How big it is, where anything said so. `None` is not guessed at: a tag with no size reads
+    /// as an ordinary file rather than as a small one.
+    pub size: Option<u64>,
 }
 
 /// Whether the agent is working or waiting for a turn.
@@ -166,7 +202,13 @@ pub struct Conversation {
     /// One list, because upstream has one mechanism for all of them.
     pub config: Vec<ConfigOption>,
     pub plan: Vec<PlanEntry>,
-    pub pending: Option<Pending>,
+    /// Every permission the agent is waiting on, in the order the requests arrived.
+    ///
+    /// **A list, not a slot.** Upstream may have several requests outstanding at once and expects
+    /// every one of them answered; there are no timeouts, so a request this dropped on the floor
+    /// would deadlock the turn with nothing on screen to say so. Keyed by `request_id`: a second
+    /// request under an id already here replaces it rather than queueing a duplicate.
+    pub pending: Vec<Pending>,
     /// The last thing that went wrong, until the next thing happens.
     pub error: Option<String>,
     /// Whether this harness takes a second turn at all.
@@ -204,6 +246,11 @@ pub struct Conversation {
     /// are added or removed around it.
     pub queued: Vec<QueuedMessage>,
     next_queued_id: u64,
+    /// Files picked for the next prompt, in the order they were picked. Unsent composer content,
+    /// so it sits beside [`Self::draft`] and [`Self::queued`] rather than being indexed by the
+    /// composer slot that happens to be drawing it.
+    pub attached: Vec<Attachment>,
+    next_attached_id: u64,
 
     /// The highest sequence number applied. An update that does not follow it
     /// is a gap, and a gap is worth saying rather than silently drawing.
@@ -234,7 +281,7 @@ impl Conversation {
             stop_reason: None,
             config: Vec::new(),
             plan: Vec::new(),
-            pending: None,
+            pending: Vec::new(),
             error: None,
             accepts_input: true,
             draft: String::new(),
@@ -245,6 +292,8 @@ impl Conversation {
             subagents_open: false,
             queued: Vec::new(),
             next_queued_id: 0,
+            attached: Vec::new(),
+            next_attached_id: 0,
             seq: 0,
             tools: HashMap::new(),
             open: None,
@@ -354,7 +403,7 @@ impl Conversation {
     /// Derived rather than carried: an activity is a reading of the last
     /// thing that happened, and the stream already says what that was.
     pub fn activity(&self) -> Activity {
-        if self.pending.is_some() {
+        if !self.pending.is_empty() {
             return Activity::NeedsYou;
         }
         match (self.run, self.stop_reason) {
@@ -535,11 +584,21 @@ impl Conversation {
                 tool_call,
                 options,
             } => {
-                self.pending = Some(Pending {
+                let request = Pending {
                     request_id,
                     tool_call,
                     options,
-                });
+                };
+                // Keyed by id, appended otherwise: arrival order is what the transcript and the
+                // keyboard both read as "the oldest one still waiting".
+                match self
+                    .pending
+                    .iter_mut()
+                    .find(|held| held.request_id == request.request_id)
+                {
+                    Some(held) => *held = request,
+                    None => self.pending.push(request),
+                }
             }
 
             ConvUpdate::TurnEnded { stop_reason, error } => {
@@ -554,7 +613,7 @@ impl Conversation {
     /// The harness has gone.
     pub fn ended(&mut self, stop_reason: StopReason) {
         self.open = None;
-        self.pending = None;
+        self.pending.clear();
         self.run = Run::Ended;
         self.stop_reason = Some(stop_reason);
     }
@@ -567,7 +626,25 @@ impl Conversation {
         self.run = Run::Idle;
         self.launched = false;
         self.open_config = None;
-        self.pending = None;
+        self.pending.clear();
+    }
+
+    /// Forget one request, because it has been answered. Idempotent: an answer that raced the
+    /// harness's own withdrawal of the request finds nothing and does nothing.
+    pub fn answered(&mut self, request_id: &str) {
+        self.pending.retain(|held| held.request_id != request_id);
+    }
+
+    /// The oldest request still waiting — what the keyboard answers, and what the strip above the
+    /// footer names when several are up.
+    pub fn oldest_pending(&self) -> Option<&Pending> {
+        self.pending.first()
+    }
+
+    /// Which block a tool call is drawn as, if the transcript holds it at all. The join a
+    /// permission prompt needs: a request carries a call id and nothing else it can rely on.
+    pub fn tool_block_index(&self, id: &str) -> Option<usize> {
+        self.tools.get(id).copied()
     }
 
     /// Hold a prompt for later, typed while a turn was already running. Returns the id it was
@@ -589,6 +666,54 @@ impl Conversation {
     pub fn remove_queued(&mut self, id: u64) -> Option<String> {
         let ix = self.queued.iter().position(|m| m.id == id)?;
         Some(self.queued.remove(ix).text)
+    }
+
+    /// Attach a file to the next prompt, and say which entry it became.
+    ///
+    /// **A path already attached is not attached twice**, and answers `None`: two tags for one
+    /// file would be two mentions of it in the prompt, and a remove that only half worked. The
+    /// size is refreshed on the entry that is already there, since the picker that just reported
+    /// it has read the folder more recently than whatever attached it first.
+    pub fn attach(&mut self, path: String, size: Option<u64>) -> Option<u64> {
+        if let Some(existing) = self.attached.iter_mut().find(|file| file.path == path) {
+            existing.size = size;
+            return None;
+        }
+        let id = self.next_attached_id;
+        self.next_attached_id += 1;
+        self.attached.push(Attachment { id, path, size });
+        Some(id)
+    }
+
+    /// Take one attachment back off, by id — a tag's own dismiss control.
+    pub fn detach(&mut self, id: u64) -> Option<Attachment> {
+        let ix = self.attached.iter().position(|file| file.id == id)?;
+        Some(self.attached.remove(ix))
+    }
+
+    /// Drop every attachment — what a prompt leaving consumes, alongside the draft.
+    pub fn clear_attached(&mut self) {
+        self.attached.clear();
+    }
+
+    /// What actually goes on the wire: what was typed, with every attachment named after it as
+    /// `@path`.
+    ///
+    /// The mentions come *after* the prose because the sentence around the paths is usually
+    /// written first, which is also the order the picker used to append them in. `@path`,
+    /// project-relative, is the one path shape the interface holds and the shape every harness
+    /// reads a file reference in — nothing new crosses the bus for this, so a prompt with
+    /// attachments is a `PromptAgent` like any other.
+    pub fn compose_prompt(&self, typed: &str) -> String {
+        let mut out = typed.trim().to_string();
+        for file in &self.attached {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push('@');
+            out.push_str(&file.path);
+        }
+        out
     }
 
     /// Toggle a tool block's detail.
@@ -940,6 +1065,16 @@ mod tests {
         }
     }
 
+    /// A request carrying nothing but its own id and an empty patch — the shape upstream
+    /// guarantees, and the one a prompt has to survive.
+    fn permission(request_id: &str) -> ConvUpdate {
+        ConvUpdate::PermissionRequest {
+            request_id: request_id.to_string(),
+            tool_call: ToolCallPatch::default(),
+            options: Vec::new(),
+        }
+    }
+
     /// Chunks sharing a message id are one message. This is the whole reason
     /// a token stream does not produce a block per token.
     #[test]
@@ -1220,15 +1355,42 @@ mod tests {
         c.apply(1, chunk("working", Some("m1")));
         assert_eq!(c.activity(), Activity::Writing);
 
-        c.apply(
-            2,
-            ConvUpdate::PermissionRequest {
-                request_id: "r1".to_string(),
-                tool_call: ToolCallPatch::default(),
-                options: Vec::new(),
-            },
-        );
+        c.apply(2, permission("r1"));
         assert_eq!(c.activity(), Activity::NeedsYou);
+    }
+
+    /// Upstream may have several requests open at once and expects every one answered, so a
+    /// second must not push the first off the screen — and answering one must not clear the other.
+    #[test]
+    fn two_permissions_are_both_held_and_answered_one_at_a_time() {
+        let mut c = conversation();
+        c.apply(1, permission("r1"));
+        c.apply(2, permission("r2"));
+
+        let ids: Vec<&str> = c.pending.iter().map(|p| p.request_id.as_str()).collect();
+        assert_eq!(ids, vec!["r1", "r2"]);
+        assert_eq!(
+            c.oldest_pending().map(|p| p.request_id.as_str()),
+            Some("r1")
+        );
+
+        c.answered("r1");
+        let ids: Vec<&str> = c.pending.iter().map(|p| p.request_id.as_str()).collect();
+        assert_eq!(ids, vec!["r2"]);
+        assert_eq!(c.activity(), Activity::NeedsYou);
+
+        c.answered("r2");
+        assert!(c.pending.is_empty());
+        assert_ne!(c.activity(), Activity::NeedsYou);
+    }
+
+    /// The same id twice is the harness restating one request, not a second one.
+    #[test]
+    fn a_repeated_request_id_replaces_rather_than_queues() {
+        let mut c = conversation();
+        c.apply(1, permission("r1"));
+        c.apply(2, permission("r1"));
+        assert_eq!(c.pending.len(), 1);
     }
 
     #[test]
@@ -1304,6 +1466,58 @@ mod tests {
             }]
         );
         assert_eq!(c.remove_queued(drop), None, "already removed");
+    }
+
+    /// One tag per file, however many times it is picked — and the second pick is what refreshes
+    /// the size, since it read the folder more recently.
+    #[test]
+    fn attaching_the_same_path_twice_keeps_one_tag() {
+        let mut c = conversation();
+        let first = c.attach("src/main.rs".to_string(), Some(10));
+        let again = c.attach("src/main.rs".to_string(), Some(20));
+
+        assert_eq!(first, Some(0));
+        assert_eq!(again, None, "already attached");
+        assert_eq!(c.attached.len(), 1);
+        assert_eq!(c.attached[0].size, Some(20));
+    }
+
+    /// Ids are stable, so a remove names the entry the tag was drawn for and nothing else moves
+    /// under it.
+    #[test]
+    fn detach_takes_the_named_attachment_back_out() {
+        let mut c = conversation();
+        let keep = c.attach("a.rs".to_string(), None).expect("attached");
+        let drop = c.attach("b.rs".to_string(), Some(1)).expect("attached");
+
+        let gone = c.detach(drop).expect("the entry existed");
+        assert_eq!(gone.path, "b.rs");
+        assert_eq!(c.attached.len(), 1);
+        assert_eq!(c.attached[0].id, keep);
+        assert_eq!(c.detach(drop), None, "already removed");
+    }
+
+    /// What sending does: the mentions are composed into the one `PromptAgent` text, and the
+    /// attachments are consumed with the draft rather than carried into the next turn.
+    #[test]
+    fn attachments_compose_into_the_prompt_and_are_cleared_on_send() {
+        let mut c = conversation();
+        c.attach("src/lib.rs".to_string(), Some(400 * 1024));
+        c.attach("README.md".to_string(), None);
+
+        assert_eq!(
+            c.compose_prompt("  review these  "),
+            "review these @src/lib.rs @README.md"
+        );
+        assert_eq!(
+            c.compose_prompt(""),
+            "@src/lib.rs @README.md",
+            "attachments alone are still something to send"
+        );
+
+        c.clear_attached();
+        assert!(c.attached.is_empty());
+        assert_eq!(c.compose_prompt("plain"), "plain");
     }
 
     /// The mechanics `app.rs`'s auto-send glue relies on: a turn ending flips `run` to `Idle`,

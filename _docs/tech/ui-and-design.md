@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-07
 verified: 2026-09-07
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs]
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -51,6 +51,14 @@ but the palette, which is process-wide. Everything drawn belongs under `crates/u
 **This document owns the token set.** Every colour in the UI comes from a token accessor in
 `crates/ubiq/src/theme.rs`. A literal colour anywhere else is a defect, with no exceptions worth
 carving out — a one-off shade is the mechanism by which a themed application stops being themeable.
+
+**Content is not colour.** A colour read out of a document — a scene's stroke, its fill, the canvas
+ground it names, the pixels of an image embedded in it — is data the way the sixteen ANSI colours in
+a pane are data, and painting it is not a design decision. The rule above binds every colour the
+interface *chooses*: `crates/ubiq/src/ui/viewer/scene.rs` paints a scene's own colours and an
+embedded image's bytes straight through, and reaches for a token for the only two things it decides
+itself — the placeholder a picture with nothing decodable in it draws as, and the text of a failure
+note.
 
 **Which token a *state* reads in is the interface's choice, and it is made in one file.**
 `crates/ubiq/src/ui/work.rs` is where a work record's state becomes a token: an activity or a bucket
@@ -357,32 +365,32 @@ tree's density. A surface no project zoom reaches passes `kit::ROW_FONT`.
 
 **`gpui-component` first.** Its `Icon`, `Kbd`, `Badge`, `Editor`, `Textarea`, `Scrollbar`, markdown
 view and dock are used directly — the dock being the largest widget in the library and the whole of
-the window's arrangement, `D42`. `crates/ubiq/src/ui/kit/` holds only what the library
-does not give us — the slab every surface is drawn in and the card that is a slab you can pick, the
-field every text entry sits in, the state dot, the pill, the state chip, the toggle pill for an
-independent facet and the choice pill
-for one value of a set, the tick box a row is chosen with where several may be, the elided run that
-says the whole of itself on hover, the filled button a screen's single obvious action is drawn as,
-the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared tab
-strip, the progress ring, the painted layers in `canvas.rs`, the file-list chrome the picker and the
-explorer share in `files.rs`, and the one dropdown mechanism every menu in the window uses — plus
-the context menu a right-click, or a control that has no room for a trigger, raises at the pointer:
-that same panel, opened at a point rather than under a chip. Its rows are labels, a disabled label,
-or a separator — a hairline that still takes an index, because a menu's rows and the actions behind
-them are matched by position. `kit::Picker` may carry a filter field of its own, through
-`.search(&state, focused)` — one `Entity<InputState>` drawn at the top of the panel, in the same
-`field(...)` shape `project_menu.rs`'s hand-rolled search uses. The picker never filters: the caller
-narrows `items` and keeps a parallel values list in lockstep before building the picker, so
+the window's arrangement, `D42`. `crates/ubiq/src/ui/kit/` holds only what the library does not give
+us — the slab every surface is drawn in and the card that is a slab you can pick, the field every
+text entry sits in, the state dot, the pill, the state chip, the removable tag whose `×` drops it
+and whose label does something when clicked, the toggle pill for an independent facet and the choice
+pill for one value of a set, the tick box a row is chosen with where several may be, the elided run
+that says the whole of itself on hover, the filled button a screen's single obvious action is drawn
+as, the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared
+tab strip, the progress ring, the painted layers in `canvas.rs`, the file-list chrome the picker and
+the explorer share in `files.rs`, and the one dropdown mechanism every menu in the window uses —
+plus the context menu a right-click, or a control that has no room for a trigger, raises at the
+pointer: that same panel, opened at a point rather than under a chip. Its rows are labels, a
+disabled label, or a separator — a hairline that still takes an index, because a menu's rows and the
+actions behind them are matched by position. `kit::Picker` may carry a filter field of its own,
+through `.search(&state, focused)` — one `Entity<InputState>` drawn at the top of the panel, in the
+same `field(...)` shape `project_menu.rs`'s hand-rolled search uses. The picker never filters: the
+caller narrows `items` and keeps a parallel values list in lockstep before building the picker, so
 `on_pick(index)` stays correct by construction, and an empty result after filtering draws one muted
 "No matches" row rather than a panel with nothing in it. `.disabled(indices)` marks rows drawn but
 not pickable — a conversation already attached to another chat tab, say — in the same faint,
 click-less style the context menu's own disabled label uses; a disabled row is never dropped from
-`items`, because a row that vanishes reads as gone rather than taken, and a picker's own selected row
-stays pickable even if the caller also passed its index to `.disabled(...)`. `.separators(indices)`
-draws the same hairline the context menu's own separator does at those rows instead of text, so a
-searchable picker can carry group headings — themselves plain `.disabled(...)` rows — in the one
-`items` list a caller builds and a pick indexes into, the way the agents screen's column `+` groups
-the bench from what is already on screen elsewhere.
+`items`, because a row that vanishes reads as gone rather than taken, and a picker's own selected
+row stays pickable even if the caller also passed its index to `.disabled(...)`.
+`.separators(indices)` draws the same hairline the context menu's own separator does at those rows
+instead of text, so a searchable picker can carry group headings — themselves plain `.disabled(...)`
+rows — in the one `items` list a caller builds and a pick indexes into, the way the agents screen's
+column `+` groups the bench from what is already on screen elsewhere.
 
 The state dot itself is what the shared conversation view's lifecycle glyph is, beside its
 three-dots menu — no primitive of its own. `ui::conversation::lifecycle` derives one `Lifecycle` from

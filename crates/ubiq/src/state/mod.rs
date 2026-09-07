@@ -19,6 +19,7 @@ pub mod editor;
 pub mod explorer;
 pub mod file_picker;
 pub mod git;
+pub mod image_edit;
 pub mod layout;
 pub mod logs;
 pub mod nav;
@@ -56,6 +57,7 @@ pub use file_picker::{
     PickerRow, PickerView,
 };
 pub use git::{CommitRow, GitView, RefRow, RefSection, Side};
+pub use image_edit::{EditOp, ImageEdit, ImageTool, ShapeKind};
 pub use layout::Layout;
 pub use logs::LogState;
 pub use nav::{Destination, Locus, View};

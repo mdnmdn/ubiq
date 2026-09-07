@@ -199,6 +199,18 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .into_any_element(),
         ),
+        setting_row(
+            "Capture the window",
+            "The titlebar button and its keystroke that photograph this window into an untitled \
+             tab. On Windows and X11 this switch is the only thing standing between the \
+             application and a screenshot.",
+            check_box(
+                "app-settings-capture",
+                app.workbench.settings.ui.capture_enabled,
+                cx.listener(|this, _, _, cx| this.toggle_capture(cx)),
+            )
+            .into_any_element(),
+        ),
     ])
 }
 

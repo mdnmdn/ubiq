@@ -27,8 +27,8 @@
 //! whoever is multiplexing. Here that is the `agent_id` this module stamps on
 //! every message — the same role a `sessionId` plays in ACP, one layer up.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::SystemTime;
 
@@ -93,6 +93,14 @@ pub struct Conversation {
     /// decide whether to send the final `ConversationEnded` — an unload wants exactly one
     /// lifecycle message (`ConversationUnloaded`), not that plus this.
     quiet: Arc<AtomicBool>,
+    /// Every permission request this harness is still waiting on, in arrival order.
+    ///
+    /// **Shared with the pump, because the pump is what sees a request and the coordinator is
+    /// what answers one.** Upstream requires a cancelling client to answer every outstanding
+    /// request with `cancelled`, and there is no other place both halves can agree on which those
+    /// are. A `Mutex` rather than a channel: the only operations are "one arrived", "one was
+    /// answered" and "take them all", and every one of them is a handful of strings.
+    outstanding: Arc<Mutex<Vec<String>>>,
 }
 
 impl Conversation {
@@ -112,14 +120,24 @@ impl Conversation {
         let ended = Arc::new(AtomicBool::new(false));
         let seq = Arc::new(AtomicU64::new(start_seq));
         let quiet = Arc::new(AtomicBool::new(false));
+        let outstanding = Arc::new(Mutex::new(Vec::new()));
         let pump_ended = ended.clone();
         let pump_seq = seq.clone();
         let pump_quiet = quiet.clone();
+        let pump_outstanding = outstanding.clone();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
             .spawn(move || {
                 pump(
-                    id, bridge, out, start_seq, pump_ended, pump_seq, pump_quiet, usage,
+                    id,
+                    bridge,
+                    out,
+                    start_seq,
+                    pump_ended,
+                    pump_seq,
+                    pump_quiet,
+                    pump_outstanding,
+                    usage,
                 )
             })
             .ok();
@@ -131,6 +149,7 @@ impl Conversation {
             ended,
             seq,
             quiet,
+            outstanding,
         }
     }
 
@@ -157,17 +176,52 @@ impl Conversation {
     }
 
     /// Interrupt the turn in flight.
+    ///
+    /// **Every request still waiting is answered as cancelled first.** Upstream makes that the
+    /// cancelling client's obligation, and it is not a courtesy: a harness holding an unanswered
+    /// request has no timeout to fall back on, so the turn it belongs to would never end. A
+    /// refused answer is logged rather than returned — the cancel itself is what the caller asked
+    /// for, and a harness that would not take the answer is already on its way out.
     pub fn cancel(&self) -> anyhow::Result<()> {
+        for request_id in self.take_outstanding() {
+            if let Err(error) = self.send(AgentInput::AnswerPermission {
+                request_id,
+                outcome: PermissionOutcome::Cancelled,
+                updated_input: None,
+            }) {
+                tracing::debug!(agent = %self.id, %error, "a cancelled permission went unanswered");
+            }
+        }
         self.send(AgentInput::Cancel)
     }
 
     /// Answer a permission request by naming one of the options it offered.
+    ///
+    /// `updated_input` is always `None`: the response carries an option id and nothing else, so
+    /// there is no editing of a tool's input on this path and no place to put one.
     pub fn answer_permission(&self, request_id: String, option_id: String) -> anyhow::Result<()> {
+        self.forget_outstanding(&request_id);
         self.send(AgentInput::AnswerPermission {
             request_id,
             outcome: PermissionOutcome::Selected { option_id },
             updated_input: None,
         })
+    }
+
+    /// Everything still waiting, emptied — a request answered once must not be answered twice.
+    fn take_outstanding(&self) -> Vec<String> {
+        match self.outstanding.lock() {
+            Ok(mut held) => std::mem::take(&mut *held),
+            // A poisoned lock means the pump panicked mid-record. The list is of no further use
+            // and this harness is finished; cancelling it is still worth doing.
+            Err(_) => Vec::new(),
+        }
+    }
+
+    fn forget_outstanding(&self, request_id: &str) {
+        if let Ok(mut held) = self.outstanding.lock() {
+            held.retain(|held| held.as_str() != request_id);
+        }
     }
 
     /// Change a model, a mode or a thinking level.
@@ -219,6 +273,7 @@ fn pump(
     ended: Arc<AtomicBool>,
     seq_counter: Arc<AtomicU64>,
     quiet: Arc<AtomicBool>,
+    outstanding: Arc<Mutex<Vec<String>>>,
     usage: Option<UsageMeter>,
 ) {
     let mut seq = start_seq;
@@ -243,6 +298,20 @@ fn pump(
         // ends after a failed turn ended because of it.
         if let AgentEvent::TurnEnded { stop_reason: r, .. } = &event {
             stop_reason = map_stop_reason(r);
+            // Nothing is waiting on an answer once the turn is over, and a stale id would make a
+            // later cancel answer a request that closed with the turn.
+            if let Ok(mut held) = outstanding.lock() {
+                held.clear();
+            }
+        }
+
+        // Written before the update goes out, so a cancel that arrives the instant the window
+        // draws the prompt still finds the request to answer. Read by `Conversation::cancel`.
+        if let AgentEvent::PermissionRequest { request_id, .. } = &event
+            && let Ok(mut held) = outstanding.lock()
+            && !held.contains(request_id)
+        {
+            held.push(request_id.clone());
         }
 
         let Some(update) = map_event(event) else {
@@ -1017,5 +1086,91 @@ mod tests {
         }
         // 218_336 is the level every report above repeated. It is nowhere in the meter.
         assert!(rows.iter().all(|row| row.tokens_total() != 218_336));
+    }
+
+    /// A sink that keeps what it was sent, so a test can read the order things went in.
+    struct Recorder {
+        seen: Arc<Mutex<Vec<AgentInput>>>,
+    }
+
+    impl AgentInputSink for Recorder {
+        fn send(&self, input: AgentInput) -> anyhow::Result<()> {
+            self.seen.lock().unwrap().push(input);
+            Ok(())
+        }
+    }
+
+    /// A conversation with a recording sink and no pump — enough for `cancel`, which touches
+    /// neither.
+    fn recording() -> (Conversation, Arc<Mutex<Vec<AgentInput>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let conversation = Conversation {
+            id: AgentId::generate(),
+            input: Some(Arc::new(Recorder { seen: seen.clone() })),
+            pump: None,
+            ended: Arc::new(AtomicBool::new(false)),
+            seq: Arc::new(AtomicU64::new(0)),
+            quiet: Arc::new(AtomicBool::new(false)),
+            outstanding: Arc::new(Mutex::new(Vec::new())),
+        };
+        (conversation, seen)
+    }
+
+    /// Upstream makes this the cancelling client's obligation, and it is not a courtesy: a
+    /// harness holding an unanswered request has no timeout to fall back on, so the turn it
+    /// belongs to would never end.
+    #[test]
+    fn a_cancel_answers_every_outstanding_permission_first() {
+        let (conversation, seen) = recording();
+        *conversation.outstanding.lock().unwrap() = vec!["r1".to_string(), "r2".to_string()];
+
+        conversation.cancel().unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3, "two answers, then the cancel itself");
+        for (ix, request_id) in ["r1", "r2"].iter().enumerate() {
+            let AgentInput::AnswerPermission {
+                request_id: answered,
+                outcome,
+                updated_input,
+            } = &seen[ix]
+            else {
+                panic!("expected an answer, got {:?}", seen[ix]);
+            };
+            assert_eq!(
+                answered.as_str(),
+                *request_id,
+                "answered in the order they arrived"
+            );
+            assert_eq!(*outcome, PermissionOutcome::Cancelled);
+            assert!(
+                updated_input.is_none(),
+                "the response carries an option id and nothing else"
+            );
+        }
+        assert!(matches!(seen[2], AgentInput::Cancel));
+    }
+
+    /// Answered once, and then not again: a second cancel has nothing left to say for it.
+    #[test]
+    fn an_answered_permission_is_not_cancelled_afterwards() {
+        let (conversation, seen) = recording();
+        *conversation.outstanding.lock().unwrap() = vec!["r1".to_string()];
+
+        conversation
+            .answer_permission("r1".to_string(), "allow_once".to_string())
+            .unwrap();
+        conversation.cancel().unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "the answer, then the bare cancel");
+        assert!(matches!(
+            &seen[0],
+            AgentInput::AnswerPermission {
+                outcome: PermissionOutcome::Selected { .. },
+                ..
+            }
+        ));
+        assert!(matches!(seen[1], AgentInput::Cancel));
     }
 }

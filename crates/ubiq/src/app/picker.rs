@@ -139,10 +139,14 @@ impl AppState {
                 self.sink.picker.result = Some(picked);
                 self.sink.picker.dismissed = false;
             }
-            // What a composer asked for arrives as mentions appended to whatever is already
-            // typed: the picker adds to the prompt rather than replacing it, because the sentence
-            // around the paths is usually written first.
-            PickerOwner::Composer { slot, .. } => self.mention_files(slot, &picked, window, cx),
+            // What a composer asked for arrives as tags under the token row, not as text in the
+            // field: the prompt is still being written, and a path spelled into it cannot be
+            // taken back out by clicking it. The sizes come off the picker's own nodes — the
+            // interface reads no disk — which is why they are taken before it is dropped.
+            PickerOwner::Composer { agent, slot } => {
+                let sized = picker.picked_with_sizes();
+                self.attach_files(agent, slot, &sized, window, cx);
+            }
             // The host this folder came from lives in `host_browse`, not in the owner itself — see
             // `state::file_picker::PickerOwner::HostProject`'s own doc.
             PickerOwner::HostProject => {
@@ -192,34 +196,42 @@ impl AppState {
         self.open_file_picker(request, forest, PickerView::Tree, window, cx);
     }
 
-    /// Append what was picked to a composer as `@path` mentions, space separated — the one path
-    /// shape the interface holds, and the shape every harness reads a file reference in.
-    fn mention_files(
+    /// Hang what was picked on the conversation as attachments, one tag each.
+    ///
+    /// Nothing is written into the field: the paths become `@path` mentions only when the prompt
+    /// is actually sent, which is `Conversation::compose_prompt`'s job. A path already attached
+    /// is not attached twice. The keyboard goes back to the composer either way — the dialog took
+    /// it, and the user was in the middle of typing.
+    fn attach_files(
         &mut self,
+        agent: AgentId,
         slot: usize,
-        picked: &[String],
+        picked: &[(String, Option<u64>)],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if picked.is_empty() {
-            return;
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent)
+        {
+            for (path, size) in picked {
+                conversation.attach(path.clone(), *size);
+            }
         }
-        let Some(input) = self.column_inputs.get(slot).cloned() else {
-            return;
-        };
-        input.update(cx, |state, cx| {
-            let mut text = state.value().to_string();
-            if !text.is_empty() && !text.ends_with(char::is_whitespace) {
-                text.push(' ');
-            }
-            for path in picked {
-                text.push('@');
-                text.push_str(path);
-                text.push(' ');
-            }
-            state.set_value(text, window, cx);
-            state.focus(window, cx);
-        });
+        if let Some(input) = self.column_inputs.get(slot).cloned() {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        }
+    }
+
+    /// Take one attachment back off — a tag's own dismiss control.
+    pub fn detach_file(&mut self, agent: AgentId, attachment: u64, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent)
+        {
+            conversation.detach(attachment);
+        }
+        cx.notify();
     }
 
     /// Take the dialog down with nothing chosen. Dismissed is not the same answer as an empty one,

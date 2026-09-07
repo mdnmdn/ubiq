@@ -3413,6 +3413,7 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-numerics 0.2.0",
  "windows-registry 0.5.3",
+ "zed-scap",
 ]
 
 [[package]]
@@ -9470,7 +9471,9 @@ dependencies = [
 name = "ubiq"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
+ "core-video",
  "flate2",
  "flume",
  "gpui",
@@ -9505,6 +9508,7 @@ dependencies = [
  "tree-sitter-typescript",
  "ubiq-proto",
  "ureq",
+ "zed-scap",
 ]
 
 [[package]]

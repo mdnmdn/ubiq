@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector and repository families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-06
+updated: 2026-09-07
 verified: 2026-09-06
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
@@ -676,10 +676,25 @@ the next `PromptAgent` starts a fresh process under the same `agent_id`, picking
 where the old one left off rather than restarting it at one. Only `EndConversation` discards what
 was said.
 
-**`AnswerPermission` is on the wire and answered with a refusal.** Nothing emits a permission
-request yet — every bridge auto-approves, and P7 is what changes that. It is named here because the
-family was designed whole rather than grown one variant at a time, and because a client that sends
-one deserves an error rather than silence.
+**`AnswerPermission` closes a loop the harness is blocked on.** A `ConvUpdate::PermissionRequest`
+carries a `request_id`, the `ToolCallPatch` it is asking about and the `PermissionOption`s the
+harness offered; the interface draws them, and the user's press is one `AnswerPermission` naming
+that request and one `option_id`. The host resolves the `agent_id` and calls
+`Conversation::answer_permission` in `crates/ubiq-host/src/conversation.rs`, which sends the
+library's `AgentInput::AnswerPermission` with `PermissionOutcome::Selected` — nothing between the
+button and the harness interprets the id.
+
+**The answer is an option id and nothing else.** `AgentInput::AnswerPermission` also carries an
+`updated_input`, and this transport always leaves it `None`: the message has no field for an edited
+tool input and will not grow one, because a client that rewrites what it was asked to approve is
+approving something the transcript does not show. Take it or leave it, per option.
+
+**Several requests may be outstanding at once, and every one of them must be answered.** There is
+no timeout anywhere in the protocol, so a request nobody answers stalls the turn indefinitely. The
+host tracks the outstanding `request_id`s per conversation — recorded as requests arrive, cleared as
+they are answered — and `CancelTurn` is what discharges the rest: every request still outstanding
+for that agent is answered `PermissionOutcome::Cancelled` **before** the cancel goes down, which is
+what the library asks of a caller that gives up on a question it raised.
 
 **`SetAgentConfig` is real before a harness exists, and refused after.** While a conversation is
 still pending (above), `SetAgentConfig{config_id: "model", ..}` is what records the model its first
@@ -779,8 +794,10 @@ than after anything here, so a reader can check them against
 `Read`, `Edit`, `Delete`, `Move`, `Search`, `Execute`, `Think`, `Fetch`, `SwitchMode`, `Other` —
 and carries the verb its block's header leads with. `ToolStatus` is `Pending`, `InProgress`,
 `Completed` or `Failed`. `PermissionKind` is `AllowOnce`, `AllowAlways`, `RejectOnce` or
-`RejectAlways`; nothing remembers an "always" yet, and where it should be remembered is an open
-question in [`../backlog.md`](../backlog.md). `StopReason` is ACP's five plus `Failed`, which is
+`RejectAlways`, and it is a **display hint**: it says which button reads as going ahead and which
+reads as lasting, and it never changes what an `option_id` means. Remembering an "always" is the
+agent's job, not the client's — Ubiq keeps no allow-list of its own, and echoes the id back
+unchanged. `StopReason` is ACP's five plus `Failed`, which is
 ours and means the run broke rather than the model declining. `ConfigCategory` — `Mode`, `Model`,
 `ModelConfig`, `ThoughtLevel`, or an `Other` carrying whatever a harness invented — is a hint about
 which picker draws an option and must never change what an id means.

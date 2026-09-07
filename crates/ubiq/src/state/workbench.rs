@@ -241,9 +241,16 @@ pub enum FileDialog {
     Move { path: String, into: String },
     /// An untitled buffer asking where to be saved. `key` is its tab key.
     SaveAs { key: String },
+    /// The image Text tool's click, waiting on its string. `key` is its tab key; the point
+    /// travels on the capture itself, set by the click that raised this.
+    ImageText { key: String },
     /// A file tab holding unsaved changes, asked before its buffer is dropped. `key` is its tab
     /// key.
     DiscardChanges { key: String },
+    /// ⌘N while the clipboard holds an image: paste it as an untitled picture, or open the
+    /// text buffer the keystroke has always meant. Carries no bytes — they are re-read on the
+    /// answer, so a per-frame clone never carries them.
+    PasteImage,
     /// The window's close, asked while any project it holds has unsaved files or running
     /// terminals. What each of them holds is counted when the dialog is drawn. `quitting` is the
     /// same question asked for the whole application — ⌘Q — which takes every window with it.

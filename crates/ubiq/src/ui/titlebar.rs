@@ -147,7 +147,13 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     )
                     .h_full(),
                 )
-                .child(icon_button("bell", IconName::Bell, false, |_, _, _| {}).h_full())
+                .child(
+                    icon_button("bell", IconName::Bell, false, |_, _, _| {})
+                        .h_full()
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new("Notifications").build(window, cx)
+                        }),
+                )
                 .child(
                     icon_button(
                         "remote-connect",
@@ -172,6 +178,23 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         .h_full()
                         .tooltip(move |window, cx| {
                             gpui_component::tooltip::Tooltip::new("Explore the project in browser")
+                                .build(window, cx)
+                        }),
+                    )
+                })
+                .when(has_project && app.capture_offered(cx), |this| {
+                    this.child(
+                        icon_button(
+                            "capture-window",
+                            IconName::Frame,
+                            false,
+                            cx.listener(|this, _, window, cx| {
+                                this.capture_window(&crate::app::CaptureWindow, window, cx)
+                            }),
+                        )
+                        .h_full()
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new("Capture this window")
                                 .build(window, cx)
                         }),
                     )

@@ -333,7 +333,7 @@ impl AppState {
     /// Write the file behind one tab — not just the active one — back, so a context menu can save
     /// the tab it was opened on. The save is `save_active_file`'s, with the file named by its tab
     /// key instead of by whatever tab happens to be on screen.
-    pub fn save_file(&mut self, key: &str, cx: &mut Context<Self>) {
+    pub fn save_file(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
@@ -349,10 +349,15 @@ impl AppState {
         // An untitled buffer names nothing on disk, so the save is a question first.
         if file.untitled {
             let key = file.key();
-            self.ask_save_as(key, cx);
+            self.ask_save_as(key, window, cx);
             return;
         }
         if !file.savable() {
+            return;
+        }
+        // A capture writes its flatten, not text.
+        if file.image_edit().is_some() {
+            self.save_image_file(project, key, cx);
             return;
         }
         let Some(buffer) = file.buffer() else {
@@ -412,7 +417,7 @@ impl AppState {
             5 => self.copy_full_path_for_tab(&key, cx),
             6 => self.copy_link_for_tab(&key, cx),
             7 => self.open_in_finder_for_tab(&key, cx),
-            8 => self.save_file(&key, cx),
+            8 => self.save_file(&key, window, cx),
             9 => self.toggle_editor_wrap(window, cx),
             _ => {}
         }
@@ -683,7 +688,7 @@ impl AppState {
     ///
     /// Nothing happens with no project, no active file, bytes that never arrived, or a read the
     /// host cut short: writing a prefix back would shorten the file.
-    pub fn save_active_file(&mut self, _: &SaveFile, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn save_active_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
@@ -696,10 +701,16 @@ impl AppState {
         // An untitled buffer names nothing on disk, so the save is a question first.
         if file.untitled {
             let key = file.key();
-            self.ask_save_as(key, cx);
+            self.ask_save_as(key, window, cx);
             return;
         }
         if !file.savable() {
+            return;
+        }
+        // A capture writes its flatten, not text.
+        if file.image_edit().is_some() {
+            let key = file.key();
+            self.save_image_file(project, &key, cx);
             return;
         }
         let Some(buffer) = file.buffer() else {
@@ -728,18 +739,111 @@ impl AppState {
     /// itself is built by the arrival machinery, because a buffer needs a window and this does
     /// not have one to hand.
     pub fn new_untitled_file(&mut self, _: &NewFile, _window: &mut Window, cx: &mut Context<Self>) {
+        // An image on the clipboard turns the keystroke into a question: paste it as an
+        // untitled picture, or open the text buffer the key has always meant. Anything else —
+        // text, nothing, a format this build does not draw — is the text path unchanged.
+        if clipboard::clipboard_image(cx).is_some() {
+            self.workbench.file_dialog = Some(FileDialog::PasteImage);
+            cx.notify();
+            return;
+        }
+        self.open_untitled_text(cx);
+    }
+
+    /// Paste the clipboard's image as an untitled picture. With text or nothing there the key
+    /// is handed back: something deeper may still want it.
+    pub fn paste_clipboard_image(
+        &mut self,
+        _: &PasteClipboardImage,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(bytes) = clipboard::clipboard_image(cx) else {
+            cx.propagate();
+            return;
+        };
+        self.open_untitled_image(bytes, cx);
+    }
+
+    /// The ⌘N clipboard question answered "text": the keystroke's own meaning, from the modal's
+    /// row, its dismissal, and its Escape alike.
+    pub fn decline_paste_image(&mut self, cx: &mut Context<Self>) {
+        self.close_file_dialog(cx);
+        self.open_untitled_text(cx);
+    }
+
+    /// The buffer ⌘N has always opened, and the answer the clipboard question falls back to.
+    pub(super) fn open_untitled_text(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
+        let path = {
+            let Some(open) = self.projects.get_mut(&project) else {
+                return;
+            };
+            // Numbered past whatever is already open, so two of them are told apart.
+            (1..)
+                .map(|n| format!("untitled-{n}"))
+                .find(|path| open.editor.index_of(path).is_none())
+                .expect("the numbering grows without bound")
+        };
+        self.push_untitled(
+            project,
+            path,
+            FileContents {
+                bytes: Vec::new(),
+                len: 0,
+                truncated: false,
+                is_binary: false,
+                version: None,
+            },
+            cx,
+        );
+    }
+
+    /// An untitled picture from the clipboard — and, when it lands, from capture: named with
+    /// its extension, because `image::format` and `ViewerKind::of` read nothing else.
+    pub(super) fn open_untitled_image(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let path = {
+            let Some(open) = self.projects.get_mut(&project) else {
+                return;
+            };
+            clipboard::next_capture_name(&open.editor)
+        };
+        let len = bytes.len() as u64;
+        self.push_untitled(
+            project,
+            path,
+            FileContents {
+                bytes,
+                len,
+                truncated: false,
+                is_binary: false,
+                version: None,
+            },
+            cx,
+        );
+    }
+
+    /// Open a buffer with no path yet.
+    ///
+    /// The tab and its panel open together, the same two steps `select_file` takes; the buffer
+    /// itself is built by the arrival machinery, because a buffer needs a window and this does
+    /// not have one to hand.
+    fn push_untitled(
+        &mut self,
+        project: ProjectId,
+        path: String,
+        contents: FileContents,
+        cx: &mut Context<Self>,
+    ) {
         let markdown_open = self.workbench.settings.ui.markdown_open.layout();
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
-        // Numbered past whatever is already open, so two of them are told apart.
-        let path = (1..)
-            .map(|n| format!("untitled-{n}"))
-            .find(|path| open.editor.index_of(path).is_none())
-            .expect("the numbering grows without bound");
         open.editor
             .open
             .push(OpenFile::untitled(&path, markdown_open));
@@ -750,23 +854,64 @@ impl AppState {
                 &path,
                 Subject::File,
             ))));
-        // No read is coming, so the empty bytes are handed over as if one had arrived.
+        // No read is coming, so the bytes are handed over as if one had arrived — an image tab
+        // draws them, a text tab builds its buffer from them.
         self.pending_files.push(FileArrival {
             project,
             path,
-            contents: FileContents {
-                bytes: Vec::new(),
-                len: 0,
-                truncated: false,
-                is_binary: false,
-                version: None,
-            },
+            contents,
         });
         cx.notify();
     }
 
-    fn ask_save_as(&mut self, key: String, cx: &mut Context<Self>) {
-        self.workbench.file_dialog = Some(FileDialog::SaveAs { key });
+    fn ask_save_as(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
+        // Seeded with the tab's own name: a capture suggests `capture-1.png` rather than
+        // asking to be typed from nothing, and a text buffer suggests its `untitled-n`.
+        let seed = self
+            .project(cx)
+            .and_then(|project| self.projects.get(&project))
+            .and_then(|open| {
+                open.editor
+                    .index_of_key(&key)
+                    .map(|at| open.editor.open[at].name.clone())
+            })
+            .unwrap_or_default();
+        self.open_file_dialog(FileDialog::SaveAs { key }, &seed, window, cx);
+    }
+
+    /// Write the capture behind one tab back: its flatten over `WriteProjectFile`, with the
+    /// version discipline any other write carries. Nothing new crosses the bus.
+    fn save_image_file(&mut self, project: ProjectId, key: &str, cx: &mut Context<Self>) {
+        let flat = self
+            .projects
+            .get(&project)
+            .and_then(|open| open.editor.open.iter().find(|file| file.key() == key))
+            .and_then(|file| {
+                file.image_edit().and_then(|edit| {
+                    edit.flatten()
+                        .map(|png| (file.path.clone(), edit.version, png))
+                })
+            });
+        let Some((rel_path, expected, png)) = flat else {
+            if let Some(open) = self.projects.get_mut(&project)
+                && let Some(file) = open.editor.find_key_mut(key)
+            {
+                file.save_failed("the picture did not flatten".to_string());
+            }
+            cx.notify();
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_mut(&rel_path)
+        {
+            file.mark_saving(String::new());
+        }
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path,
+            bytes: png,
+            expected,
+        });
         cx.notify();
     }
 
@@ -786,22 +931,41 @@ impl AppState {
         let Some(at) = index_of_key(&open.editor, key) else {
             return;
         };
-        let Some(text) = open.editor.open[at]
-            .buffer()
-            .map(|buffer| buffer.read(cx).value().to_string())
-        else {
+        // A body is not always a string: text sends its buffer, an unedited capture its raw
+        // bytes, an annotated one its flatten. PNG only, in every image case. The in-flight
+        // text travels with a text save so the acknowledgement rebases against what was
+        // written; an image save carries none, and its `saved` just clears dirty.
+        let (bytes, saving): (Option<Vec<u8>>, String) = match &open.editor.open[at].body {
+            FileBody::Bytes(raw) => (Some(raw.clone()), String::new()),
+            FileBody::ImageEdit(edit) => (edit.flatten(), String::new()),
+            FileBody::Text { .. } => match open.editor.open[at]
+                .buffer()
+                .map(|buffer| buffer.read(cx).value().to_string())
+            {
+                Some(text) => (Some(text.clone().into_bytes()), text),
+                None => (None, String::new()),
+            },
+            _ => (None, String::new()),
+        };
+        let Some(bytes) = bytes else {
+            if let Some(open) = self.projects.get_mut(&project)
+                && let Some(file) = open.editor.find_key_mut(key)
+            {
+                file.save_failed("the picture did not flatten".to_string());
+            }
+            cx.notify();
             return;
         };
         self.retarget_editor_tab(project, key, &path, cx);
         if let Some(open) = self.projects.get_mut(&project)
             && let Some(file) = open.editor.find_mut(&path)
         {
-            file.mark_saving(text.clone());
+            file.mark_saving(saving);
         }
         self.bus.send(Message::WriteProjectFile {
             project_id: project,
             rel_path: path,
-            bytes: text.into_bytes(),
+            bytes,
             expected: None,
         });
         cx.notify();
@@ -868,12 +1032,18 @@ impl AppState {
         }
 
         // A file whose viewer is a decoder — an image — is handed its own bytes, not a buffer:
-        // it is not text and is not nothing, and the decoder wants what the host read.
+        // it is not text and is not nothing, and the decoder wants what the host read. An
+        // untitled picture was never on disk, so it opens dirty and closing it asks — as an
+        // editable capture when the bytes carry a picture, as read-only bytes when they do not.
         if draws_bytes {
             if let Some(open) = self.projects.get_mut(&project)
                 && let Some(file) = open.editor.find_mut(&path)
             {
-                file.set_bytes(contents.bytes);
+                if file.untitled {
+                    file.set_image_untitled(contents.bytes);
+                } else {
+                    file.set_bytes(contents.bytes);
+                }
             }
             cx.notify();
             return;

@@ -30,8 +30,8 @@ pub mod settings;
 
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
-    icon_button, meter, mono, pill, primary_button, progress_ring, section_label, slab, state_chip,
-    status_dot, stepper, toggle_pill,
+    icon_button, meter, mono, pill, primary_button, progress_ring, removable_tag, section_label,
+    slab, state_chip, status_dot, stepper, toggle_pill,
 };
 pub use files::{
     ROW_FONT, file_row, filter_bar, kind_icon, row_height, row_indent, twisty, view_switch,

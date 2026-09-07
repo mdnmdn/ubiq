@@ -18,7 +18,7 @@ use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
 use crate::state::vim::VimMode;
-use crate::state::{MenuId, OpenFile, RailMode, SaveState};
+use crate::state::{MenuId, RailMode};
 use crate::theme;
 use crate::ui::board::status_colour;
 use crate::ui::kit::{Picker, mono};
@@ -93,17 +93,6 @@ fn vim_chip(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             };
             gpui_component::tooltip::Tooltip::new(note).build(window, cx)
         })
-}
-
-/// What the active file's save is doing, when it is doing anything worth a word.
-fn save_state(file: &OpenFile) -> Option<impl IntoElement> {
-    let (text, colour) = match (&file.save, file.dirty()) {
-        (SaveState::Failed(reason), _) => (format!("save failed: {reason}"), theme::danger()),
-        (SaveState::Saving(_), _) => ("saving\u{2026}".to_string(), theme::info()),
-        (SaveState::Idle, true) => ("unsaved".to_string(), theme::warning()),
-        (SaveState::Idle, false) => return None,
-    };
-    Some(mono(text, colour))
 }
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -251,32 +240,15 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 
     let active = app.editor(cx).and_then(|editor| editor.active_file());
     let where_it_is = match active {
-        Some(file) => file.path.clone(),
+        Some(file) => file.name.clone(),
         None => "no file open".to_string(),
     };
-    let language = active.map(|file| file.language.label());
 
     strip
         .child(mono(where_it_is, theme::text_muted()))
-        // What a save is doing, in the one place that reports on the file as a whole. A failure
-        // takes the danger colour, because it is the only thing here the user has to act on.
-        .children(active.and_then(save_state))
         .child(div().flex_1().min_w(px(0.)))
         .children(git_readout(app, cx))
         .child(vim_chip(app, cx))
-        // A caret in a buffer nobody is looking at is not a fact, so the readout goes with the
-        // file rather than reporting a position in nothing.
-        .children(
-            app.cursor_line_column(cx).map(|(line, column)| {
-                mono(format!("Ln {line}, Col {column}"), theme::text_muted())
-            }),
-        )
-        .children(language.map(|language| {
-            mono(
-                format!("{language} \u{b7} UTF-8 \u{b7} LF"),
-                theme::text_muted(),
-            )
-        }))
         .child(font_size_dropdown(app, cx))
         .child(version_label())
         .child(made_with_love())

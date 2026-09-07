@@ -24,14 +24,25 @@
 //! (a full pipe buffer stalls the child, which stalls the write... but
 //! nobody is reading because the same thread is busy writing).
 //!
-//! stdin is shared as `Arc<Mutex<Option<ChildStdin>>>` because *three*
-//! producers write to it: [`JsonlBridge::send`], the reader thread itself
-//! (auto-allow `control_response` lines, written the moment a
-//! `control_request` is scanned off stdout, so an unattended run makes
-//! progress without a consumer answering), and any [`JsonlInput`] handed out
+//! stdin is shared as `Arc<Mutex<Option<ChildStdin>>>` because two producers
+//! write to it: [`JsonlBridge::send`] and any [`JsonlInput`] handed out
 //! through [`IoBridge::input`]. Wrapping it in `Option` (rather than just
 //! `Mutex<ChildStdin>`) gives [`AgentInput::Cancel`] and [`Drop`] a way to
 //! *close* stdin while it is shared.
+//!
+//! ## A permission ask is the caller's to answer
+//!
+//! The reader thread answers no *permission* ask. A `can_use_tool` `control_request` becomes an
+//! [`AgentEvent::PermissionRequest`] and stays **outstanding** — recorded in
+//! [`Pending`] with the `permission_suggestions` Claude offered — until the
+//! caller sends [`AgentInput::AnswerPermission`]. Nothing else can decide:
+//! an unanswered request stalls the turn indefinitely, and closing stdin
+//! first makes Claude fail the tool with "Tool permission stream closed
+//! before response received", so [`AgentInput::Cancel`] denies every
+//! outstanding request *before* it closes stdin.
+//!
+//! Any *other* `control_request` subtype is one this bridge does not implement, and no caller will
+//! ever answer it, so the reader answers it an error itself rather than letting it stall the turn.
 //!
 //! ## Mapping is stateful, and has to be
 //!
@@ -69,6 +80,14 @@ use super::{
 /// killing".
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The permission asks Claude is still waiting on, by `request_id`, each with the
+/// `permission_suggestions` it offered (the `{"type":"setMode",…}` objects behind the
+/// "always" options in [`map_control_request`]).
+///
+/// Shared between the reader thread (which records an ask) and every input sink (which answers
+/// one, or denies all of them on a cancel).
+type Pending = Arc<Mutex<HashMap<String, Vec<Value>>>>;
+
 /// One event, and the stdout line that produced it where there was one.
 ///
 /// A line maps to several events, so the line is shared rather than copied — each event carries a
@@ -91,6 +110,8 @@ pub struct JsonlBridge {
     /// A second handle onto the reader thread's channel, so [`write_input`]
     /// can push a locally-synthesized event — see its doc comment.
     tx: mpsc::Sender<Option<Framed>>,
+    /// Permission asks emitted and not yet answered — see [`Pending`].
+    pending: Pending,
     reader: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -99,11 +120,12 @@ pub struct JsonlBridge {
 pub struct JsonlInput {
     stdin: Arc<Mutex<Option<ChildStdin>>>,
     tx: mpsc::Sender<Option<Framed>>,
+    pending: Pending,
 }
 
 impl AgentInputSink for JsonlInput {
     fn send(&self, input: AgentInput) -> crate::Result<()> {
-        write_input(&self.stdin, &self.tx, input)
+        write_input(&self.stdin, &self.tx, &self.pending, input)
     }
 }
 
@@ -126,15 +148,21 @@ impl JsonlBridge {
         let stdin = Arc::new(Mutex::new(Some(stdin)));
         let (tx, rx) = mpsc::channel();
 
-        let reader_stdin = Arc::clone(&stdin);
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+
         let reader_tx = tx.clone();
-        let reader = std::thread::spawn(move || read_loop(stdout, reader_stdin, reader_tx));
+        let reader_pending = Arc::clone(&pending);
+        let reader_stdin = Arc::clone(&stdin);
+        let reader = std::thread::spawn(move || {
+            read_loop(stdout, reader_pending, reader_stdin, reader_tx)
+        });
 
         Ok(Self {
             child,
             stdin,
             events: rx,
             tx,
+            pending,
             reader: Some(reader),
         })
     }
@@ -142,7 +170,7 @@ impl JsonlBridge {
 
 impl IoBridge for JsonlBridge {
     fn send(&mut self, input: AgentInput) -> crate::Result<()> {
-        write_input(&self.stdin, &self.tx, input)
+        write_input(&self.stdin, &self.tx, &self.pending, input)
     }
 
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>> {
@@ -165,6 +193,7 @@ impl IoBridge for JsonlBridge {
         Some(Arc::new(JsonlInput {
             stdin: Arc::clone(&self.stdin),
             tx: self.tx.clone(),
+            pending: Arc::clone(&self.pending),
         }))
     }
 }
@@ -209,6 +238,7 @@ impl Drop for JsonlBridge {
 fn write_input(
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
     tx: &mpsc::Sender<Option<Framed>>,
+    pending: &Pending,
     input: AgentInput,
 ) -> crate::Result<()> {
     match input {
@@ -249,19 +279,39 @@ fn write_input(
             outcome,
             updated_input,
         } => {
-            let behavior = match &outcome {
-                PermissionOutcome::Selected { option_id } => option_id.as_str(),
+            // Answering retires the ask, so a later cancel does not deny it a second time.
+            let suggestions = pending
+                .lock()
+                .ok()
+                .and_then(|mut p| p.remove(&request_id))
+                .unwrap_or_default();
+            let (behavior, updated_permissions) = match &outcome {
+                PermissionOutcome::Selected { option_id } => answer(option_id, &suggestions),
                 // A cancelled turn denies whatever was waiting on a human.
-                PermissionOutcome::Cancelled => "deny",
+                PermissionOutcome::Cancelled => ("deny", None),
             };
             let line = control_response(
                 &request_id,
                 behavior,
                 updated_input.unwrap_or_else(|| json!({})),
+                updated_permissions,
             );
             write_line(stdin, &line)
         }
         AgentInput::Cancel => {
+            // Answer first, close after. Every outstanding ask is denied
+            // (`PermissionOutcome::Cancelled` — the contract in
+            // `_docs/io-modes.md` §"Permissions"); closing stdin on an unanswered one instead
+            // makes Claude fail the tool with "Tool permission stream closed before response
+            // received".
+            let outstanding: Vec<String> = pending
+                .lock()
+                .map(|mut p| p.drain().map(|(id, _)| id).collect())
+                .unwrap_or_default();
+            for request_id in outstanding {
+                let line = control_response(&request_id, "deny", json!({}), None);
+                let _ = write_line(stdin, &line);
+            }
             // Close stdin so Claude Code sees EOF and stops; the reader
             // thread keeps draining stdout until the process actually
             // exits (see `_docs/harness/claude-code.md`
@@ -278,18 +328,19 @@ fn write_input(
 }
 
 /// The reader thread body: scan `stdout` line-by-line (NDJSON), map each
-/// line to zero-or-more [`AgentEvent`]s and push them onto `tx`, and
-/// auto-allow any `control_request` by writing a `control_response` to
-/// `stdin` (shared with [`JsonlBridge::send`]).
+/// line to zero-or-more [`AgentEvent`]s and push them onto `tx`, and record
+/// `can_use_tool` `control_request` in `pending` so the caller — nobody else — can answer it.
+/// Every other `control_request` subtype it answers itself, with an error.
 ///
-/// Returns (and drops `tx`, closing the channel) on stdout EOF, a channel
-/// disconnect (nobody left to receive), or a stdin lock failure.
+/// Returns (and drops `tx`, closing the channel) on stdout EOF or a channel
+/// disconnect (nobody left to receive).
 fn read_loop(
     stdout: ChildStdout,
+    pending: Pending,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
     tx: mpsc::Sender<Option<Framed>>,
 ) {
-    read_stream(stdout, &stdin, &tx);
+    read_stream(stdout, &pending, &stdin, &tx);
     // The reader thread is about to end no matter which path above got it
     // here — send the explicit "done" so `next_event` sees real EOF rather
     // than blocking on a channel `write_input`'s own clone keeps open.
@@ -298,6 +349,7 @@ fn read_loop(
 
 fn read_stream(
     stdout: ChildStdout,
+    pending: &Pending,
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
     tx: &mpsc::Sender<Option<Framed>>,
 ) {
@@ -316,10 +368,27 @@ fn read_stream(
             continue;
         };
 
-        let request_id = is_control_request(&value)
-            .then(|| value.get("request_id").and_then(Value::as_str))
-            .flatten()
-            .map(str::to_string);
+        // Record the ask *before* the event goes out, so a caller answering on another thread
+        // the instant it sees the event finds it outstanding rather than unknown.
+        if let Some((request_id, suggestions)) = permission_ask(&value) {
+            if let Ok(mut guard) = pending.lock() {
+                guard.insert(request_id, suggestions);
+            }
+        } else if value.get("type").and_then(Value::as_str) == Some("control_request") {
+            // A subtype this bridge does not implement. Nobody downstream will ever answer it, and
+            // an unanswered `control_request` stalls the turn for good, so say so now.
+            if let Some(request_id) = value.get("request_id").and_then(Value::as_str) {
+                let subtype = value
+                    .get("request")
+                    .and_then(|r| r.get("subtype"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                tracing::warn!(subtype, "unsupported claude control_request; answering error");
+                if write_line(stdin, &control_error(request_id, subtype)).is_err() {
+                    return;
+                }
+            }
+        }
 
         let raw: Arc<str> = Arc::from(line);
         for ev in mapper.map_event(&value) {
@@ -329,33 +398,94 @@ fn read_stream(
                 return;
             }
         }
-
-        if let Some(request_id) = request_id {
-            let response = control_response(&request_id, "allow", json!({}));
-            if write_line(stdin, &response).is_err() {
-                return;
-            }
-        }
     }
 }
 
-/// `true` if `value` is a `{"type":"control_request",...}` event.
-fn is_control_request(value: &Value) -> bool {
-    value.get("type").and_then(Value::as_str) == Some("control_request")
+/// The `request_id` and `permission_suggestions` of a `can_use_tool`
+/// `control_request`, or `None` for any other line — the same gate
+/// [`map_control_request`] applies, so exactly what becomes an event becomes
+/// an outstanding ask.
+fn permission_ask(value: &Value) -> Option<(String, Vec<Value>)> {
+    if value.get("type").and_then(Value::as_str) != Some("control_request") {
+        return None;
+    }
+    let request = value.get("request")?;
+    if request.get("subtype").and_then(Value::as_str) != Some("can_use_tool") {
+        return None;
+    }
+    let request_id = value.get("request_id").and_then(Value::as_str)?;
+    let suggestions = request
+        .get("permission_suggestions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Some((request_id.to_string(), suggestions))
+}
+
+/// The `option_id` prefix of an "always" option, followed by the index of the
+/// `permission_suggestions` entry it stands for — the encoding [`map_control_request`] writes and
+/// [`answer`] reads, so answering needs no second mapping.
+const ALLOW_ALWAYS: &str = "allow_always:";
+
+/// The `behavior` (and any `updatedPermissions`) a chosen `option_id` means.
+///
+/// `allow`/`deny` are Claude's own `behavior` strings, so they pass straight through. An
+/// `allow_always:<n>` echoes `permission_suggestions[n]` back as `updatedPermissions`, which is
+/// how the suggestion ("switch this session to `acceptEdits`") is what makes the choice stick —
+/// an unknown id is a `deny`, since running a tool nobody recognisably approved is the worse
+/// failure.
+fn answer(option_id: &str, suggestions: &[Value]) -> (&'static str, Option<Value>) {
+    if option_id == "allow" {
+        return ("allow", None);
+    }
+    if let Some(index) = option_id.strip_prefix(ALLOW_ALWAYS)
+        && let Some(suggestion) = index.parse::<usize>().ok().and_then(|i| suggestions.get(i))
+    {
+        return ("allow", Some(json!([suggestion])));
+    }
+    ("deny", None)
 }
 
 /// Build the `control_response` NDJSON line
 /// (`_docs/harness/claude-code.md` §"Tool approval in headless mode").
-fn control_response(request_id: &str, behavior: &str, updated_input: Value) -> Value {
+///
+/// `updated_permissions` is only present when the caller took an "always" option; the field is
+/// left off entirely otherwise, keeping the plain allow/deny line byte-identical to the shape
+/// verified against 2.1.258.
+fn control_response(
+    request_id: &str,
+    behavior: &str,
+    updated_input: Value,
+    updated_permissions: Option<Value>,
+) -> Value {
+    let mut response = json!({
+        "behavior": behavior,
+        "updatedInput": updated_input,
+    });
+    if let Some(updates) = updated_permissions
+        && let Some(object) = response.as_object_mut()
+    {
+        object.insert("updatedPermissions".to_string(), updates);
+    }
     json!({
         "type": "control_response",
         "response": {
             "subtype": "success",
             "request_id": request_id,
-            "response": {
-                "behavior": behavior,
-                "updatedInput": updated_input,
-            },
+            "response": response,
+        },
+    })
+}
+
+/// Build the `control_response` that refuses a `control_request` subtype this bridge does not
+/// implement. Claude only needs *an* answer to stop waiting; an error is the honest one.
+fn control_error(request_id: &str, subtype: &str) -> Value {
+    json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "error",
+            "request_id": request_id,
+            "error": format!("unsupported control_request subtype '{subtype}'"),
         },
     })
 }
@@ -1004,7 +1134,20 @@ fn map_tool_use(block: &Value) -> ToolCall {
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let input = block.get("input");
+    let id = block.get("id").and_then(Value::as_str).unwrap_or(name);
+    let mut call = tool_call(name, id, block.get("input"));
+    call.status = ToolStatus::InProgress;
+    call
+}
+
+/// One tool call, from the three things every shape that describes one carries: its name, its id,
+/// and its input.
+///
+/// Shared by [`map_tool_use`] and [`map_control_request`] because a `can_use_tool`
+/// `control_request` describes the *same* call in the *same* field names (`file_path`, `path`,
+/// `command`, `pattern`, `url`) — it just spells the name `tool_name` and the id `tool_use_id`.
+/// The caller sets the status: a call Claude is asking about has not started.
+fn tool_call(name: &str, id: &str, input: Option<&Value>) -> ToolCall {
     let string = |key: &str| input.and_then(|i| i.get(key)).and_then(Value::as_str);
 
     let kind = tool_kind(name);
@@ -1023,12 +1166,8 @@ fn map_tool_use(block: &Value) -> ToolCall {
         _ => name.to_string(),
     };
 
-    let mut call = ToolCall::new(
-        block.get("id").and_then(Value::as_str).unwrap_or(name),
-        title,
-    );
+    let mut call = ToolCall::new(id, title);
     call.kind = kind;
-    call.status = ToolStatus::InProgress;
     call.raw_input = input.cloned();
     if let Some(path) = path {
         call.locations = vec![ToolLocation {
@@ -1146,49 +1285,73 @@ fn result_text(content: &Value) -> Option<String> {
     }
 }
 
-/// Map a `control_request` (`_docs/harness/claude-code.md`
+/// Map a `can_use_tool` `control_request` (`_docs/harness/claude-code.md`
 /// §"Tool approval in headless mode") to an [`AgentEvent::PermissionRequest`],
 /// carrying the whole tool call so a dialog can show what it is authorising.
 ///
-/// Missing `request_id` yields no event (nothing to auto-allow either, in
-/// [`read_loop`]).
+/// The request describes the call inline — `tool_name`, `input`, and the
+/// `tool_use_id` of the `tool_use` block already in the transcript. That id is
+/// the event's id, so a consumer joins the ask to the call it can already see
+/// rather than drawing a second one; only a request without one falls back to
+/// the `request_id`. Any other `control_request` subtype yields no event: this
+/// bridge answers what it understands and nothing else.
 ///
-/// The options are the four ACP kinds, and their ids are the `behavior`
-/// strings Claude's `control_response` expects — so answering is a
-/// pass-through rather than a second mapping. "Always" is offered because the
-/// vocabulary has it; remembering it is the caller's job, and nothing does
-/// yet.
+/// `allow`/`deny` are Claude's own `behavior` strings, so those two ids pass
+/// straight through [`answer`]. Each `{"type":"setMode",…}` entry in
+/// `permission_suggestions` adds one [`PermissionKind::AllowAlways`] option
+/// whose id names that entry, and choosing it sends the suggestion back as
+/// `updatedPermissions` — the "always" is Claude's own, not a memory this
+/// bridge would have to keep.
 fn map_control_request(value: &Value) -> Vec<AgentEvent> {
-    let Some(request_id) = value.get("request_id").and_then(Value::as_str) else {
+    let Some((request_id, suggestions)) = permission_ask(value) else {
         return Vec::new();
     };
-    let tool_use = value.get("request").and_then(|r| r.get("tool_use"));
-    let call = tool_use.map(map_tool_use).unwrap_or_else(|| {
-        let mut call = ToolCall::new(request_id, "tool");
-        call.status = ToolStatus::Pending;
-        call
+    // `permission_ask` already read it; a `None` here is unreachable.
+    let Some(request) = value.get("request") else {
+        return Vec::new();
+    };
+    let name = request
+        .get("tool_name")
+        .and_then(Value::as_str)
+        .unwrap_or("tool");
+    let id = request
+        .get("tool_use_id")
+        .and_then(Value::as_str)
+        .unwrap_or(&request_id);
+    let mut call = tool_call(name, id, request.get("input"));
+    call.status = ToolStatus::Pending;
+
+    let mut options = vec![PermissionOption {
+        option_id: "allow".to_string(),
+        name: "Allow".to_string(),
+        kind: PermissionKind::AllowOnce,
+    }];
+    for (index, suggestion) in suggestions.iter().enumerate() {
+        if suggestion.get("type").and_then(Value::as_str) != Some("setMode") {
+            continue;
+        }
+        let Some(mode) = suggestion.get("mode").and_then(Value::as_str) else {
+            continue;
+        };
+        options.push(PermissionOption {
+            option_id: format!("{ALLOW_ALWAYS}{index}"),
+            name: format!("Allow, and switch to {mode}"),
+            kind: PermissionKind::AllowAlways,
+        });
+    }
+    options.push(PermissionOption {
+        option_id: "deny".to_string(),
+        name: "Deny".to_string(),
+        kind: PermissionKind::RejectOnce,
     });
 
-    let options = vec![
-        PermissionOption {
-            option_id: "allow".to_string(),
-            name: "Allow".to_string(),
-            kind: PermissionKind::AllowOnce,
-        },
-        PermissionOption {
-            option_id: "deny".to_string(),
-            name: "Deny".to_string(),
-            kind: PermissionKind::RejectOnce,
-        },
-    ];
-
     vec![AgentEvent::PermissionRequest {
-        request_id: request_id.to_string(),
+        request_id,
         tool_call: ToolCallUpdate {
             id: call.id,
             title: Some(call.title),
             kind: Some(call.kind),
-            status: Some(ToolStatus::Pending),
+            status: Some(call.status),
             content: (!call.content.is_empty()).then_some(call.content),
             locations: (!call.locations.is_empty()).then_some(call.locations),
             raw_output: None,
@@ -1872,11 +2035,18 @@ mod tests {
         );
     }
 
+    /// The exact `can_use_tool` shape captured live against Claude Code 2.1.258 — there is no
+    /// `request.tool_use` object: the call is described inline, and `tool_use_id` is the id of the
+    /// `tool_use` block already in the transcript.
     #[test]
     fn a_control_request_carries_the_call_it_wants_authorised() {
         let events = map(
-            r#"{"type":"control_request","request_id":"r1","request":{"tool_use":
-                {"id":"t1","name":"Write","input":{"file_path":"/tmp/a","content":"x"}}}}"#,
+            r#"{"type":"control_request","request_id":"r1","request":{
+                "subtype":"can_use_tool","tool_name":"Write","display_name":"Write",
+                "input":{"file_path":"/tmp/a","content":"x"},"description":"a",
+                "permission_suggestions":[
+                    {"type":"setMode","mode":"acceptEdits","destination":"session"}],
+                "tool_use_id":"t1"}}"#,
         );
         let AgentEvent::PermissionRequest {
             request_id,
@@ -1887,13 +2057,99 @@ mod tests {
             panic!("expected a permission request, got {events:?}");
         };
         assert_eq!(request_id, "r1");
+        // The transcript's own id, so a consumer joins the ask to the call it can already see.
         assert_eq!(tool_call.id, "t1");
         assert_eq!(tool_call.kind, Some(ToolKind::Edit));
+        assert_eq!(tool_call.title.as_deref(), Some("Write /tmp/a"));
         assert_eq!(tool_call.status, Some(ToolStatus::Pending));
-        // The ids are Claude's own `behavior` strings, so answering is a
-        // pass-through rather than a second mapping.
+        // A `Write`'s new text is right there in the input, so the ask can show the diff.
+        assert_eq!(
+            tool_call.content,
+            Some(vec![ToolContent::Diff {
+                path: "/tmp/a".to_string(),
+                old_text: None,
+                new_text: "x".to_string(),
+            }])
+        );
+        // Allow, the one "always" the suggestion offers, then deny.
         assert_eq!(options[0].option_id, "allow");
-        assert_eq!(options[1].option_id, "deny");
+        assert_eq!(options[0].kind, PermissionKind::AllowOnce);
+        assert_eq!(options[1].option_id, "allow_always:0");
+        assert_eq!(options[1].kind, PermissionKind::AllowAlways);
+        assert_eq!(options[2].option_id, "deny");
+        assert_eq!(options[2].kind, PermissionKind::RejectOnce);
+    }
+
+    /// No suggestion, no "always": an option the answer path could not honor is not offered.
+    #[test]
+    fn a_control_request_without_suggestions_offers_only_allow_and_deny() {
+        let events = map(
+            r#"{"type":"control_request","request_id":"r1","request":{
+                "subtype":"can_use_tool","tool_name":"Bash",
+                "input":{"command":"echo hi"},"tool_use_id":"t1"}}"#,
+        );
+        let AgentEvent::PermissionRequest { options, .. } = &events[0] else {
+            panic!("expected a permission request, got {events:?}");
+        };
+        let ids: Vec<&str> = options.iter().map(|o| o.option_id.as_str()).collect();
+        assert_eq!(ids, ["allow", "deny"]);
+    }
+
+    /// A request with no `tool_use_id` still has an id a caller can answer with.
+    #[test]
+    fn a_control_request_without_a_tool_use_id_falls_back_to_the_request_id() {
+        let events = map(
+            r#"{"type":"control_request","request_id":"r1","request":{
+                "subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo hi"}}}"#,
+        );
+        let AgentEvent::PermissionRequest { tool_call, .. } = &events[0] else {
+            panic!("expected a permission request, got {events:?}");
+        };
+        assert_eq!(tool_call.id, "r1");
+    }
+
+    /// This bridge answers what it understands: another control subtype is not a permission ask,
+    /// so it becomes no event and no outstanding request.
+    #[test]
+    fn a_control_request_of_another_subtype_is_not_a_permission_ask() {
+        let line = r#"{"type":"control_request","request_id":"r1",
+            "request":{"subtype":"initialize"}}"#;
+        let value: Value = serde_json::from_str(line).unwrap();
+        assert!(Mapper::default().map_event(&value).is_empty());
+        assert!(permission_ask(&value).is_none());
+    }
+
+    /// The option ids the event offers are exactly the ones the answer path reads back.
+    #[test]
+    fn answering_maps_an_option_id_onto_a_behavior() {
+        let suggestion = json!({"type":"setMode","mode":"acceptEdits","destination":"session"});
+        let suggestions = [suggestion.clone()];
+        assert_eq!(answer("allow", &suggestions), ("allow", None));
+        assert_eq!(answer("deny", &suggestions), ("deny", None));
+        // An "always" carries the suggestion back, which is what makes the choice stick.
+        assert_eq!(
+            answer("allow_always:0", &suggestions),
+            ("allow", Some(json!([suggestion])))
+        );
+        // Nothing recognisable approved this, so it does not run.
+        assert_eq!(answer("allow_always:7", &suggestions), ("deny", None));
+        assert_eq!(answer("whatever", &suggestions), ("deny", None));
+    }
+
+    /// The plain allow line is the shape verified against 2.1.258, `updatedPermissions` absent.
+    #[test]
+    fn a_control_response_keeps_the_verified_shape() {
+        let line = control_response("r1", "allow", json!({}), None);
+        assert_eq!(
+            line,
+            json!({"type":"control_response","response":{"subtype":"success","request_id":"r1",
+                "response":{"behavior":"allow","updatedInput":{}}}})
+        );
+        let always = control_response("r1", "allow", json!({}), Some(json!([{"a":1}])));
+        assert_eq!(
+            always["response"]["response"]["updatedPermissions"],
+            json!([{"a":1}])
+        );
     }
 
     #[test]

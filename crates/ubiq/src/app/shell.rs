@@ -370,6 +370,9 @@ impl AppState {
         let settings = &self.workbench.settings;
         if self.workbench.remote_connect.is_some() {
             self.cancel_remote_connect(window, cx);
+        } else if matches!(self.workbench.file_dialog, Some(FileDialog::PasteImage)) {
+            // Escape takes the text file: the keystroke's own meaning.
+            self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
         } else if self.workbench.clone_project.is_some() {

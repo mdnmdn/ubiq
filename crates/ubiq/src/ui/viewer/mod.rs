@@ -14,6 +14,7 @@
 pub mod diagram;
 pub mod diff;
 pub mod image;
+pub mod image_edit;
 pub mod markdown;
 pub mod scene;
 pub mod viewport;
@@ -41,8 +42,8 @@ const HEADER: f32 = 32.0;
 /// layout says nothing at all, because the editor and the image have nothing to toggle between.
 pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
     let mut root = surface();
-    if file.viewer.has_preview() {
-        root = root.child(header(file, cx));
+    if file.viewer.has_preview() || file.editable_image() {
+        root = root.child(header(app, file, cx));
     }
     root.child(body(app, file, cx)).into_any_element()
 }
@@ -52,7 +53,11 @@ pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
 /// Which one is on screen belongs to the file rather than to this row, so the click goes to
 /// `AppState` and comes back as the file's own `layout` — which is also what the panel writes into
 /// the dock's saved arrangement, so a document reopens as it was left.
-fn header(file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
+fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
+    // A capture's strip is its toolbar; every other viewer keeps the layout toggle.
+    if file.viewer.takes_panel_focus() {
+        return image_edit::toolbar(app, file, cx).into_any_element();
+    }
     let key = file.key();
     let current = file.layout;
 
@@ -77,6 +82,7 @@ fn header(file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
             )
             .h_full()
         }))
+        .into_any_element()
 }
 
 /// What the file is showing, which is not always what its viewer draws: a tab exists before its
@@ -88,6 +94,7 @@ fn body(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyEleme
         FileBody::Binary => note("Not text \u{b7} nothing to show", theme::text_faint()),
         FileBody::Diff(diff) => diff::render(diff, file.layout),
         FileBody::Bytes(bytes) => image::render(bytes, &file.path),
+        FileBody::ImageEdit(_) => image_edit::render(app, file, cx),
         FileBody::Text { state, .. } => drawn(app, file, state, cx),
     }
 }

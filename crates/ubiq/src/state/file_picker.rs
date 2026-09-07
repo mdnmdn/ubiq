@@ -289,8 +289,7 @@ pub fn forest_from_explorer(nodes: &[FileNode]) -> Vec<PickerNode> {
         .map(|node| PickerNode {
             name: node.name.clone(),
             path: node.path.clone(),
-            // The explorer carries no size, and a zero would read as an empty file.
-            size: None,
+            size: node.size,
             readable: node.readable,
             // The host's own listing already leaves hidden entries out by convention (see
             // `LIST_HIDE`), so nothing here is ever actually hidden — carried anyway so a picker
@@ -862,6 +861,18 @@ impl FilePickerState {
         &self.picked
     }
 
+    /// The same answer, with each path's own size beside it.
+    ///
+    /// **The one way a caller learns how big something it picked is.** The interface reads no
+    /// disk, so a size it did not already hear from a host is a size it does not have: a path the
+    /// forest no longer holds comes back `None` rather than being looked up.
+    pub fn picked_with_sizes(&self) -> Vec<(String, Option<u64>)> {
+        self.picked
+            .iter()
+            .map(|path| (path.clone(), self.node(path).and_then(|node| node.size)))
+            .collect()
+    }
+
     pub fn count(&self) -> usize {
         self.picked.len()
     }
@@ -940,17 +951,58 @@ fn parent_of(path: &str) -> String {
     }
 }
 
+/// The unit every size in this interface is divided by. One constant, so the number printed and
+/// the threshold it is compared against can never disagree about what a KB is.
+const KB: u64 = 1024;
+const MB: u64 = KB * 1024;
+
+/// Big enough that handing it to a harness costs a noticeable part of the context window.
+pub const SIZE_LARGE: u64 = 300 * KB;
+/// Big enough that handing it to a harness is likely to fill the context window on its own.
+pub const SIZE_HUGE: u64 = 500 * KB;
+
 /// How big a file is, in the unit a person reads it in.
 pub fn size_label(size: Option<u64>) -> String {
     let Some(bytes) = size else {
         return String::new();
     };
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
     match bytes {
         0..KB => format!("{bytes} B"),
         KB..MB => format!("{} KB", bytes / KB),
         _ => format!("{} MB", bytes / MB),
+    }
+}
+
+/// What a file's size is worth saying about it, where saying nothing is the usual answer.
+///
+/// Three readings rather than a number, because every surface that reports a size has the same
+/// two questions about it — is this worth a colour, and is it worth a sentence — and neither
+/// should be answered twice. A size nothing reported reads [`SizeReading::Plain`]: an unknown
+/// size is not a small one, and it is not guessed at either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SizeReading {
+    Plain,
+    Large,
+    Huge,
+}
+
+impl SizeReading {
+    /// What to add to a tooltip, where there is anything to add.
+    pub fn warning(self) -> Option<&'static str> {
+        match self {
+            SizeReading::Plain => None,
+            SizeReading::Large => Some("large — a noticeable part of the context window"),
+            SizeReading::Huge => Some("very large — may fill the context window on its own"),
+        }
+    }
+}
+
+/// Which reading a size gets. Inclusive of neither bound: exactly 300 KB is not yet large.
+pub fn size_reading(size: Option<u64>) -> SizeReading {
+    match size {
+        Some(bytes) if bytes > SIZE_HUGE => SizeReading::Huge,
+        Some(bytes) if bytes > SIZE_LARGE => SizeReading::Large,
+        _ => SizeReading::Plain,
     }
 }
 
