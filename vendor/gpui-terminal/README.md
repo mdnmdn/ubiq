@@ -18,5 +18,15 @@ divergence from upstream is:
 - `src/render.rs` — `ShapedLine::paint` takes a `TextAlign` and a wrap width.
 - `src/view.rs` — `Window::focus` takes the app context, and the view's background comes from the
   configured palette rather than a hard-coded grey, so Ubiq's theme reaches it.
+- `src/event.rs` + `src/view.rs` — alacritty's `Event::PtyWrite` is forwarded as
+  `TerminalEvent::PtyWrite` and written back to the pseudo-terminal instead of dropped. The parser
+  answers DSR/device-attribute queries internally and reports the reply there; ConPTY opens every
+  Windows session with `ESC[6n` and withholds the shell's output until the emulator reports the
+  cursor back, so dropping it is a blank pane on Windows.
+- `src/input.rs` — the keystroke path stays silent for plain printable keys on every platform
+  instead of emitting `key_char` off macOS. Printable text arrives once through the platform
+  text-input handler everywhere (macOS `NSTextInputClient`, Windows `WM_CHAR`/IME, Linux
+  forwarded key text/IME); emitting it on the keystroke path as well types every character
+  twice, which is what Windows and Linux panes did.
 
 Keep that list accurate: it is what a future rebase onto upstream has to reapply.

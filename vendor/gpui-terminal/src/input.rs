@@ -15,9 +15,8 @@
 //! | Backspace | `\x7f` (0x7F) | DEL |
 //! | Tab | `\t` (0x09) | Horizontal tab |
 //! | Shift+Tab | `\x1b[Z` | Backtab |
-//! | Space | ` ` (0x20) | Non-macOS only; macOS types it through the text-input system |
+//! | Space | (none — arrives through the platform text input, like every printable character) |
 //! | Ctrl+Space | `\x00` | NUL |
-//! | Alt+Space | `\x1b ` | ESC then space |
 //!
 //! ## Arrow Keys
 //!
@@ -123,17 +122,8 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
             if keystroke.modifiers.control {
                 return Some(b"\x00".to_vec()); // Ctrl+Space = NUL
             }
-            if keystroke.modifiers.alt {
-                return Some(b"\x1b ".to_vec()); // Alt+Space = ESC then space
-            }
-            // A plain space is printable text, and on macOS the text-input system delivers it
-            // as such — emitting it here as well is what typed two spaces per press. Claiming
-            // nothing leaves the one insertion, the same rule the printable branch below
-            // follows for dead keys.
-            #[cfg(target_os = "macos")]
-            return None;
-            #[cfg(not(target_os = "macos"))]
-            return Some(b" ".to_vec());
+            // A plain space arrives through the platform text input like every other
+            // printable character; see below.
         }
         "enter" => {
             // Plain Enter submits; Shift+Enter must be a distinct sequence or a harness
@@ -247,42 +237,15 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
         }
     }
 
-    // macOS delivers printable text through the text-input system instead, which is what
-    // composes dead keys on international layouts (`` ` `` then `e` -> an e with a grave
-    // accent). Emitting the bare key here as well would type the accent and defeat the
-    // composition; see `TerminalInputHandler`. Other platforms compose before the keystroke
-    // reaches us, so `key_char` already holds the composed character.
-    #[cfg(not(target_os = "macos"))]
-    {
-        // Handle regular printable characters
-        // Use key_char if available (contains the actual typed character with modifiers like Shift)
-        if let Some(key_char) = &keystroke.key_char
-            && !keystroke.modifiers.control
-            && !keystroke.modifiers.alt
-        {
-            return Some(key_char.as_bytes().to_vec());
-        }
-
-        // Fallback to key for single characters
-        let key = keystroke.key.as_str();
-        if key.len() == 1 {
-            let ch = key.chars().next().unwrap();
-            if ch.is_ascii() && !keystroke.modifiers.control {
-                // Handle shift modifier for uppercase
-                let ch = if keystroke.modifiers.shift {
-                    ch.to_ascii_uppercase()
-                } else {
-                    ch
-                };
-                return Some(vec![ch as u8]);
-            }
-            // For non-ASCII characters, encode as UTF-8
-            if !keystroke.modifiers.control && !keystroke.modifiers.alt {
-                return Some(key.as_bytes().to_vec());
-            }
-        }
-    }
-
+    // Printable text is the platform text-input system's business on every OS, not the
+    // keystroke's: macOS composes dead keys through `NSTextInputClient`, Windows delivers every
+    // `WM_CHAR` to the installed input handler on top of the keydown, and Linux forwards the
+    // keydown's own text to the handler the same way. `TerminalInputHandler` commits all of
+    // those to the harness, so emitting the character here as well would type it twice — and
+    // emitting a dead key's bare accent here would defeat composition. This path stays silent
+    // for plain printable keys; special keys and Ctrl/Alt chords above are unaffected, and
+    // control characters never reach the input handler at all.
+    //
     // If we get here, the keystroke doesn't produce any output
     None
 }
@@ -503,32 +466,21 @@ mod tests {
         assert_eq!(keystroke_to_bytes(&alt_x, mode), Some(b"\x1bx".to_vec()));
     }
 
+    /// Printable keys are the input handler's business on every platform, so the keystroke
+    /// path stays silent and the harness sees each typed character exactly once: macOS
+    /// composes through `NSTextInputClient`, Windows delivers `WM_CHAR` to the handler on top
+    /// of the keydown, and Linux forwards the keydown's text to the handler the same way.
     #[test]
-    #[cfg(not(target_os = "macos"))]
-    fn test_regular_characters() {
-        let mode = TermMode::empty();
-
-        let a = Keystroke::parse("a").unwrap();
-        assert_eq!(keystroke_to_bytes(&a, mode), Some(b"a".to_vec()));
-
-        let z = Keystroke::parse("z").unwrap();
-        assert_eq!(keystroke_to_bytes(&z, mode), Some(b"z".to_vec()));
-
-        let zero = Keystroke::parse("0").unwrap();
-        assert_eq!(keystroke_to_bytes(&zero, mode), Some(b"0".to_vec()));
-    }
-
-    /// On macOS printable keys are the input handler's business, so the keystroke
-    /// path stays silent and the harness sees the composed character exactly once.
-    #[test]
-    #[cfg(target_os = "macos")]
     fn printable_characters_are_left_to_the_input_handler() {
         let mode = TermMode::empty();
 
-        assert_eq!(
-            keystroke_to_bytes(&Keystroke::parse("a").unwrap(), mode),
-            None
-        );
+        for key in ["a", "z", "0", "space"] {
+            assert_eq!(
+                keystroke_to_bytes(&Keystroke::parse(key).unwrap(), mode),
+                None,
+                "{key} must not emit on the keystroke path"
+            );
+        }
         // Keys the harness needs as escape sequences still come through.
         assert_eq!(
             keystroke_to_bytes(&Keystroke::parse("enter").unwrap(), mode),
@@ -538,24 +490,9 @@ mod tests {
             keystroke_to_bytes(&Keystroke::parse("ctrl-c").unwrap(), mode),
             Some(vec![3])
         );
-    }
-
-    #[test]
-    fn test_space_key() {
-        let mode = TermMode::empty();
-
-        let space = Keystroke::parse("space").unwrap();
-        // macOS types a plain space through the text-input system; claiming it here too is a
-        // double space.
-        #[cfg(target_os = "macos")]
-        assert_eq!(keystroke_to_bytes(&space, mode), None);
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(keystroke_to_bytes(&space, mode), Some(b" ".to_vec()));
-
-        let alt_space = Keystroke::parse("alt-space").unwrap();
         assert_eq!(
-            keystroke_to_bytes(&alt_space, mode),
-            Some(b"\x1b ".to_vec())
+            keystroke_to_bytes(&Keystroke::parse("ctrl-space").unwrap(), mode),
+            Some(vec![0])
         );
     }
 

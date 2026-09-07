@@ -126,7 +126,7 @@ restyling the shell should be one file to visit.
 
 | Constant | Is |
 |---|---|
-| `MONO_FONT` | The family for code, paths, counts and every mono label |
+| `MONO_FONT` | The family for code, paths, counts and every mono label — the mono that ships with the OS (`Menlo`, `Cascadia Mono`, `DejaVu Sans Mono`), so the text system resolves it instead of falling back to a proportional face |
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
 | `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
 | `EDITOR_FONT_SIZE`, `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | The editor's base point size and the range a project's zoom is allowed to live in — the same project font size the editor, the terminal panes and the explorer tree follow |

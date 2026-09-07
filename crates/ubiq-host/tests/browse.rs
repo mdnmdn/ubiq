@@ -2,6 +2,7 @@
 //! worker logic, against a real directory.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
@@ -72,6 +73,8 @@ fn a_file_rather_than_a_directory_answers_with_the_failure_variant() {
     assert_eq!(error, HostPathError::NotADirectory);
 }
 
+// "/" names the filesystem root on Unix; a Windows root is drive-qualified instead.
+#[cfg(unix)]
 #[test]
 fn the_parent_is_none_at_the_filesystem_root() {
     let listing = browse::list(Some("/")).unwrap();
@@ -86,6 +89,9 @@ fn the_parent_is_some_below_the_root() {
     assert!(listing.parent.is_some());
 }
 
+// Unix permission bits have no Windows equivalent, so the worker's `Denied` mapping is
+// exercised here, where `0o000` means what it says.
+#[cfg(unix)]
 #[test]
 fn an_unreadable_directory_is_reported_rather_than_crashing() {
     let dir = scratch();
@@ -108,6 +114,8 @@ fn an_unreadable_directory_is_reported_rather_than_crashing() {
     }
 }
 
+// Same unix-only permission-bit setup as above.
+#[cfg(unix)]
 #[test]
 fn an_unreadable_directory_entry_is_marked_unreadable_rather_than_crashing() {
     let dir = scratch();
@@ -131,6 +139,8 @@ fn an_unreadable_directory_entry_is_marked_unreadable_rather_than_crashing() {
     }
 }
 
+// Home directories start with '/' on Unix; a Windows profile lives under a drive letter.
+#[cfg(unix)]
 #[test]
 fn the_default_request_answers_with_a_real_absolute_path() {
     let listing = browse::list(None).unwrap();
