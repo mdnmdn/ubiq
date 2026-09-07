@@ -21,12 +21,15 @@
 //! | `Event::Title(_)` | `Title(String)` | Title escape sequence (OSC 0/2) |
 //! | `Event::ClipboardStore(_, _)` | `ClipboardStore(String)` | Copy request (OSC 52) |
 //! | `Event::ClipboardLoad(_, _)` | `ClipboardLoad` | Paste request |
+//! | `Event::PtyWrite(_)` | `PtyWrite(String)` | Bytes the harness asked the emulator to write back (DSR/CPR handshake, device attributes) |
 //! | `Event::Exit` | `Exit` | Terminal exited |
 //! | `Event::ChildExit(_)` | `Exit` | Child process exited |
 //! | `Event::ResetTitle` | `Title("")` | Reset to empty title |
 //!
-//! Events like `MouseCursorDirty`, `PtyWrite`, and `CursorBlinkingChange` are
+//! Events like `MouseCursorDirty` and `CursorBlinkingChange` are
 //! ignored as they're handled internally or not needed for GPUI integration.
+//! `PtyWrite` is forwarded rather than ignored: it carries the replies the harness is waiting
+//! for, and nothing inside alacritty sends them.
 //!
 //! # Example
 //!
@@ -66,6 +69,17 @@ pub enum TerminalEvent {
 
     /// The terminal wants to load data from the clipboard.
     ClipboardLoad,
+
+    /// Bytes the harness asked the emulator to write back to the pseudo-terminal.
+    ///
+    /// This is how alacritty's `Term` answers queries from the other end: a DSR cursor-position
+    /// request (`ESC[6n`), a device-attributes probe (`ESC[c`), a text-area-size ask. The parser
+    /// consumes the query and emits the reply here — nothing answers it internally — so dropping
+    /// this event leaves the harness waiting for an answer that never comes. On Windows that is
+    /// fatal from the first byte: ConPTY opens every session with `ESC[6n` and withholds the
+    /// shell's output until the emulator reports the cursor back, which is why a pane that drops
+    /// `PtyWrite` draws an empty terminal for `cmd.exe` and PowerShell alike.
+    PtyWrite(String),
 
     /// The terminal process has exited.
     Exit,
@@ -144,8 +158,8 @@ impl EventListener for GpuiEventProxy {
             }
             // Ignore events we don't care about
             Event::MouseCursorDirty => {}
-            Event::PtyWrite(ref _data) => {
-                // This is handled internally by alacritty
+            Event::PtyWrite(text) => {
+                self.send(TerminalEvent::PtyWrite(text));
             }
             Event::ColorRequest(ref _index, ref _format) => {
                 // Color requests are not commonly used
@@ -286,6 +300,20 @@ mod tests {
 
         // The channel should be empty
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_pty_write_event() {
+        let (tx, rx) = channel();
+        let proxy = GpuiEventProxy::new(tx);
+
+        proxy.send_event(Event::PtyWrite("\x1b[1;1R".to_string()));
+
+        let event = rx.recv().unwrap();
+        match event {
+            TerminalEvent::PtyWrite(text) => assert_eq!(text, "\x1b[1;1R"),
+            _ => panic!("Expected PtyWrite event"),
+        }
     }
 
     #[test]

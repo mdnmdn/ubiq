@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-06
+updated: 2026-09-07
 verified: 2026-09-07
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -54,8 +54,9 @@ its own sequence, per project, from the lowest number no pane of that program is
 `zsh 2` gives that name back to the next one rather than counting upwards for ever.
 
 **The `+` opens the platform's default shell; the chevron beside it says what else can run
-here.** A bare click starts `$SHELL` — `COMSPEC` on Windows — which is what a terminal application
-starting no particular program means. The chevron opens a menu of every shell the machine actually
+here.** A bare click starts `$SHELL` — the newest PowerShell on the machine on Windows
+(`pwsh.exe` where it is installed, the inbox `powershell.exe` otherwise, `COMSPEC` only where
+neither is), which is what a terminal application starting no particular program means. The chevron opens a menu of every shell the machine actually
 has, the default one marked, and picking one starts a pane running that shell instead. The list is a
 fixed set of known shells the host checked for — `zsh`, `bash`, `fish` and `sh`, or PowerShell and
 the command processor on Windows — not a launcher for anything on disk, and a shell that is not
@@ -124,14 +125,16 @@ emulator's. Enter is `\r`; Shift+Enter is `\x1b\r` — the sequence Claude Code'
 `/terminal-setup` binds Shift+Enter to — so a harness can tell "newline" from "submit" without
 kitty-protocol negotiation, which this emulator does not track.
 
-**On macOS, printable text arrives through the system's text input, not the keystroke.** A dead key
+**Printable text arrives through the platform's text input, not the keystroke.** A dead key
 on an international layout (`` ` `` then `e`, giving `è`) only composes if the accent reaches the
-platform's composition machinery, so `TerminalView` installs an `InputHandler` on the focused pane
-and `keystroke_to_bytes()` emits nothing for a plain printable key there; the composed text comes
-back as a commit and is written to the harness once. Held keys repeat rather than opening the accent
-popover, and a pending composition is not drawn in the grid. Other platforms compose before the
-keystroke reaches the emulator, so `key_char` already carries the composed character and the
-keystroke path still writes it.
+platform's composition machinery — `NSTextInputClient` on macOS, `WM_CHAR` and the IME on Windows,
+the forwarded key text and the IME on Linux — so `TerminalView` installs an `InputHandler` on the
+focused pane and `keystroke_to_bytes()` emits nothing for a plain printable key on any of them;
+the composed text comes back as a commit and is written to the harness once. Emitting it on the
+keystroke path as well would type every character twice, which is what Windows and Linux panes
+did. Held keys repeat rather than opening the accent popover, and a pending composition is not
+drawn in the grid. Special keys and Ctrl/Alt chords still travel the keystroke path: control
+characters never reach the input handler at all.
 
 **The pointer is the emulator's when the harness has asked for it.** A harness that enables SGR
 mouse reporting owns clicks, drags and the wheel. When reporting is off, a click-drag selects
@@ -245,7 +248,11 @@ stream. The palette it is given is
 Copy, paste, OSC 52, mouse selection, hyperlinks and file drops are the emulator's: `TerminalView`
 intercepts the copy and paste shortcuts, writes bracketed paste and OSC 52 replies to the pane's
 `Write`, drives alacritty's `Term::selection`, and paints selection and link underlines in
-`vendor/gpui-terminal/src/render.rs`. It installs the `Terminal` key context, and
+`vendor/gpui-terminal/src/render.rs`. The answers the harness asks the emulator for travel the
+same way back: the parser composes them and reports a `PtyWrite`, which the view writes to the
+pane's `Write` — the cursor report answering ConPTY's opening device-status ask, and
+device-attribute reports anywhere. A reply dropped there leaves the harness waiting for an answer
+and the pane blank. It installs the `Terminal` key context, and
 `install_key_bindings()` nulls Tab, Shift+Tab and the window copy chord in that context so they are
 not stolen by the shell's focus cycle. Ubiq only adds the defocus chord: `open_pane()` sets
 `with_key_handler` so Shift/Ctrl/Cmd+Escape calls `window.blur` and `blur_panes()`, and does not
@@ -284,7 +291,9 @@ shell out of `SHELL`, so that is where the chosen shell is handed to it. The coo
 a pane starts from — variables to set, variables to drop, and whether to start from an empty one at
 all — because a composed agent brings its own and a confined one brings all of it. `Program::plain`
 is the shell case: argv and nothing else. `crate::shells::locate` is shared with the agent registry,
-so which `PATH` a program is looked up on is answered in one place.
+so which `PATH` a program is looked up on is answered in one place. On Windows the working
+directory is handed over without `canonicalize`'s `\\?\` prefix, which the file operations keep
+but `cmd.exe` refuses as a working directory.
 
 **`crates/ubiq-proto/src/bus.rs` is the seam.** `hub()` opens the switchboard the one host answers
 through, and `Hub::connect()` gives a window its own `Client` on it.

@@ -1145,6 +1145,13 @@ impl TerminalView {
                         callback(window, cx);
                     }
                 }
+                TerminalEvent::PtyWrite(text) => {
+                    // The harness asked a question — ConPTY's opening `ESC[6n` on Windows, a
+                    // device-attributes probe anywhere — and alacritty's parser already composed
+                    // the answer. It goes straight back to the pseudo-terminal; without this the
+                    // harness waits for a reply that never comes and the pane stays blank.
+                    self.write_pty(text.as_bytes());
+                }
             }
         }
     }

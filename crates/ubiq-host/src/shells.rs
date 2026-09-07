@@ -10,6 +10,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::sync::OnceLock;
 
 use ubiq_proto::messages::ShellInfo;
@@ -46,13 +47,34 @@ pub fn default_program() -> String {
 }
 
 /// What a session starts when it is not told what to start. Windows has no `$SHELL`, so the
-/// command processor the system names is the default, as it is for every other terminal there.
+/// newest PowerShell on the machine is the default — `pwsh.exe` (PowerShell 7) where it is
+/// installed, the inbox `powershell.exe` otherwise — falling back to the command processor the
+/// system names, as it is for every other terminal there.
 #[cfg(windows)]
 pub fn default_program() -> String {
+    for name in ["pwsh.exe", "powershell.exe"] {
+        if let Some(path) = locate(name) {
+            return path.to_string_lossy().into_owned();
+        }
+    }
     std::env::var("COMSPEC")
         .ok()
         .filter(|shell| !shell.is_empty())
         .unwrap_or_else(|| "cmd.exe".to_string())
+}
+
+/// Whether two shell file names name the same shell. Windows file lookups are
+/// case-insensitive — `COMSPEC` may spell `CMD.EXE` any way it likes — while Unix names compare
+/// exactly.
+fn names_equal(a: &str, b: &str) -> bool {
+    #[cfg(unix)]
+    {
+        a == b
+    }
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(b)
+    }
 }
 
 /// Every shell this machine has, in menu order, with the default one marked.
@@ -65,7 +87,10 @@ pub fn available() -> Vec<ShellInfo> {
     let default_name = basename(&default);
 
     let mut shells: Vec<ShellInfo> = Vec::new();
-    if !CANDIDATES.iter().any(|name| *name == default_name) {
+    if !CANDIDATES
+        .iter()
+        .any(|name| names_equal(name, &default_name))
+    {
         shells.push(ShellInfo {
             label: label_of(&default_name),
             program: default.clone(),
@@ -73,7 +98,7 @@ pub fn available() -> Vec<ShellInfo> {
         });
     }
     for name in CANDIDATES {
-        let is_default = *name == default_name;
+        let is_default = names_equal(name, &default_name);
         // The default's row is the default's own program, not whichever copy of that name the
         // probe found first: the row and a bare click on "+" have to start the same thing.
         let program = if is_default {
@@ -96,12 +121,18 @@ pub fn available() -> Vec<ShellInfo> {
 /// one — see [`crate::pty::spawn`], which is what the answer changes.
 pub fn is_shell(program: &str) -> bool {
     let name = basename(program);
-    CANDIDATES.iter().any(|candidate| *candidate == name) || name == basename(&default_program())
+    CANDIDATES
+        .iter()
+        .any(|candidate| names_equal(candidate, &name))
+        || names_equal(&name, &basename(&default_program()))
 }
 
 /// A shell's row label: its own name, with the extension Windows spells it with dropped.
 fn label_of(name: &str) -> String {
-    name.strip_suffix(".exe").unwrap_or(name).to_string()
+    name.strip_suffix(".exe")
+        .or_else(|| name.strip_suffix(".EXE"))
+        .unwrap_or(name)
+        .to_string()
 }
 
 /// The program's file name, which is how a shell is recognised — `$SHELL` is a path and a
@@ -257,6 +288,42 @@ mod tests {
     fn a_program_that_is_not_a_shell_is_not_started_as_one() {
         assert!(!is_shell("/usr/local/bin/claude"));
         assert!(!is_shell("codex"));
+    }
+
+    /// PowerShell outranks the command processor: the newest one on `PATH` is the default, and
+    /// `COMSPEC` is only the fallback when neither PowerShell is installed.
+    #[test]
+    #[cfg(windows)]
+    fn the_default_is_the_newest_powershell_on_the_machine() {
+        match (locate("pwsh.exe"), locate("powershell.exe")) {
+            (Some(pwsh), _) => assert_eq!(default_program(), pwsh.to_string_lossy()),
+            (None, Some(powershell)) => {
+                assert_eq!(default_program(), powershell.to_string_lossy())
+            }
+            (None, None) => assert_eq!(
+                default_program(),
+                std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+            ),
+        }
+    }
+
+    /// `COMSPEC` may spell `CMD.EXE` in any case; a shell is still recognised.
+    #[test]
+    #[cfg(windows)]
+    fn shell_names_compare_case_insensitively() {
+        assert!(names_equal("cmd.exe", "CMD.EXE"));
+        assert!(!names_equal("cmd.exe", "pwsh.exe"));
+        assert!(is_shell("C:\\WINDOWS\\system32\\CMD.EXE"));
+        assert!(is_shell(
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\PowerShell.exe"
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_labels_drop_the_extension_in_either_case() {
+        assert_eq!(label_of("pwsh.exe"), "pwsh");
+        assert_eq!(label_of("CMD.EXE"), "CMD");
     }
 
     #[cfg(unix)]

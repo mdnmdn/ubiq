@@ -9,8 +9,11 @@ fn main() {
     {
         println!("cargo:rerun-if-changed=res/ubiq-app.rc");
         println!("cargo:rerun-if-changed=../../assets/AppIcon.ico");
-        embed_resource::compile("res/ubiq-app.rc", embed_resource::ParamsIncludeDirs(["../../assets"]))
-            .manifest_optional()
-            .expect("failed to embed the Windows app icon");
+        embed_resource::compile(
+            "res/ubiq-app.rc",
+            embed_resource::ParamsIncludeDirs(["../../assets"]),
+        )
+        .manifest_optional()
+        .expect("failed to embed the Windows app icon");
     }
 }

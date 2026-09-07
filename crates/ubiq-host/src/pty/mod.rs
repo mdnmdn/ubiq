@@ -7,7 +7,7 @@
 //! fallen behind can never stall it — a stalled reader stalls the harness.
 
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 use anyhow::{Context, Result};
@@ -78,7 +78,7 @@ pub fn spawn(
 
     let mut command = command_for(&program.program, &program.args);
     if let Some(folder) = folder {
-        command.cwd(folder);
+        command.cwd(spawn_cwd(folder));
     }
     if program.env_clear {
         command.env_clear();
@@ -146,6 +146,48 @@ fn command_for(program: &str, args: &[String]) -> CommandBuilder {
         command.arg(arg);
     }
     command
+}
+
+/// The working directory a child is started in.
+///
+/// The stored project path may carry the verbatim `\\?\` prefix `canonicalize` leaves behind
+/// on Windows. File operations want it — it is what keeps long paths working — but a child
+/// process must not get it: `cmd.exe` refuses a UNC working directory outright and starts in
+/// the Windows directory instead. Stripping the prefix hands the child the same folder in the
+/// form shells accept. On Unix a path has no such prefix, so this is the path itself.
+#[cfg(windows)]
+fn spawn_cwd(folder: &Path) -> PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    const VERBATIM: &[u16] = &['\\' as u16, '\\' as u16, '?' as u16, '\\' as u16];
+    const VERBATIM_UNC: &[u16] = &[
+        '\\' as u16,
+        '\\' as u16,
+        '?' as u16,
+        '\\' as u16,
+        'U' as u16,
+        'N' as u16,
+        'C' as u16,
+        '\\' as u16,
+    ];
+
+    let wide: Vec<u16> = folder.as_os_str().encode_wide().collect();
+    // `\\?\UNC\server\share` is the verbatim spelling of `\\server\share`.
+    let stripped = if let Some(rest) = wide.strip_prefix(VERBATIM_UNC) {
+        let mut plain = vec!['\\' as u16, '\\' as u16];
+        plain.extend_from_slice(rest);
+        plain
+    } else if let Some(rest) = wide.strip_prefix(VERBATIM) {
+        rest.to_vec()
+    } else {
+        return folder.to_path_buf();
+    };
+    PathBuf::from(std::ffi::OsString::from_wide(&stripped))
+}
+
+#[cfg(not(windows))]
+fn spawn_cwd(folder: &Path) -> PathBuf {
+    folder.to_path_buf()
 }
 
 impl Pty {
@@ -228,4 +270,37 @@ pub fn reap(pane_id: PaneId, mut child: Box<dyn portable_pty::Child + Send + Syn
             .unwrap_or(-1);
         out.send(Message::PaneExited { pane_id, code });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `canonicalize` spells a local folder `\\?\C:\…`, which `cmd.exe` refuses as a working
+    /// directory; the child starts in the same folder without the prefix.
+    #[test]
+    #[cfg(windows)]
+    fn a_verbatim_child_directory_is_handed_over_plain() {
+        assert_eq!(
+            spawn_cwd(Path::new(r"\\?\C:\works\proj")),
+            PathBuf::from(r"C:\works\proj")
+        );
+        assert_eq!(
+            spawn_cwd(Path::new(r"\\?\UNC\server\share")),
+            PathBuf::from(r"\\server\share")
+        );
+        assert_eq!(
+            spawn_cwd(Path::new(r"C:\works\proj")),
+            PathBuf::from(r"C:\works\proj")
+        );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn a_child_directory_is_handed_over_as_is() {
+        assert_eq!(
+            spawn_cwd(Path::new("/works/proj")),
+            PathBuf::from("/works/proj")
+        );
+    }
 }

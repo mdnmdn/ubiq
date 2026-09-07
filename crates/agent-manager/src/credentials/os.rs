@@ -225,6 +225,8 @@ impl SecretStore for OsSecretStore {
 
 /// The service name a `(harness, name)` maps to inside the native store.
 /// `// ponytail: assumes harness ids/names contain no ':' — true for all current ids.`
+/// macOS only for now: the Linux/Windows drafts below don't name entries this way yet.
+#[cfg(target_os = "macos")]
 fn entry_service(id: &CredentialId) -> String {
     format!("am:{}:{}", id.harness, id.name)
 }

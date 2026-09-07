@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 ///
 /// The path is hashed rather than spelled out because it is a path, and because the only question
 /// asked of it is whether two launches are the same build.
+#[cfg(unix)]
 fn name() -> String {
     use std::hash::{Hash as _, Hasher as _};
 

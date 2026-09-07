@@ -8,8 +8,15 @@ use std::cell::RefCell;
 
 // ── Design constants ────────────────────────────────────────────────
 
-/// The monospace family used for code, terminal chrome and mono labels.
+/// The monospace family used for code, terminal chrome and mono labels: the mono that ships
+/// with the OS, so the text system resolves it instead of falling back to a proportional face
+/// (which renders unevenly and measures wrong per cell).
+#[cfg(target_os = "macos")]
 pub const MONO_FONT: &str = "Menlo";
+#[cfg(target_os = "windows")]
+pub const MONO_FONT: &str = "Cascadia Mono";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub const MONO_FONT: &str = "DejaVu Sans Mono";
 
 /// The width of the coloured edge that marks a surface. Ubiq's surfaces are square; the left
 /// border is what identifies them.

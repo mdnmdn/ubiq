@@ -386,7 +386,9 @@ impl TerminalState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::TerminalEvent;
     use std::sync::mpsc::channel;
+    use std::time::Duration;
 
     #[test]
     fn test_terminal_creation() {
@@ -489,5 +491,30 @@ mod tests {
             assert_eq!(term.grid().screen_lines(), 24);
             assert_eq!(term.grid().columns(), 80);
         });
+    }
+
+    /// ConPTY opens every Windows session with `ESC[6n` and withholds the shell's output until
+    /// the emulator reports the cursor back. The parser answers internally and reports the reply
+    /// as a `PtyWrite` event — which the view writes back to the pseudo-terminal — so a dropped
+    /// event here is a blank pane there.
+    #[test]
+    fn test_dsr_cursor_request_emits_a_pty_write_reply() {
+        let (tx, rx) = channel();
+        let event_proxy = GpuiEventProxy::new(tx);
+        let mut terminal = TerminalState::new(80, 24, event_proxy);
+
+        terminal.process_bytes(b"\x1b[6n");
+
+        let reply = (0..10)
+            .filter_map(|_| rx.recv_timeout(Duration::from_secs(1)).ok())
+            .find_map(|event| match event {
+                TerminalEvent::PtyWrite(text) => Some(text),
+                _ => None,
+            });
+        assert_eq!(
+            reply.as_deref(),
+            Some("\x1b[1;1R"),
+            "a cursor-position ask is answered with the cursor report"
+        );
     }
 }

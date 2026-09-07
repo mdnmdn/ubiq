@@ -5,11 +5,14 @@
 //! the contract — from reading or writing somewhere the user never named.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 use ubiq_host::files::{self, path};
-use ubiq_proto::files::{EntryKind, FileError, FileVersion, PathOp};
+#[cfg(unix)]
+use ubiq_proto::files::EntryKind;
+use ubiq_proto::files::{FileError, FileVersion, PathOp};
 
 /// A project holding a file and a folder with a file in it.
 fn project() -> TempDir {
@@ -53,6 +56,9 @@ fn an_absolute_rel_path_is_refused() {
     }
 }
 
+// Symlink creation is spelled per platform; the containment rule under test is the
+// worker's, and it is exercised here, where links are cheap.
+#[cfg(unix)]
 #[test]
 fn a_symlink_out_of_the_root_is_listed_and_never_followed() {
     let dir = project();
@@ -81,6 +87,8 @@ fn a_symlink_out_of_the_root_is_listed_and_never_followed() {
     ));
 }
 
+// Same per-platform symlink setup as above.
+#[cfg(unix)]
 #[test]
 fn a_symlink_inside_the_root_is_followed() {
     let dir = project();
@@ -103,6 +111,8 @@ fn a_symlink_inside_the_root_is_followed() {
     assert!(through.entries.iter().any(|e| e.name == "inner.txt"));
 }
 
+// The macOS `/tmp` → `/private/tmp` case needs a real symlink to set up.
+#[cfg(unix)]
 #[test]
 fn a_root_that_is_itself_a_symlink_still_contains_its_own_children() {
     // This is the macOS `/tmp` → `/private/tmp` case, and it is what a root that is not
@@ -223,6 +233,8 @@ fn a_directory_over_the_ceiling_is_truncated() {
     assert_eq!(listing.entries.len(), 2_000);
 }
 
+// Unix sockets and hard-linking them exist on Unix only.
+#[cfg(unix)]
 #[test]
 fn a_socket_is_neither_a_file_nor_read() {
     let dir = project();
@@ -312,6 +324,9 @@ fn a_missing_file_is_missing() {
     );
 }
 
+// Unix permission bits have no Windows equivalent, so the worker's `Denied` mapping is
+// exercised here, where `0o000` means what it says.
+#[cfg(unix)]
 #[test]
 fn an_unreadable_file_is_denied() {
     let dir = project();
@@ -409,6 +424,8 @@ fn a_save_onto_a_file_that_went_away_is_missing_rather_than_a_resurrection() {
     assert!(!dir.path().join("top.txt").exists());
 }
 
+// The executable bit is a Unix idea; keeping it across a save is tested where it exists.
+#[cfg(unix)]
 #[test]
 fn a_save_keeps_the_file_executable() {
     let dir = project();
@@ -426,6 +443,8 @@ fn a_save_keeps_the_file_executable() {
     );
 }
 
+// Same per-platform symlink setup as the listing tests above.
+#[cfg(unix)]
 #[test]
 fn a_save_never_writes_through_a_symlink_out_of_the_root() {
     let dir = project();
