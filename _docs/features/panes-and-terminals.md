@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-06
+updated: 2026-09-07
 verified: 2026-09-07
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs]
 depends_on: [tech-transport]
@@ -128,10 +128,11 @@ kitty-protocol negotiation, which this emulator does not track.
 on an international layout (`` ` `` then `e`, giving `è`) only composes if the accent reaches the
 platform's composition machinery, so `TerminalView` installs an `InputHandler` on the focused pane
 and `keystroke_to_bytes()` emits nothing for a plain printable key there; the composed text comes
-back as a commit and is written to the harness once. Held keys repeat rather than opening the accent
-popover, and a pending composition is not drawn in the grid. Other platforms compose before the
-keystroke reaches the emulator, so `key_char` already carries the composed character and the
-keystroke path still writes it.
+back as a commit and is written to the harness once. A plain space is printable text under that
+rule, so macOS leaves it to the commit too; only Ctrl+Space (`\x00`) and Alt+Space (`\x1b `) are the
+keystroke's. Held keys repeat rather than opening the accent popover, and a pending composition is
+not drawn in the grid. Other platforms compose before the keystroke reaches the emulator, so
+`key_char` already carries the composed character and the keystroke path still writes it.
 
 **The pointer is the emulator's when the harness has asked for it.** A harness that enables SGR
 mouse reporting owns clicks, drags and the wheel. When reporting is off, a click-drag selects

@@ -15,8 +15,9 @@
 //! | Backspace | `\x7f` (0x7F) | DEL |
 //! | Tab | `\t` (0x09) | Horizontal tab |
 //! | Shift+Tab | `\x1b[Z` | Backtab |
-//! | Space | ` ` (0x20) | Space |
+//! | Space | ` ` (0x20) | Non-macOS only; macOS types it through the text-input system |
 //! | Ctrl+Space | `\x00` | NUL |
+//! | Alt+Space | `\x1b ` | ESC then space |
 //!
 //! ## Arrow Keys
 //!
@@ -122,6 +123,16 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
             if keystroke.modifiers.control {
                 return Some(b"\x00".to_vec()); // Ctrl+Space = NUL
             }
+            if keystroke.modifiers.alt {
+                return Some(b"\x1b ".to_vec()); // Alt+Space = ESC then space
+            }
+            // A plain space is printable text, and on macOS the text-input system delivers it
+            // as such — emitting it here as well is what typed two spaces per press. Claiming
+            // nothing leaves the one insertion, the same rule the printable branch below
+            // follows for dead keys.
+            #[cfg(target_os = "macos")]
+            return None;
+            #[cfg(not(target_os = "macos"))]
             return Some(b" ".to_vec());
         }
         "enter" => {
@@ -534,7 +545,15 @@ mod tests {
         let mode = TermMode::empty();
 
         let space = Keystroke::parse("space").unwrap();
+        // macOS types a plain space through the text-input system; claiming it here too is a
+        // double space.
+        #[cfg(target_os = "macos")]
+        assert_eq!(keystroke_to_bytes(&space, mode), None);
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(keystroke_to_bytes(&space, mode), Some(b" ".to_vec()));
+
+        let alt_space = Keystroke::parse("alt-space").unwrap();
+        assert_eq!(keystroke_to_bytes(&alt_space, mode), Some(b"\x1b ".to_vec()));
     }
 
     #[test]
