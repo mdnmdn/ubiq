@@ -5,7 +5,7 @@ kind: meta
 status: current
 summary: The map of `_docs/` — how it is organized, the catalogue, which document owns which fact, and which to read for a given task.
 read_when: you are starting any task and need to know which two or three documents it needs
-updated: 2026-09-02
+updated: 2026-09-07
 verified: 2026-09-02
 ---
 
@@ -119,6 +119,7 @@ states the boundary once.
 | [Cloning a project](./wip/clone-a-project.md) | How a repository becomes a project — a connection's listing or a pasted URL, a branch, a destination, and the throwaway clone that is deleted when it closes. The clone half is built and covered by tests; the named OAuth registrations the connect flow picks from are built and never exercised against a live provider, which is the gap this document exists to record. | 2026-09-06 |
 | [Indexing a project](./wip/indexing.md) | What Ubiq keeps about a project so a search need not re-read it — a per-project level defaulting from an application setting, and a full-text index that selects candidate files for the existing content search rather than answering it. The full-text half is built; the symbol half the `full` level names is not, which is the gap this document exists to record. | 2026-09-06 |
 | [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check now passes but docs-lint — whose open question is what that lint should apply to, since 156 of its 161 failures are inbox documents. | — |
+| [Windows build FAQ](./wip/windows-build.md) | Answers for the failures a Windows (GNU toolchain) build hits that macOS never does — the one found so far is a stale dlltool.exe on PATH breaking raw-dylib import-lib generation, fixed by an environment change, never by a code change. | — |
 
 <!-- generated:end catalogue -->
 
