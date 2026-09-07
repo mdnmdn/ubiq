@@ -892,8 +892,10 @@ explorer** (whether a
 single click opens a preview tab, and the two folders a clone lands in — the default project folder
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
 default as a placeholder rather than a path the interface invented), **Editor** (whether a new markdown file opens in preview or
-source), **Harnesses** (whether an agent is confined to its project, over the accounts
-registered here, the profiles defined here, and an Add button for each), and **Command line** (the `ubiq`
+source), **Harnesses** (the accounts
+registered here, the profiles defined here, and an Add button for each), **Isolation** (whether an
+agent is confined, whose home it runs in, and the directories it may reach beyond its policy), and
+**Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 
@@ -990,11 +992,26 @@ clears both the mode and the account, since both are scoped to a harness and nei
 mean anything. Save is dimmed until the profile is named and a harness is chosen; everything else
 may be left unset.
 
-**The isolation toggle is the one setting the host acts on**, so it is the only row that writes the
-Host layer rather than the interface's own — an agent runs under a policy, and the half that spawns
-the pane is the half that has to know. Every other row is a `UiSettings` field. Which harnesses opt
-out of confinement is not here at all: that belongs to the harness library, which already has the
-shape for it. See [`../tech/agent-manager.md`](../tech/agent-manager.md).
+**The Isolation section is the one the host acts on**, so its three rows are the only ones that write
+the Host layer rather than the interface's own — an agent runs under a policy, and the half that
+spawns the pane is the half that has to know. Every other row in settings is a `UiSettings` field.
+Which layers a policy is built from is not here at all: that belongs to the harness library, which
+already has the shape for it. See [`../tech/agent-manager.md`](../tech/agent-manager.md).
+
+**The home is a choice with a cost, and the section says so rather than offering three equal
+options.** The agent's home is the user's own by default, because a policy grants a toolchain by
+naming paths inside a home — and a replaced home aims every one of them at a directory nothing
+populated, so the agent holds `cargo` on its `PATH` and cannot build. A fresh home per run and a
+named home are the two answers for someone who wants an agent kept away from their own dotfiles and
+will populate a home to get there; each card carries what it costs. Extra grants are the escape
+hatch for a toolchain installed somewhere the policy does not expect: a path per chip, read-only
+until the chip is clicked, because read-only is the safer half of the choice and what a shared cache
+usually wants.
+
+**Confinement is macOS-only, and the section reports that rather than failing at the spawn.** A
+build with no enforcing backend draws the state chip in the warning colour and dims the toggle —
+status by colour and not by wording alone, the same as everywhere else. A row that promised
+protection it could not deliver would be worse than the plain run it silently became.
 
 **Vim mode is one switch over every text surface a document is written in.** Off by default, and
 turned on either from the Editor section of settings or by clicking the status bar's mode chip. On,

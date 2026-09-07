@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-06
-verified: 2026-09-06
+updated: 2026-09-07
+verified: 2026-09-07
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -84,12 +84,17 @@ same `agent_id`, continuing the same message sequence rather than starting a new
 conversation with it.
 
 **An agent runs confined unless the settings say otherwise.** The policy grants the project's folder
-and that run's own directory and denies the rest of the machine. `$HOME` is ephemeral, discarded
-with the run — except for a conversation started from a named definition, which gets a persistent
-home keyed by that definition so its caches and its login survive to the next run. A
-harness whose toolchain lives outside the project cannot reach it, which is a gap rather than a
-design choice. A process that is itself confined cannot confine anything — a sandbox does not nest —
-and says so once at startup rather than as an error on every pane.
+and that run's own directory and denies the rest of the machine. `$HOME` is the user's own, and the
+policy's toolchain grants are what makes the home usable: they name `~/.cargo`, `~/.npm` and their
+siblings, so a compiler on the user's `PATH` reaches its own caches and nothing else in the home is
+reachable. A replaced `$HOME` — a scratch one per run, or one kept by name — is offered and is not
+the default, because a `~`-relative grant expands against the run's home, so replacing it aims
+every one of those grants at a directory nothing populated and the agent cannot build. Which
+`$HOME` a run gets, and which folders it may reach beyond the policy, are settings; what a policy
+grants and which layers it stacks belong to the harness library — see
+[`../tech/agent-manager.md`](../tech/agent-manager.md). A process that is itself confined cannot
+confine anything — a sandbox does not nest — and says so once at startup rather than as an error on
+every pane.
 
 **A failed spawn is an error about a pane, not about the application.** The user asked for an agent
 in a place, and the error belongs where they were looking.

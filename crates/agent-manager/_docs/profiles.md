@@ -38,7 +38,7 @@ exactly **how much of `HOME` they give up**:
 |---|---|---|---|---|---|
 | **A — casual** | just run an agent | `am claude --mcps a,b --model haiku --prompt 'hi'` | default login (real `~/.claude`), lazy-captured into the implicit `default` profile | **real** | occasional `--isolate` |
 | **B — expert** | curated, repeatable setups | `am claude --profile work` (+ per-run overrides) | named profiles, possibly **multiple accounts**, `--account` overrides | **always real** | opt-in per profile/run |
-| **C — hardcore** | full sandboxes | `am claude --profile ci --isolate=locked` | multiple accounts, each in its own **replaced** HOME | **replaced** (isol8), toolchain reconstructed | always |
+| **C — hardcore** | full sandboxes | `am claude --profile ci --isolate=locked` | multiple accounts, each in its own **replaced** HOME | **replaced** on request (`home = "ephemeral"` / `"managed"`), toolchain reconstructed | always |
 
 **The central dividing line: A and B never touch `HOME`.** They rely entirely on
 the seed-into-relocated-config-dir mechanism (§5), so the user's toolchain always
@@ -77,8 +77,11 @@ All of it is reconstructable, but only *deliberately*. So the governing rule:
 > config/data dirs via its native env levers, seed captured credentials into
 > those relocated dirs, and leave the real `HOME` (and the toolchain) intact.**
 
-`HOME` relocation is reserved for **explicit, opt-in full isolation** (isol8,
-§8), where reconstructing the environment is the whole point.
+`HOME` relocation is reserved for the **explicit `home` mode** a confined run may
+ask for (isol8, §8), where reconstructing the environment is the whole point. A
+confined run that asks for nothing keeps the real `HOME`, because the toolchain
+grants its layers carry are `~`-relative and a replaced home aims them at an
+empty directory — [`cli.md`](./cli.md) §"Settings file + flag merge" owns that rule.
 
 ## 4. What was broken (and the empirical findings)
 
@@ -217,7 +220,42 @@ Profile = *what config*; isolation = *what sandbox*. `isolate.rs` resolves a
 wrapping argv itself; a caller that owns a pseudo-terminal turns that policy
 back into a `Launch` via `confined_launch`, a macOS-only stopgap that execs
 `sandbox-exec` (`refs/isol8-pty-seam-update.md` tracks the seam that will
-replace it on other platforms). Either way the two axes compose cleanly:
+replace it on other platforms).
+
+**`plan` names the layer stack itself, because isol8's own selection cannot reach
+the ones a build needs.** isol8 auto-selects a layer from `cmd[0]` alone, and only
+its `agents/*` layers declare an `executables` filter — so no `toolchains/*` layer is
+ever selected, since a build tool is a *child* of the confined command and never the
+command. `DEV_LAYERS` (`isolate.rs`) is therefore an explicit list of 15:
+`integrations/{keychain,macos-gui,git}` and `toolchains/{runtime-managers,
+apple-toolchain-core,rust,node,python,go,java,bun,deno,ruby,php,perl,elixir}`. Two
+of them are not about toolchains at all: `integrations/keychain`, because rustls
+tools (mise, cargo) validate TLS through the trust daemon rather than a CA file, and
+`integrations/macos-gui`, because a TUI harness calling `CGSEventSourceForID`
+deadlocks on a WindowServer mutex when the lookup is denied.
+
+**`BROKEN_LAYERS` records the 8 that must never be named.** Seven carry `[macos] raw`
+SBPL calling `home-literal` / `home-subpath`, macros isol8's macOS backend never
+defines, so `sandbox-exec` rejects the **whole** policy and nothing starts;
+`integrations/shell-init` is the eighth. `integrations/ssh` is excluded twice over:
+beyond the macro bug it denies `~/.ssh` as a subpath, and Seatbelt is
+last-match-wins with denies rendered after allows, so it swallows the
+`~/.ssh/known_hosts` read `integrations/git` grants.
+
+**Two gaps are filled by hand.** `DEV_RW_HOME_ROOTS` grants `~/.dotnet`, `~/.nuget`,
+`~/.templateengine`, `~/.aspnet`, `~/.microsoft` and `~/.local/share/NuGet`
+read-write, because isol8 ships no dotnet layer at all; the list is deliberately
+**not** existence-filtered, since `~/.dotnet` does not exist until the first
+`dotnet` run creates it and the grant is what makes that creation legal. And
+`ENV_PASS` widens isol8's deny-by-default env (`HOME PATH SHELL TMPDIR USER
+LOGNAME PWD`) to the terminal (`TERM_PROGRAM`, `TERM_PROGRAM_VERSION`), the locale
+(`LANG`, `LC_ALL`, `LC_CTYPE`), proxy in both cases, CA trust, and the toolchain
+relocation roots (`CARGO_HOME`, `GOROOT`, `JAVA_HOME`, …). `GIT_*` and `XDG_*` are
+left out on purpose: an inherited `GIT_DIR` would retarget the agent's own git at
+the wrong repository, and a relocated `XDG_*` points every lookup away from the
+`~/.config` paths the layers grant.
+
+Either way the two axes compose cleanly:
 
 - A profile carries a **default** for the isolation axis (`isolate = false`, or
   `isolate = "dev.toml"` naming an isol8 policy). Per-run `--isolate[=profile]`
@@ -230,8 +268,9 @@ replace it on other platforms). Either way the two axes compose cleanly:
   `CLAUDE_CONFIG_DIR` point inside it. The seeding step is identical; only the
   `HOME` the child sees changes.
 - **A login needs real-home grants a run does not, because nothing reconstructs its HOME.**
-  A run's isol8 HOME is deliberately rebuilt (§8's "sandbox HOME is reconstructed"): the
-  toolchain caveat is paid once, on purpose. `login_confined`'s HOME is just the capture
+  A run keeps the real HOME unless it asks for a replaced one, and a replaced one is
+  deliberately rebuilt (§8's "sandbox HOME is reconstructed") — either way the toolchain
+  question is answered on purpose. `login_confined`'s HOME is just the capture
   directory — no reconstruction step runs for it — so isol8's rule that a replaced HOME
   auto-grants nothing from the real one leaves a login unable to read anything outside a
   directory this policy already names. A self-contained binary (Claude Code) is fine; a

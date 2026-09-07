@@ -208,6 +208,10 @@ mode — persisted alongside the rest, and a decision about a *managed* home who
 expects to still be there (an ephemeral one is gone by definition, so a resumed run gets a fresh
 `$HOME` and the harness re-does its first-run work).
 
+The default home is `inherit`, so the sharp edge here now belongs to an explicit opt-in rather than
+to every run: a resumed run finds the real home exactly where it left it. Only a run that chose
+`ephemeral` or `managed` resumes into a home the record cannot name.
+
 **What to check / do next.** Add the run's isolation to `SessionMeta` (the layer, the home mode, and
 the managed id when there is one), rebuild it in `spec_for_resume`, and decide whether resuming a run
 whose home was ephemeral is confined with a new scratch home or refused as unresumable. Until then a

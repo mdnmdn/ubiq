@@ -30,6 +30,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus, ProfileInfo};
+use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
 /// The agent types this machine can run, and the composer behind them.
@@ -43,6 +44,10 @@ pub struct Agents {
     root: PathBuf,
     /// Whether a run is confined unless something says otherwise.
     isolate: bool,
+    /// Which `$HOME` a confined run gets.
+    home: AgentHome,
+    /// Directories a confined run may reach beyond what its policy grants.
+    extra_grants: Vec<Grant>,
 }
 
 /// A run composed and ready to spawn: what to exec, where its configuration
@@ -174,12 +179,23 @@ impl Agents {
         Self {
             root: root.into(),
             isolate,
+            home: AgentHome::default(),
+            extra_grants: Vec::new(),
         }
     }
 
     /// Whether a run is confined unless something says otherwise.
     pub fn isolate(&self) -> bool {
         self.isolate
+    }
+
+    /// Take the home and the extra grants from the host settings.
+    ///
+    /// Read at the next spawn rather than kept by a live run: a policy is rendered once, and a
+    /// setting changed mid-run cannot reach the process it already confined.
+    pub fn set_policy(&mut self, home: AgentHome, extra_grants: Vec<Grant>) {
+        self.home = home;
+        self.extra_grants = extra_grants;
     }
 
     /// Follow the host settings, which are what the user last chose.
@@ -720,14 +736,24 @@ impl Agents {
             .with_context(|| format!("composing a {agent_type} run"))?;
         Self::resolve_program(&mut provisioned.launch);
 
-        // A *defined* agent gets a home that outlives the run, keyed by the definition it came
-        // from: a second run of the same profile finds its caches, its indexes and its logins
-        // where it left them. An ad-hoc run has no definition to key on and stays ephemeral,
-        // which is also what a pane gets. The home lives under `<root>/isol8/homes/`, outside
-        // the `<root>/runs/` tree teardown deletes, which is what makes it persist at all.
+        // Every confined run keeps the real home unless the user said otherwise. A home of its
+        // own was once the answer to "a second run of the same profile should find its caches,
+        // its indexes and its logins where it left them" — but the real home is already where
+        // those are, and a replaced one aims every toolchain layer's `~/.cargo`-shaped grant at
+        // an empty directory, so the agent could not build. What stays per-run is the
+        // configuration, which `CLAUDE_CONFIG_DIR` and its siblings pin to the run dir.
+        //
+        // The home and the extra grants are the two answers Ubiq holds rather than the library:
+        // both are settings a person set on this machine, and the library has no way to ask.
         let mut options = IsolateOptions::new(self.root.join("isol8"));
-        if let Some(profile) = &flags.profile {
-            options.home = isolate::HomeMode::Managed(Self::home_id(profile));
+        options.home = home_mode(&self.home);
+        for grant in &self.extra_grants {
+            let path = expand_home(&grant.path);
+            if grant.write {
+                options.extra_rw.push(path);
+            } else {
+                options.extra_ro.push(path);
+            }
         }
 
         let confined = isolate::plan(&provisioned.launch, &spec, &provisioned.dir, &options)
@@ -869,6 +895,31 @@ impl Agents {
     /// Both ids are ULIDs, so neither can be mistaken for the other's.
     fn run_dir_for(&self, key: &str) -> PathBuf {
         self.root.join("runs").join(key)
+    }
+}
+
+/// The library's home mode for a setting.
+///
+/// A named home is keyed by [`Agents::home_id`] so a name a person typed cannot become a path
+/// isol8 refuses — a separator or a `..` in it would otherwise fail at the spawn.
+fn home_mode(home: &AgentHome) -> isolate::HomeMode {
+    match home {
+        AgentHome::Inherit => isolate::HomeMode::Inherit,
+        AgentHome::Ephemeral => isolate::HomeMode::Ephemeral,
+        AgentHome::Named(name) => isolate::HomeMode::Managed(Agents::home_id(name)),
+    }
+}
+
+/// A `~`-prefixed grant against the real home.
+///
+/// The library grants absolute paths, and a person types `~/.cargo`. Expanding here rather than
+/// passing the token through keeps the grant correct under a *replaced* home too, where isol8
+/// would resolve `~` to the replacement and grant the wrong directory.
+fn expand_home(path: &str) -> PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => isolate::real_home().join(rest),
+        None if path == "~" => isolate::real_home(),
+        _ => PathBuf::from(path),
     }
 }
 
@@ -1021,12 +1072,13 @@ mod tests {
         );
     }
 
-    /// P6: a defined agent — one whose conversation named a profile — gets a home keyed by
-    /// that definition, so its second run finds the caches its first left. An ad-hoc run has
-    /// nothing to key on and stays ephemeral. The rendered policy's home path is the proof,
-    /// and rendering one spawns nothing.
+    /// P6: every confined run keeps the real home, whether its conversation named a profile
+    /// or not. A home of its own would aim each toolchain layer's `~/.cargo`-shaped grant at
+    /// an empty directory, so an agent could hold `cargo` in its `PATH` and still not build;
+    /// what stays per-run is the configuration dir, not the home. The rendered policy's home
+    /// path is the proof, and rendering one spawns nothing.
     #[test]
-    fn a_profile_gets_a_persistent_home_and_an_ad_hoc_run_does_not() {
+    fn every_confined_run_keeps_the_real_home() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         given_an_account(root.path(), "work.setup", "work");
@@ -1049,26 +1101,25 @@ mod tests {
                 .expect("composing a structured claude-code run")
         };
 
-        let defined = compose(Some("work.setup".to_string()));
-        let home = isolate::describe(defined.confined.as_ref().unwrap())
-            .unwrap()
-            .home_path;
-        assert_eq!(
-            home,
-            root.path().join("isol8/homes/work-setup"),
-            "a profile's home is keyed by its (sanitised) id, and sits outside the runs tree \
-             teardown deletes"
-        );
+        let real_home = isolate::real_home();
 
-        let ad_hoc = compose(None);
-        let home = isolate::describe(ad_hoc.confined.as_ref().unwrap())
-            .unwrap()
-            .home_path;
-        assert!(
-            !home.starts_with(root.path().join("isol8/homes")),
-            "an ad-hoc run starts clean, at {}",
-            home.display()
-        );
+        for profile in [Some("work.setup".to_string()), None] {
+            let composed = compose(profile.clone());
+            let home = isolate::describe(composed.confined.as_ref().unwrap())
+                .unwrap()
+                .home_path;
+            assert_eq!(
+                home,
+                real_home,
+                "a {} run keeps the real home, not {}",
+                if profile.is_some() {
+                    "defined"
+                } else {
+                    "an ad-hoc"
+                },
+                home.display()
+            );
+        }
     }
 
     /// Write a profile naming an account, and the account's own captured-login home,

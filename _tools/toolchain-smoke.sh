@@ -105,7 +105,13 @@ done
 hdr "Version managers"
 check mise    mise    --version
 check asdf    asdf    --version
-check nvm     bash    -c 'source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" && nvm --version'
+# nvm is a shell function, not a binary, so `command -v` cannot see it and the
+# usual check would call bash and blame the sandbox for a missing install.
+if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+  check nvm   bash    -c 'source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" && nvm --version'
+else
+  report SKIP "nvm" "no nvm.sh under ${NVM_DIR:-\$HOME/.nvm}"
+fi
 check fnm     fnm     --version
 check volta   volta   --version
 check pyenv   pyenv   --version

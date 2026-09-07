@@ -36,6 +36,22 @@ pub struct HostSettings {
     /// Ubiq owns, because Ubiq is what spawns the pane.
     #[serde(default = "isolate_agents_default")]
     pub isolate_agents: bool,
+    /// Which `$HOME` a confined agent runs with.
+    ///
+    /// [`AgentHome::Inherit`] by default, and that is not a soft default: a replaced home aims
+    /// every toolchain grant the policy carries — `~/.cargo`, `~/.npm`, `~/.dotnet` — at an
+    /// empty directory, so the agent holds `cargo` in its `PATH` and cannot build. Inheriting
+    /// opens nothing on its own; only the paths the policy names are reachable inside it.
+    #[serde(default)]
+    pub agent_home: AgentHome,
+    /// Directories a confined agent may reach beyond what its policy already grants.
+    ///
+    /// The escape hatch for a toolchain installed somewhere the policy does not expect — a
+    /// relocated `CARGO_HOME`, an SDK on another volume, a vendored dependency tree outside
+    /// the project. Empty by default, because a default nobody can explain is worse than a
+    /// denial somebody can fix.
+    #[serde(default)]
+    pub extra_grants: Vec<Grant>,
     /// Globs every project search and every filename index skip, whatever a project record says.
     #[serde(default = "search_excludes_default")]
     pub search_excludes: Vec<String>,
@@ -101,6 +117,38 @@ pub struct HostSettings {
     pub remote_hosts: Vec<SavedRemoteHost>,
 }
 
+/// Which `$HOME` a confined agent runs with.
+///
+/// The three answers are "mine", "a fresh one" and "a named one I keep". Only the first works
+/// with a toolchain out of the box; the other two are for a user who wants an agent kept away
+/// from their own dotfiles and is willing to populate a home to get there.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentHome {
+    /// The user's own home, unreplaced. Paths are still restricted to what the policy grants.
+    #[default]
+    Inherit,
+    /// A scratch home per run, discarded with it. Nothing an agent leaves behind survives —
+    /// and nothing it needs is there to begin with.
+    Ephemeral,
+    /// A home kept under Ubiq's own state, by name, so a second run finds what the first left.
+    Named(String),
+}
+
+/// One directory a confined agent may reach, and whether it may write there.
+///
+/// A reference, like everything else on this record: a path the host resolves, never its
+/// contents.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grant {
+    /// The directory, absolute or `~`-prefixed as the user typed it.
+    pub path: String,
+    /// Whether the agent may write there. Read-only is the safer half of the choice and the
+    /// one a shared cache usually wants.
+    #[serde(default)]
+    pub write: bool,
+}
+
 /// One remembered remote host: enough to offer a reconnect, never enough to perform one alone.
 ///
 /// See [`HostSettings::remote_hosts`] for why the token is not here. Reconnecting from this record
@@ -128,7 +176,12 @@ pub struct SavedRemoteHost {
 /// the field defaults to empty — but would silently drop every saved host on its next write, which
 /// is exactly the "an older build should not overwrite a newer field with nothing" case the schema
 /// bump exists to prevent.
-pub const HOST_SETTINGS_SCHEMA: u32 = 7;
+///
+/// Eight adds [`HostSettings::agent_home`] and [`HostSettings::extra_grants`], and earns the bump
+/// for the same reason: an older build drops both on its next write, and the one it would drop
+/// silently is the grant list a user added to make their toolchain reachable — a setting whose
+/// absence shows up as a build failing inside an agent, nowhere near this file.
+pub const HOST_SETTINGS_SCHEMA: u32 = 8;
 
 fn isolate_agents_default() -> bool {
     true
@@ -165,6 +218,8 @@ impl Default for HostSettings {
         Self {
             schema: HOST_SETTINGS_SCHEMA,
             isolate_agents: isolate_agents_default(),
+            agent_home: AgentHome::default(),
+            extra_grants: Vec::new(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
             index_level: IndexLevel::default(),

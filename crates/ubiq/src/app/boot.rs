@@ -94,12 +94,18 @@ impl AppState {
         let search_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search in project\u{2026}"));
 
-        // Seeded from the host's answer rather than here — see `sync_search_settings_fields`.
+        // Seeded from the host's answer rather than here — see `sync_settings_fields`.
         let search_excludes_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("node_modules, target, .git\u{2026}")
         });
         let search_fallbacks_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("grep, ag\u{2026}"));
+
+        // Seeded from the host's answer too — see `sync_settings_fields`.
+        let agent_home_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("agents\u{2026}"));
+        let grant_path_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("~/.cache/shared\u{2026}"));
 
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
         let project_form_about = cx.new(|cx| {
@@ -567,6 +573,28 @@ impl AppState {
             },
         ));
 
+        // The kept home's name, and a grant's path, on the same rule as the two lists above.
+        subscriptions.push(cx.subscribe_in(
+            &agent_home_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let name = input.read(cx).value().to_string();
+                    this.set_agent_home_name(name, cx);
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &grant_path_input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.add_extra_grant(window, cx);
+                }
+            },
+        ));
+
         // No `PressEnter` arm, and no `Blur` arm: Enter is a newline here, and a blur would commit
         // on the very click that asks for the preview.
         subscriptions.push(cx.subscribe_in(
@@ -855,6 +883,8 @@ impl AppState {
             search_query,
             search_excludes_input,
             search_fallbacks_input,
+            agent_home_input,
+            grant_path_input,
             rename_input,
             project_form_about,
             project_form_hex,

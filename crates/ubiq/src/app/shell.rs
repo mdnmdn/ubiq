@@ -782,7 +782,7 @@ impl Render for AppState {
         // fights a query being typed.
         self.sync_file_filter_field(window, cx);
         self.sync_git_fields(window, cx);
-        self.sync_search_settings_fields(window, cx);
+        self.sync_settings_fields(window, cx);
         // Made anonymous straight away so the frame stops borrowing the window: the queue below
         // is drained on the same `&mut self` the tree was built from.
         let tree = ui::shell::render(self, window, cx).into_any_element();

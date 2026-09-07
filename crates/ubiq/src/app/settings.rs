@@ -1,5 +1,9 @@
 use super::*;
 
+/// What a kept agent home is called when the choice is made before a name is typed. A home with
+/// no name is not a state the host can act on, so the choice never stores one.
+const DEFAULT_AGENT_HOME: &str = "default";
+
 impl AppState {
     /// The arrangement as it stands, for the blob the host keeps.
     pub(super) fn layout_blob(&self, cx: &App) -> Option<serde_json::Value> {
@@ -239,6 +243,74 @@ impl AppState {
         cx.notify();
     }
 
+    /// Which `$HOME` a confined agent runs with. Host-owned, like the toggle above.
+    ///
+    /// Picking the kept home seeds a name where there is none, so the choice can never be stored
+    /// as a home with no name — the field below it then renames it in place.
+    pub fn set_agent_home(&mut self, home: AgentHome, cx: &mut Context<Self>) {
+        let home = match home {
+            AgentHome::Named(name) if name.trim().is_empty() => {
+                AgentHome::Named(DEFAULT_AGENT_HOME.to_string())
+            }
+            other => other,
+        };
+        self.workbench.settings.host.agent_home = home;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Rename the kept home. Ignored unless a kept home is what is selected — the field is only
+    /// drawn then, and an empty name falls back to the default rather than being stored.
+    pub fn set_agent_home_name(&mut self, name: String, cx: &mut Context<Self>) {
+        if !matches!(self.workbench.settings.host.agent_home, AgentHome::Named(_)) {
+            return;
+        }
+        let name = match name.trim() {
+            "" => DEFAULT_AGENT_HOME.to_string(),
+            trimmed => trimmed.to_string(),
+        };
+        self.workbench.settings.host.agent_home = AgentHome::Named(name);
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Add the path in the grants field, read-only. Read-write is a second gesture on the chip,
+    /// so the safer half of the choice is never the one made by accident.
+    pub fn add_extra_grant(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self.grant_path_input.read(cx).value().trim().to_string();
+        if path.is_empty() {
+            return;
+        }
+        let grants = &mut self.workbench.settings.host.extra_grants;
+        if !grants.iter().any(|grant| grant.path == path) {
+            grants.push(Grant { path, write: false });
+            self.remember_host_settings();
+        }
+        self.grant_path_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub fn remove_extra_grant(&mut self, index: usize, cx: &mut Context<Self>) {
+        let grants = &mut self.workbench.settings.host.extra_grants;
+        if index >= grants.len() {
+            return;
+        }
+        grants.remove(index);
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Flip one grant between read-only and read-write.
+    pub fn toggle_grant_write(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(grant) = self.workbench.settings.host.extra_grants.get_mut(index) else {
+            return;
+        };
+        grant.write = !grant.write;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
     /// Where a clone lands by default, and where an ephemeral one lands. Host-owned, so both
     /// write the Host layer. An empty string means "the host's own default" and is stored as
     /// `None` — the interface names no path of its own, so it has no default to write instead.
@@ -323,16 +395,16 @@ impl AppState {
         cx.notify();
     }
 
-    /// The two search fields hold what the host has stored, on the Git fields' rule: mirrored while
+    /// The host-owned fields hold what the host has stored, on the Git fields' rule: mirrored while
     /// the dialog is up and never while the field is being typed into.
-    pub(super) fn sync_search_settings_fields(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn sync_settings_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.workbench.settings.open {
             return;
         }
+        let home = match &self.workbench.settings.host.agent_home {
+            AgentHome::Named(name) => name.clone(),
+            _ => String::new(),
+        };
         for (field, wanted) in [
             (
                 self.search_excludes_input.clone(),
@@ -342,6 +414,7 @@ impl AppState {
                 self.search_fallbacks_input.clone(),
                 self.workbench.settings.host.search_fallbacks.join(", "),
             ),
+            (self.agent_home_input.clone(), home),
         ] {
             if !field.read(cx).focus_handle(cx).is_focused(window)
                 && field.read(cx).value() != wanted.as_str()

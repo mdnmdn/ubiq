@@ -1258,7 +1258,11 @@ mod tests {
         assert!(!launch.args.contains(&"--input-format".to_string()));
         assert!(!launch.args.contains(&"--permission-mode".to_string()));
         // The stdio prompt channel is the structured bridge's; a tty run asks in the tty.
-        assert!(!launch.args.contains(&"--permission-prompt-tool".to_string()));
+        assert!(
+            !launch
+                .args
+                .contains(&"--permission-prompt-tool".to_string())
+        );
         assert!(!launch.args.contains(&"--disallowedTools".to_string()));
         // The mcp-config plumbing stays present in both modes.
         assert!(launch.args.contains(&"--mcp-config".to_string()));

@@ -135,7 +135,7 @@ deny            = ["Bash(rm *)", "WebFetch"]
 [isolate]                                    # confine runs under isol8 by default
 enabled = true                               # off unless a flag/profile says otherwise
 profile = "default"                          # layer added when a confined run names no profile of its own
-home    = "ephemeral"                        # "ephemeral" (scratch, discarded with the run) | "managed"
+home    = "inherit"                          # "inherit" (the real home, the default) | "ephemeral" | "managed"
 ```
 
 `[isolate]` sets the default; a run's actual isolation is resolved highest-precedence
@@ -143,6 +143,13 @@ first: `--no-isolate` (off, unconditionally) → `--isolate=<name>` → bare `--
 (layer from `[isolate].profile`) → the resolved profile's own `isolate` field →
 `[isolate].enabled` → off. `home = "managed"` needs a name to key the home by — the
 CLI keys it by the run's `--account`, falling back to the harness id.
+
+`home` defaults to `"inherit"`, and the other two answers cost a toolchain. A layer's
+`~`-relative grant expands against the run's *effective* home, so under `"ephemeral"` or
+`"managed"` every grant the toolchain layers carry — `~/.cargo`, `~/.npm`, `~/.dotnet` —
+names a directory inside a home nothing has populated: the run holds `cargo` on its `PATH`
+and cannot build. Inheriting grants nothing extra by itself; only the paths a resolved
+layer names are reachable inside the home.
 
 ### Merge semantics — **replace by default** (decided)
 

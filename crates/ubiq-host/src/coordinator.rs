@@ -563,7 +563,12 @@ impl Coordinator {
     ) -> Self {
         // A run directory outlives its pane only when Ubiq did not get to close it, and no pane
         // from a previous process is still running, so the sweep happens once here.
-        let agents = Agents::new(root.path.clone(), settings.host().isolate_agents);
+        let agents = {
+            let host = settings.host();
+            let mut agents = Agents::new(root.path.clone(), host.isolate_agents);
+            agents.set_policy(host.agent_home.clone(), host.extra_grants.clone());
+            agents
+        };
         agents.sweep();
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
@@ -1175,9 +1180,12 @@ impl Coordinator {
             }
             Message::SetSettings { layer, value } => {
                 let replies = self.settings.set(layer, value);
-                // Whether an agent is confined is acted on at the next spawn, so the setting is
+                // How an agent is confined is acted on at the next spawn, so the settings are
                 // re-read here rather than kept in a copy that could go stale.
-                self.agents.set_isolate(self.settings.host().isolate_agents);
+                let host = self.settings.host();
+                self.agents.set_isolate(host.isolate_agents);
+                self.agents
+                    .set_policy(host.agent_home.clone(), host.extra_grants.clone());
                 self.answer(client, replies);
                 // The default moved, so every project that never overrode it moved with it. Only
                 // open projects are settled: a closed one has no index either way, and builds one

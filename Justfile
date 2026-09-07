@@ -88,6 +88,11 @@ test:
 # check + clippy + test + the crate boundary + docs-lint
 verify: check clippy test host ui docs-lint
 
+# Can a confined agent build? Run unconfined for a baseline, then under
+# `am run <harness> --isolate -- bash _tools/toolchain-smoke.sh` and diff.
+smoke:
+    bash _tools/toolchain-smoke.sh
+
 # ── documentation ──────────────────────────────────────────────────
 
 # Lint _docs/ — L1, L2, L4, L5, L7, L9, L10

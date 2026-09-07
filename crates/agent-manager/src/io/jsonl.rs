@@ -153,9 +153,8 @@ impl JsonlBridge {
         let reader_tx = tx.clone();
         let reader_pending = Arc::clone(&pending);
         let reader_stdin = Arc::clone(&stdin);
-        let reader = std::thread::spawn(move || {
-            read_loop(stdout, reader_pending, reader_stdin, reader_tx)
-        });
+        let reader =
+            std::thread::spawn(move || read_loop(stdout, reader_pending, reader_stdin, reader_tx));
 
         Ok(Self {
             child,
@@ -383,7 +382,10 @@ fn read_stream(
                     .and_then(|r| r.get("subtype"))
                     .and_then(Value::as_str)
                     .unwrap_or("unknown");
-                tracing::warn!(subtype, "unsupported claude control_request; answering error");
+                tracing::warn!(
+                    subtype,
+                    "unsupported claude control_request; answering error"
+                );
                 if write_line(stdin, &control_error(request_id, subtype)).is_err() {
                     return;
                 }
@@ -2040,14 +2042,12 @@ mod tests {
     /// `tool_use` block already in the transcript.
     #[test]
     fn a_control_request_carries_the_call_it_wants_authorised() {
-        let events = map(
-            r#"{"type":"control_request","request_id":"r1","request":{
+        let events = map(r#"{"type":"control_request","request_id":"r1","request":{
                 "subtype":"can_use_tool","tool_name":"Write","display_name":"Write",
                 "input":{"file_path":"/tmp/a","content":"x"},"description":"a",
                 "permission_suggestions":[
                     {"type":"setMode","mode":"acceptEdits","destination":"session"}],
-                "tool_use_id":"t1"}}"#,
-        );
+                "tool_use_id":"t1"}}"#);
         let AgentEvent::PermissionRequest {
             request_id,
             tool_call,
@@ -2083,11 +2083,9 @@ mod tests {
     /// No suggestion, no "always": an option the answer path could not honor is not offered.
     #[test]
     fn a_control_request_without_suggestions_offers_only_allow_and_deny() {
-        let events = map(
-            r#"{"type":"control_request","request_id":"r1","request":{
+        let events = map(r#"{"type":"control_request","request_id":"r1","request":{
                 "subtype":"can_use_tool","tool_name":"Bash",
-                "input":{"command":"echo hi"},"tool_use_id":"t1"}}"#,
-        );
+                "input":{"command":"echo hi"},"tool_use_id":"t1"}}"#);
         let AgentEvent::PermissionRequest { options, .. } = &events[0] else {
             panic!("expected a permission request, got {events:?}");
         };
@@ -2098,10 +2096,8 @@ mod tests {
     /// A request with no `tool_use_id` still has an id a caller can answer with.
     #[test]
     fn a_control_request_without_a_tool_use_id_falls_back_to_the_request_id() {
-        let events = map(
-            r#"{"type":"control_request","request_id":"r1","request":{
-                "subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo hi"}}}"#,
-        );
+        let events = map(r#"{"type":"control_request","request_id":"r1","request":{
+                "subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo hi"}}}"#);
         let AgentEvent::PermissionRequest { tool_call, .. } = &events[0] else {
             panic!("expected a permission request, got {events:?}");
         };

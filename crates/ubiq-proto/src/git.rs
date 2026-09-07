@@ -362,9 +362,18 @@ mod web_url_tests {
     #[test]
     fn known_remotes_become_pages() {
         for (remote, page) in [
-            ("git@github.com:mdnmdn/ubiq.git", "https://github.com/mdnmdn/ubiq"),
-            ("https://github.com/mdnmdn/ubiq.git", "https://github.com/mdnmdn/ubiq"),
-            ("ssh://git@gitlab.com:2222/group/sub/proj.git", "https://gitlab.com/group/sub/proj"),
+            (
+                "git@github.com:mdnmdn/ubiq.git",
+                "https://github.com/mdnmdn/ubiq",
+            ),
+            (
+                "https://github.com/mdnmdn/ubiq.git",
+                "https://github.com/mdnmdn/ubiq",
+            ),
+            (
+                "ssh://git@gitlab.com:2222/group/sub/proj.git",
+                "https://gitlab.com/group/sub/proj",
+            ),
             (
                 "git@ssh.dev.azure.com:v3/realeitesorg/it.grma.HelpdeskAI/communication-platform-backend",
                 "https://dev.azure.com/realeitesorg/it.grma.HelpdeskAI/_git/communication-platform-backend",

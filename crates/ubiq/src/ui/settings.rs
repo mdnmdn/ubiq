@@ -19,6 +19,7 @@ use ubiq_proto::connectors::{
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileInfo};
 use ubiq_proto::projects::IndexLevel;
+use ubiq_proto::settings::AgentHome;
 
 use crate::app::{AppState, HostEntry, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
@@ -27,9 +28,10 @@ use crate::state::settings::{
 };
 use crate::theme;
 use crate::ui::kit::{
-    badge, check_box, choice_pill, column, confirm_modal, elided, field, ghost_button, heading,
-    icon_button, label_block, menu::Picker, modal, modal_note, modal_sized, mono, nav_item,
-    primary_button, prompt_modal, section_label, setting_row, slab, state_chip,
+    badge, card, check_box, choice_pill, column, confirm_modal, elided, field, ghost_button,
+    heading, icon_button, label_block, menu::Picker, modal, modal_note, modal_sized, mono,
+    nav_item, primary_button, prompt_modal, removable_tag, section_label, setting_row, slab,
+    state_chip, status_dot,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -153,6 +155,7 @@ fn nav_icon(item: SettingsSection) -> IconName {
         SettingsSection::Editor => IconName::File,
         SettingsSection::Search => IconName::Search,
         SettingsSection::Harnesses => IconName::Asterisk,
+        SettingsSection::Isolation => IconName::Frame,
         SettingsSection::Connectors => IconName::Globe,
         SettingsSection::Hosts => IconName::Network,
         SettingsSection::CommandLine => IconName::SquareTerminal,
@@ -166,6 +169,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Editor => editor(app, cx),
         SettingsSection::Search => search(app, cx),
         SettingsSection::Harnesses => harnesses(app, cx),
+        SettingsSection::Isolation => isolation(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::Hosts => hosts_section(app, cx),
         SettingsSection::CommandLine => command_line(app, cx),
@@ -350,7 +354,7 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 /// What every project search does: how much is indexed, what is skipped, and what it falls back
 /// to. The two lists are comma-separated lines that commit on Enter and on blur — see the
-/// subscriptions in `app.rs`, and `sync_search_settings_fields` for what fills them.
+/// subscriptions in `app.rs`, and `sync_settings_fields` for what fills them.
 fn search(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let line = |input| {
         field(theme::border(), false)
@@ -425,26 +429,230 @@ fn index_level_choice(current: IndexLevel, cx: &mut Context<AppState>) -> AnyEle
         .into_any_element()
 }
 
-fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    let isolated = app.workbench.settings.host.isolate_agents;
-    let mut rows = vec![
+/// Confinement, the home a confined agent runs with, and the directories it may reach past its
+/// policy. Every value here is host-owned, so each control writes the Host layer.
+///
+/// **Confinement is a macOS feature.** `confined_launch` in the harness library errors on every
+/// other target, so this says so plainly and disables the toggle rather than offering a switch
+/// that does nothing.
+fn isolation(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let host = &app.workbench.settings.host;
+    let supported = cfg!(target_os = "macos");
+
+    let mut toggle = check_box(
+        "app-settings-isolate-agents",
+        host.isolate_agents,
+        cx.listener(move |this, _, _, cx| {
+            if supported {
+                this.toggle_isolate_agents(cx);
+            }
+        }),
+    );
+    if !supported {
+        toggle = toggle.opacity(0.5);
+    }
+
+    column(vec![
         heading(
-            "Harnesses",
-            "Every agent runs on a harness. Register as many as you like — the same tool twice \
-             with different credentials is normal, and each entry carries its own defaults.",
+            "Isolation",
+            "What an agent may reach, and whose home it runs in. These are the host's own \
+             settings, so they apply to every agent this host starts.",
         ),
+        div()
+            .flex()
+            .flex_none()
+            .child(match supported {
+                true => state_chip("Confinement available on this machine", theme::success(), 1.0),
+                false => state_chip(
+                    "Confinement is macOS only \u{2014} agents here run unconfined",
+                    theme::warning(),
+                    1.0,
+                ),
+            })
+            .into_any_element(),
         setting_row(
             "Confine agents to their project",
             "An agent reads and writes only its project's folder, plus a throwaway configuration \
              of its own. Off, an agent can reach anywhere on the machine.",
-            check_box(
-                "app-settings-isolate-agents",
-                isolated,
-                cx.listener(|this, _, _, cx| this.toggle_isolate_agents(cx)),
-            )
+            toggle.into_any_element(),
+        ),
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(label_block(
+                "The agent's home",
+                "Which $HOME a confined agent runs with.",
+            ))
+            .child(div().flex().flex_col().gap_2().children(home_cards(host, cx)))
+            .when(matches!(host.agent_home, AgentHome::Named(_)), |this| {
+                this.child(
+                    field(theme::border(), false)
+                        .h(px(30.))
+                        .w(px(300.))
+                        .px_2()
+                        .child(Input::new(&app.agent_home_input).appearance(false)),
+                )
+            })
             .into_any_element(),
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(label_block(
+                "Extra grants",
+                "Directories an agent may reach beyond its policy \u{2014} a toolchain installed \
+                 somewhere unusual, a shared cache. Read-only unless you say otherwise.",
+            ))
+            .child(grant_chips(app, cx))
+            .into_any_element(),
+    ])
+}
+
+/// The three homes, one lit. The same card shape the kitchen sink draws the permission modes in.
+fn home_cards(
+    host: &ubiq_proto::settings::HostSettings,
+    cx: &mut Context<AppState>,
+) -> Vec<AnyElement> {
+    const HOMES: [(&str, &str, &str); 3] = [
+        (
+            "inherit",
+            "Your home",
+            "Recommended. The agent reads and writes only what its policy grants, inside your own \
+             home, so your toolchain works.",
+        ),
+        (
+            "ephemeral",
+            "A fresh one each run",
+            "Nothing an agent leaves behind survives. Nothing it needs is there either: cargo, \
+             npm and dotnet will not find their caches.",
+        ),
+        (
+            "named",
+            "A named home",
+            "Kept under Ubiq's own state, so a second run finds what the first left. You \
+             populate it yourself.",
         ),
     ];
+
+    HOMES
+        .iter()
+        .map(|(key, label, note)| {
+            let home = match *key {
+                "ephemeral" => AgentHome::Ephemeral,
+                "named" => AgentHome::Named(String::new()),
+                _ => AgentHome::Inherit,
+            };
+            let selected = std::mem::discriminant(&host.agent_home) == std::mem::discriminant(&home);
+
+            card(
+                ElementId::Name(format!("app-settings-home-{key}").into()),
+                if selected {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
+                selected,
+            )
+            .px_3()
+            .py_2()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(status_dot(
+                        if selected {
+                            theme::accent()
+                        } else {
+                            theme::text_faint()
+                        },
+                        if selected {
+                            theme::accent_soft()
+                        } else {
+                            theme::surface()
+                        },
+                    ))
+                    .child(label_block(label, note)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_agent_home(home.clone(), cx)))
+            .into_any_element()
+        })
+        .collect()
+}
+
+/// One removable chip per grant, then the field a path is typed into. Clicking a chip flips it
+/// between read-only and read-write; the `\u{d7}` drops it.
+fn grant_chips(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let chips: Vec<AnyElement> = app
+        .workbench
+        .settings
+        .host
+        .extra_grants
+        .iter()
+        .enumerate()
+        .map(|(index, grant)| {
+            let (word, colour, fill) = match grant.write {
+                true => ("rw", theme::warning(), theme::warning_soft()),
+                false => ("ro", theme::text_muted(), theme::surface()),
+            };
+            removable_tag(
+                ElementId::Name(format!("app-settings-grant-{index}").into()),
+                ElementId::Name(format!("app-settings-grant-drop-{index}").into()),
+                format!("{} \u{b7} {word}", grant.path),
+                format!(
+                    "{} \u{2014} {}. Click to make it {}.",
+                    grant.path,
+                    if grant.write {
+                        "read-write"
+                    } else {
+                        "read-only"
+                    },
+                    if grant.write {
+                        "read-only"
+                    } else {
+                        "read-write"
+                    },
+                ),
+                fill,
+                colour,
+                colour,
+                cx.listener(move |this, _, _, cx| this.toggle_grant_write(index, cx)),
+                cx.listener(move |this, _, _, cx| this.remove_extra_grant(index, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .flex_wrap()
+        .children(chips)
+        .child(
+            field(theme::border(), false)
+                .h(px(26.))
+                .w(px(200.))
+                .px_2()
+                .child(Input::new(&app.grant_path_input).appearance(false)),
+        )
+        .child(icon_button(
+            "app-settings-grant-add",
+            IconName::Plus,
+            false,
+            cx.listener(|this, _, window, cx| this.add_extra_grant(window, cx)),
+        ))
+        .into_any_element()
+}
+
+fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let mut rows = vec![heading(
+        "Harnesses",
+        "Every agent runs on a harness. Register as many as you like — the same tool twice \
+         with different credentials is normal, and each entry carries its own defaults.",
+    )];
     if let Some(error) = app.workbench.settings.error.clone() {
         rows.push(error_banner(&error, cx));
     }

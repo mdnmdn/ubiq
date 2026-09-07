@@ -79,7 +79,9 @@ use ubiq_proto::ids::{
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
-use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SavedRemoteHost, SettingsLayer};
+use ubiq_proto::settings::{
+    AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, SavedRemoteHost, SettingsLayer,
+};
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
 /// How much of a file the interface asks for. The host has a ceiling of its own and this never
@@ -562,6 +564,10 @@ pub struct AppState {
     /// on Enter and on blur rather than on a keystroke: every commit writes a file on the host.
     pub search_excludes_input: Entity<InputState>,
     pub search_fallbacks_input: Entity<InputState>,
+    /// The Isolation section's two host-owned fields: the name of the kept agent home, and the
+    /// path a grant is added from. Both commit on Enter and on blur, the two search lists' rule.
+    pub agent_home_input: Entity<InputState>,
+    pub grant_path_input: Entity<InputState>,
     /// The project settings dialog's name field. Also what a picker row used to become while
     /// renaming; that editor now lives in the dialog.
     pub rename_input: Entity<InputState>,

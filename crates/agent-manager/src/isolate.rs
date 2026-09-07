@@ -9,7 +9,7 @@
 //! [`IsolateOptions`] and gets the same answer the CLI does, which is the
 //! front-end-agnostic invariant the rest of the core keeps.
 //!
-//! Three facts drive everything below:
+//! Four facts drive everything below:
 //!
 //! - **The run dir is writable, the sources behind it are readable.** The
 //!   provisioner symlinks-else-copies a profile's overlay and a skill's folder
@@ -24,6 +24,11 @@
 //!   the throwaway one.
 //! - **A harness draws a screen.** `TERM` and `COLORTERM` are not in isol8's
 //!   allowlist, and a harness with neither cannot decide what it may draw.
+//! - **A development agent is a build tool's parent.** `cargo`, `npm`,
+//!   `dotnet` and `git` are never the confined command — they are children of
+//!   it — and isol8 auto-selects a layer only from `cmd[0]`. So every
+//!   toolchain layer is *named* here ([`DEV_LAYERS`]), and the run keeps the
+//!   real `$HOME` those layers' `~/.cargo`-shaped grants resolve against.
 //!
 //! See `_docs/architecture.md` for where the isolate stage sits, `_docs/cli.md`
 //! for the `--isolate[=profile]` / `--no-isolate` / `[isolate]` surface, and
@@ -44,8 +49,18 @@ use crate::spec::{Isolation, RunSpec};
 /// Where a confined run's `$HOME` comes from.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum HomeMode {
-    /// A scratch home for this run alone, discarded with it.
+    /// The real home, the way an unconfined run has it — isol8's own default
+    /// posture, and the only one under which a toolchain works.
+    ///
+    /// A layer's `~`-relative grant expands against the *effective* home, so
+    /// under a replaced home `toolchains/rust`'s `~/.cargo` names an empty
+    /// scratch directory: the agent holds `cargo` in its `PATH` and still
+    /// cannot build. Inheriting opens nothing on its own — only the paths a
+    /// layer names are reachable inside the home, and `refs/isol8`'s own
+    /// `profiles/base.toml` says the same ("HOME is NOT replaced by default").
     #[default]
+    Inherit,
+    /// A scratch home for this run alone, discarded with it.
     Ephemeral,
     /// A persistent home under the state dir, named by the caller, so a
     /// harness's caches and logins survive from one run to the next.
@@ -53,16 +68,18 @@ pub enum HomeMode {
 }
 
 impl HomeMode {
-    /// Parse the `[isolate] home` setting: `"ephemeral"` or `"managed"`.
+    /// Parse the `[isolate] home` setting: `"inherit"`, `"ephemeral"` or
+    /// `"managed"`.
     ///
     /// `"managed"` needs a name to key the home by, which is the caller's to
     /// supply — the settings file only chooses the mode.
     pub fn parse(value: &str, managed_id: &str) -> Result<Self> {
         match value {
+            "inherit" => Ok(Self::Inherit),
             "ephemeral" => Ok(Self::Ephemeral),
             "managed" => Ok(Self::Managed(managed_id.to_string())),
             other => Err(anyhow!(
-                "unknown [isolate] home {other:?}: expected \"ephemeral\" or \"managed\""
+                "unknown [isolate] home {other:?}: expected \"inherit\", \"ephemeral\" or \"managed\""
             )),
         }
     }
@@ -84,18 +101,38 @@ pub struct IsolateOptions {
     /// Extra read-only grants, for anything the caller knows the harness
     /// needs and the run cannot discover — a shared toolchain, a cache.
     pub extra_ro: Vec<PathBuf>,
+    /// Extra read-write grants, for a toolchain root the defaults here cannot
+    /// know: a relocated `CARGO_HOME`, a shared package store on another
+    /// volume, an SDK installed outside `$HOME`.
+    ///
+    /// The shipped layers grant a toolchain's *default* location, so a
+    /// non-standard install needs its root named here — passing the matching
+    /// variable through [`ENV_PASS`] tells a tool where to look but grants it
+    /// nothing. Passed through as given: an absent path renders as an inert
+    /// grant, so a caller never has to pre-check one.
+    pub extra_rw: Vec<PathBuf>,
 }
 
 impl IsolateOptions {
-    /// Options rooted at `state_dir`, with an ephemeral home and no extra
-    /// grants.
+    /// Options rooted at `state_dir`, with the real home and no extra grants.
     pub fn new(state_dir: impl Into<PathBuf>) -> Self {
         Self {
             state_dir: state_dir.into(),
-            home: HomeMode::Ephemeral,
+            home: HomeMode::Inherit,
             extra_ro: Vec::new(),
+            extra_rw: Vec::new(),
         }
     }
+}
+
+/// The user's real home, whatever a run's own `$HOME` was set to.
+///
+/// Exposed because an embedder has to resolve a `~`-prefixed grant *before* handing it over:
+/// inside a layer `~` means the run's effective home, so passing the token through would grant
+/// the replacement directory under [`HomeMode::Ephemeral`] or [`HomeMode::Managed`] rather than
+/// the directory the person meant. Nothing else in an embedder should need to name a home.
+pub fn real_home() -> PathBuf {
+    isol8::home::real_home()
 }
 
 /// Whether this process can confine anything at all.
@@ -122,6 +159,198 @@ pub struct Confined {
     pub ctx: isol8::Context,
 }
 
+/// The layers that make a confined run a *development* environment rather
+/// than a chat window.
+///
+/// isol8 auto-selects a layer only when it declares `filter.executables`, and
+/// only the `agents/*` layers do — so the harness's own layer arrives on its
+/// own and every `toolchains/*` layer would sit unreachable in the registry
+/// forever. Naming them is the whole of the fix: a build tool is a child of
+/// the confined command, never `cmd[0]`, so nothing about the command can ever
+/// reveal it.
+///
+/// Naming a layer whose `filter.os` does not match this host is free — it is
+/// kept as an empty shell rather than dropped — so one list is correct on
+/// every platform. Naming one that does not *exist* is a hard error, and not
+/// one this function raises: `plan` never loads the layer registry, so a bad
+/// name here surfaces on the first real spawn rather than in a `plan` test.
+/// That is what `dev_layers_all_resolve` guards.
+///
+/// Two of these cannot be inferred from isol8's documentation; both were found
+/// by debugging a real confined agent, and both are named here because only
+/// *some* `agents/*` layers happen to require them:
+///
+/// - `integrations/keychain` — rustls-based tools (`mise`, `cargo`) validate
+///   TLS through the trust daemon rather than a CA file, so without it they
+///   cannot fetch at all, and `SSL_CERT_FILE` does not fix them.
+/// - `integrations/macos-gui` — a harness whose TUI calls
+///   `CGSEventSourceForID` at startup deadlocks forever on a WindowServer
+///   mutex when the `com.apple.windowserver.active` lookup is denied. It
+///   presents as a hang on the splash screen: no log line, no permission
+///   error.
+///
+/// `toolchains/apple-toolchain-core` is not optional on macOS for two
+/// reasons: `cargo build` links through `cc`/`ld` under
+/// `/Library/Developer/CommandLineTools`, which the system-runtime layer does
+/// not grant, and `/usr/bin/git` is an xcode-select shim that cannot resolve
+/// the active developer dir inside a sandbox.
+///
+/// See [`BROKEN_LAYERS`] before adding a layer here.
+pub const DEV_LAYERS: &[&str] = &[
+    // Not optional: see the note above. Neither is inferable from the docs.
+    "integrations/keychain",
+    "integrations/macos-gui",
+    // `~/.gitconfig` — without it a commit has no author, which fails as
+    // "please tell me who you are" rather than as a denial. Brings
+    // `shared/agent-common` with it via `requires`, so that is not named here.
+    "integrations/git",
+    // Version managers first: they own the shims every other toolchain
+    // resolves through.
+    "toolchains/runtime-managers",
+    "toolchains/apple-toolchain-core",
+    "toolchains/rust",
+    "toolchains/node",
+    "toolchains/python",
+    "toolchains/go",
+    "toolchains/java",
+    "toolchains/bun",
+    "toolchains/deno",
+    "toolchains/ruby",
+    "toolchains/php",
+    "toolchains/perl",
+    "toolchains/elixir",
+];
+
+/// Layers that must never be named: each one breaks *every* confined run, not
+/// just its own feature.
+///
+/// The first seven carry `[macos] raw` blocks calling `home-literal` or
+/// `home-subpath`, Scheme macros isol8's macOS backend never defines. There is
+/// no partial failure: `sandbox-exec` rejects the whole policy with `unbound
+/// variable` and nothing starts. Granting
+/// `toolchains/apple-toolchain-core` directly is the standing workaround for
+/// the `integrations/xcode` case.
+///
+/// `integrations/ssh` is excluded twice over. Beyond the macro bug it denies
+/// `~/.ssh` as a *subpath*, and Seatbelt is last-match-wins with denies
+/// rendered after every allow — so it swallows the `~/.ssh/known_hosts` read
+/// that `integrations/git` grants. Adding it takes a capability away.
+///
+/// `integrations/shell-init` is milder: it opens every `/Applications/*.app`
+/// bundle's completion scripts to buy a `PATH` that [`ENV_PASS`] already
+/// carries through.
+///
+/// None of this stops a user naming one explicitly through
+/// `Isolation::Sandboxed`; it stops *this* module choosing one for them.
+pub const BROKEN_LAYERS: &[&str] = &[
+    "integrations/xcode",
+    "integrations/ssh",
+    "integrations/1password",
+    "integrations/kubectl",
+    "integrations/chromium-headless",
+    "integrations/chromium-full",
+    "integrations/container-runtime-default-deny",
+    "integrations/shell-init",
+];
+
+/// Developer read-write roots under the real home that isol8 ships no layer
+/// for, so nothing else can reach them.
+///
+/// The `toolchains/*` layers cover cargo, npm, pip, gradle and their siblings;
+/// there is no dotnet or nuget layer anywhere in isol8, and the SDK writes
+/// before it will do anything else — a first-run sentinel under `~/.dotnet`,
+/// then the package store under `~/.nuget`. Delete this const the day a
+/// `toolchains/dotnet` layer exists upstream.
+///
+/// Joined absolutely against the real home rather than passed as a `~` token,
+/// so these stay correct under [`HomeMode::Managed`] too. Deliberately *not*
+/// existence-filtered, unlike [`login_runtime_grants`]: `~/.dotnet` does not
+/// exist until the first `dotnet` run creates it, and the grant is what makes
+/// that creation legal — filtering it would break exactly the machine it is
+/// for. A root nothing ever touches costs two lines of rendered policy, since
+/// the backend resolves the longest existing prefix of a grant and leaves the
+/// rest alone.
+pub const DEV_RW_HOME_ROOTS: &[&str] = &[
+    ".dotnet",
+    ".nuget",
+    ".templateengine",
+    ".aspnet",
+    ".microsoft",
+    ".local/share/NuGet",
+];
+
+/// What a harness needs to draw a screen, and what the toolchains it shells
+/// out to need to work at all.
+///
+/// isol8's environment is deny-by-default — `HOME`, `PATH`, `SHELL`,
+/// `TMPDIR`, `USER`, `LOGNAME`, `PWD` and nothing else — so every name here is
+/// one a real build fails without. Each is read from the host only if set, so
+/// an entry costs nothing on a machine that does not use it, and a
+/// provisioner's own `set_env` still outranks all of them: `CLAUDE_CONFIG_DIR`
+/// cannot be shadowed from here.
+///
+/// The relocation roots at the end matter only because `$HOME` is the real
+/// home: a layer grants a toolchain's default location, so a host that moved
+/// one has to say where — and grant it, via [`IsolateOptions::extra_rw`].
+/// Naming the variable alone opens no path.
+///
+/// Absent on purpose. `GIT_DIR` and its siblings are inherited from whatever
+/// launched this process and would retarget the agent's own `git` at the wrong
+/// repository. `XDG_*` points every lookup away from the `~/.config` paths the
+/// layers actually grant. `SSH_AUTH_SOCK` is inert while `integrations/ssh`
+/// stays in [`BROKEN_LAYERS`], since the agent socket is denied without it.
+pub const ENV_PASS: &[&str] = &[
+    // A harness asks the environment what it may draw, and isol8's allowlist
+    // holds none of these.
+    "TERM",
+    "COLORTERM",
+    "TERM_PROGRAM",
+    "TERM_PROGRAM_VERSION",
+    // Without a UTF-8 locale, python, perl and dotnet fall back to ASCII and
+    // mangle every non-ASCII path and diagnostic they touch.
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    // The network is open, but a machine that only egresses through a proxy
+    // needs these to find it — and the toolchains disagree about case, so both
+    // spellings go through.
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    // …and these to trust it. Belt and braces for the non-rustls tools; a
+    // rustls one needs `integrations/keychain` instead, which is why that
+    // layer is not optional.
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "CARGO_HTTP_CAINFO",
+    // Relocation roots — see the note above.
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "GOPATH",
+    "GOROOT",
+    "GOMODCACHE",
+    "GOCACHE",
+    "JAVA_HOME",
+    "SDKMAN_DIR",
+    "NVM_DIR",
+    "PNPM_HOME",
+    "VOLTA_HOME",
+    "PYENV_ROOT",
+    "MISE_DATA_DIR",
+    "NPM_CONFIG_PREFIX",
+    "BUN_INSTALL",
+    "DOTNET_ROOT",
+    "NUGET_PACKAGES",
+    "DEVELOPER_DIR",
+    "PUB_CACHE",
+];
+
 /// Resolve `launch` into the policy it runs under, or `None` when the run is
 /// not isolated.
 ///
@@ -144,13 +373,14 @@ pub fn plan(
     let ctx = context(run, options);
 
     let mut base = isol8::Spec::new(cmd.clone());
-    base.add_dirs_rw = vec![path_string(dir), path_string(&run.cwd)];
+    base.add_dirs_rw = read_write_grants(dir, run, options);
     base.add_dirs_ro = read_only_grants(run, options);
     base.set_env = launch.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-    // A harness asks the environment what it may draw, and isol8's allowlist
-    // holds neither of these.
-    base.env_pass = vec!["TERM".to_string(), "COLORTERM".to_string()];
+    base.env_pass = ENV_PASS.iter().map(|name| (*name).to_string()).collect();
     match &options.home {
+        // isol8 spells "the real home" as neither field set: `ephemeral_home
+        // = false` is the absence of a statement, not a statement.
+        HomeMode::Inherit => {}
         HomeMode::Ephemeral => base.ephemeral_home = true,
         HomeMode::Managed(id) => base.home = Some(format!("@managed/{id}")),
     }
@@ -168,6 +398,10 @@ pub fn plan(
     let mut cfg = isol8::Config::builtin_defaults();
     cfg.auto_profiles = true;
     cfg.profile_paths = vec![path_string(&profiles)];
+    // The toolchain layers, which nothing else can select: isol8 auto-matches
+    // on `cmd[0]` alone, and a build tool is this command's child.
+    cfg.default_profiles
+        .extend(DEV_LAYERS.iter().map(|name| (*name).to_string()));
     if !layer.is_empty() {
         cfg.default_profiles.push(layer.clone());
     }
@@ -474,6 +708,33 @@ fn context(run: &RunSpec, options: &IsolateOptions) -> isol8::Context {
         config_dir: options.state_dir.clone(),
         managed_root: options.state_dir.join("homes"),
     }
+}
+
+/// Every directory the run may write: its own ephemeral config dir, its
+/// working directory, the developer roots isol8 ships no layer for, and
+/// whatever the caller declared.
+///
+/// The run's own two come first, so a duplicate in [`DEV_RW_HOME_ROOTS`] or
+/// [`IsolateOptions::extra_rw`] collapses into them rather than the reverse.
+fn read_write_grants(dir: &Path, run: &RunSpec, options: &IsolateOptions) -> Vec<String> {
+    let mut grants = vec![path_string(dir), path_string(&run.cwd)];
+
+    // The same value `Context.real_home` carries, so a grant and a `~`
+    // expansion in a layer cannot disagree about where the home is.
+    let real_home = isol8::home::real_home();
+    let extra = DEV_RW_HOME_ROOTS
+        .iter()
+        .map(|rel| real_home.join(rel))
+        .chain(options.extra_rw.iter().cloned());
+
+    for path in extra {
+        let grant = path_string(&path);
+        if !grants.contains(&grant) {
+            grants.push(grant);
+        }
+    }
+
+    grants
 }
 
 /// Every directory the run reads through the config dir rather than inside it.
@@ -862,9 +1123,20 @@ mod tests {
                 .set_env
                 .contains(&format!("CLAUDE_CONFIG_DIR={}", cfg_dir.path().display()))
         );
-        assert_eq!(
-            confined.spec.env_pass,
-            vec!["TERM".to_string(), "COLORTERM".to_string()]
+        let passed = &confined.spec.env_pass;
+        assert!(passed.contains(&"TERM".to_string()));
+        assert!(passed.contains(&"COLORTERM".to_string()));
+        // A toolchain the agent shells out to needs more than a terminal: with
+        // no UTF-8 locale python and dotnet mangle every non-ASCII path, and a
+        // machine that egresses through a proxy cannot fetch a crate without
+        // being told where the proxy is.
+        assert!(passed.contains(&"LANG".to_string()));
+        assert!(passed.contains(&"HTTPS_PROXY".to_string()));
+        // …and never the inherited git state, which would retarget the agent's
+        // own `git` at whatever repository launched this process.
+        assert!(
+            !passed.iter().any(|name| name.starts_with("GIT_")),
+            "inherited GIT_* must not reach a confined run: {passed:?}"
         );
     }
 
@@ -918,6 +1190,10 @@ mod tests {
     #[test]
     fn home_mode_parse_accepts_known_values() {
         assert_eq!(
+            HomeMode::parse("inherit", "unused").expect("inherit"),
+            HomeMode::Inherit
+        );
+        assert_eq!(
             HomeMode::parse("ephemeral", "unused").expect("ephemeral"),
             HomeMode::Ephemeral
         );
@@ -967,6 +1243,134 @@ mod tests {
         assert!(confined.spec.profiles.contains(&"no-network".to_string()));
     }
 
+    // THE test for DEV_LAYERS. Every name must exist in the pinned isol8
+    // revision, and `plan` cannot catch a typo: it only fills a `Spec` and
+    // never loads the layer registry, so an unknown name is a hard error
+    // raised at *spawn* time, on every confined run, after this module has
+    // already reported success. Resolving the policy here is the only place
+    // that fails on the same commit that breaks it.
+    //
+    // Assert on the RESOLVED layer list, never the named one — isol8's own
+    // `--show-policies` prints only explicitly named layers, which is exactly
+    // the trap that makes a missing `requires` look like a working policy.
+    #[test]
+    fn dev_layers_all_resolve_and_join_the_builtin_stack() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let launch = Launch {
+            program: "/bin/sh".to_string(),
+            ..Launch::default()
+        };
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = plan(&launch, &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+        // Resolving renders without materializing, and under Inherit no
+        // scratch home is created, so this writes nothing outside the temps.
+        let resolved = describe(&confined).expect("every named layer must resolve");
+
+        let layers: Vec<&str> = resolved
+            .layer_names
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        for want in DEV_LAYERS {
+            assert!(layers.contains(want), "{want} missing from {layers:?}");
+        }
+        assert!(
+            layers.contains(&"base"),
+            "the toolchain layers must join the builtins, not displace them: {layers:?}"
+        );
+        // A layer whose raw SBPL calls an undefined macro makes sandbox-exec
+        // reject the whole policy, so one of these in the resolved set breaks
+        // every confined run rather than just its own feature.
+        for broken in BROKEN_LAYERS {
+            assert!(
+                !layers.contains(broken),
+                "{broken} is in BROKEN_LAYERS and must not resolve: {layers:?}"
+            );
+        }
+    }
+
+    // The real home is the entire point of Inherit: a `~`-relative layer grant
+    // expands against the *effective* home, so a replaced one aims
+    // `toolchains/rust`'s `~/.cargo` at an empty scratch directory. isol8
+    // spells "the real home" as neither field set, so assert both — a future
+    // `ephemeral_home = true` default would otherwise quietly undo this.
+    #[test]
+    fn home_mode_inherit_sets_neither_home_field() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let options = IsolateOptions::new(state.path().to_path_buf());
+        assert_eq!(options.home, HomeMode::Inherit, "Inherit is the default");
+
+        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+
+        assert!(!confined.spec.ephemeral_home);
+        assert_eq!(confined.spec.home, None);
+    }
+
+    // The .NET SDK writes before it will do anything else, and isol8 ships no
+    // layer for it. The grant must be absolute — so it survives a replaced
+    // home — and must be there whether or not the directory exists yet, since
+    // the grant is what makes the SDK's own first-run creation legal.
+    #[test]
+    fn dotnet_roots_are_granted_read_write_without_existing() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+
+        let rw = &confined.spec.add_dirs_rw;
+        for rel in DEV_RW_HOME_ROOTS {
+            let want = real_home().join(rel).display().to_string();
+            assert!(rw.contains(&want), "{want} missing from {rw:?}");
+        }
+    }
+
+    // `extra_rw` is the caller's escape hatch for a toolchain the shipped
+    // layers cannot place — a relocated CARGO_HOME, an SDK on another volume.
+    // It must dedupe against the run's own directories the way `extra_ro`
+    // does, and must not need the path to exist.
+    #[test]
+    fn extra_rw_options_become_read_write_grants() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let mut options = IsolateOptions::new(state.path().to_path_buf());
+        options.extra_rw = vec![
+            PathBuf::from("/opt/toolchain/cargo"),
+            // The cwd again: a duplicate must collapse rather than grant twice.
+            cwd.path().to_path_buf(),
+        ];
+
+        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+
+        let rw = &confined.spec.add_dirs_rw;
+        assert!(rw.contains(&"/opt/toolchain/cargo".to_string()));
+        let cwd_grant = cwd.path().display().to_string();
+        assert_eq!(
+            rw.iter().filter(|g| **g == cwd_grant).count(),
+            1,
+            "the cwd must be granted once: {rw:?}"
+        );
+    }
+
     // An empty layer name (Isolation::Sandboxed(String::new()), the "just
     // isolate me, no named profile" case) must add nothing beyond the
     // builtin defaults, or every plain `--isolate` run silently grows a
@@ -984,7 +1388,9 @@ mod tests {
             .expect("plan")
             .expect("sandboxed run must produce a policy");
 
-        assert_eq!(confined.spec.profiles.len(), 2);
+        // The builtins are `base` + this OS's system-runtime, plus the
+        // toolchain layers `plan` always names.
+        assert_eq!(confined.spec.profiles.len(), 2 + DEV_LAYERS.len());
         assert!(!confined.spec.profiles.contains(&String::new()));
     }
 

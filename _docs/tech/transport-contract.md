@@ -6,7 +6,7 @@ status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector and repository families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-07
-verified: 2026-09-06
+verified: 2026-09-07
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -771,8 +771,15 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` — at 5 — and `isolate_agents`, which is whether an agent runs
-confined, the one setting the host acts on rather than stores, read again at every spawn. It also
+`HostSettings` carries a `schema` — at 8 — and `isolate_agents`, which is whether an agent runs
+confined, the one setting the host acts on rather than stores, read again at every spawn.
+`agent_home` and `extra_grants` are the confined run's other two answers: an `AgentHome` of
+`Inherit`, `Ephemeral` or `Named(String)`, defaulting to `Inherit`, and a list of `Grant` — a
+`path` the user typed, absolute or `~`-prefixed, and whether the agent may `write` there,
+read-only when nothing says. Both are written by the interface and pass through `Settings::set`
+unchanged, unlike `connections`, `oauth_apps` and `trusted_certs` below, which the host owns and
+overwrites with what is on disk. What either means for a run belongs to the agent-manager
+boundary, not here. It also
 carries `projects_root` and `ephemeral_root`, the two folders a clone lands in: an absent or blank
 one means the host's own default under its config root, so the interface offers a placeholder rather
 than inventing a path it cannot read. `index_level` is how much of a project is indexed for every
