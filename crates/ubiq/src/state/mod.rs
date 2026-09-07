@@ -40,7 +40,9 @@ pub mod workbench;
 
 pub use agents::{AgentsView, BenchRow, Column};
 pub use board::{BoardState, Field, TaskForm};
-pub use chat::{AttachChoices, ChatTab, attach_choices};
+pub use chat::{
+    AttachChoices, ChatPick, ChatPicks, ChatTab, StartOffer, attach_choices, chat_picks,
+};
 pub use conversation::{ConvBlock, Conversation, Pending, Run};
 pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{ChatId, PanelClass, PanelKind, Region};

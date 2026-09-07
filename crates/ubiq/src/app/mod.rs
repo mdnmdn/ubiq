@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use crate::state::agents::{AgentsView, BenchRow, COLUMNS_MAX, COMPOSER_SLOTS};
 use crate::state::board::{BoardState, Field};
-use crate::state::chat::free_chat_slot;
+use crate::state::chat::{ChatPick, ChatPicks, attach_choices, chat_picks, free_chat_slot};
 use crate::state::conversation::{Conversation, Run};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
@@ -441,7 +441,6 @@ pub struct AppState {
     /// so [`Self::pick_new_agent_menu`] knows which tab to attach the freshly minted conversation
     /// to. Cleared on dismiss and consumed on pick, so a start from anywhere else — the agents
     /// screen's own *New agent* — never attaches to a stale tab.
-    pending_chat_attach: Option<ChatId>,
     /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
     /// the window rather than to a project, because the sink has no project behind it.
     pub sink: SinkState,

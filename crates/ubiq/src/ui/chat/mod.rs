@@ -78,7 +78,8 @@ fn body(
             cx,
         ),
         // Nothing attached. The control that fixes it is named rather than left to be found, the
-        // same way the agents screen's empty page names it.
+        // same way the agents screen's empty page names it — and it is one control now, so the
+        // page names one thing rather than offering a choice between two.
         None => div()
             .flex()
             .flex_col()
@@ -86,8 +87,8 @@ fn body(
             .min_h(px(0.))
             .child(empty::empty_page(
                 "Nothing attached",
-                "Attach a conversation, or start one with New chat.",
-                IconName::Asterisk,
+                "Start a conversation, or attach one already running, from the control above.",
+                IconName::Play,
                 None,
             ))
             .into_any_element(),

@@ -6,7 +6,7 @@ status: current
 summary: How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
 read_when: you are extending version control, adding the write family, touching how a clone runs, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
 updated: 2026-09-05
-verified: 2026-09-05
+verified: 2026-09-07
 code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
@@ -70,6 +70,14 @@ repository fetches from. A submodule is a different repository, pinned at a comm
 its own: it is named on the overview, its state is reported, and it contributes nothing to the
 outer project's counts — the status walk excludes submodules, and a submodule outside the project's
 scope is omitted the way a file outside it never appears in a listing.
+
+`git::web_url` turns a remote's URL into the page a browser would open, and is the whole of what
+Ubiq knows about providers: strip the scheme, the credentials and the `.git`, and every host but
+Azure DevOps puts the repository at `https://<host>/<path>` — GitHub, GitLab, Gitea, Bitbucket and
+a self-hosted instance alike. Azure is the one exception, because its web path is
+`org/project/_git/repo` while its ssh path is `v3/org/project/repo`. It is not a URL parser: a
+local path, a single-segment path, or anything carrying a query is not a page and answers `None`,
+which is how the titlebar decides whether to draw the link at all.
 
 ## 3. Where the work runs
 

@@ -292,9 +292,16 @@ impl AppState {
                         this.update(cx, |this, cx| this.select_file(path, cx));
                     }
                 });
+            let chat_app = app.clone();
+            let new_chat: crate::ui::dock::skin::NewPaneRun = Rc::new(move |_window, cx| {
+                if let Some(this) = chat_app.upgrade() {
+                    this.update(cx, |this, cx| this.new_chat_tab(cx));
+                }
+            });
             DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx).with_renderer(
                 crate::ui::dock::skin::Skin::new()
                     .with_new_pane(new_pane)
+                    .with_new_chat(new_chat)
                     .with_file_tab_menu(file_tab_menu)
                     .with_file_tab_promote(file_tab_promote),
             )
@@ -812,7 +819,6 @@ impl AppState {
             pending_regions: None,
             region_had_content: (false, false, false),
             workbench: WorkbenchState::default(),
-            pending_chat_attach: None,
             sink: SinkState::default(),
             stats: StatsState::default(),
             file_picker: None,

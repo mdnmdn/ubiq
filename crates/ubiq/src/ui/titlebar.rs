@@ -58,6 +58,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 }),
             )
         })
+        .children(repo_link(app, cx))
         // Back and forward belong to the project they walk, so they sit beside it rather than
         // beside the field: project, its menu, a rule, then the two arrows.
         .child(
@@ -170,7 +171,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         )
                         .h_full()
                         .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Open in browser")
+                            gpui_component::tooltip::Tooltip::new("Explore the project in browser")
                                 .build(window, cx)
                         }),
                     )
@@ -280,4 +281,23 @@ fn nav_control(
                     gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
                 })
         })
+}
+
+/// The repository's page on its provider, when the project's default remote names one.
+///
+/// Nothing is drawn for a project that is not a repository, has no remote, or has a remote no
+/// browser could open — a local path, or a host this does not know the page shape of.
+fn repo_link(app: &AppState, cx: &App) -> Option<impl IntoElement> {
+    let overview = app.open_project(cx)?.git.as_ref()?;
+    let remote = overview.remotes.iter().find(|remote| remote.is_default)?;
+    let url = ubiq_proto::git::web_url(&remote.url)?;
+    let label: gpui::SharedString = format!("Open {url}").into();
+    Some(
+        icon_button("repo-link", IconName::Globe, false, move |_, _, cx| {
+            cx.open_url(&url)
+        })
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+        }),
+    )
 }

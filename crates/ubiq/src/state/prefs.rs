@@ -65,11 +65,29 @@ impl ModeLayout {
     }
 }
 
+/// The last thing a chat tab was started on: the harness, and the identity it ran as.
+///
+/// Interface scope rather than a project's, because which harnesses this machine has and which
+/// account is signed into them is a fact about the machine — a second project on the same laptop
+/// should open offering what the first one used, not start from nothing again.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
+pub struct LastStart {
+    pub agent_type: String,
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
+}
+
 /// What belongs to the whole interface rather than to any one project.
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct InterfacePrefs {
     pub schema: u32,
     pub theme: ThemeId,
+    /// What the last conversation was started on, so the next empty tab opens on it. `default`
+    /// like every field added after the first release — see [`ViewPrefs`].
+    #[serde(default)]
+    pub last_start: Option<LastStart>,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -85,6 +103,7 @@ impl Default for InterfacePrefs {
         Self {
             schema: SCHEMA,
             theme: ThemeId::Dark,
+            last_start: None,
             rest: Default::default(),
         }
     }

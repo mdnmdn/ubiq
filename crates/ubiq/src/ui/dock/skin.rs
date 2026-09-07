@@ -128,6 +128,12 @@ pub struct Skin {
     /// The window's "new terminal" control, drawn at the right of the bottom region's tab bar.
     /// `None` in windows with no project, where there is nothing to spawn a pane for.
     new_pane: Option<NewPane>,
+    /// The chat panel's "new tab" control, drawn on the strip of any group holding a chat.
+    ///
+    /// Beside `new_pane` rather than folded into it: the two open different things — one starts a
+    /// harness, the other opens a second view of conversations that already exist — and a group
+    /// may hold chats and panes at once, in which case the strip honestly offers both.
+    new_chat: Option<NewPaneRun>,
     /// The file-tab right-click, so a tab can ask for its context menu. `None` where the skin has
     /// no project-facing window to hand the click to.
     file_tab_menu: Option<FileTabMenuRun>,
@@ -141,6 +147,7 @@ impl Default for Skin {
         Self {
             resizing: Rc::new(RefCell::new(None)),
             new_pane: None,
+            new_chat: None,
             file_tab_menu: None,
             file_tab_promote: None,
         }
@@ -156,6 +163,14 @@ impl Skin {
     pub fn with_new_pane(self: &Rc<Self>, action: NewPane) -> Rc<Self> {
         Rc::new(Self {
             new_pane: Some(action),
+            ..(**self).clone()
+        })
+    }
+
+    /// Attach the "new chat tab" control to the strip of every group holding a chat.
+    pub fn with_new_chat(self: &Rc<Self>, run: NewPaneRun) -> Rc<Self> {
+        Rc::new(Self {
+            new_chat: Some(run),
             ..(**self).clone()
         })
     }
@@ -502,6 +517,16 @@ impl TabGroupRenderer for Skin {
             .new_pane
             .as_ref()
             .filter(|action| hosts_panes || (action.region)(group.node(), cx));
+        // The chat `+` follows the same rule the pane `+` does — it is offered where the thing it
+        // opens already lives — so a chat dragged into the editor region takes its control with
+        // it rather than leaving the gesture behind on a strip it is no longer on.
+        let hosts_chats = group.panels().iter().any(|panel| {
+            panel
+                .view()
+                .downcast::<WorkbenchPanel>()
+                .is_ok_and(|panel| matches!(panel.read(cx).kind(), PanelKind::Chat(_)))
+        });
+        let new_chat = self.new_chat.clone().filter(|_| hosts_chats);
 
         // Each tab bar scrolls on its own handle: the skin draws every group, and one shared
         // handle would give them one offset and one set of measured tab bounds — the last strip to
@@ -607,6 +632,29 @@ impl TabGroupRenderer for Skin {
                         window.refresh();
                     }),
             )
+            .when_some(new_chat, |this, run| {
+                this.child(
+                    div()
+                        .id("ubiq-tab-new-chat")
+                        .ml_1()
+                        .size(px(20.))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .hover(|this| this.bg(theme::hover()))
+                        .child(
+                            Icon::new(IconName::Plus)
+                                .with_size(Size::XSmall)
+                                .text_color(theme::text_faint()),
+                        )
+                        .on_click(move |_, window, cx| run(window, cx))
+                        .tooltip(|window, cx| {
+                            gpui_component::tooltip::Tooltip::new("New chat tab").build(window, cx)
+                        }),
+                )
+            })
             // The pane control comes before the zoom, so the zoom is the last thing on every
             // strip: a group is expanded from the same place whether or not it can start a pane.
             .when_some(new_pane, |this, action| {

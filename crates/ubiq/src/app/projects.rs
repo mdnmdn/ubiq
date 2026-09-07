@@ -626,6 +626,7 @@ impl AppState {
             Scope::Interface => {
                 if let Some(prefs) = prefs::decode::<prefs::InterfacePrefs>(&blob) {
                     self.workbench.interface_rest = prefs.rest;
+                    self.workbench.last_start = prefs.last_start;
                     if prefs.theme != self.workbench.theme_id {
                         self.workbench.theme_id = prefs.theme;
                         theme::set_mode(prefs.theme, cx);

@@ -37,6 +37,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::HarnessChoice;
+use crate::state::chat::StartOffer;
 use crate::theme;
 use crate::ui::empty;
 use crate::ui::kit::{self, ghost_button, mono};
@@ -202,50 +203,84 @@ fn new_agent(cx: &mut Context<AppState>) -> AnyElement {
 /// that carries which row was chosen.
 ///
 /// [`AgentTypeInfo`]: ubiq_proto::messages::AgentTypeInfo
-pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    let view = cx.entity();
-    let items: Vec<kit::ContextItem> = app
-        .workbench
+/// How one [`HarnessChoice`] reads, and whether it can be picked.
+///
+/// **One labelling, two surfaces.** The agents screen's menu and the chat tab's unified control
+/// offer the same rows and resolve a pick through the same index, so what a row says and whether
+/// it is live is answered once here rather than written out twice — the second copy is how the
+/// two drift into disagreeing about which harness a position means.
+pub fn harness_offer(app: &AppState, at: usize, row: &HarnessChoice) -> StartOffer {
+    let inert = |label: String, separator: bool| StartOffer {
+        label,
+        enabled: false,
+        separator,
+        choice: None,
+    };
+    let (harness, account) = match row {
+        HarnessChoice::Label(text) => return inert(text.to_string(), false),
+        HarnessChoice::Separator => return inert(String::new(), true),
+        // A profile draws under its own name rather than the harness's — "reviewer" is what the
+        // user called this setup — and reads disabled when the harness it names is not installed
+        // here, the same as a bare harness row.
+        HarnessChoice::Profile(index) => {
+            let Some(profile) = app.workbench.settings.profiles.get(*index) else {
+                return inert(String::new(), false);
+            };
+            let available = app
+                .workbench
+                .agent_types
+                .iter()
+                .any(|info| info.id == profile.agent_type && info.available);
+            return StartOffer {
+                label: profile.id.clone(),
+                enabled: available,
+                separator: false,
+                choice: Some(at),
+            };
+        }
+        HarnessChoice::Harness(harness) => (*harness, None),
+        HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
+    };
+    let Some(agent) = app.workbench.agent_types.get(harness) else {
+        return inert(String::new(), false);
+    };
+    // "Claude Code — syn2". Composed into one line because a menu row has no second line to put
+    // it on, which is the same thing the shell rows do with "(default)".
+    let label = match account {
+        Some(account) => format!("{} \u{2014} {account}", agent.label),
+        None => agent.label.clone(),
+    };
+    StartOffer {
+        label,
+        enabled: agent.available,
+        separator: false,
+        choice: Some(at),
+    }
+}
+
+/// Every row the harness list offers, labelled — what both surfaces draw.
+pub fn harness_offers(app: &AppState) -> Vec<StartOffer> {
+    app.workbench
         .harness_choices(
             &app.workbench.settings.accounts,
             &app.workbench.settings.profiles,
         )
         .iter()
-        .filter_map(|row| {
-            let (harness, account) = match row {
-                HarnessChoice::Label(text) => {
-                    return Some(kit::ContextItem::new(text.clone()).disabled());
-                }
-                HarnessChoice::Separator => return Some(kit::ContextItem::separator()),
-                // A profile draws under its own name rather than the harness's — "reviewer" is
-                // what the user called this setup — and reads disabled when the harness it names
-                // is not installed here, the same as a bare harness row.
-                HarnessChoice::Profile(index) => {
-                    let profile = app.workbench.settings.profiles.get(*index)?;
-                    let item = kit::ContextItem::new(SharedString::from(profile.id.clone()));
-                    let available = app
-                        .workbench
-                        .agent_types
-                        .iter()
-                        .any(|info| info.id == profile.agent_type && info.available);
-                    return Some(if available { item } else { item.disabled() });
-                }
-                HarnessChoice::Harness(harness) => (*harness, None),
-                HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
-            };
-            let agent = app.workbench.agent_types.get(harness)?;
-            // "Claude Code — syn2". Composed into one line because a menu row has no second line
-            // to put it on, which is the same thing the shell rows do with "(default)".
-            let label = match account {
-                Some(account) => format!("{} \u{2014} {account}", agent.label),
-                None => agent.label.clone(),
-            };
-            let item = kit::ContextItem::new(SharedString::from(label));
-            Some(if agent.available {
-                item
-            } else {
-                item.disabled()
-            })
+        .enumerate()
+        .map(|(at, row)| harness_offer(app, at, row))
+        .collect()
+}
+
+pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+    let items: Vec<kit::ContextItem> = harness_offers(app)
+        .into_iter()
+        .map(|offer| {
+            if offer.separator {
+                return kit::ContextItem::separator();
+            }
+            let item = kit::ContextItem::new(SharedString::from(offer.label));
+            if offer.enabled { item } else { item.disabled() }
         })
         .collect();
     // Nothing found on this machine is said in the menu rather than by a control that opens on

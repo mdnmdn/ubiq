@@ -934,8 +934,7 @@ pub struct MessagesDemo {
     /// move the row that chose it.
     pub body_scroll: ScrollHandle,
     /// Whether the next conversation the New agent menu starts is this page's to read. Set by the
-    /// bench's own *New chat*, taken in `pick_new_agent_menu` — the chat tabs' `pending_chat_attach`
-    /// with a different owner.
+    /// bench's own *New chat*, taken in `pick_new_agent_menu`.
     pub pending_attach: bool,
     /// Where the last dump landed, until the next one. A path rather than a note: it is what the
     /// reader takes to a shell.

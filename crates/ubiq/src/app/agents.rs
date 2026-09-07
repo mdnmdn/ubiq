@@ -689,6 +689,26 @@ impl AppState {
     pub fn pick_new_agent_menu(&mut self, index: usize, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.new_agent_menu = None;
+        let started = self.start_harness_choice(index, cx);
+        // The sink's bench asked for this one, so it reads it rather than staying on whichever
+        // conversation happened to be first.
+        if started.is_some() && std::mem::take(&mut self.sink.messages.pending_attach) {
+            self.sink.messages.agent = started;
+        }
+        cx.notify();
+    }
+
+    /// Start the conversation named by that row of [`crate::state::WorkbenchState::harness_choices`],
+    /// and answer the id it was given — `None` when the row starts nothing.
+    ///
+    /// Its own method rather than the menu's body, because the chat panel's unified control offers
+    /// the same rows and must resolve them the same way: two readings of one list is how a reorder
+    /// turns into a wrong launch.
+    pub fn start_harness_choice(
+        &mut self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Option<AgentId> {
         // The same list the menu drew, so an index cannot mean one row on screen and another
         // here — the rule every position-matched menu in the window follows.
         let rows = self.workbench.harness_choices(
@@ -725,9 +745,7 @@ impl AppState {
             // wrong launch.
             Some(HarnessChoice::Label(_)) | Some(HarnessChoice::Separator) | None => None,
         };
-        let Some((agent_type, account, profile)) = picked else {
-            return;
-        };
+        let (agent_type, account, profile) = picked?;
         // A profile whose harness is not installed here is drawn disabled, the same as a bare
         // harness row, so this is the belt to those braces.
         if !self
@@ -736,38 +754,89 @@ impl AppState {
             .iter()
             .any(|info| info.id == agent_type && info.available)
         {
-            return;
+            return None;
         }
-        let Some(project_id) = self.project(cx) else {
-            return;
-        };
+        let project_id = self.project(cx)?;
         let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
             agent_id,
             project_id,
             session_id: self.session,
             rel_path: None,
-            agent_type,
-            account,
-            profile,
+            agent_type: agent_type.clone(),
+            account: account.clone(),
+            profile: profile.clone(),
         });
-        // The id is minted client-side above, so there is no round trip to wait on: whichever
-        // chat tab's own *New chat* opened this menu — if any did — is attached right away.
-        if let Some(chat_id) = self.pending_chat_attach.take() {
-            self.attach_chat(chat_id, Some(agent_id), cx);
-        }
-        // The sink's bench asked for this one, so it reads it rather than staying on whichever
-        // conversation happened to be first.
-        if std::mem::take(&mut self.sink.messages.pending_attach) {
-            self.sink.messages.agent = Some(agent_id);
-        }
+        // What was started last is what the next empty tab offers first — see
+        // `AppState::remember_harness_choice`.
+        self.remember_harness_choice(&agent_type, account.as_deref(), profile.as_deref(), cx);
         cx.notify();
+        Some(agent_id)
+    }
+
+    /// Write down what a conversation was just started on, so the next empty tab opens offering
+    /// it. Interface scope: which harnesses this machine has is a fact about the machine, not
+    /// about the project that happened to use one.
+    fn remember_harness_choice(
+        &mut self,
+        agent_type: &str,
+        account: Option<&str>,
+        profile: Option<&str>,
+        _cx: &mut Context<Self>,
+    ) {
+        let last = crate::state::prefs::LastStart {
+            agent_type: agent_type.to_string(),
+            account: account.map(str::to_string),
+            profile: profile.map(str::to_string),
+        };
+        if self.workbench.last_start.as_ref() == Some(&last) {
+            return;
+        }
+        self.workbench.last_start = Some(last);
+        self.remember_interface();
+    }
+
+    /// Which row of [`crate::state::WorkbenchState::harness_choices`] the last start named, if it
+    /// is still on offer. A harness uninstalled, or an account signed out, since simply answers
+    /// `None` — the remembered pick is a hint, never a promise.
+    pub fn remembered_choice(&self) -> Option<usize> {
+        let last = self.workbench.last_start.as_ref()?;
+        let rows = self.workbench.harness_choices(
+            &self.workbench.settings.accounts,
+            &self.workbench.settings.profiles,
+        );
+        rows.iter().position(|row| match row {
+            HarnessChoice::Harness(harness) => {
+                last.profile.is_none()
+                    && last.account.is_none()
+                    && self
+                        .workbench
+                        .agent_types
+                        .get(*harness)
+                        .is_some_and(|agent| agent.id == last.agent_type)
+            }
+            HarnessChoice::Pair { harness, account } => {
+                last.profile.is_none()
+                    && last.account.as_deref() == Some(account.as_str())
+                    && self
+                        .workbench
+                        .agent_types
+                        .get(*harness)
+                        .is_some_and(|agent| agent.id == last.agent_type)
+            }
+            HarnessChoice::Profile(profile) => self
+                .workbench
+                .settings
+                .profiles
+                .get(*profile)
+                .is_some_and(|held| Some(held.id.as_str()) == last.profile.as_deref()),
+            HarnessChoice::Label(_) | HarnessChoice::Separator => false,
+        })
     }
 
     pub fn dismiss_new_agent_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.new_agent_menu = None;
-        self.pending_chat_attach = None;
         cx.notify();
     }
 

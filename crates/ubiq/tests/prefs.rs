@@ -135,10 +135,35 @@ fn the_interface_blob_carries_the_palette() {
     let prefs_in = InterfacePrefs {
         schema: prefs::SCHEMA,
         theme: ThemeId::Light,
+        last_start: None,
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
     assert_eq!(back.theme, ThemeId::Light);
+}
+
+/// The last harness a conversation was started on rides the interface blob, so an empty chat tab
+/// in tomorrow's session opens offering what today's used. A blob written before this field
+/// existed still decodes — it is `default` like every field added after the first release, which
+/// is what keeps the schema still.
+#[test]
+fn the_interface_blob_carries_the_last_start() {
+    let prefs_in = InterfacePrefs {
+        schema: prefs::SCHEMA,
+        theme: ThemeId::Dark,
+        last_start: Some(prefs::LastStart {
+            agent_type: "claude-code".to_string(),
+            account: Some("mdn".to_string()),
+            profile: None,
+        }),
+        rest: Default::default(),
+    };
+    let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
+    assert_eq!(back.last_start, prefs_in.last_start);
+
+    let older = format!(r#"{{"schema":{},"theme":"Dark"}}"#, prefs::SCHEMA);
+    let back: InterfacePrefs = prefs::decode(&older).expect("a blob without the field decodes");
+    assert_eq!(back.last_start, None);
 }
 
 /// The schema moved when a remembered file became a tab key rather than a path, when the saved

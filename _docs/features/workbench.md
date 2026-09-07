@@ -636,6 +636,11 @@ sink is not addressable at all: it is the test bench and has no project behind i
 names a project, never a window**: one whose project another window holds sends *that* window there
 and raises it, so nothing moves between windows and the follower's own place is untouched.
 
+**A repository's remote earns a globe beside the 3-dot**, which opens the project's page on its
+provider and says which URL in its hint. It is drawn only when `ubiq_proto::git::web_url` recognises
+the default remote's URL, so a project that is not a repository, has no remote, or fetches from a
+local path shows nothing rather than a dead button.
+
 **Back and forward are one stack per window, spanning every project it has shown.** `⌃-` and
 `⌃⇧-`, and two controls at the left of the titlebar, past a rule from the project and its menu:
 they walk that project's places, so they sit beside it rather than beside the field — each drawn
@@ -1810,8 +1815,10 @@ project-settings overlay, the application-settings overlay, the login modal, or 
 own menus over all of it: the file-tab menu, the new-pane menu and the new-agent menu. Those last
 three are painted here rather than by the surface that opened them, because more than one surface
 opens them and what there is to offer is the window's answer, not a page's — the new-agent menu is
-`ui::agents::new_agent_menu`, and the agents screen's `New agent` control and the chat panel's
-`+ New chat` both raise that one. The mark is drawn by `rail::mark`
+`ui::agents::new_agent_menu`, which the agents screen's `New agent` control raises. The chat panel
+does not: its own start-or-attach control offers those rows inline, through the same labelling
+(`ui::agents::harness_offers`) and the same start (`AppState::start_harness_choice`), because it has
+a second half — the conversations already running — that the menu has nothing to say about. The mark is drawn by `rail::mark`
 in that first row so it sits in the corner above the rail rather than inside it. It fixes no
 arrangement — everything between the chrome is the dock's.
 

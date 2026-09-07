@@ -267,6 +267,10 @@ pub struct WorkbenchState {
     /// without somewhere to keep them they would be dropped on the first write — see
     /// `state/prefs.rs`'s `rest`.
     pub interface_rest: std::collections::BTreeMap<String, serde_json::Value>,
+    /// What the last conversation was started on. Read back from the interface's preferences and
+    /// written whenever one starts, so an empty chat tab opens on the last thing that worked
+    /// rather than on whatever happens to be first in the list.
+    pub last_start: Option<crate::state::prefs::LastStart>,
     pub open_menu: Option<MenuId>,
 
     /// What was typed into the project menu's search field.
@@ -344,6 +348,7 @@ impl Default for WorkbenchState {
             rail_mode: RailMode::Ide,
             theme_id: ThemeId::Dark,
             interface_rest: Default::default(),
+            last_start: None,
             open_menu: None,
             project_filter: String::new(),
             row_action: None,

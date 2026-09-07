@@ -301,3 +301,93 @@ impl std::fmt::Display for GitError {
         }
     }
 }
+
+/// The page a browser would open for a remote URL, or `None` when the URL is not one this
+/// recognises.
+///
+/// Every provider but Azure DevOps puts the repository at `https://<host>/<path>`, so the shape is
+/// one rule and one exception: strip the scheme, the credentials and the `.git`, then move an
+/// Azure path into the `_git` form its web interface uses. Deliberately not a URL parser — a
+/// remote that is a local path, a single-segment path, or anything carrying a query is simply not
+/// a page, and says so with `None`.
+pub fn web_url(remote: &str) -> Option<String> {
+    let text = remote.trim();
+    let (authority, path) = if let Some(rest) = text.strip_prefix("git@") {
+        rest.split_once(':')?
+    } else {
+        let rest = ["https://", "http://", "ssh://", "git://"]
+            .iter()
+            .find_map(|scheme| text.strip_prefix(scheme))?;
+        rest.split_once('/')?
+    };
+
+    // `user:token@host:port` — neither half belongs in a link.
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = host
+        .rsplit_once(':')
+        .filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit()))
+        .map_or(host, |(h, _)| h)
+        .to_ascii_lowercase();
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).trim_matches('/');
+    if !host.contains('.') || path.is_empty() || path.contains(['?', '#', ' ']) {
+        return None;
+    }
+
+    if host.ends_with("dev.azure.com") {
+        // ssh gives `v3/org/project/repo`, https gives `org/project/_git/repo`. One form on the
+        // way out.
+        let path = path.strip_prefix("v3/").unwrap_or(path);
+        if path.contains("/_git/") {
+            return Some(format!("https://dev.azure.com/{path}"));
+        }
+        let (project, repo) = path.rsplit_once('/')?;
+        if !project.contains('/') {
+            return None;
+        }
+        return Some(format!("https://dev.azure.com/{project}/_git/{repo}"));
+    }
+
+    // Anything shorter than `owner/name` is a host, not a repository.
+    if !path.contains('/') {
+        return None;
+    }
+    Some(format!("https://{host}/{path}"))
+}
+
+#[cfg(test)]
+mod web_url_tests {
+    use super::web_url;
+
+    #[test]
+    fn known_remotes_become_pages() {
+        for (remote, page) in [
+            ("git@github.com:mdnmdn/ubiq.git", "https://github.com/mdnmdn/ubiq"),
+            ("https://github.com/mdnmdn/ubiq.git", "https://github.com/mdnmdn/ubiq"),
+            ("ssh://git@gitlab.com:2222/group/sub/proj.git", "https://gitlab.com/group/sub/proj"),
+            (
+                "git@ssh.dev.azure.com:v3/realeitesorg/it.grma.HelpdeskAI/communication-platform-backend",
+                "https://dev.azure.com/realeitesorg/it.grma.HelpdeskAI/_git/communication-platform-backend",
+            ),
+            (
+                "https://xxxxxx@dev.azure.com/realeitesorg/it.grma.HelpdeskAI/_git/communication-platform-backend",
+                "https://dev.azure.com/realeitesorg/it.grma.HelpdeskAI/_git/communication-platform-backend",
+            ),
+        ] {
+            assert_eq!(web_url(remote).as_deref(), Some(page), "{remote}");
+        }
+    }
+
+    #[test]
+    fn everything_else_is_not_a_page() {
+        for remote in [
+            "/srv/repos/ubiq.git",
+            "../sibling",
+            "https://github.com/",
+            "git@github.com:ubiq",
+            "https://github.com/a/b?tab=readme",
+        ] {
+            assert_eq!(web_url(remote), None, "{remote}");
+        }
+    }
+}

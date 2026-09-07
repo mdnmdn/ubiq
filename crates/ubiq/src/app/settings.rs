@@ -11,6 +11,7 @@ impl AppState {
         let prefs = prefs::InterfacePrefs {
             schema: prefs::SCHEMA,
             theme: self.workbench.theme_id,
+            last_start: self.workbench.last_start.clone(),
             // Whatever the blob carried that this build does not name, put back as it was found.
             rest: self.workbench.interface_rest.clone(),
         };

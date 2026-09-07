@@ -336,6 +336,77 @@ pub fn lifecycle_controls(
     row.into_any_element()
 }
 
+/// The state mark on its own, for a surface that puts it somewhere other than beside the menu.
+///
+/// The chat tab's head reads left to right — what the conversation *is*, then what it is *on*,
+/// then what can be *done to it* — so it wants the two halves of [`lifecycle_controls`] at
+/// opposite ends of one row rather than as a pair. Same glyph, same tooltip, same colours: this
+/// is the shared fragment, not a second one.
+pub fn lifecycle_mark(conversation: &Conversation, view: &ConversationView) -> AnyElement {
+    lifecycle_glyph(conversation, view)
+}
+
+/// The three-dots menu on its own, the other half of [`lifecycle_controls`].
+pub fn lifecycle_menu(
+    app: &AppState,
+    conversation: &Conversation,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let id = conversation.id;
+    let entity = cx.entity();
+
+    let enabled = lifecycle_menu_enabled(conversation);
+    let labels = ["Stop", "Unload", "Resume", "Delete"];
+    let items: Vec<ContextItem> = labels
+        .into_iter()
+        .zip(enabled)
+        .map(|(label, enabled)| {
+            let item = ContextItem::new(label);
+            if enabled { item } else { item.disabled() }
+        })
+        .collect();
+
+    let mut row = div().flex().flex_none().items_center().child(
+        div()
+            .id(view.eid("lifecycle"))
+            .h(px(20.))
+            .w(px(20.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .child(
+                Icon::new(IconName::EllipsisVertical)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_muted()),
+            )
+            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                let at = event.position();
+                this.open_conversation_menu(id, (at.x.into(), at.y.into()), cx);
+            }))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Conversation actions").build(window, cx)
+            }),
+    );
+
+    if app.workbench.open_menu == Some(MenuId::ConversationLifecycle(id)) {
+        let at = app.workbench.conversation_menu.unwrap_or_default();
+        row = row.child(context_menu(
+            view.eid("lifecycle-menu"),
+            point(px(at.0), px(at.1)),
+            items,
+            indexed(&entity, move |this, index, _window, cx| {
+                this.pick_conversation_menu(id, index, cx);
+            }),
+            handler(&entity, |this, _, cx| this.dismiss_conversation_menu(cx)),
+        ));
+    }
+
+    row.into_any_element()
+}
+
 /// The one glyph that says what P7's muted sentence used to say in prose — beside the three-dots
 /// menu rather than above the composer, and the word itself moved into the tooltip.
 ///
