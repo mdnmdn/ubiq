@@ -1572,6 +1572,34 @@ wrong shape if the cap were thousands rather than 200. A diff protocol buys that
 property that two windows cannot disagree, which is the property being bought here. And the history
 is in memory: a host restart loses it and every standing mute with it (`G197`).
 
+### D89 — The orchestration graph offers four arrangements, and the choice is the window's
+
+The graph had one arrangement, and one arrangement cannot answer two different questions: a canvas
+that fits on a screen and a canvas that shows who spawned whom are different pictures of the same
+records. `state::layout::Algo` names four — `Flow`, `Packed`, `Tree`, `Columns` — and the toolbar's
+control is where one is picked, in place of the tidy button that had no opinion to offer.
+
+All four are computed bottom-up by the same `Layout::auto`, and that is the part worth keeping: the
+cards inside a container are packed first, which fixes the container's box, and only then are those
+boxes packed against each other. Sizing the outside first is what leaves a fence loose round its own
+cards and a canvas full of holes. What the four disagree about is the packer at each level — record
+order and wrapping for `Flow`, a best-fit skyline over four candidate widths scored on area, aspect
+and waste for `Packed`, a tidy tree over the spawn relation for `Tree`, one card per row for
+`Columns` — and nothing downstream is told which was chosen, because every one of them writes the
+same two maps: an origin per task, an offset per card.
+
+The choice is not on the wire and is not persisted. It is the window's own fact, beside zoom: where
+a card is drawn is the interface's own, membership is the host's, and a project reopened in another
+window is not owed the arrangement this one was left in.
+
+**Cost:** four arrangements are four things to keep working, and only `Flow` is exercised by the
+graph's older tests — the invariants the rest are held to (containers that do not overlap, a card
+inside its own fence, an empty container that still has an origin) are asserted across `Algo::ALL`
+rather than per arrangement, so a subtler regression in `Packed`'s scoring or `Tree`'s spans would
+pass. `Packed` also fixes its two score weights and its four candidate widths as constants rather
+than tuning them against real graphs, and being unpersisted means a user who prefers `Columns`
+chooses it again in every window and after every restart — `G201` is that half.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

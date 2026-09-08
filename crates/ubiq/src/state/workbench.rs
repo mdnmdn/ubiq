@@ -169,6 +169,10 @@ pub enum MenuId {
     /// it belongs to — several conversations can be on screen at once, each with its own. Where
     /// it opened is `WorkbenchState::conversation_menu`.
     ConversationLifecycle(AgentId),
+    /// The orchestration toolbar's arrangement dropdown: which of `layout::Algo` the graph lays
+    /// itself out in. No position of its own — one menu in the window is open at a time, and this
+    /// one hangs off its own trigger.
+    GraphLayout,
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.

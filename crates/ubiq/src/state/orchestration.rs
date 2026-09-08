@@ -26,7 +26,7 @@ use ubiq_proto::work::{AgentId, Bucket, TaskRecord, WorkAgent};
 
 use super::work::WorkProjection;
 
-pub use super::layout::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout};
+pub use super::layout::{Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout};
 
 /// What the inspector and the tasks strip are about. A session and an agent are both selectable,
 /// and the two answer the same questions at different scales.
@@ -99,6 +99,9 @@ pub struct GraphView {
     /// Where the work is drawn. Thrown away and recomputed whole by `relayout`, and topped up one
     /// arriving card at a time by `Layout::place_new`.
     pub layout: Layout,
+    /// Which arrangement `relayout` and `absorb_new` compute. The window's own fact, like zoom —
+    /// it is not sent anywhere, and nothing outside this window has an opinion about it.
+    pub algo: Algo,
 
     /// Which session the graph is drawing, or every one of them. Its own field rather than a
     /// reading of `selection`, because which session is *shown* and which is *selected* are two
@@ -129,6 +132,7 @@ impl Default for GraphView {
     fn default() -> Self {
         Self {
             layout: Layout::default(),
+            algo: Algo::default(),
             session: None,
             buckets: Bucket::all().to_vec(),
             zoom: 0.8,
@@ -172,9 +176,24 @@ impl GraphView {
             .place_agent(id, (at.0 - origin.0, at.1 - origin.1));
     }
 
-    /// Throw the arrangement away and compute it again from the records.
+    /// Throw the arrangement away and compute it again from the records, in the chosen algorithm.
     pub fn relayout(&mut self, work: &WorkProjection) {
-        self.layout = Layout::auto(&work.agents, &work.tasks);
+        self.layout = Layout::auto(&work.agents, &work.tasks, self.algo);
+    }
+
+    /// Choose an arrangement and lay the graph out in it at once — picking one *is* asking for it,
+    /// so there is no second control to press.
+    pub fn set_algo(&mut self, algo: Algo, work: &WorkProjection) {
+        self.algo = algo;
+        self.relayout(work);
+    }
+
+    /// Give an arriving card a place, and leave every placed card alone — the "topped up" path
+    /// `relayout` is not: a card the user has not seen yet gets slotted in by the chosen algorithm,
+    /// nothing already on the canvas moves. Forwards to [`Layout::place_new`] so no caller outside
+    /// this module has to know which algorithm is current.
+    pub fn absorb_new(&mut self, work: &WorkProjection) {
+        self.layout.place_new(&work.agents, &work.tasks, self.algo);
     }
 
     /// The selected agent, when an agent is what is selected.

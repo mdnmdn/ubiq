@@ -19,8 +19,9 @@
 //!
 //! Nothing on the graph carries its own position. What an agent or a task *is* lives in
 //! [`crate::state::work`]; where it is drawn lives in [`crate::state::layout`], which arranges
-//! the whole graph on its own and hands a card its point. The toolbar's tidy control throws every
-//! hand-placed position away and asks for that arrangement again.
+//! the whole graph on its own and hands a card its point. The toolbar's arrangement control chooses
+//! which of [`crate::state::layout::Algo`] does that, and throws every hand-placed position away to
+//! ask for it.
 //!
 //! Three files: the graph is [`graph`], the panel beside it is [`inspector`], the drawer under it
 //! is [`tasks`]. This module is the frame; what a state reads as is [`crate::ui::work`]'s.
@@ -38,12 +39,14 @@ use gpui_component::IconName;
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
-use crate::state::Selection;
-use crate::state::orchestration::ZOOM_STEP;
+use crate::state::orchestration::{Algo, ZOOM_STEP};
+use crate::state::{MenuId, Selection};
 use crate::theme;
-use crate::ui::eid;
-use crate::ui::kit::{ghost_button, icon_button, mono, section_label, stepper, toggle_pill};
+use crate::ui::kit::{
+    Picker, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
+};
 use crate::ui::work::bucket_colour;
+use crate::ui::{eid, handler, indexed};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // The screen is a view of one project's work, and the shell keeps a window with no project off
@@ -93,6 +96,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let (Some(work), Some(graph)) = (app.work(cx), app.graph(cx)) else {
         return div().into_any_element();
     };
+    let view = cx.entity();
     // The lit pill is the one being *drawn*, not the one selected: `all` is a real state of the
     // row, and a session can be selected while every session is on screen.
     let showing = graph.session;
@@ -172,12 +176,23 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             cx.listener(|this, _, _, cx| this.zoom_graph(-ZOOM_STEP, cx)),
             cx.listener(|this, _, _, cx| this.zoom_graph(ZOOM_STEP, cx)),
         ))
-        .child(icon_button(
-            "orch-tidy",
-            IconName::LayoutDashboard,
-            false,
-            cx.listener(|this, _, _, cx| this.tidy_graph(cx)),
-        ))
+        .child(
+            Picker::new("orch-layout", graph.algo.label())
+                .icon(IconName::LayoutDashboard)
+                // A row carries the arrangement's hint as well as its name: "Packed" and "Tree"
+                // say nothing about what a pick would do to the canvas, and the trigger goes on
+                // reading as the bare name because that is what the control is reporting.
+                .items(Algo::ALL.map(|a| format!("{} \u{2014} {}", a.label(), a.hint())))
+                .selected(Algo::ALL.iter().position(|&a| a == graph.algo).unwrap_or(0))
+                .open(app.workbench.open_menu == Some(MenuId::GraphLayout))
+                .on_toggle(handler(&view, |this, _, cx| {
+                    this.open_menu(MenuId::GraphLayout, cx)
+                }))
+                .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+                .on_pick(indexed(&view, |this, index, _, cx| {
+                    this.set_graph_layout(index, cx)
+                })),
+        )
         .child(icon_button(
             "orch-fit",
             IconName::Maximize,

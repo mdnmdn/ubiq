@@ -918,9 +918,7 @@ impl AppState {
                 let open = self.projects.get_mut(&project_id)?;
                 let id = task.id;
                 open.work.apply_task(task);
-                open.graph
-                    .layout
-                    .place_new(&open.work.agents, &open.work.tasks);
+                open.graph.absorb_new(&open.work);
                 // The task that arrives is the one to select, because the interface could not know
                 // the id it was going to be given — the same mechanism `AppState::adding` uses to
                 // open the project an `AddProject` answers with.
@@ -943,9 +941,7 @@ impl AppState {
                 let selected = open.board.selected == Some(task.id);
                 let editing = open.board.editing.is_some();
                 open.work.apply_task(task);
-                open.graph
-                    .layout
-                    .place_new(&open.work.agents, &open.work.tasks);
+                open.graph.absorb_new(&open.work);
                 // Refill the panel from what the host actually stored — it trims a title, and a
                 // field showing what was typed rather than what was kept would be a small lie. Not
                 // while a field is open: the user's text wins until they commit or discard it.
@@ -980,9 +976,7 @@ impl AppState {
                 self.workbench.work_error = None;
                 let open = self.projects.get_mut(&project_id)?;
                 open.work.apply_agent(*agent);
-                open.graph
-                    .layout
-                    .place_new(&open.work.agents, &open.work.tasks);
+                open.graph.absorb_new(&open.work);
                 // An arriving agent is not put in a column: the arrangement is the user's, and the
                 // sidebar lists it on the bench with one click to bring it on. What a change *can*
                 // do is take a column's tab away, if the agent behind it has gone.
@@ -1047,9 +1041,7 @@ impl AppState {
                 // before its heading exists is an agent drawn nowhere.
                 open.work.apply_session(session);
                 open.work.apply_agent(*agent);
-                open.graph
-                    .layout
-                    .place_new(&open.work.agents, &open.work.tasks);
+                open.graph.absorb_new(&open.work);
                 let conversation = open
                     .conversations
                     .entry(id)
