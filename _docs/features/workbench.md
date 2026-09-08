@@ -243,6 +243,18 @@ settings page's harness list, where the full name is what a reader needs to make
 conversation's own name — derived host-side from the harness's command, not set by the UI — is
 unaffected either way; the glyph only ever stands in for the harness identifier next to it.
 
+**A conversation names itself once its agent has answered the opening prompt.** The host reads that
+one exchange, asks the configured provider for a title and a five-word summary, and the title
+becomes the conversation's name wherever a name is printed: the column header, each of a grouped
+column's tabs, the sidebar row, and the chat panel's own dock tab. The summary is the **hover** on
+each of those, which is what lets a row that is one line still say what it is about — a sidebar row
+with no summary hovers to its own name in full, since that is what an elided row owes a reader
+anyway. It happens **once per conversation**, it needs a provider configured, and a naming that
+fails says nothing: the mechanical name is still there, so there is nothing to report and nothing
+to undo. The checkbox that switches it off is in application settings' Assistance section below;
+`D90` is the decision behind replacing a name nobody typed, and the row a user still cannot type
+one over is `G119`.
+
 **The sidebar lists everything the host reports, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
 whole project is visible at once, and a benched agent is in it, marked, rather than gone. A session
@@ -949,7 +961,8 @@ agent is confined, whose home it runs in, and the directories it may reach beyon
 **Search** (what every project's search skips, and what a project is indexed to), **Connectors**
 (the named identities at each provider, and the registrations a flow picks from), **Hosts** (the
 remote hosts a window may attach to), **Assistance** (which backend writes the short lines Ubiq
-would otherwise invent mechanically, what that backend reports about itself, and the API providers
+would otherwise invent mechanically, what that backend reports about itself, whether a conversation
+names itself from its opening exchange, and the API providers
 configured here — each with its key typed once, its models picked from what the provider lists, and
 a test that streams a real answer back), and
 **Command line** (the `ubiq`
@@ -2079,7 +2092,12 @@ On-device, then one for each provider configured below — and the On-device pil
 `AssistInfo::switchable()` gates, dimmed and inert unless the backend is available or off by the
 user's own choice. It is the only one, because a machine whose local model is not there must still
 be able to switch *away* from it: gating the row would strand a user on a backend that cannot
-answer. The sentence under the row is the host's own, and
+answer. One `setting_row` follows it — `Name conversations`, a `check_box` on
+`AppState::toggle_auto_name_conversations`, which writes the Host layer like the provider row above
+it because the host is what does the reading. It is dimmed and inert while `assist` is `Off`, since
+a naming runs through that provider and nothing else, and the control that would make it run is
+the row directly above, so nothing is trapped by it. No second provider picker: a naming is the
+fast model's work at whichever backend is selected. The sentence under the row is the host's own, and
 the interface authors no sentence about a platform. The
 half that knows anything about a path is the host's `crates/ubiq-host/src/cli_shortcut.rs`:
 `handle()` takes the action, `candidates()` and `install_dir()` decide where, `script()` writes the
@@ -2239,7 +2257,12 @@ patch reaches its call through an index rather than a scan — and `activity()`,
 `tokens()`, `cost_usd()` and `rate_limit_five_hour_pct()` are what the badge, the ring and the
 footer's pills are drawn from; `is_next()` is the gap check. `AppState` holds them per project as `conversations`, kept after the harness ends, and
 `refresh_agent_record()` writes the badge, the ring, the token count and the model onto the
-`WorkAgent` record, so the sidebar, the graph and a column's header keep one source.
+`WorkAgent` record, so the sidebar, the graph and a column's header keep one source. It folds a
+naming on the same way: a `title` replaces `WorkAgent.name` only when there is one, while
+`summary` is written whatever it is — a second naming that answered a title and nothing after it
+has to clear the reading the first one left, or the hover would describe the conversation as it
+was. `Conversation::name` is what a `ConversationNamed` lands in, beside the `title` a
+`ConvUpdate::Title` writes, because the two are the same fact from two sources.
 `ui/conversation/mod.rs` draws one — `render()` over a `ConversationView`, then `tool_block()`,
 `diff()`, `permission()`, `footer()`, `composer()`, `attachment_tags()` and `queue_list()` —
 `prompt_agent()` sends what was typed with every attached path composed into it as an `@path`
@@ -2610,6 +2633,8 @@ field's, instead of landing in the middle of the centred row and covering the te
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |
+| No provider is configured, or a naming fails | Every conversation keeps the mechanical name it was given, and no surface hovers to a summary. Nothing is reported: the Assistance section is where a provider that cannot answer says so |
+| Naming is switched off while a conversation is mid-run | It is not named. The host re-reads the setting on every pass rather than caching it, so switching it off switches it off |
 | The Git screen is opened on a folder that is not a repository | The toolbar says so, the lists are empty and nothing is drawn as clean. No error to dismiss |
 | A repository is open and the working tree has nothing to say | The panel says there is nothing to commit, which is the answer clean gives and unread does not |
 | A changed path is picked and the host has not answered yet | The pane says it is reading. The last comparison is never left under the new name |

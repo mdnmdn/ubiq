@@ -1184,6 +1184,25 @@ pub enum Message {
         agent_id: AgentId,
         error: String,
     },
+    /// Ubiq has read the opening exchange and named the conversation.
+    ///
+    /// **Not a transcript delta, which is why it is not a [`ConvUpdate`].** It carries no `seq`
+    /// and takes no place in the sequence an interface checks for gaps: the naming is Ubiq's own
+    /// reading of the conversation rather than something the harness said, and the pump that owns
+    /// that sequence is not what produced it. `ConvUpdate::Title` remains the harness naming
+    /// itself, and the two write the same field — whichever spoke last is the name.
+    ///
+    /// Sent at most once per conversation, and only where a provider is configured to write one.
+    /// A naming that fails is not reported: nothing was renamed behind anybody's back and the
+    /// mechanical name is still there, so there is no state for an interface to unwind.
+    ConversationNamed {
+        agent_id: AgentId,
+        /// What the agent tab says from here on.
+        title: String,
+        /// The five-word reading of what the conversation is about, drawn as the title's tooltip.
+        /// `None` where the model answered a title and nothing after it.
+        summary: Option<String>,
+    },
 
     // ── Search family: UI → host ────────────────────────────────────
     /// Start a content search across a project. One live search per project; a new one supersedes

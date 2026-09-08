@@ -162,6 +162,37 @@ fn text(text: &str) -> AgentEvent {
     }
 }
 
+/// A chunk of the agent's prose under a named message, so a test can say where one message ends
+/// and the next begins — which is the only thing that distinguishes them.
+fn text_under(message_id: &str, text: &str) -> AgentEvent {
+    AgentEvent::AgentMessageChunk {
+        content: Content::text(text),
+        message_id: Some(message_id.to_string()),
+        origin: agent_manager::io::Origin::default(),
+    }
+}
+
+/// A chunk from something the agent spawned rather than from the agent itself. `parent_tool_use_id`
+/// is what makes it a subagent's, and is what the naming pass filters on.
+fn subagent_text(text: &str) -> AgentEvent {
+    AgentEvent::AgentMessageChunk {
+        content: Content::text(text),
+        message_id: Some("sub".to_string()),
+        origin: agent_manager::io::Origin {
+            parent_tool_use_id: Some("t1".to_string()),
+            ..agent_manager::io::Origin::default()
+        },
+    }
+}
+
+/// The turn is over, with nothing wrong.
+fn turn_ended() -> AgentEvent {
+    AgentEvent::TurnEnded {
+        stop_reason: LibStop::EndTurn,
+        error: None,
+    }
+}
+
 /// The whole path: an event goes in, a bus message comes out, stamped with the
 /// agent that produced it and a sequence number that starts at one.
 #[test]
@@ -447,4 +478,49 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
         Message::ConversationUpdate { seq: 3, .. }
     ));
     resumed.stop(false);
+}
+
+/// The opening reply is what a conversation is named after, and it is an accumulation: chunks
+/// sharing a `message_id` are one message, so gathering it is the pump's job and nobody else can
+/// do it — the coordinator is handed the finished sentence.
+#[test]
+fn the_opening_reply_is_gathered_whole_and_published_when_the_turn_ends() {
+    let (_hub, host_end, client) = bus_pair();
+    let (bridge, _) = Scripted::new(vec![
+        text_under("m1", "Added a fold "),
+        text_under("m1", "control to the header."),
+        // Not the agent talking, so not what the conversation is about.
+        subagent_text("I read every file under src/."),
+        // A second message. The naming is after what the conversation opened with.
+        text_under("m2", "Anything else?"),
+        turn_ended(),
+    ]);
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation =
+        Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None, false);
+    // Draining past the turn's own update means the pump has already published: the publish
+    // happens before the send that carries `TurnEnded` onto the bus.
+    drain(&client, 6);
+
+    assert_eq!(
+        conversation.first_reply().as_deref(),
+        Some("Added a fold control to the header."),
+        "the opening reply should be the first message, whole and on its own",
+    );
+}
+
+/// A turn in which only a spawned subagent said anything leaves nothing to name a conversation
+/// after — better an unnamed conversation than one named after work it delegated.
+#[test]
+fn a_turn_of_only_subagent_prose_publishes_no_opening_reply() {
+    let (_hub, host_end, client) = bus_pair();
+    let (bridge, _) = Scripted::new(vec![subagent_text("I read every file."), turn_ended()]);
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation =
+        Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None, false);
+    drain(&client, 3);
+
+    assert_eq!(conversation.first_reply(), None);
 }

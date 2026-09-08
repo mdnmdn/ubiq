@@ -1137,6 +1137,24 @@ impl AppState {
                 cx.notify();
             }
 
+            // Ubiq read the opening exchange and named the conversation. Not a `ConvUpdate` and
+            // carrying no `seq`: the naming is this side's own reading rather than something the
+            // harness said, so it never counts against the gap check.
+            Message::ConversationNamed {
+                agent_id,
+                title,
+                summary,
+            } => {
+                let open = self
+                    .projects
+                    .values_mut()
+                    .find(|open| open.conversations.contains_key(&agent_id))?;
+                let conversation = open.conversations.get_mut(&agent_id)?;
+                conversation.name(title, summary);
+                refresh_agent_record(open, agent_id);
+                cx.notify();
+            }
+
             other => return Some(other),
         }
         None

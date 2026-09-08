@@ -209,12 +209,19 @@ impl WorkbenchPanel {
                     .open_project(cx)
                     .and_then(|open| open.chats.iter().find(|tab| tab.id == *id))
                     .and_then(|tab| tab.attached);
-                let label = match attached.and_then(|agent| app.work(cx)?.agent(agent)) {
+                let agent = attached.and_then(|agent| app.work(cx)?.agent(agent));
+                let label = match agent {
                     Some(agent) => agent.name.clone(),
                     None => "New chat".to_string(),
                 };
+                // The hover is what the conversation is about, where something has named it. A
+                // tab nothing named keeps no tooltip: the label is the whole of what it knows.
+                let tooltip = agent
+                    .and_then(|agent| agent.summary.clone())
+                    .map(SharedString::from);
                 TabInfo {
                     label: label.into(),
+                    tooltip,
                     ..TabInfo::default()
                 }
             }

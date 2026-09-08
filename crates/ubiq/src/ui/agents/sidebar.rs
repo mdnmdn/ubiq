@@ -22,7 +22,9 @@ use crate::app::AppState;
 use crate::state::work::WorkProjection;
 use crate::theme;
 use crate::ui::eid;
-use crate::ui::kit::{badge, elided, mono, panel, panel_header, section_label, status_dot};
+use crate::ui::kit::{
+    badge, elided, elided_with, mono, panel, panel_header, section_label, status_dot,
+};
 use crate::ui::work::activity_colour;
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -238,9 +240,12 @@ fn agent_row(agent: &WorkAgent, benched: bool, cx: &mut Context<AppState>) -> An
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
         .child(status_dot(colour, theme::pane_bg()))
-        .child(elided(
+        // What the conversation is about, where something has named it — otherwise the name in
+        // full, which is what an elided row says on hover anyway.
+        .child(elided_with(
             eid("agents-row-name", id),
             agent.name.clone(),
+            agent.summary.clone().unwrap_or_else(|| agent.name.clone()),
             if benched {
                 theme::text_muted()
             } else {

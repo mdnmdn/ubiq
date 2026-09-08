@@ -45,6 +45,7 @@ fn agent(id: AgentId, session: SessionId, task: Option<TaskId>, name: &str) -> W
         task,
         parent: None,
         name: name.to_string(),
+        summary: None,
         role: "Implementer".to_string(),
         activity: Activity::Writing,
         note: "doing a thing".to_string(),

@@ -246,6 +246,17 @@ struct PendingConversation {
     /// model-discovery thread's `ConfigOptions`, always seq 1) and the harness's first frame after
     /// it are one unbroken sequence.
     next_seq: u64,
+    /// What the user first asked this conversation, held for the naming pass and nothing else.
+    ///
+    /// Set by the first [`Message::PromptAgent`] and cleared when the naming has been asked for.
+    /// It lives on this row rather than beside the `Conversation` because a one-shot harness has
+    /// no `Conversation` between turns, and the prompt has to outlive that gap.
+    opening_prompt: Option<String>,
+    /// Whether the naming pass has run for this conversation.
+    ///
+    /// Set whether it produced a name or not: a conversation is named once, and a provider that
+    /// would not answer must not be asked again every half-second for as long as the agent lives.
+    named: bool,
     /// The harness's own session id, as the last process to run this conversation reported it.
     ///
     /// **This is what makes a one-shot harness converse.** Such a harness answers once and exits,
@@ -614,6 +625,7 @@ impl Coordinator {
             let host = settings.host();
             let mut agents = Agents::new(root.path.clone(), host.isolate_agents);
             agents.set_policy(host.agent_home.clone(), host.extra_grants.clone());
+            agents.set_environment(crate::environment::Environment::load(&root.path));
             agents.set_commands(host.agent_commands.clone());
             agents
         };
@@ -744,6 +756,7 @@ impl Coordinator {
                 Some(FromClient::Gone(client)) => self.client_gone(client),
                 None => {}
             }
+            self.name_conversations();
             self.reap_conversations();
             self.register_clones();
             self.projects.flush_due(Instant::now());
@@ -1613,6 +1626,15 @@ impl Coordinator {
                 );
             }
             Message::PromptAgent { agent_id, text } => {
+                // The asked half of the opening exchange, kept before the prompt is handed on
+                // and moved. Only the first one: a conversation is named after what it was
+                // started for, and a later turn is about where the work has got to.
+                if let Some(pending) = self.pending_conversations.get_mut(&agent_id)
+                    && !pending.named
+                    && pending.opening_prompt.is_none()
+                {
+                    pending.opening_prompt = Some(text.clone());
+                }
                 if self.conversations.contains_key(&agent_id) {
                     self.drive(client, agent_id, |conversation| conversation.prompt(text));
                 } else {
@@ -1835,6 +1857,7 @@ impl Coordinator {
             task: None,
             parent: None,
             name,
+            summary: None,
             role: "agent".to_string(),
             activity: Activity::Thinking,
             note: String::new(),
@@ -1909,6 +1932,9 @@ impl Coordinator {
                 // The discovery thread below always sends the first message this agent_id will
                 // ever see, and always as seq 1 — nothing else can race ahead of it.
                 next_seq: 1,
+                // Nobody has said anything yet, so there is nothing to name it after.
+                opening_prompt: None,
+                named: false,
                 // Nothing has run, so there is no harness session to continue.
                 resume: None,
             },
@@ -2210,6 +2236,103 @@ impl Coordinator {
             }
             // The agent has already gone; its last messages are in flight behind it.
             None => false,
+        }
+    }
+
+    /// Name every conversation whose agent has now answered its opening prompt.
+    ///
+    /// **Called from the run loop immediately before [`Self::reap_conversations`], and the order
+    /// is the whole of why this works for a one-shot harness.** Such a harness publishes its
+    /// first reply and exits in the same breath, so the poll that would reap it is the same poll
+    /// that has to take the naming — reaping first would drop the `Conversation` holding the
+    /// reply before anything had read it.
+    ///
+    /// The setting is re-read here rather than cached, the same way every other host setting is:
+    /// a user who switches naming off mid-conversation has switched it off.
+    fn name_conversations(&mut self) {
+        if !self.settings.host().auto_name_conversations {
+            return;
+        }
+        let ready: Vec<(AgentId, String, String)> = self
+            .conversations
+            .iter()
+            .filter_map(|(agent_id, conversation)| {
+                let pending = self.pending_conversations.get(agent_id)?;
+                if pending.named {
+                    return None;
+                }
+                let asked = pending.opening_prompt.clone()?;
+                let answered = conversation.first_reply()?;
+                Some((*agent_id, asked, answered))
+            })
+            .collect();
+
+        for (agent_id, asked, answered) in ready {
+            // Marked before the job runs, not after it answers: this is what makes the naming
+            // once-per-conversation, and it has to hold for a job that fails as much as for one
+            // that succeeds.
+            if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+                pending.named = true;
+                pending.opening_prompt = None;
+            }
+            self.name_job(agent_id, asked, answered);
+        }
+    }
+
+    /// Ask the selected provider for a title and a five-word summary of one conversation.
+    ///
+    /// **A failure is a log line and nothing else.** Every other suggestion is something a user
+    /// asked for and is owed an answer about; this one is Ubiq's own idea, and the mechanical
+    /// name is still on the record either way — so an unreachable provider leaves a conversation
+    /// called `claude 2` rather than putting an error where nobody asked a question.
+    ///
+    /// On its own thread because generation blocks and the coordinator answers every window from
+    /// one. It needs no deadline of its own, unlike [`Self::suggest_job`]: nothing is waiting on
+    /// this, so a slow model costs a parked thread rather than a spinner that never stops.
+    fn name_job(&mut self, agent_id: AgentId, asked: String, answered: String) {
+        let backend = self.assist.clone();
+        if let Some(unavailable) = backend.availability() {
+            tracing::debug!(
+                agent = %agent_id,
+                reason = unavailable.reason.code(),
+                "not naming this conversation",
+            );
+            return;
+        }
+        // The window that owns the conversation, which is the one drawing its tab. A naming is
+        // not a project-wide fact: another window showing the same project has no tab for it.
+        let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() else {
+            return;
+        };
+        let mailbox = self.host.mailbox(To::Client(client));
+
+        let spawned = thread::Builder::new()
+            .name(format!("name-{agent_id}"))
+            .spawn(move || {
+                let request =
+                    assist::subject::conversation_title(&asked, &answered, &backend.limits());
+                match backend.generate(request) {
+                    Ok(answer) => match assist::subject::naming(&answer) {
+                        Some((title, summary)) => {
+                            tracing::debug!(agent = %agent_id, %title, "named a conversation");
+                            mailbox.send(Message::ConversationNamed {
+                                agent_id,
+                                title,
+                                summary,
+                            });
+                        }
+                        None => tracing::debug!(
+                            agent = %agent_id,
+                            "the naming answered nothing a title could be read out of",
+                        ),
+                    },
+                    Err(error) => {
+                        tracing::debug!(agent = %agent_id, %error, "a naming failed");
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(agent = %agent_id, %error, "could not start a naming thread");
         }
     }
 
@@ -3466,6 +3589,7 @@ mod tests {
             task: None,
             parent: None,
             name: "fake".to_string(),
+            summary: None,
             role: "agent".to_string(),
             activity: Activity::Thinking,
             note: String::new(),
@@ -3500,6 +3624,8 @@ mod tests {
                 chosen_mode: None,
                 catalogue: Vec::new(),
                 next_seq: last_seq,
+                opening_prompt: None,
+                named: false,
                 resume: None,
             },
         );

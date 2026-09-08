@@ -980,8 +980,10 @@ not the display label a menu shows — with a counter from the second occurrence
 `claude`, `claude 2`, `claude 3`. The first free name is picked, so a closed `claude 2` is reused
 before a new `claude 4` would be minted.
 
-**Cost:** a conversation cannot be renamed after it starts, because no rename message exists on the
-wire yet — that is a backlog gap, not a design decision.
+**Cost:** a conversation cannot be renamed *by the user* after it starts, because no rename message
+exists on the wire — that is a backlog gap, not a design decision. The derived name is a
+placeholder rather than a final answer: the harness may replace it with a `ConvUpdate::Title`, and
+`D90` lets Ubiq replace it with a reading of the opening exchange.
 
 ### D59 — A harness stays startable with no identity chosen after accounts exist
 
@@ -1440,6 +1442,14 @@ an existing user's behaviour is unchanged by upgrading, and every call site has 
 against a stub backend that reports assistance unavailable, which is the normal case on most
 platforms.
 
+**Half reversed by `D90`.** The half about direction stands, and is the load-bearing one: the
+interface names a subject and never a prompt, and the host still owns every word that reaches a
+model. The half about advice fell — a conversation names itself without being asked, and that name
+replaces one nobody typed. What made the two separable is that the second was a claim about *where
+an answer lands* rather than about the seam: a field a user is about to type in and a mechanical
+placeholder are both cheap to be wrong about, and neither is a file, a commit or a repository.
+`D90` is where the narrower rule is drawn.
+
 ### D84 — A vendor name reaches the interface only for a provider the user configured
 
 Availability is a reason code from a closed set and a sentence the host wrote. The framework's own
@@ -1599,12 +1609,71 @@ rather than per arrangement, so a subtler regression in `Packed`'s scoring or `T
 pass. `Packed` also fixes its two score weights and its four candidate widths as constants rather
 than tuning them against real graphs, and being unpersisted means a user who prefers `Columns`
 chooses it again in every window and after every restart — `G201` is that half.
+### D90 — A conversation names itself from its opening exchange, and that naming is a push
+
+`D58` names a conversation after the command that runs it — `claude`, `claude 2`, `claude 3` — which
+says which harness it is and nothing about what it is for. Five columns of `claude 2` through
+`claude 6` is a screen a reader has to open one by one. So once an agent has answered the opening
+prompt, the host asks the selected provider for a title and a five-word summary, and the title
+becomes the conversation's name on every surface that prints one: the agent tab, the column header,
+the sidebar row, the chat dock tab. The summary is the tooltip on those same surfaces, which is how
+a row stays one line and still says what it is about.
+
+**It is a push, not a pull, and that is what made it cheap.** The obvious design was the one
+`G183` assumed: a `SuggestSubject` variant a window asks with, and a rename message on the wire to
+put the answer somewhere. Neither is needed. The asked half is the first `PromptAgent`, which the
+host holds, and the answered half is what the pump watches go past, so the coordinator can notice
+that a conversation is namable rather than being told. What crosses the bus is one `ConversationNamed`, in
+the direction the naming actually travels, and no interface has to hold a request it did not make.
+It is deliberately not a `ConvUpdate`: it carries no `seq`, because it is Ubiq's reading rather than
+something the harness said, and the pump that owns that sequence is not what produced it.
+
+**It departs from `D83`'s "a suggestion is advisory" and the departure is drawn narrowly.** What the
+naming replaces is a mechanical placeholder — the same string `D58` invents — and it replaces it in
+one window's own view of a record. Nothing is written into a repository, no file changes, and the
+whole of it is behind one checkbox, `HostSettings.auto_name_conversations`, which does nothing at
+all while `assist` is `Off`. A failure is a log line: the mechanical name is still there, so there
+is nothing to report and no state for an interface to unwind.
+
+**Cost:** a name a user did not type can change under them once per conversation, and they cannot
+type one over it — `G119` is that gap and this decision sharpens it rather than closing it. The
+naming reads the opening exchange alone, so a conversation that turns into something else keeps a
+title about where it started, and nothing re-reads it. It costs one model call per conversation
+where a provider is configured, which is a call the user did not ask for at the moment it is made,
+and the schema fallback runs the wrong way: an older build that drops the field turns naming back
+on rather than off. And the generated name lives only in the window that received it — nothing
+persists it, so a restart is back to `claude 2`.
+
+### D91 — The machine's environment lives in `environment.toml`, outside `settings.json`
+
+A confined agent reaches its toolchain caches through `IsolateOptions::grant_toolchains_from_env`,
+which named a relocated `CARGO_HOME` or `GOPATH` by reading the *process* Ubiq was started with. A
+terminal launch carries those, because a login shell set them; a GUI launch — the Dock, Finder,
+`open` — never ran one, so the same machine denies `cargo` the moment a confined agent tries it,
+with no host setting to fix. The values belong to the machine, not to a run: they do not vary by
+project, they should not travel with a synced settings file, and a person editing them is stating a
+fact about where their toolchains live rather than a preference.
+
+So they live in their own file, `<config root>/environment.toml`, read once at startup by
+`crates/ubiq-host/src/environment.rs` and never written by Ubiq itself. `[env]` supplies variables a
+run's launch environment gets unless the harness itself set the same name; `[[grants]]` is a second
+path list beside `HostSettings.extra_grants`, applied the same way. `IsolateOptions::grant_toolchains`
+— private until this, its only caller the process-reading form — became public so the host can hand
+it this file's lookup ahead of the process's own, and every absolute directory on the resolved
+`PATH` is granted read-only by default, which reaches a tool installed somewhere no toolchain-root
+variable names at all.
+
+**Cost:** a second config file at the root, in a different format from `settings.json` and reached
+by no menu — writing one means finding the config root and hand-authoring TOML, which `G204` names.
+A missing or malformed file is silently the empty environment rather than a startup error, so a typo
+in a grant is a `cargo` denial with no message pointing at the file that caused it, discoverable
+only in the log line `Environment::load` writes.
 
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
 - [`agent-manager.md`](./agent-manager.md) — the boundary D8 and D9 create
 - [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, the
-  naming rule D58 states, and the connector family D65 to D71 produce
+  naming rules D58 and D90 state, and the connector family D65 to D71 produce
 - [`../features/notifications.md`](../features/notifications.md) — the bell D88 shapes
 - [`../backlog.md`](../backlog.md) — the choices still open

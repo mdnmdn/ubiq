@@ -99,6 +99,101 @@ pub fn provider_check(role: ModelRole) -> Request {
     }
 }
 
+/// What a naming may answer at most. Two short lines, so a model that would rather explain itself
+/// is cut off instead of indulged.
+const NAMING_RESPONSE_TOKENS: u32 = 48;
+
+const NAMING_INSTRUCTIONS: &str = "\
+You name conversations between a developer and a coding assistant. Given the opening exchange of \
+one, reply with exactly two lines and nothing else. The first line is a title of at most six \
+words, capitalised as a heading, with no trailing full stop, no quotes and no prefix. The second \
+line says what the conversation is about in exactly five words, with no trailing full stop.";
+
+const NAMING_ASKED: &str = "Asked:\n";
+
+const NAMING_ANSWERED: &str = "\n\nAnswered:\n";
+
+/// The prompt that names a conversation.
+///
+/// The one prompt in this module with no [`ubiq_proto::assist::SuggestSubject`] behind it: naming
+/// a conversation is not something a window asks for, it is something the host notices it can do
+/// once an agent has answered its first prompt. The wording still belongs here, with every other
+/// wording, so that a naming is tested the same way a commit message is.
+///
+/// `asked` is the opening turn and `answered` is the agent's first reply, which together are the
+/// only part of a conversation that is about what the user came to do — a later turn is about
+/// where the work got to, and a title that followed it would keep moving.
+pub fn conversation_title(asked: &str, answered: &str, limits: &AssistLimits) -> Request {
+    let budget = (limits.context_tokens.saturating_sub(NAMING_RESPONSE_TOKENS) as usize)
+        .saturating_mul(CHARS_PER_TOKEN)
+        .saturating_sub(NAMING_INSTRUCTIONS.len() + NAMING_ASKED.len() + NAMING_ANSWERED.len());
+
+    // Two arbitrary lengths against one budget, so each half gets half of it: a long opening
+    // prompt cannot crowd out the reply that says what was done about it, and a long reply
+    // cannot bury the request that a title is mostly named after.
+    let half = budget / 2;
+    let mut prompt = String::from(NAMING_ASKED);
+    prompt.push_str(clip(asked.trim(), half));
+    prompt.push_str(NAMING_ANSWERED);
+    prompt.push_str(clip(answered.trim(), budget.saturating_sub(half)));
+
+    Request {
+        instructions: NAMING_INSTRUCTIONS.to_string(),
+        prompt,
+        max_tokens: Some(NAMING_RESPONSE_TOKENS),
+        // Naming is the fast model's work, the same as naming a commit.
+        role: ModelRole::Fast,
+    }
+}
+
+/// The two lines a naming answered, split into a title and its summary.
+///
+/// The wording that asks for the format is in this module, so the reading of it belongs here too.
+/// A model that ignored the format and wrote one line has still given a title, and a title with
+/// no summary is worth using — the summary is a tooltip, and a tooltip is allowed to be absent.
+/// `None` is only for an answer with no usable line in it at all.
+pub fn naming(answer: &str) -> Option<(String, Option<String>)> {
+    let mut lines = answer
+        .lines()
+        .map(undecorate)
+        .filter(|line| !line.is_empty());
+    let title = lines.next()?;
+    Some((title, lines.next()))
+}
+
+/// One answered line without the decoration a model adds despite being asked not to — a `Title:`
+/// label, a bullet, or quotes around the whole of it.
+fn undecorate(line: &str) -> String {
+    let line = line.trim().trim_start_matches(['-', '*', '#']).trim();
+    let line = match line.split_once(':') {
+        Some((label, rest))
+            if matches!(
+                label.trim().to_ascii_lowercase().as_str(),
+                "title" | "summary"
+            ) =>
+        {
+            rest
+        }
+        _ => line,
+    };
+    line.trim()
+        .trim_matches(['"', '\'', '`'])
+        .trim()
+        .to_string()
+}
+
+/// The first `budget` characters of `text`, cut on a character boundary.
+///
+/// Characters rather than bytes because the budget is an estimate of tokens and `&text[..n]` on a
+/// byte that is not a boundary is a panic — a conversation carries whatever the user typed, so
+/// this is the one subject whose material is not ASCII by construction.
+fn clip(text: &str, budget: usize) -> &str {
+    match text.char_indices().nth(budget) {
+        Some((at, _)) => &text[..at],
+        None => text,
+    }
+}
+
 /// The one-letter status a `git status --short` reader already knows.
 fn letter(entry: &GitEntry) -> char {
     match entry.mark() {
@@ -146,6 +241,84 @@ mod tests {
         let request = provider_check(ModelRole::Smart);
         assert_eq!(request.role, ModelRole::Smart);
         assert_eq!(request.max_tokens, Some(CHECK_RESPONSE_TOKENS));
+        assert!(!request.prompt.is_empty());
+    }
+
+    #[test]
+    fn a_naming_carries_both_halves_of_the_opening_exchange() {
+        let request = conversation_title(
+            "make the sidebar collapse",
+            "I have added a fold control to the sidebar header.",
+            &limits(4096),
+        );
+        assert!(request.prompt.contains("make the sidebar collapse"));
+        assert!(request.prompt.contains("fold control"));
+        assert_eq!(request.max_tokens, Some(NAMING_RESPONSE_TOKENS));
+        // Naming is the cheap model's work, whatever the smart one is set to.
+        assert_eq!(request.role, ModelRole::Fast);
+    }
+
+    #[test]
+    fn a_naming_cuts_each_half_against_half_the_budget() {
+        // A first prompt long enough to have swallowed the whole window on its own. The reply
+        // has to survive it, or a title would be named after the question and never the answer.
+        let asked = "why ".repeat(4000);
+        let answered = "because the loader ran twice. ".repeat(400);
+        let request = conversation_title(&asked, &answered, &limits(200));
+        assert!(
+            request.prompt.len() < 200 * CHARS_PER_TOKEN,
+            "the prompt overflowed its own estimate: {} chars",
+            request.prompt.len()
+        );
+        assert!(
+            request.prompt.contains("because the loader ran twice"),
+            "the reply was crowded out by the question: {}",
+            request.prompt
+        );
+    }
+
+    #[test]
+    fn a_naming_reads_two_lines_and_survives_one() {
+        assert_eq!(
+            naming("Sidebar Fold Control\nAdding a collapsible sidebar"),
+            Some((
+                "Sidebar Fold Control".to_string(),
+                Some("Adding a collapsible sidebar".to_string())
+            ))
+        );
+        // A model that answered a title and stopped has still given a usable name, and a tooltip
+        // is allowed to be absent.
+        assert_eq!(
+            naming("Sidebar Fold Control"),
+            Some(("Sidebar Fold Control".to_string(), None))
+        );
+        assert_eq!(naming("   \n\n "), None);
+    }
+
+    #[test]
+    fn a_naming_strips_the_decoration_it_asked_a_model_not_to_add() {
+        // Every one of these is a real thing a model does despite the instructions, and each
+        // would otherwise become part of the name on a tab.
+        assert_eq!(
+            naming("Title: \"Sidebar Fold\"\n- Summary: adding a collapsible sidebar"),
+            Some((
+                "Sidebar Fold".to_string(),
+                Some("adding a collapsible sidebar".to_string())
+            ))
+        );
+        // A colon inside an ordinary title is not a label and must survive.
+        assert_eq!(
+            naming("Fix: the loader ran twice"),
+            Some(("Fix: the loader ran twice".to_string(), None))
+        );
+    }
+
+    #[test]
+    fn a_naming_cuts_material_on_a_character_boundary() {
+        // A conversation carries whatever the user typed, so this is the one subject whose
+        // material is not ASCII by construction — a byte-wise cut here would be a panic.
+        let asked = "\u{e9}\u{e9}\u{e9}".repeat(2000);
+        let request = conversation_title(&asked, "d\u{fc}rfte gehen", &limits(150));
         assert!(!request.prompt.is_empty());
     }
 

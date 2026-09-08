@@ -810,6 +810,7 @@ mod tests {
             task,
             parent,
             name: "card".to_string(),
+            summary: None,
             role: "Implementer".to_string(),
             activity: Activity::Writing,
             note: String::new(),

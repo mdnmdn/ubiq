@@ -35,6 +35,8 @@ use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus, ProfileInfo}
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
+use crate::environment::Environment;
+
 /// The agent types this machine can run, and the composer behind them.
 ///
 /// Held by the coordinator, one per process, because everything it owns —
@@ -50,6 +52,10 @@ pub struct Agents {
     home: AgentHome,
     /// Directories a confined run may reach beyond what its policy grants.
     extra_grants: Vec<Grant>,
+    /// Where this machine keeps its toolchains, from `environment.toml`. Separate from the
+    /// settings above because it describes the machine rather than a preference — see
+    /// [`crate::environment`].
+    environment: Environment,
     /// Custom command line overrides, harness id → what to run instead of the library's own
     /// bare program, as the user set them in Settings.
     commands: BTreeMap<String, String>,
@@ -217,6 +223,7 @@ impl Agents {
             isolate,
             home: AgentHome::default(),
             extra_grants: Vec::new(),
+            environment: Environment::default(),
             commands: BTreeMap::new(),
         }
     }
@@ -233,6 +240,13 @@ impl Agents {
     pub fn set_policy(&mut self, home: AgentHome, extra_grants: Vec<Grant>) {
         self.home = home;
         self.extra_grants = extra_grants;
+    }
+
+    /// Take this machine's own environment, read from `environment.toml` at startup.
+    ///
+    /// Read at the next spawn, like the settings above: a policy is rendered once.
+    pub fn set_environment(&mut self, environment: Environment) {
+        self.environment = environment;
     }
 
     /// Follow the host settings, which are what the user last chose.
@@ -830,6 +844,15 @@ impl Agents {
         let mut provisioned = provision::provision(harness.as_ref(), &spec, &templates)
             .with_context(|| format!("composing a {agent_type} run"))?;
         self.resolve_program(agent_type, &mut provisioned.launch);
+        // This machine's own variables, before the policy is planned so a grant can be read
+        // off them. Never over a name the harness itself set: a confined launch's `env` is the
+        // whole environment, and `CLAUDE_CONFIG_DIR` and its siblings are what pin a run to its
+        // throwaway configuration.
+        for (key, value) in &self.environment.env {
+            if !provisioned.launch.env.iter().any(|(name, _)| name == key) {
+                provisioned.launch.env.push((key.clone(), value.clone()));
+            }
+        }
 
         // Every confined run keeps the real home unless the user said otherwise. A home of its
         // own was once the answer to "a second run of the same profile should find its caches,
@@ -843,9 +866,16 @@ impl Agents {
         let mut options = IsolateOptions::new(self.root.join("isol8"));
         options.home = home_mode(&self.home);
         // Before the user's own grants, so an explicit one is the last word on
-        // a path the environment also named.
-        options.grant_toolchains_from_env();
-        for grant in &self.extra_grants {
+        // a path the environment also named. The lookup is this machine's file first and the
+        // process second: Ubiq started from the Finder has none of these set, and a toolchain
+        // root nobody named is a root nothing grants.
+        options.grant_toolchains(|name| self.environment.lookup(name));
+        // Every directory on `PATH`, read-only. A tool installed where no layer expects it is
+        // otherwise unreachable — `operation not permitted: cargo`, with the binary sitting in
+        // the run's own `PATH`. Reading a tool is not writing its cache: what a build writes
+        // to is granted by the toolchain roots above, not by this.
+        options.extra_ro.extend(self.environment.path_dirs());
+        for grant in self.environment.grants.iter().chain(&self.extra_grants) {
             let path = expand_home(&grant.path);
             if grant.write {
                 options.extra_rw.push(path);

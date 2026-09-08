@@ -463,6 +463,30 @@ fn assist(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         assist_provider_choice(app, switchable, cx),
     ));
 
+    // A naming runs through the provider above, so it is dimmed and inert while that is off — the
+    // same shape confinement takes where the platform cannot run it. The row that would make it
+    // run is the one directly above, so nothing is trapped by this.
+    let namable = !matches!(app.workbench.settings.host.assist, AssistProvider::Off);
+    let mut naming = check_box(
+        "app-settings-auto-name",
+        app.workbench.settings.host.auto_name_conversations,
+        cx.listener(move |this, _, _, cx| {
+            if namable {
+                this.toggle_auto_name_conversations(cx);
+            }
+        }),
+    );
+    if !namable {
+        naming = naming.opacity(0.5);
+    }
+    rows.push(setting_row(
+        "Name conversations",
+        "Ubiq reads the opening exchange of a conversation and writes a title for its tab, with a \
+         five-word summary on hover. Runs once per conversation, through the provider above, so \
+         it does nothing while that is off.",
+        naming.into_any_element(),
+    ));
+
     // The host's own sentence about why, kept on screen rather than hidden: the harnesses section
     // makes the same choice for a harness that is not installed.
     if let Some(detail) = state.as_ref().and_then(|info| info.detail.clone()) {

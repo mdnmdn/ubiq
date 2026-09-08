@@ -163,6 +163,9 @@ fn tab(
     };
     let name: SharedString = agent.name.clone().into();
     let ghost = name.clone();
+    // What the conversation is about, where something has named it. A tab with no summary says
+    // nothing on hover: the name is printed in full beside the dot already.
+    let summary: Option<SharedString> = agent.summary.clone().map(SharedString::from);
     // The same reading the title carries, so a grouped column's tabs and its title agree.
     let colour = app
         .conversation(id, cx)
@@ -197,7 +200,16 @@ fn tab(
     }
 
     row.child(status_dot(colour, theme::pane_bg()))
-        .child(name)
+        .child(
+            div()
+                .id(eid("agents-tab-name", id))
+                .child(name)
+                .when_some(summary, |this, summary| {
+                    this.tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(summary.clone()).build(window, cx)
+                    })
+                }),
+        )
         .child(
             div()
                 .id(eid("agents-tab-close", id))
@@ -332,6 +344,8 @@ fn header(
         .session(agent.session)
         .is_some_and(|session| session.worktree);
 
+    let summary: Option<SharedString> = agent.summary.clone().map(SharedString::from);
+
     let mut place = vec![agent.branch.clone()];
     if worktree {
         place.push("worktree".to_string());
@@ -360,11 +374,20 @@ fn header(
                 .when_some(state, |this, state| {
                     this.child(status_dot(state, theme::pane_bg()))
                 })
+                // The title says which conversation this is; the summary on hover says what it
+                // is about, and a conversation nothing has named has nothing to add.
                 .child(
                     div()
+                        .id(eid("agents-header-name", agent.id))
                         .text_size(px(14.))
                         .text_color(theme::text())
-                        .child(SharedString::from(agent.name.clone())),
+                        .child(SharedString::from(agent.name.clone()))
+                        .when_some(summary, |this, summary| {
+                            this.tooltip(move |window, cx| {
+                                gpui_component::tooltip::Tooltip::new(summary.clone())
+                                    .build(window, cx)
+                            })
+                        }),
                 )
                 .child(section_label(&agent.role))
                 .child(div().flex_1().min_w(px(0.)))

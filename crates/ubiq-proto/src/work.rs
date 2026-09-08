@@ -364,6 +364,15 @@ pub struct WorkAgent {
     /// Who spawned it. The connector is drawn from the parent's card to this one.
     pub parent: Option<AgentId>,
     pub name: String,
+    /// The five-word reading of what this conversation is about, where one has been written —
+    /// `Message::ConversationNamed`, folded on by the interface beside the title it came with.
+    /// Drawn as the tooltip on whichever surface prints [`Self::name`], so a row stays one line
+    /// and still says what it is.
+    ///
+    /// `None` is the ordinary state: a conversation nobody has named automatically, a build with
+    /// no provider configured, and every agent that is a mock.
+    #[serde(default)]
+    pub summary: Option<String>,
     pub role: String,
     pub activity: Activity,
     /// The one line the card says about what it is doing.

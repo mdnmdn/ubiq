@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-08
 verified: 2026-09-08
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -48,6 +48,7 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | Which policy layers a confined run stacks, and which of them are unusable | the library |
 | Whether an agent is confined at all, and where its run directory lives | Ubiq |
 | Which `$HOME` a confined agent runs with, and which folders it may reach beyond the policy | Ubiq |
+| This machine's own toolchain locations and machine-only variables (`environment.toml`) | Ubiq |
 | That a harness runs under a pseudo-terminal in a pane | Ubiq |
 | Which panes exist, which is focused, how they are laid out | Ubiq |
 | A session as a *user's* piece of work, with a home folder | Ubiq |
@@ -213,13 +214,26 @@ home, so a replaced home aims every toolchain grant the policy carries — `~/.c
 `~/.dotnet` — at a directory nothing populated, and the agent holds `cargo` on its `PATH` and
 cannot build. Inheriting grants nothing extra by itself: only the paths a resolved layer names are
 reachable inside the home. **A toolchain installed somewhere other than its default location is
-discovered rather than configured**, which narrows what `extra_grants` is for: `compose_run` calls
-`IsolateOptions::grant_toolchains_from_env()` before it applies the settings' grants, so a
-`CARGO_HOME` or `GOPATH` pointing outside `~` needs no host setting, and the user's own grant —
-applied last — stays the last word. Which variables that reads is the library's list, not Ubiq's. What stays per-run is the configuration, which `CLAUDE_CONFIG_DIR` and
-its siblings pin to the run directory. A `~`-prefixed grant is expanded by Ubiq against
-`isolate::real_home` before it is passed, because inside a layer `~` means the effective home
-rather than the user's — which is exactly the confusion the default avoids.
+named in a file, not discovered.** `IsolateOptions::grant_toolchains_from_env()` read a relocated
+`CARGO_HOME` or `GOPATH` off the process Ubiq itself was started with, which a GUI launch never
+carries — no login shell ran, so the variable is simply absent and the grant it would have produced
+never happens; the agent then holds `cargo` on its `PATH` and is denied the moment it runs it.
+`crates/ubiq-host/src/environment.rs` is the fix: `Environment::load` reads
+`<config root>/environment.toml` at startup — an `[env]` table of variables and a `[[grants]]` list of
+`path`/`write` pairs, absent by default, and a missing or malformed file is the empty environment,
+logged rather than fatal. `Agents::set_environment` holds it, and `compose_run` reads it in three
+places: the file's `[env]` vars are appended to the launch environment before the harness's own
+(never over a name the harness already set), the now-public `IsolateOptions::grant_toolchains` is
+called with `environment.lookup` — the file's answer first, the process's second, which is what
+makes this resolve identically from a terminal or from the Dock — and every absolute directory the
+run's `PATH` names is granted read-only, closing the same "operation not permitted: cargo" gap for a
+tool that is merely installed somewhere unexpected rather than needing a toolchain root at all. The
+file's own `[[grants]]` apply alongside `extra_grants`, both split into `extra_ro`/`extra_rw` the
+same way and both expanded against `isolate::real_home` — a `~`-prefixed grant means the effective
+home inside a layer, not the user's, which is exactly the confusion the default avoids.
+`environment.toml` is deliberately outside `settings.json`: it is machine state a planned policy UI
+edits as one file, not a preference that syncs — see `G204`. What stays per-run is the
+configuration, which `CLAUDE_CONFIG_DIR` and its siblings pin to the run directory.
 
 **A run's record is written through the library and kept by Ubiq.** Two library entry points carry
 it. `Harness::transcripts(config_dir)` in `crates/agent-manager/src/harness/mod.rs` answers the

@@ -45,6 +45,7 @@ fn agent(
         task,
         parent: None,
         name: name.to_string(),
+        summary: None,
         role: "Implementer".to_string(),
         activity,
         note: "doing a thing".to_string(),

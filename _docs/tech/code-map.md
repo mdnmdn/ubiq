@@ -123,7 +123,8 @@ crates/ubiq-host/src/
 ├── notifications/
 │   ├── mod.rs
 │   └── os.rs
-└── host_path.rs
+├── host_path.rs
+└── environment.rs
 
 crates/ubiq/src/
 ├── state/
@@ -351,8 +352,9 @@ the documents in its row.
 | `crates/ubiq-host/src/connectors/providers.rs` | [`features/connectors.md`](../features/connectors.md) |
 | `crates/ubiq-host/src/connectors/store.rs` | [`features/connectors.md`](../features/connectors.md) |
 | `crates/ubiq-host/src/connectors/tls.rs` | [`features/connectors.md`](../features/connectors.md) |
-| `crates/ubiq-host/src/conversation.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md) |
+| `crates/ubiq-host/src/conversation.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/coordinator.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`features/stats.md`](../features/stats.md), [`agent-manager.md`](./agent-manager.md), [`architecture.md`](./architecture.md), [`wip/agent-setup.md`](../wip/agent-setup.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq-host/src/environment.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq-host/src/files/diff.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/files/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/git/graph.rs` | [`version-control.md`](./version-control.md) |

@@ -34,6 +34,7 @@ fn agent(id: AgentId, session: SessionId, name: &str, activity: Activity) -> Wor
         task: None,
         parent: None,
         name: name.to_string(),
+        summary: None,
         role: "Implementer".to_string(),
         activity,
         note: "doing a thing".to_string(),

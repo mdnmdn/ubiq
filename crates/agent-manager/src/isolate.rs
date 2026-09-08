@@ -148,7 +148,12 @@ impl IsolateOptions {
     /// caller-supplied lookup, which is what makes it testable: a test that
     /// mutated the process environment would race every other test in the
     /// binary.
-    fn grant_toolchains<F>(&mut self, lookup: F)
+    ///
+    /// Public because a host's answer is not always the process's. A GUI
+    /// application never ran a login shell, so `CARGO_HOME` and its siblings
+    /// are simply absent from its environment; an embedder that keeps its own
+    /// record of where this machine put its toolchains passes that here.
+    pub fn grant_toolchains<F>(&mut self, lookup: F)
     where
         F: Fn(&str) -> Option<std::ffi::OsString>,
     {

@@ -352,7 +352,10 @@ query landed on without leaving the field. `tab` and `shift-tab` step back off t
 field. Clicking a row puts the keyboard on the list.
 
 **A row is one line, and a value that does not fit is elided.** `kit::elided` truncates with the
-system ellipsis and carries the whole string as its tooltip, which is why it takes an element id. A
+system ellipsis and carries the whole string as its tooltip, which is why it takes an element id.
+`kit::elided_with` is the same control with the hover said separately, for a row that has more to
+add than the string it is cutting — the agents sidebar's, whose hover is what the conversation is
+about and falls back to the name in full when nothing has said. A
 name, a path or a title that wrapped instead would push everything under it down, and a column of
 rows is scanned by its left edge — so nothing in a row, a footer or a card header is allowed a second
 line.

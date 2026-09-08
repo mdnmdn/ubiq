@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-08
 verified: 2026-09-08
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-proto/src/wire.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -589,6 +589,7 @@ is what multiplexes several of them down one channel.
 | `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
 | `ConversationUnloaded` | host → UI | `agent_id` | — |
 | `ConversationError` | host → UI | `agent_id`, `error` | — |
+| `ConversationNamed` | host → UI | `agent_id`, `title`, `summary?` | — |
 
 **The vocabulary is the Agent Client Protocol's; the transport is the bus.** `D53` states why, and
 [`../inbox/acp-protocol.md`](../inbox/acp-protocol.md) is the wire reference every name here
@@ -646,8 +647,32 @@ from its harness's command — `claude`, `codex`, `opencode`, not the display la
 with a counter from the second occurrence onward, per project: `claude`, `claude 2`, `claude 3`.
 The first free name is picked, so a closed `claude 2` is reused before a new `claude 4` would be
 minted. The sidebar row, the column header and the chat panel row all draw that field, never
-`harness` directly. There is no rename message on the wire yet, so a name set at creation is a
-name for the conversation's life.
+`harness` directly. **That name is a placeholder, and two things may replace it.**
+`ConvUpdate::Title` is the harness naming the conversation itself, and `ConversationNamed` is Ubiq
+naming it from the opening exchange; both write the same field, and whichever spoke last is the
+name. Neither of them is the user — no rename message exists on the wire, so a name nothing else
+writes is the name for the conversation's life (`G119`).
+
+**`ConversationNamed` is Ubiq's own reading, which is why it is not a `ConvUpdate`.** It carries no
+`seq` and takes no place in the sequence an interface checks for gaps: the naming is not something
+the harness said, and the pump that owns that sequence is not what produced it — the coordinator
+is, on a thread of its own, once the turn that carried the reply is over.
+Folding it into the transcript's numbering would make one message's absence read as a lost delta.
+It is sent at most once per conversation, and only where a provider is configured to write one. The
+title is what every surface that draws `WorkAgent.name` says from there on, and the `summary` beside
+it is the tooltip those same surfaces draw — the assist family below carries the wording behind
+both, and `D90` is why a mechanical name is replaced at all.
+
+**A naming that fails is not reported.** There is no error variant paired with it, and the host
+sends nothing: a provider that will not answer leaves the conversation called `claude 2`, which is
+the name it holds until something writes another. Nothing is renamed behind anybody's back and
+nothing reaches a repository, so there is no state for an interface to unwind and no question of
+the user's left hanging — unlike a `SuggestError`, which answers something a window asked for.
+
+**It reaches the window that owns the conversation, and no other.** A naming is a fact about a tab,
+and only one window draws that tab; a second window with the same project open has nothing to
+redraw. So it appears in no arm of `Message::project_id()` — the same call `ConversationError`
+makes, for the same reason — and in no `pane_id_of` arm.
 
 **`seq` is per agent, monotonic, and starts at one.** Order is promised per agent and not across
 them, on exactly the terms the pane family already sets for terminal output. A window that receives
@@ -769,7 +794,7 @@ Forty-two records travel inside payloads.
 | `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
-| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
+| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
 | `Turn` | `from`, `text` |
 
 | `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded` |
@@ -794,7 +819,7 @@ Forty-two records travel inside payloads.
 | `RemoteRepo` | `id`, `name`, `full_name`, `description?`, `default_branch?`, `private`, `clone_url`, `pushed_at?` |
 | `CloneRequest` | `clone_id`, `source`, `branch?`, `shallow`, `parent`, `name`, `ephemeral` |
 | `ParsedRepo` | `host`, `owner`, `name`, `clone_url` |
-| `SuggestSubject` | one of: `CommitMessage` — which carries `project_id` and nothing else |
+| `SuggestSubject` | one of: `CommitMessage { project_id }`, `ProviderCheck { provider_id, role }` |
 | `AssistLimits` | `label`, `context_tokens` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
@@ -805,7 +830,11 @@ boot.
 down, and `tasks.toml` holds exactly what crosses the bus, so there is nothing to keep apart: no
 field on a task is like `health` or `open_panes`, which can only be known at the moment they are
 asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round — per-request payloads
-with no store behind them, in the class `DirEntry` and `DirListing` are in.
+with no store behind them, in the class `DirEntry` and `DirListing` are in. `WorkAgent.summary` is
+the one field on that record no host store and no harness fills: it arrives with a
+`ConversationNamed` and the interface folds it onto the record beside the title, so a surface
+reads one place for both. It is absent for every agent nothing has named, which includes every
+mock.
 
 Fifteen enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
@@ -825,7 +854,7 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` — at 11 — and `isolate_agents`, which is whether an agent runs
+`HostSettings` carries a `schema` — at 12 — and `isolate_agents`, which is whether an agent runs
 confined, the one setting the host acts on rather than stores, read again at every spawn.
 `agent_home` and `extra_grants` are the confined run's other two answers: an `AgentHome` of
 `Inherit`, `Ephemeral` or `Named(String)`, defaulting to `Inherit`, and a list of `Grant` — a
@@ -841,7 +870,10 @@ carries `projects_root` and `ephemeral_root`, the two folders a clone lands in: 
 one means the host's own default under its config root, so the interface offers a placeholder rather
 than inventing a path it cannot read. `index_level` is how much of a project is indexed for every
 project that does not say otherwise, and is `light` when nothing says. `assist` is an
-`AssistProvider`, the one setting the assist family reads, and it passes through `Settings::set`
+`AssistProvider`, the one setting the assist family reads, and `auto_name_conversations` is whether
+a conversation names itself once its agent has answered its opening prompt — **on by default, and
+that default changes nothing on its own**, because a naming runs through `assist`, which is `Off`
+until a user picks a provider. Both pass through `Settings::set`
 unchanged like the interface's own fields above — unlike `ai_providers`, the records it may point
 at, which the host overwrites from disk for the reason the connector fields are overwritten and one
 more of its own: a record names a key filed under its id. A record written by
@@ -1292,16 +1324,39 @@ either. Every prompt string, every instruction and every truncation budget lives
 backend and with no window. A family that accepted prompt text would be a generic model console
 whatever it was called, and every later feature would reach for it (`D83`).
 
+**A subject is not the only thing that reaches a wording, though it is the only thing an interface
+may name.** `subject.rs` holds one prompt with no `SuggestSubject` in front of it:
+`conversation_title` is asked for by the coordinator, not by a window, because naming a
+conversation is not something anyone requests — it is something the host notices it can do once an
+agent has answered its opening prompt. The wording still lives in that module with every other
+wording, so it is tested the same way, and `naming` beside it is the reading of the two lines it
+asks for: a title, and a summary that is `None` where the model answered one line. What the rule
+protects is the direction — the host owns every word that reaches a model — and that is untouched;
+what it does not promise is that every prompt in the module answers a `Suggest`.
+
+**The naming's material is the opening exchange, split down the middle.** The asked half is the
+first `PromptAgent`'s text, which never leaves the coordinator, and the answered half is the
+agent's first message, accumulated by the pump in `crates/ubiq-host/src/conversation.rs` from the
+chunks sharing a `message_id` — skipping any carrying a `parent_tool_use_id`, because a subagent's
+prose is not what the conversation is about — and published whole at `TurnEnded` for
+`Conversation::first_reply` to hand over. Each half gets half of `AssistLimits`'s budget, so a long
+opening prompt cannot crowd out the reply that says what was done about it. It is the one subject
+whose material is not ASCII by construction, so `subject.rs` clips it on a character boundary
+rather than a byte one.
+
 **`ProviderCheck` is the one subject that names its own backend.** Every other subject is answered
 by the provider the setting points at; a user checking a key they have just typed is asking about
 *that* provider, so the coordinator builds a backend for the named record, uses it for the one
 request and drops it. The held backend is untouched, which is what lets a provider be tested
 without being selected.
 
-**A suggestion is advisory.** It fills an editable field the user was going to type in: it renames
-nothing behind anyone's back and writes nothing into a repository, so a suggestion that never
-arrives leaves the mechanical name exactly as it was. That is why `SuggestError` is a sentence and
-never a state the interface has to unwind (`D83`).
+**A suggestion is advisory.** It fills an editable field the user was going to type in: it writes
+nothing into a repository, so a suggestion that never arrives leaves the mechanical name exactly as
+it was. That is why `SuggestError` is a sentence and never a state the interface has to unwind
+(`D83`). **The half of that rule about renaming holds only for this family.** A
+`ConversationNamed` does replace a name the user did not type, which is a departure `D90` records
+and confines: what it replaces is a mechanical placeholder, the setting behind it is one checkbox,
+and nothing outside the window is written.
 
 **Availability is asked, never inferred.** `GetAssist` is the only way the interface learns whether
 a suggestion can be produced — there is no OS-version comparison and no device allow-list on either
@@ -1370,6 +1425,15 @@ write for it: the Add-harness login modal reads and writes the map through the o
 settings blob, keyed by harness id. `HOST_SETTINGS_SCHEMA` is 11 for the field — an older build
 drops every override on its next write, and a harness only reachable through one stops starting
 until the override is set again.
+
+**`auto_name_conversations` rides `SetSettings` whole too, and defaults to on.** It is the second
+setting the assist family reads and the only one that is not about a backend: whether the host
+names a conversation from its opening exchange at all. `HOST_SETTINGS_SCHEMA` is 12 for the field,
+and this one's fallback runs the wrong way — an older build that drops it turns naming back **on**
+for a user who had switched it off, so the setting reverts to *calling a model* rather than to not
+calling one. It is separate from `assist` because the two questions are separate: a user may want a
+commit message written on request and still not want every conversation to cost a call nobody
+asked for.
 
 **A provider is added before its models are known.** A draft's `fast_model` may be blank and
 normally is: a model picker needs an id to name and a key to call with, and both exist only once

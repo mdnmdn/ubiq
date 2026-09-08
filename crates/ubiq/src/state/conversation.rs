@@ -199,6 +199,10 @@ pub struct Conversation {
     /// does — `refresh_agent_record` in `app.rs` is what turns this into the name a reader
     /// actually sees (the sidebar row, the column header, the chat panel row).
     pub title: Option<String>,
+    /// The five-word reading of what this conversation is about, drawn as the title's tooltip
+    /// wherever the name is printed. `None` until something names the conversation: a title says
+    /// which one this is, and the summary is what it took a whole exchange to learn.
+    pub summary: Option<String>,
     /// Context and cost, as of the last thing the harness reported **for the conversation itself**.
     /// Occupancy is a level: it is replaced, never summed, and a subagent's report never reaches
     /// it — a subagent repeats the parent's `used`/`size` unchanged, so applying one would move the
@@ -296,6 +300,7 @@ impl Conversation {
             model: None,
             mode: None,
             title: None,
+            summary: None,
             usage: None,
             spend: None,
             spend_by_subagent: BTreeMap::new(),
@@ -633,6 +638,15 @@ impl Conversation {
                 self.error = error;
             }
         }
+    }
+
+    /// Ubiq has read the opening exchange and named this conversation.
+    ///
+    /// The same field `ConvUpdate::Title` writes, because it is the same fact from the other
+    /// source — whichever spoke last is the name.
+    pub fn name(&mut self, title: String, summary: Option<String>) {
+        self.title = Some(title);
+        self.summary = summary;
     }
 
     /// The harness has gone.

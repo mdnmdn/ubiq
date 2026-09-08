@@ -228,6 +228,50 @@ fn flipping_the_isolation_toggle_writes_the_host_layer(cx: &mut TestAppContext) 
     );
 }
 
+/// Naming is on by default and that default costs nothing, because it runs through the provider
+/// setting — which is off until somebody picks one. The pair is what makes an upgrade silent.
+#[gpui::test]
+fn the_naming_toggle_defaults_on_and_writes_the_host_layer(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    let (naming, assist) = fixture.state.read_with(cx, |state, _| {
+        (
+            state.workbench.settings.host.auto_name_conversations,
+            state.workbench.settings.host.assist.clone(),
+        )
+    });
+    assert!(naming, "naming defaults to on");
+    assert_eq!(
+        assist,
+        AssistProvider::Off,
+        "and calls nothing, because no provider is picked until a user picks one",
+    );
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.toggle_auto_name_conversations(cx));
+    cx.run_until_parked();
+
+    let written = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SetSettings {
+                layer: SettingsLayer::Host,
+                value,
+            } => Some(value),
+            _ => None,
+        })
+        .expect("the toggle wrote the host layer");
+    let sent: HostSettings = serde_json::from_str(&written).expect("a readable blob");
+    assert!(
+        !sent.auto_name_conversations,
+        "the toggle flipped the flag it sent, not just the flag it holds"
+    );
+    assert_eq!(sent.schema, HOST_SETTINGS_SCHEMA);
+}
+
 /// The checkbox shows what the host actually has stored, not this build's default: a `Message::
 /// Settings` for the Host layer decodes into the same state the toggle reads.
 #[gpui::test]

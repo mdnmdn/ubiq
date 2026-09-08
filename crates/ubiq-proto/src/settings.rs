@@ -46,6 +46,15 @@ pub struct HostSettings {
     /// the machine until they say so.
     #[serde(default)]
     pub assist: AssistProvider,
+    /// Whether a conversation names itself once its agent has answered the opening prompt.
+    ///
+    /// On by default, and that default changes nothing on its own: naming runs through
+    /// [`Self::assist`], which is [`AssistProvider::Off`] until a user picks a provider, so a host
+    /// with no provider configured names nothing however this reads. It is a separate setting
+    /// because the two questions are separate — a user may want a commit message written by hand
+    /// on request and still not want every conversation to cost a call it did not ask for.
+    #[serde(default = "auto_name_conversations_default")]
+    pub auto_name_conversations: bool,
     /// Which `$HOME` a confined agent runs with.
     ///
     /// [`AgentHome::Inherit`] by default, and that is not a soft default: a replaced home aims
@@ -227,9 +236,18 @@ pub struct SavedRemoteHost {
 /// Eleven adds [`HostSettings::agent_commands`]. An older build drops the overrides on its next
 /// write, and every harness they pointed at goes back to being looked up by its own name — a
 /// harness that is only reachable through one stops starting until it is set again.
-pub const HOST_SETTINGS_SCHEMA: u32 = 11;
+///
+/// Twelve adds [`HostSettings::auto_name_conversations`]. It defaults to on, so an older build
+/// dropping it on its next write turns automatic naming back on for a user who had switched it
+/// off — a setting that reverts to *calling a model* rather than to not calling one, which is the
+/// direction that costs something.
+pub const HOST_SETTINGS_SCHEMA: u32 = 12;
 
 fn isolate_agents_default() -> bool {
+    true
+}
+
+fn auto_name_conversations_default() -> bool {
     true
 }
 
@@ -265,6 +283,7 @@ impl Default for HostSettings {
             schema: HOST_SETTINGS_SCHEMA,
             isolate_agents: isolate_agents_default(),
             assist: AssistProvider::default(),
+            auto_name_conversations: auto_name_conversations_default(),
             agent_home: AgentHome::default(),
             extra_grants: Vec::new(),
             agent_commands: BTreeMap::new(),

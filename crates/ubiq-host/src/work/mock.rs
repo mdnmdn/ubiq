@@ -545,6 +545,7 @@ fn card(
         task: None,
         parent: parent.map(agent),
         name: name.to_string(),
+        summary: None,
         role: role.to_string(),
         activity,
         note: note.to_string(),

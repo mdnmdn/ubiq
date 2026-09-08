@@ -36,6 +36,7 @@ pub mod config;
 pub mod connectors;
 pub mod conversation;
 pub mod coordinator;
+pub mod environment;
 pub mod files;
 pub mod gc;
 pub mod git;

@@ -87,6 +87,17 @@ menu with no conversation to read.
 **Nothing in the header names the tab.** The dock's tab already carries the conversation's name, and
 a second copy of it directly under the first was the same answer twice.
 
+**The dock tab's name is whatever the conversation is called, including a name Ubiq wrote itself.**
+Once an agent has answered the opening prompt, the host reads that exchange and names the
+conversation — the title lands on the tab in place of the harness-and-counter it started with, and
+the five-word summary that comes with it is the tab's hover, so the strip stays a strip and still
+says what each tab is about. A tab attached to nothing reads `New chat` and hovers to nothing,
+because there is no conversation to say anything about. The rule the naming follows, the surfaces it
+reaches beyond this one and the checkbox that switches it off are the workbench's; the message
+behind it is the conversation family's `ConversationNamed`
+([`../tech/transport-contract.md`](../tech/transport-contract.md)), and `D90` is why a name Ubiq
+invented may be replaced by one it read.
+
 **Closing the last chat tab is allowed.** There is no last-tab guard anywhere in this tree, and a
 chat tab is no exception: closing the only open one leaves nothing behind but a tab strip with
 nothing in it, which the region then puts itself away rather than sit empty. Opening the right
@@ -439,7 +450,9 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 
 | What happens | Result |
 |---|---|
-| A chat tab has nothing attached | Its page names what fixes it, rather than an empty transcript |
+| A chat tab has nothing attached | Its page names what fixes it, rather than an empty transcript, and its dock tab reads `New chat` |
+| No provider is configured, or the naming fails | The tab keeps the mechanical name it started with and hovers to nothing. Nothing is reported: no name was taken away and no question was asked |
+| A naming answers a title and nothing after it | The tab is renamed and draws no hover. A summary is a tooltip, and a tooltip is allowed to be absent |
 | The chat range's composer slots are all taken | The strip's `+` and a re-opened empty right region do nothing; there is no ninth slot to hand out, the same ceiling a ninth column meets |
 | A harness is uninstalled between the draw and the click | `start_harness_choice` answers nothing, the tab stays attached to what it had, and the control shuts rather than sitting open over a row that did nothing |
 | The remembered harness is gone | Nothing is preselected; the list opens as it would have on a fresh machine |

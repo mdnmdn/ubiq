@@ -353,6 +353,7 @@ fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
     let tokens = conversation.tokens() as f32;
     let model = conversation.model.clone();
     let title = conversation.title.clone();
+    let summary = conversation.summary.clone();
 
     let Some(record) = open.work.agent_mut(id) else {
         return;
@@ -369,10 +370,15 @@ fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
     }
     // A conversation the harness has not named a title for keeps whatever name it started with —
     // today's harness-label default from registration. Once it names one, that's the record's
-    // name from here on: the sidebar row, the column header and the chat panel row all read it.
+    // name from here on: the sidebar row, the column header and the chat panel row all read it,
+    // and the summary beside it is the hover those same surfaces draw.
     if let Some(title) = title {
         record.name = title;
     }
+    // The summary is written whatever it is, unlike the name: a second naming that answered a
+    // title and nothing after it must clear the reading the first one left, or the tooltip would
+    // describe a conversation as it was.
+    record.summary = summary;
 }
 
 /// A read the host answered, waiting for the frame that can turn it into a buffer.

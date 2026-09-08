@@ -117,6 +117,28 @@ pub struct Conversation {
     /// are. A `Mutex` rather than a channel: the only operations are "one arrived", "one was
     /// answered" and "take them all", and every one of them is a handful of strings.
     outstanding: Arc<Mutex<Vec<String>>>,
+    /// The agent's first message, whole, once the turn that carried it has ended.
+    ///
+    /// Written by the pump, read by the coordinator — the same shape [`Self::session`] uses, and
+    /// for the same reason: the pump is what sees a message and the coordinator is what has the
+    /// backend that can name one. It is the *answered* half of the opening exchange; the asked
+    /// half never leaves the coordinator, which is where a prompt arrives in the first place.
+    ///
+    /// `None` until the first turn ends. Written exactly once, so a conversation that goes on
+    /// talking does not keep re-offering itself to be named.
+    first_reply: Arc<Mutex<Option<String>>>,
+}
+
+/// The agent's first message, while the pump is still gathering it.
+///
+/// A message arrives as chunks that share a `message_id`, so "the first message" is an
+/// accumulation and not an event — and a name written from whichever chunk happened to arrive
+/// first would be a name written from half a sentence.
+struct Gathering {
+    /// The id the chunks being gathered share. A different one is a *second* message, which this
+    /// pass has no interest in.
+    message_id: Option<String>,
+    text: String,
 }
 
 impl Conversation {
@@ -150,6 +172,8 @@ impl Conversation {
         let pump_quiet = quiet.clone();
         let pump_outstanding = outstanding.clone();
         let pump_session = session.clone();
+        let first_reply = Arc::new(Mutex::new(None));
+        let pump_first_reply = first_reply.clone();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
             .spawn(move || {
@@ -163,6 +187,7 @@ impl Conversation {
                     pump_quiet,
                     pump_outstanding,
                     pump_session,
+                    pump_first_reply,
                     usage,
                 )
             })
@@ -178,6 +203,7 @@ impl Conversation {
             quiet,
             outstanding,
             session,
+            first_reply,
         }
     }
 
@@ -187,6 +213,15 @@ impl Conversation {
     /// than guessing around.
     pub fn session_id(&self) -> Option<String> {
         self.session.lock().ok().and_then(|held| held.clone())
+    }
+
+    /// The agent's first message, once the turn that carried it has ended.
+    ///
+    /// Cloned rather than taken: what stops a conversation being named twice is the coordinator's
+    /// own record of having asked, not the emptying of this slot — a naming that the model refused
+    /// must not come back round on the next poll.
+    pub fn first_reply(&self) -> Option<String> {
+        self.first_reply.lock().ok().and_then(|held| held.clone())
     }
 
     /// Whether the harness behind this conversation has ended by itself — its pump thread has
@@ -355,10 +390,15 @@ fn pump(
     quiet: Arc<AtomicBool>,
     outstanding: Arc<Mutex<Vec<String>>>,
     session: Arc<Mutex<Option<String>>>,
+    first_reply: Arc<Mutex<Option<String>>>,
     usage: Option<UsageMeter>,
 ) {
     let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
+    // The opening reply, until the turn carrying it ends and it is published. `None` after that,
+    // which is also what it is for every turn after the first: this pass runs once.
+    let mut gathering: Option<Gathering> = None;
+    let mut gathered = false;
 
     loop {
         let (event, raw) = match bridge.next_event_raw() {
@@ -403,6 +443,44 @@ fn pump(
             && !held.contains(request_id)
         {
             held.push(request_id.clone());
+        }
+
+        // The answered half of the opening exchange, gathered for the naming pass the
+        // coordinator runs. A subagent's prose is skipped: what a conversation is *about* is what
+        // the agent the user is talking to said, not what something it spawned reported back.
+        if !gathered {
+            match &event {
+                AgentEvent::AgentMessageChunk {
+                    content: Content::Text { text },
+                    message_id,
+                    origin,
+                } if origin.parent_tool_use_id.is_none() => match &mut gathering {
+                    Some(held) if held.message_id == *message_id => held.text.push_str(text),
+                    // A different id is a second message, and the first one is what this wants.
+                    Some(_) => {}
+                    None => {
+                        gathering = Some(Gathering {
+                            message_id: message_id.clone(),
+                            text: text.clone(),
+                        });
+                    }
+                },
+                // Published at the end of the turn rather than at the end of the message,
+                // because a turn is when the agent has finished answering and is also when the
+                // coordinator is free to ask a model about it. A one-shot harness exits straight
+                // after this, so the coordinator's own loop takes the naming before it reaps the
+                // conversation — see `Coordinator::name_conversations`.
+                AgentEvent::TurnEnded { .. } => {
+                    gathered = true;
+                    if let Some(held) = gathering.take()
+                        && !held.text.trim().is_empty()
+                        && let Ok(mut slot) = first_reply.lock()
+                    {
+                        *slot = Some(held.text);
+                    }
+                }
+                _ => {}
+            }
         }
 
         let Some(update) = map_event(event) else {
@@ -1207,6 +1285,7 @@ mod tests {
             quiet: Arc::new(AtomicBool::new(false)),
             outstanding: Arc::new(Mutex::new(Vec::new())),
             session: Arc::new(Mutex::new(None)),
+            first_reply: Arc::new(Mutex::new(None)),
         };
         (conversation, seen)
     }

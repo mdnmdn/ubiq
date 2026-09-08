@@ -159,6 +159,7 @@ fn an_agent(id: AgentId) -> WorkAgent {
         task: None,
         parent: None,
         name: "Claude Code".to_string(),
+        summary: None,
         role: "Implementer".to_string(),
         activity: Activity::Ended,
         note: String::new(),
@@ -325,6 +326,97 @@ fn an_unloaded_conversation_goes_back_to_idle_and_keeps_its_transcript(cx: &mut 
     assert_eq!(run, Run::Idle);
     assert!(!launched, "the next turn starts a new harness");
     assert_eq!(blocks, 1, "unload does not touch the transcript");
+}
+
+/// The name Ubiq wrote for itself lands on the record every surface reads, and the summary lands
+/// beside it as the hover — one message, both facts, and no place in the transcript's sequence.
+#[gpui::test]
+fn a_naming_renames_the_record_and_carries_its_summary(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    let before = fixture.state.read_with(cx, |state, cx| {
+        state
+            .work(cx)
+            .and_then(|work| work.agent(id))
+            .cloned()
+            .expect("the agent is in the projection")
+    });
+    assert_eq!(
+        before.summary, None,
+        "a conversation nobody has named has nothing to say on hover"
+    );
+
+    fixture.host.send(
+        To::Everyone,
+        Message::ConversationNamed {
+            agent_id: id,
+            title: "Sidebar Fold Control".to_string(),
+            summary: Some("adding a collapsible sidebar".to_string()),
+        },
+    );
+    cx.run_until_parked();
+
+    let record = fixture.state.read_with(cx, |state, cx| {
+        state
+            .work(cx)
+            .and_then(|work| work.agent(id))
+            .cloned()
+            .expect("the agent is still in the projection")
+    });
+    assert_eq!(record.name, "Sidebar Fold Control");
+    assert_eq!(
+        record.summary.as_deref(),
+        Some("adding a collapsible sidebar")
+    );
+
+    // A naming is not a transcript delta: it carries no `seq`, so it must not have consumed one
+    // or the next real update would read as a gap.
+    let (seq_is_untouched, blocks) = fixture.state.read_with(cx, |state, cx| {
+        let conversation = state.conversation(id, cx).expect("the conversation is here");
+        (conversation.is_next(1), conversation.blocks.len())
+    });
+    assert!(
+        seq_is_untouched,
+        "the naming took a sequence number that belongs to the harness"
+    );
+    assert_eq!(blocks, 0, "a naming is not something anybody said");
+}
+
+/// A model that answered a title and nothing after it has still named the conversation, and a
+/// re-naming that answers no summary clears the one before it rather than leaving it to describe
+/// a conversation as it was.
+#[gpui::test]
+fn a_naming_without_a_summary_clears_the_one_before_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+
+    for (title, summary) in [
+        ("First Reading", Some("what it looked like first")),
+        ("Second Reading", None),
+    ] {
+        fixture.host.send(
+            To::Everyone,
+            Message::ConversationNamed {
+                agent_id: id,
+                title: title.to_string(),
+                summary: summary.map(str::to_string),
+            },
+        );
+        cx.run_until_parked();
+    }
+
+    let record = fixture.state.read_with(cx, |state, cx| {
+        state
+            .work(cx)
+            .and_then(|work| work.agent(id))
+            .cloned()
+            .expect("the agent is in the projection")
+    });
+    assert_eq!(record.name, "Second Reading");
+    assert_eq!(record.summary, None, "a stale reading outlived its naming");
 }
 
 /// A sentence has to land where the user is looking, whether or not a conversation exists to hang

@@ -261,6 +261,15 @@ impl AppState {
         cx.notify();
     }
 
+    /// Whether Ubiq reads a conversation's opening exchange and names it. Host-owned, like the
+    /// toggle above: the host is what does the reading.
+    pub fn toggle_auto_name_conversations(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.host.auto_name_conversations =
+            !self.workbench.settings.host.auto_name_conversations;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
     /// Which backend, if any, writes a suggestion. Host-owned, so this writes the Host layer
     /// like the toggle above.
     ///

@@ -3,11 +3,11 @@ id: tech-operations
 title: Operations
 kind: tech
 status: current
-summary: Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands.
-read_when: you are setting the project up, running or testing it, or adding a command
-updated: 2026-09-07
+summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
+read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
+updated: 2026-09-08
 verified: 2026-09-08
-code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico]
+code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -180,6 +180,81 @@ on a clean, tagged `HEAD`; else, with no git available, `dev-<cargo version>-<UT
 
 Harness configuration is the embedded library's business, including every environment variable it
 sets for a run. Those live with that crate — see [`agent-manager.md`](./agent-manager.md).
+
+## When an agent cannot run a tool
+
+An agent reporting `cargo: operation not permitted`, `python: operation not permitted` or an `ls`
+that cannot list a directory the user can list is the commonest report Ubiq gets, and it is almost
+never a broken installation. It is the confinement policy answering a question nobody told it about:
+the shipped layers grant a toolchain's **default** location, and this machine put it somewhere else.
+The runbook below takes about two minutes and ends in a line in `environment.toml`.
+
+### Read the failure first
+
+The wording says which half of the problem it is, and they have opposite fixes.
+
+| What the agent saw | What it means | Where the fix is |
+|---|---|---|
+| `operation not permitted`, from the shell or from `ls` | The policy denied the path. The binary is there and the run cannot reach it | `environment.toml`, below |
+| `command not found` | Nothing was denied — the name is not on the run's `PATH` | `PATH` in `environment.toml`, or `agent_commands` in Settings for a harness binary |
+| `cannot find GOROOT`, `DOTNET_CLI_HOME not set`, `.. is not a directory` | The tool ran and could not find its own root. A variable is missing, not a grant | The `[env]` table |
+| The harness hangs on its splash screen, with no error | A denied lookup the harness blocks on, not a path | `DEV_LAYERS` in `crates/agent-manager/src/isolate.rs` |
+
+Confirm the run is confined before anything else: `env | grep ISOL8_SANDBOXED` inside the pane
+prints `ISOL8_SANDBOXED=1` when it is. Ubiq also logs `confined` for the spawn.
+
+### Ask the tool what it needs, outside the pane
+
+**A sandbox cannot nest, so nothing inside a confined pane can test a policy.** Every command in
+this step belongs in an ordinary terminal, in a login shell — which is also the environment that
+still has the variables a GUI launch of Ubiq lost.
+
+```
+which -a cargo                 # every path the name resolves through
+readlink -f "$(which cargo)"   # a shim's real target: isol8 does not follow it for you
+env | grep -E 'CARGO_HOME|RUSTUP_HOME|PYENV_ROOT|GO(ROOT|PATH|MODCACHE)|JAVA_HOME|SDKMAN_DIR'
+```
+
+Three answers matter: where the binary is, where the tool **writes** — a registry, a module cache, a
+package store — and which variable names that root. Reaching a binary is rarely what is missing:
+every absolute directory on the run's `PATH` carries a read-only grant. What a build writes to is
+what has to be named.
+
+### Name it in `environment.toml`
+
+`<config root>/environment.toml`, the machine's own description —
+[`agent-manager.md`](./agent-manager.md) owns the format, and this is the decision it turns on:
+
+- **The tool has a standard variable** — `CARGO_HOME`, `RUSTUP_HOME`, `GOROOT`, `GOPATH`,
+  `GOMODCACHE`, `PYENV_ROOT`, `MISE_DATA_DIR`, `NPM_CONFIG_PREFIX`, `JAVA_HOME`, `DOTNET_ROOT`,
+  `PUB_CACHE` and their siblings in `TOOLCHAIN_ROOT_VARS`. Put it in `[env]` with an **absolute**
+  path. That is one line for both halves of the answer: the run gets the variable, and the isolate
+  stage grants what it names, writable or not according to that table.
+- **It has none** — a Flutter SDK, a vendored toolchain, a shared cache on another volume. Add a
+  `[[grants]]` block with `write = true` only when the tool genuinely writes there. Flutter does,
+  into its own `bin/cache`; an SDK tree usually does not.
+
+Then restart Ubiq: the file is read once, at startup, like every other policy input. A grant on a
+path that does not exist yet is inert rather than an error, so a cache root can be granted before
+its first use — which is exactly what makes the first run of a tool work.
+
+### When it is still denied
+
+Reach for the policy itself rather than for another grant.
+
+```
+isol8 @diag -- cargo --version                    # what a denial was, in isol8's own words
+isol8 --show-policies -- cargo --version | less   # the merged layer stack and every rendered grant
+```
+
+Two failures look like a missing grant and are not. A **shim pointing outside** a granted tree needs
+its target granted too — isol8 grants a subtree, it does not follow a symlink out of one. A **layer
+in `BROKEN_LAYERS`** takes the whole policy down rather than its own feature, so a run that stopped
+starting at all after a layer was added is that, and `crates/agent-manager/src/isolate.rs` documents
+each one.
+
+Turning isolation off in Settings is a diagnosis, not a fix: it says the policy is the cause, and the
+answer is still a line in `environment.toml`. Leaving it off gives every agent the whole machine.
 
 ## Related docs
 
