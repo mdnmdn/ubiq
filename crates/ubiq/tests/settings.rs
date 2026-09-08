@@ -17,8 +17,11 @@ use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
 use ubiq::state::nav::{Destination, Locus, View};
 use ubiq::state::settings::{self, MarkdownOpen, UiSettings};
+use ubiq_proto::assist::{
+    AiProvider, AiProviderInfo, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
+};
 use ubiq_proto::bus::{self, FromClient, To};
-use ubiq_proto::ids::ProjectId;
+use ubiq_proto::ids::{AiProviderId, ProjectId, SuggestId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
@@ -399,5 +402,382 @@ fn a_line_locus_turns_a_preview_markdown_tab_to_source(cx: &mut TestAppContext) 
         fixture.layout_of("README.md", cx),
         Some(ViewLayout::Preview),
         "an anchor is drawn by the preview itself, so it is left alone"
+    );
+}
+
+// ── API providers ───────────────────────────────────────────────────
+//
+// Providers are the one part of the host record the interface never writes through `SetSettings`:
+// a record and the key filed under its id go together, and only the host can write the key. So
+// what these assert is the four provider messages and the list the host broadcasts back.
+
+/// One configured provider, as the host would say it holds one. `has_key` is true because the host
+/// writes no record whose key it could not file — a row on screen always has a key behind it.
+fn a_provider(id: AiProviderId) -> AiProviderInfo {
+    AiProviderInfo {
+        provider: AiProvider {
+            id,
+            kind: AiProviderKind::OpenAiCompatible,
+            name: "local".to_string(),
+            base_url: Some("http://127.0.0.1:11434/v1".to_string()),
+            fast_model: "qwen3:4b".to_string(),
+            smart_model: None,
+        },
+        has_key: true,
+    }
+}
+
+impl Fixture {
+    /// Tell the window the host holds one provider, which is the only way a row or a pill for it
+    /// exists: the interface reads no disk and invents no record.
+    fn with_a_provider(&self, cx: &mut TestAppContext) -> AiProviderId {
+        let provider_id = AiProviderId::generate();
+        self.host.send(
+            To::Everyone,
+            Message::AiProviders {
+                providers: vec![a_provider(provider_id)],
+            },
+        );
+        cx.run_until_parked();
+        provider_id
+    }
+
+    /// Run something that needs the window's own `Window` — every dialog that seeds a text field
+    /// does. The same shape [`Fixture::type_into`] uses.
+    fn in_window(
+        &self,
+        f: impl FnOnce(&mut AppState, &mut gpui::Window, &mut gpui::Context<AppState>),
+        cx: &mut TestAppContext,
+    ) {
+        self.window
+            .update(cx, |_, window, cx| {
+                self.state.update(cx, |state, cx| f(state, window, cx));
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    }
+
+    /// What the test modal is showing, if one is up.
+    fn test_answer(&self, cx: &mut TestAppContext) -> Option<String> {
+        self.state.read_with(cx, |state, _| {
+            state
+                .workbench
+                .settings
+                .ai_test
+                .as_ref()
+                .map(|test| test.answer.clone())
+        })
+    }
+}
+
+/// A configured provider is a backend pill beside Off and On-device, and the pill that lights is
+/// the one matching `host.assist` — which is the comparison `assist_provider_choice` makes.
+#[gpui::test]
+fn a_configured_provider_joins_the_backend_pills(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+    let provider_id = fixture.with_a_provider(cx);
+
+    let held = fixture
+        .state
+        .read_with(cx, |state, _| state.workbench.settings.ai_providers.clone());
+    assert_eq!(
+        held.len(),
+        1,
+        "the pills are drawn from the host's own list"
+    );
+    assert_eq!(held[0].provider.name, "local");
+    assert!(held[0].has_key);
+
+    // Picking that pill is the existing provider-choice path with the provider's id.
+    fixture.state.update(cx, |state, cx| {
+        state.set_assist_provider(AssistProvider::Api { provider_id }, cx)
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.settings.host.assist.clone()),
+        AssistProvider::Api { provider_id },
+        "the lit pill is the one the setting names"
+    );
+
+    let said = fixture.said();
+    let written = said
+        .iter()
+        .find_map(|message| match message {
+            Message::SetSettings {
+                layer: SettingsLayer::Host,
+                value,
+            } => serde_json::from_str::<HostSettings>(value).ok(),
+            _ => None,
+        })
+        .expect("the choice wrote the host layer");
+    assert_eq!(written.assist, AssistProvider::Api { provider_id });
+    assert!(
+        said.iter()
+            .any(|message| matches!(message, Message::GetAssist)),
+        "which backend is behind assistance is the host's answer, and it has just changed"
+    );
+}
+
+/// The test modal draws the answer as it arrives: every chunk for the id it is holding is
+/// appended, and a chunk for any other id has nowhere to be put.
+#[gpui::test]
+fn a_chunk_appends_to_the_test_and_a_stranger_is_discarded(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+    let provider_id = fixture.with_a_provider(cx);
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.open_ai_test(provider_id, cx));
+    fixture.state.update(cx, |state, cx| state.run_ai_test(cx));
+    cx.run_until_parked();
+
+    let suggest_id = fixture
+        .state
+        .read_with(cx, |state, _| {
+            state
+                .workbench
+                .settings
+                .ai_test
+                .as_ref()
+                .and_then(|test| test.suggest_id)
+        })
+        .expect("the run minted an id and kept it");
+
+    // The subject names the provider and the role and carries no prompt: the prompt is the
+    // host's, for this subject as for every other.
+    let asked = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::Suggest {
+                suggest_id,
+                subject,
+            } => Some((suggest_id, subject)),
+            _ => None,
+        })
+        .expect("the run asked for a suggestion");
+    assert_eq!(asked.0, suggest_id);
+    assert_eq!(
+        asked.1,
+        SuggestSubject::ProviderCheck {
+            provider_id,
+            role: ModelRole::Fast
+        }
+    );
+
+    for text in ["It ", "works"] {
+        fixture.host.send(
+            To::Everyone,
+            Message::SuggestChunk {
+                suggest_id,
+                text: text.to_string(),
+            },
+        );
+    }
+    fixture.host.send(
+        To::Everyone,
+        Message::SuggestChunk {
+            suggest_id: SuggestId::generate(),
+            text: " not this".to_string(),
+        },
+    );
+    cx.run_until_parked();
+
+    assert_eq!(
+        fixture.test_answer(cx).as_deref(),
+        Some("It works"),
+        "the chunks for the id in flight are drawn, and nothing else is"
+    );
+
+    // The whole answer ends the run. It is the chunks concatenated, so nothing on screen moves.
+    fixture.host.send(
+        To::Everyone,
+        Message::Suggestion {
+            suggest_id,
+            text: "It works".to_string(),
+        },
+    );
+    cx.run_until_parked();
+
+    assert_eq!(fixture.test_answer(cx).as_deref(), Some("It works"));
+    assert!(
+        fixture.state.read_with(cx, |state, _| {
+            state
+                .workbench
+                .settings
+                .ai_test
+                .as_ref()
+                .is_some_and(|test| test.done && test.suggest_id.is_none())
+        }),
+        "the run is over, so there is nothing left to cancel"
+    );
+}
+
+/// An edit asks for the cached model list, and saving it with the key box untouched sends
+/// `key: None` — the only way to say "keep the key you already have", since the interface is
+/// never sent one and so cannot send one back.
+#[gpui::test]
+fn an_edit_with_a_blank_key_keeps_the_stored_one(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+    let provider_id = fixture.with_a_provider(cx);
+
+    fixture.in_window(
+        |state, window, cx| state.open_ai_form(Some(provider_id), window, cx),
+        cx,
+    );
+
+    let asked = fixture.said();
+    assert!(
+        asked.iter().any(|message| matches!(
+            message,
+            Message::ListAiModels {
+                provider_id: id,
+                refresh: false
+            } if *id == provider_id
+        )),
+        "an edit takes the host's cache, which costs no network"
+    );
+
+    fixture.in_window(|state, window, cx| state.save_ai_form(window, cx), cx);
+
+    let (draft, key) = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::UpdateAiProvider {
+                provider_id: id,
+                draft,
+                key,
+            } if id == provider_id => Some((draft, key)),
+            _ => None,
+        })
+        .expect("the save wrote the provider");
+    assert!(
+        key.is_none(),
+        "a blank key box keeps the key the host already filed"
+    );
+    assert_eq!(draft.name, "local");
+    assert_eq!(draft.kind, AiProviderKind::OpenAiCompatible);
+    assert_eq!(draft.fast_model, "qwen3:4b");
+    assert_eq!(draft.base_url.as_deref(), Some("http://127.0.0.1:11434/v1"));
+    assert_eq!(draft.smart_model, None);
+
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.settings.ai_form.is_none()),
+        "the form closes optimistically; a refusal comes back as a banner"
+    );
+}
+
+/// An add asks no model question at all, so Save is enabled on a name and a key alone and the
+/// draft that goes out carries no model. That is a real record: the host writes it and then lists
+/// what the provider can run, which is what fills the pickers Edit shows — so the interface asks
+/// for no list of its own here.
+#[gpui::test]
+fn an_add_needs_only_a_name_and_a_key(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.in_window(|state, window, cx| state.open_ai_form(None, window, cx), cx);
+    fixture.type_into(|state| state.ai_name_input.clone(), "local", cx);
+    fixture.type_into(|state| state.ai_key_input.clone(), "sk-not-a-real-key", cx);
+    let _ = fixture.said();
+
+    fixture.in_window(|state, window, cx| state.save_ai_form(window, cx), cx);
+    let said = fixture.said();
+
+    let draft = said
+        .iter()
+        .find_map(|message| match message {
+            Message::AddAiProvider { draft, .. } => Some(draft.clone()),
+            _ => None,
+        })
+        .expect("a name and a key are enough to write a provider");
+    assert_eq!(draft.name, "local");
+    assert_eq!(draft.kind, AiProviderKind::OpenAiCompatible);
+    assert!(
+        draft.fast_model.is_empty(),
+        "the add branch asks for no model, so it sends none"
+    );
+    assert_eq!(draft.smart_model, None);
+    assert!(
+        !said
+            .iter()
+            .any(|message| matches!(message, Message::ListAiModels { .. })),
+        "the host lists a new provider's models itself; asking again would be a second call"
+    );
+
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.settings.ai_form.is_none()),
+        "the form closes optimistically; a refusal comes back as a banner"
+    );
+}
+
+/// A provider whose models cannot be listed is still configurable, because the model is a field
+/// and the picker only fills it. `GET {base}/models` is near-universal and not universal — Azure
+/// OpenAI addresses deployments and wants an `api-version`, and a listing can fail at a proxy or
+/// on a key scoped to inference — so a typed id has to reach the host with no cached list behind
+/// it at all.
+#[gpui::test]
+fn a_typed_model_reaches_the_host_with_no_list_to_pick_from(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    // The model-less record the host now writes: a key is filed, nothing answered `ListAiModels`.
+    let provider_id = AiProviderId::generate();
+    let mut info = a_provider(provider_id);
+    info.provider.fast_model = String::new();
+    fixture.host.send(
+        To::Everyone,
+        Message::AiProviders {
+            providers: vec![info],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.in_window(
+        |state, window, cx| state.open_ai_form(Some(provider_id), window, cx),
+        cx,
+    );
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.settings.ai_models.is_empty()),
+        "no list was ever answered, so the picker has no row to offer"
+    );
+
+    fixture.type_into(|state| state.ai_fast_model_input.clone(), "gpt-4o-mine", cx);
+    let _ = fixture.said();
+
+    fixture.in_window(|state, window, cx| state.save_ai_form(window, cx), cx);
+
+    let draft = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::UpdateAiProvider {
+                provider_id: id,
+                draft,
+                ..
+            } if id == provider_id => Some(draft),
+            _ => None,
+        })
+        .expect("the typed model was sent");
+    assert_eq!(
+        draft.fast_model, "gpt-4o-mine",
+        "the field is the store, so what was typed is what travels"
+    );
+    assert_eq!(
+        draft.smart_model, None,
+        "an empty smart box is no smart model, not an empty one"
     );
 }

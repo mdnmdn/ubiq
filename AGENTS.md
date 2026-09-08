@@ -12,6 +12,24 @@ harness-management library they embed in `crates/agent-manager`.
 
 Read `_docs/INDEX.md` first — it names the two or three documents your task needs, and nothing more.
 
+Six skills under `.claude/skills/` hold the working reference for each area — the rules, the module
+maps and the recipes, gathered from the code and the documents it is anchored to. Read the one your
+task lands in **before** the documents, and it will tell you which of those you still need. Claude
+Code loads them by name; any other harness reads `.claude/skills/<name>/SKILL.md` directly, and the
+`reference/` files beside it hold the exhaustive material.
+
+| Skill | Read it when you are touching |
+|---|---|
+| `ubiq-ui` | Any screen, panel, modal, control, colour or layout in `crates/ubiq` |
+| `ubiq-agents` | A harness launch, accounts, profiles, permission modes, a `ConvUpdate`, the chat panel or the agents columns |
+| `ubiq-host` | The coordinator, a pane's lifecycle, the project catalogue, a store or a worker thread |
+| `ubiq-transport` | A message, the bus and its routing, the framing, an id type, a log subsystem, a remote host |
+| `ubiq-files` | The file, search, index or watch workers, the explorer tree, the picker or the search panel |
+| `ubiq-docs` | Finishing any change — the same-commit duty, the frontmatter, the lint, `Dnn` and `Gnn` |
+
+A skill is a reference, not an authority: where one disagrees with the document it was built from,
+the document wins and the skill is what you fix.
+
 ## Leaving things in order
 
 Your change updates the documents it touched, in the same commit — `_docs/_meta/authoring.md` says
@@ -22,17 +40,20 @@ document; file it instead.
 
 - Agressively use subagents, including cheaper models, for all the grunt work, delegate in every
   occasion it makes sense, do not burn the main context on it.
-- Unless the task is trivial, the main agent should act as a pm/coordinator an spawn subagents to performs
-  the effective activities
+   - Only main agents could spawn subagents
+   - Unless the task is trivial, the main agent should act as a pm/coordinator an spawn subagents to performs the tasks. 
+   - create subagents with smaller model according to the task (eg sonnet, haiku), use big model for more reasoning tasks
 - Keep it simple.
 - Follow the project conventions and existing patterns if possible
 - Be coincise and efficient
 - Say what the tree actually does. A `status: draft` document describes a settled design; the gaps
   between it and the code are rows in `_docs/backlog.md`, not hedges in prose.
+- Keep it simple as possible, don't overengineer
 - Use tools and scripts in a smart way: always use the most efficient way to do the operation: if it's cheper using 
   default tools, use them, if it's better or safer using bash or script use them, if an operation is batched or complex
   evaulate to create a new `_tools`
 - USE THE DEFAULT TOOLS for targeted updates, do not run scripts
+- If you have a technical problem compiling or other automated task notify it and envetually do other remaing activities, don't use
 
 ## Architecture rules
 

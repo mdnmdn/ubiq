@@ -1210,6 +1210,25 @@ impl AppState {
                 cx.notify();
             }
 
+            // What the host made of a typed command. Kept on the login modal, and only while it
+            // is still on the harness that was asked about — an answer about the old pick would
+            // read as an answer about the new one.
+            Message::AgentCommandChecked {
+                agent_type,
+                ok,
+                detail,
+            } => {
+                if let Some(login) = &mut self.workbench.settings.login
+                    && let LoginStep::Choosing {
+                        agent_type: Some(chosen),
+                    } = &login.step
+                    && *chosen == agent_type
+                {
+                    login.command_check = Some((ok, detail));
+                }
+                cx.notify();
+            }
+
             other => return Some(other),
         }
         None
@@ -1523,14 +1542,18 @@ impl AppState {
         None
     }
 
-    /// The assist family: whether assistance can run, and what one asked-for suggestion came back
-    /// with.
+    /// The assist family: whether assistance can run, what one asked-for suggestion came back
+    /// with, and what the host holds for the configured API providers.
     ///
     /// Nothing here names a pane, so the family is routed by its variants alone. `Assist` is the
     /// host's standing answer and is simply kept — a window that has not been told yet draws
-    /// "checking" rather than "unavailable". A suggestion is matched against the id the interface
-    /// is waiting on and discarded otherwise, the search family's discipline and for its reason:
-    /// an answer to a request nobody is waiting for has nowhere to be put.
+    /// "checking" rather than "unavailable". A suggestion, whole or in chunks, is matched against
+    /// the id the interface is waiting on and discarded otherwise, the search family's discipline
+    /// and for its reason: an answer to a request nobody is waiting for has nowhere to be put.
+    ///
+    /// The provider list arrives here too, and is kept beside the host record rather than in it:
+    /// `ai_providers` on the settings blob is host-mutated, and `has_key` is an answer about a
+    /// record rather than part of one.
     ///
     /// Answers with the message when it belongs to another family.
     fn receive_assist(
@@ -1561,6 +1584,30 @@ impl AppState {
                 }
                 tracing::debug!("suggestion for {suggest_id}: {} bytes", text.len());
                 self.suggest = None;
+                // The whole answer replaces whatever the chunks drew. They concatenate to exactly
+                // this text, so a backend that streamed is not redrawn and one that did not gets
+                // its answer here.
+                if let Some(test) = &mut self.workbench.settings.ai_test
+                    && test.suggest_id == Some(suggest_id)
+                {
+                    test.answer = text;
+                    test.done = true;
+                    test.suggest_id = None;
+                }
+                cx.notify();
+            }
+
+            // Part of an answer, as it arrives. Filtered against the id in flight exactly as the
+            // whole answer is, then appended — a first token on screen instead of a spinner.
+            Message::SuggestChunk { suggest_id, text } => {
+                if self.suggest != Some(suggest_id) {
+                    return None;
+                }
+                if let Some(test) = &mut self.workbench.settings.ai_test
+                    && test.suggest_id == Some(suggest_id)
+                {
+                    test.answer.push_str(&text);
+                }
                 cx.notify();
             }
 
@@ -1570,6 +1617,45 @@ impl AppState {
                 }
                 tracing::warn!("suggestion {suggest_id} failed: {error}");
                 self.suggest = None;
+                // Chunks already drawn are not a partial answer: they go with the failure.
+                if let Some(test) = &mut self.workbench.settings.ai_test
+                    && test.suggest_id == Some(suggest_id)
+                {
+                    test.answer.clear();
+                    test.error = Some(error);
+                    test.done = true;
+                    test.suggest_id = None;
+                }
+                cx.notify();
+            }
+
+            Message::AiProviders { providers } => {
+                self.workbench.settings.ai_providers = providers;
+                cx.notify();
+            }
+
+            // Kept per provider, because the form's two pickers read the list for the provider
+            // they are editing and nothing else. `refreshed` is only worth a line in the log: the
+            // note under the pickers reads the list's own timestamp.
+            Message::AiModels { list, refreshed } => {
+                tracing::debug!(
+                    "{} models for {} ({})",
+                    list.models.len(),
+                    list.provider_id,
+                    if refreshed { "listed" } else { "cached" }
+                );
+                self.workbench
+                    .settings
+                    .ai_models
+                    .insert(list.provider_id, list);
+                cx.notify();
+            }
+
+            // One line for the assistance section's banner. Nothing was changed on the way to
+            // failing, so there is no list to put back and no dialog to reopen.
+            Message::AiProviderError { provider_id, error } => {
+                tracing::warn!("provider {provider_id:?} refused: {error}");
+                self.workbench.settings.error = Some(error);
                 cx.notify();
             }
 

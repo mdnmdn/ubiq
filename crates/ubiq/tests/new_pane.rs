@@ -140,6 +140,7 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
     AgentTypeInfo {
         id: id.to_string(),
         label: label.to_string(),
+        command: id.to_string(),
         available,
         modes: Vec::new(),
     }

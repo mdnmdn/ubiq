@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 code_anchors: [crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs]
 review_cycle: quarterly
 ---
@@ -199,7 +199,7 @@ the transport beneath the contract.
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
 | In-process MCP surface | `crates/ubiq-host/src/mcp_server.rs` | Tools Ubiq exposes to the agents it hosts |
-| A short line of prose the host writes itself | `crates/ubiq-host/src/assist/` | One `Assist` trait, one backend chosen from one setting, and every prompt string. The platform's on-device model behind the `assist-apple` feature, a stub everywhere else; the interface names a subject and never a prompt (`D83`) |
+| A short line of prose the host writes itself | `crates/ubiq-host/src/assist/` | One `Assist` trait and every prompt string, over three backends: the platform's on-device model behind the `assist-apple` feature, a stub in its place, and one `api.rs` backend in every build that covers OpenAI-compatible, Anthropic and Gemini. `select` reads the setting and the provider records together, because an API choice names a record rather than a kind, and `providers.rs` owns those records, their keychain keys and their cached model lists. The interface names a subject and never a prompt, and the answer arrives in chunks (`D83`, `D86`, `D87`) |
 | Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
 
 **Version control is read in two places, both in the host, both through `git2`.** A one-file diff

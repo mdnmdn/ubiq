@@ -480,6 +480,7 @@ mod tests {
         AgentTypeInfo {
             id: id.to_string(),
             label: id.to_string(),
+            command: id.to_string(),
             available,
             modes: Vec::new(),
         }

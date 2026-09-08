@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository and assist families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-07
-verified: 2026-09-07
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/wire.rs]
+updated: 2026-09-08
+verified: 2026-09-08
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -75,11 +75,13 @@ The control path. Lower volume, request-and-response.
 | `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args` | `WorkspaceSpawned` or `ProjectError` |
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
+| `CheckAgentCommand` | UI → coordinator | `agent_type`, `command` | `AgentCommandChecked` |
 | `SessionList` | coordinator → UI | `sessions[]` | — |
 | `SessionCreated` | coordinator → UI | `session` | — |
 | `SessionAttached` | coordinator → UI | `session`, `workspaces[]` | — |
 | `WorkspaceSpawned` | coordinator → UI | `workspace` | — |
 | `AgentTypes` | coordinator → UI | `agent_types[]` | — |
+| `AgentCommandChecked` | coordinator → UI, asking client only | `agent_type`, `ok`, `detail` | — |
 | `Status` | coordinator → UI | `message` | — |
 | `Error` | coordinator → UI | `message` | — |
 
@@ -176,6 +178,16 @@ carried or the `id` an `AgentTypeInfo` carried, both on `SpawnWorkspace`'s exist
 one field, and the coordinator's answer to whether the harness library knows that name is what
 decides whether the pane is a composed agent or a program. An `AgentTypeInfo` whose `available` is
 false is offered and not pickable, so the interface never has to decide what a missing binary means.
+`available` is true when the harness's own binary is found on this machine **or** an override is
+configured for it in `HostSettings.agent_commands`; `command` is what the library would run —
+`claude`, say — carried to be shown as the field's placeholder when a user types an override, never
+composed into a launch.
+
+**`CheckAgentCommand` tries a typed command line before it is saved.** The UI sends `agent_type` and
+the candidate `command`; the coordinator runs it with `--version` on its own thread against a 5s
+timeout and answers `AgentCommandChecked` — `ok` and a one-line `detail` — to the asking client
+only, never broadcast, because trying a command is not a fact about the harness that every window
+needs to hear.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
@@ -711,7 +723,7 @@ Thirty-five records travel inside payloads.
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `available`, `modes[]` |
+| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `modes[]` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
@@ -773,12 +785,15 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` — at 9 — and `isolate_agents`, which is whether an agent runs
+`HostSettings` carries a `schema` — at 11 — and `isolate_agents`, which is whether an agent runs
 confined, the one setting the host acts on rather than stores, read again at every spawn.
 `agent_home` and `extra_grants` are the confined run's other two answers: an `AgentHome` of
 `Inherit`, `Ephemeral` or `Named(String)`, defaulting to `Inherit`, and a list of `Grant` — a
 `path` the user typed, absolute or `~`-prefixed, and whether the agent may `write` there,
-read-only when nothing says. Both are written by the interface and pass through `Settings::set`
+read-only when nothing says. `agent_commands` is a `BTreeMap<String, String>` from a harness id to
+the command line this machine runs for it instead of the harness's own name — a bare word looked up
+on the login shell's `PATH`, an absolute path, or a launcher and its arguments. All three are
+written by the interface and pass through `Settings::set`
 unchanged, unlike `connections`, `oauth_apps` and `trusted_certs` below, which the host owns and
 overwrites with what is on disk. What either means for a run belongs to the agent-manager
 boundary, not here. It also
@@ -787,7 +802,9 @@ one means the host's own default under its config root, so the interface offers 
 than inventing a path it cannot read. `index_level` is how much of a project is indexed for every
 project that does not say otherwise, and is `light` when nothing says. `assist` is an
 `AssistProvider`, the one setting the assist family reads, and it passes through `Settings::set`
-unchanged like the interface's own fields above. A record written by
+unchanged like the interface's own fields above — unlike `ai_providers`, the records it may point
+at, which the host overwrites from disk for the reason the connector fields are overwritten and one
+more of its own: a record names a key filed under its id. A record written by
 an older build still parses, because every field added since carries a default; only a newer schema
 is refused.
 
@@ -823,8 +840,11 @@ textual diff puts at the front of a line, kept as a thing to draw rather than a 
 
 `AssistReason` and `AssistProvider` are the assist family's, in
 `crates/ubiq-proto/src/assist.rs`. The first is the closed set an unavailable answer maps onto and
-carries a `code()` giving its kebab-case wire string; the second is `Off` or `OnDevice`, defaults to
-`Off`, and is the whole of what a `HostSettings` says about which backend runs.
+carries a `code()` giving its kebab-case wire string; the second is `Off`, `OnDevice` or
+`Api { provider_id }`, defaults to `Off`, and is the whole of what a `HostSettings` says about which
+backend runs. The same module holds the API provider's records — `AiProviderKind`, `ModelRole`,
+`AiProvider`, `AiProviderDraft`, `AiProviderInfo`, `AiModel` and `AiModelList` — and the rule that
+governs all of them is that none carries a key.
 
 Six of the fifteen are the work's, and all but `Speaker` carry the words they answer to — a `label()`,
 plus a `note()`, an `all()` or a `bucket()` where there is one — because the host needs those as much
@@ -1197,28 +1217,46 @@ removed, so nothing half-cloned is ever registered.
 
 ## The assist family
 
-The fifteenth family. **No variant carries prompt text**, because a request names a subject and the
-host owns every word that reaches a model — the availability pair asks about the host, and the other
-four ride a `SuggestId` the interface mints before its first request hits the wire.
+The fifteenth family, and two things at once: asking for a sentence, and configuring who writes it.
+**No variant carries prompt text**, because a request names a subject and the host owns every word
+that reaches a model — the availability pair asks about the host, the suggestion variants ride a
+`SuggestId` the interface mints before its first request hits the wire, and the provider variants
+carry a record and, once, a key.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `GetAssist` | UI → host | — | `Assist` |
-| `Suggest` | UI → host | `suggest_id`, `subject` | `Suggestion` or `SuggestError` |
+| `Suggest` | UI → host | `suggest_id`, `subject` | `SuggestChunk`\*, then `Suggestion` or `SuggestError` |
 | `CancelSuggest` | UI → host | `suggest_id` | — |
+| `GetAiProviders` | UI → host | — | `AiProviders` |
+| `AddAiProvider` | UI → host | `draft`, `key` | `Settings` + `AiProviders`, or `AiProviderError` |
+| `UpdateAiProvider` | UI → host | `provider_id`, `draft`, `key?` | `Settings` + `AiProviders`, or `AiProviderError` |
+| `ForgetAiProvider` | UI → host | `provider_id` | `Settings` + `AiProviders`, or `AiProviderError` |
+| `ListAiModels` | UI → host | `provider_id`, `refresh` | `AiModels` or `AiProviderError` |
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `Assist` | host → UI | `available`, `reason?`, `detail?`, `limits?` | — |
+| `SuggestChunk` | host → UI | `suggest_id`, `text` | — |
 | `Suggestion` | host → UI | `suggest_id`, `text` | — |
 | `SuggestError` | host → UI | `suggest_id`, `error` | — |
+| `AiProviders` | host → UI | `providers` | — |
+| `AiModels` | host → UI | `list`, `refreshed` | — |
+| `AiProviderError` | host → UI | `provider_id?`, `error` | — |
 
 **The interface names a subject and never a prompt.** A `SuggestSubject` carries ids only —
-`CommitMessage { project_id }` says *this project's commit message* and nothing about how to ask for
-one. Every prompt string, every instruction and every truncation budget lives in
+`CommitMessage { project_id }` says *this project's commit message*, `ProviderCheck { provider_id,
+role }` says *make sure this provider's fast model answers* — and nothing about how to ask for
+either. Every prompt string, every instruction and every truncation budget lives in
 `crates/ubiq-host/src/assist/subject.rs`, so the host is where a wording is tested, against a fake
 backend and with no window. A family that accepted prompt text would be a generic model console
 whatever it was called, and every later feature would reach for it (`D83`).
+
+**`ProviderCheck` is the one subject that names its own backend.** Every other subject is answered
+by the provider the setting points at; a user checking a key they have just typed is asking about
+*that* provider, so the coordinator builds a backend for the named record, uses it for the one
+request and drops it. The held backend is untouched, which is what lets a provider be tested
+without being selected.
 
 **A suggestion is advisory.** It fills an editable field the user was going to type in: it renames
 nothing behind anyone's back and writes nothing into a repository, so a suggestion that never
@@ -1238,10 +1276,21 @@ whichever backend `assist::select` chose, and the truncation in `subject.rs` mea
 material against that number rather than a constant — so the same subject is cut differently behind
 a different model, and the interface reads the label rather than composing one.
 
-**Cancellation is best effort.** `CancelSuggest` sets the flag that stops the reply from being sent;
-it does not stop the model. A suggestion runs on a one-off named thread with a deadline because
-generation blocks, and the coordinator must keep answering every other window while it thinks — so a
-cancelled request costs the rest of one generation and produces nothing on the wire.
+**A suggestion streams, and an interface may ignore that it does.** Zero or more `SuggestChunk`
+precede the `Suggestion` that ends an id, and every chunk concatenated is that message's text
+(modulo the surrounding whitespace `Suggestion` trims). So an interface that draws only the final
+message is correct, and one that draws chunks shows a first token instead of a spinner. A backend
+that cannot stream sends exactly one chunk, because `Assist::stream` defaults to generating and
+handing the answer over whole — which is why the coordinator forwards chunks without knowing who is
+behind them (`D87`). Chunks already delivered are not a partial answer: a `SuggestError` for the same id
+discards them.
+
+**Cancellation is best effort, and now reaches further.** `CancelSuggest` sets the flag that stops
+the reply from being sent; against a streaming backend it also stops the *reading*, because the
+sink the coordinator hands down returns `false` and the backend drops the connection. It still does
+not stop a model that has already been asked. A suggestion runs on a one-off named thread with a
+deadline because generation blocks, and the coordinator must keep answering every other window
+while it thinks.
 
 **`Suggest` is the one variant whose project is inside its payload's payload.**
 `Message::project_id()` has its own arm for it, reaching through the subject, because a project id
@@ -1249,8 +1298,66 @@ sits in `SuggestSubject` rather than beside it. Nothing in the family names a pa
 appears in `pane_id_of`.
 
 **The setting is host-layer and off by default.** `HostSettings.assist` is an `AssistProvider` —
-`Off` or `OnDevice`, defaulting to `Off` — and `HOST_SETTINGS_SCHEMA` is at 9 for it. `Off` is what
-`DisabledBySetting` reports, and it is distinct from every reason that describes the machine.
+`Off`, `OnDevice` or `Api { provider_id }`, defaulting to `Off`. `Off` is what `DisabledBySetting`
+reports, and it is distinct from every reason that describes the machine; an `Api` id no record
+answers to is `Unavailable`, because a user who chose a provider that has since been deleted has
+something to repair rather than a preference to re-read.
+
+**A provider list says what is configured, never what is chosen.** `AiProviderInfo` is the record
+plus `has_key`, and nothing more: which provider assistance runs on is `HostSettings.assist`, which
+every window already mirrors, so a settings row derives lit-ness rather than being told it. That is
+the same call `ConnectionInfo` makes about a pinned certificate, and it is what keeps a moved
+setting from needing a second broadcast to keep a list honest.
+
+**A provider record carries no key, and the records are the host's to write.** `AiProvider` is an
+id, a kind (`openai-compatible`, `anthropic`, `gemini`), the user's name for it, an optional base
+URL, a fast model and an optional smart model — and never material. The key crosses once, in a
+`Secret`, on `AddAiProvider` or `UpdateAiProvider`, and goes straight to the OS secret store under
+the record's id; every record afterwards says only whether one is filed, as
+`AiProviderInfo.has_key`. `UpdateAiProvider` with `key: None` leaves the stored key alone, which is
+the only thing an edit that renames can do — the interface is never told a key, so it cannot send
+one back.
+
+`HostSettings.ai_providers` is therefore host-mutated, joining `connections`, `oauth_apps` and
+`trusted_certs`: what the interface sends for it in a `SetSettings` is discarded and what is on disk
+is kept. The reason is stronger here than for the other three. A stale interface copy that dropped a
+record would strand that record's key in the keychain — unreachable, unlistable and still there —
+which is why every change is one of the three provider variants and none of them is a settings
+write (`D86`). `HOST_SETTINGS_SCHEMA` is at 10 for the field and for `AssistProvider::Api`.
+
+**`agent_commands` rides `SetSettings` whole, the same as `projects_root`.** There is no per-key
+write for it: the Add-harness login modal reads and writes the map through the ordinary `Host`
+settings blob, keyed by harness id. `HOST_SETTINGS_SCHEMA` is 11 for the field — an older build
+drops every override on its next write, and a harness only reachable through one stops starting
+until the override is set again.
+
+**A provider is added before its models are known.** A draft's `fast_model` may be blank and
+normally is: a model picker needs an id to name and a key to call with, and both exist only once
+`AddAiProvider` has written them — so the host lists the new provider's models itself, immediately,
+and the user picks from the answer rather than typing a model name from memory. A provider with a
+key and no model is a real state, reported as unavailable with a detail saying which half is
+missing. A name is the only field the host insists on.
+
+**`ModelRole` is the whole of model selection.** A provider configures a fast model and optionally a
+smart one, a subject asks for a role rather than for a model, and `AiProvider::model_for` falls back
+to the fast one — so a subject that wants the capable model always has something to run. Two roles
+rather than a model per call site, because the choice a user makes is about cost and latency and not
+about a subject.
+
+**A model list is cached by the host and refreshed only when asked.** `ListAiModels { refresh:
+false }` is served from the host's cache and calls the provider only when there is nothing cached,
+which is what makes a searchable model picker openable without a network; `refresh: true` is a
+control the user pressed, and runs on a thread of its own. `AiModels.refreshed` says which of the
+two happened and `AiModelList.fetched_at_ms` says when, so a stale list says so rather than looking
+fresh. The cache is not in the settings blob: it is derived from what a provider said, the host is
+its only writer, and several hundred model names have no business in a file a user opens to change
+a preference.
+
+**`AiProviderError` is the family's one refusal.** A name or a fast model that is blank, a key the
+platform's secret store would not keep, a provider a model list could not be got from, an id no
+record answers to. Its `provider_id` is present when the refusal is about one particular provider
+and absent when it is about the list. Nothing was changed on the way to failing, so it is a line to
+show on a settings page rather than a state to unwind.
 
 ## Framing
 
@@ -1311,7 +1418,7 @@ ever dropped.
    If it names a **connection** at an external service, or a flow authenticating one, the connector
    family. If it names a **remote repository** — listing one, or cloning one into a project that
    does not exist yet — the repository family. If it names a **subject Ubiq wants a sentence for**
-   and carries no prompt, the assist family.
+   and carries no prompt, or configures the provider that would write it, the assist family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

@@ -6,7 +6,7 @@ status: current
 summary: Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands.
 read_when: you are setting the project up, running or testing it, or adding a command
 updated: 2026-09-07
-verified: 2026-09-07
+verified: 2026-09-08
 code_anchors: [Justfile, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico]
 depends_on: [tech-structure]
 review_cycle: monthly

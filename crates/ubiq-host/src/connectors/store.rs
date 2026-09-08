@@ -1,5 +1,11 @@
 //! Where a connection's token lives, and what it says about itself.
 //!
+//! Three kinds of secret are filed here, in three namespaces that cannot collide: a connection's
+//! token ([`key`]), the client secret of an OAuth registration Ubiq authenticates *as*
+//! ([`app_key`]), and an API provider's key ([`ai_key`]). One store rather than three, because
+//! whether the platform's keychain works at all is one fact and [`Store::usable`] answers it once —
+//! and because a second [`OsSecretStore`] over the same directory would be a second answer to it.
+//!
 //! **The engine is chosen here, not inherited.** `agent_manager::credentials::build_secret_store`
 //! resolves an engine from `AM_CREDENTIALS_ENGINE` and falls back to plaintext files — fine for a
 //! harness login the user captured from their own home directory, and wrong for a bearer token this
@@ -19,7 +25,7 @@ use agent_manager::credentials::{
 };
 use serde::{Deserialize, Serialize};
 use ubiq_proto::connectors::ProviderId;
-use ubiq_proto::ids::{ConnectionId, OauthAppId};
+use ubiq_proto::ids::{AiProviderId, ConnectionId, OauthAppId};
 use ubiq_proto::messages::LoginStatus;
 
 /// The one file a connection's credential is made of.
@@ -125,6 +131,39 @@ impl Store {
         serde_json::from_slice(&blob.bytes).ok()
     }
 
+    /// File an API provider's key. One blob like every other secret here, so
+    /// [`credential_validity`] reads it as `Unknown` — a bare key claims no expiry, and nothing
+    /// asks it to.
+    pub fn set_ai_key(&self, provider: AiProviderId, key: &str) -> Result<(), String> {
+        self.inner
+            .set(&ai_key(provider), &[blob(key.as_bytes().to_vec())])
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn clear_ai_key(&self, provider: AiProviderId) -> Result<(), String> {
+        self.inner
+            .delete(&ai_key(provider))
+            .map_err(|error| error.to_string())
+    }
+
+    /// The key itself, for a request about to be made. `None` means there is none filed, which is
+    /// a provider that cannot be called — never an empty key that is tried and refused.
+    pub fn ai_key_value(&self, provider: AiProviderId) -> Option<String> {
+        let blobs = self.inner.get(&ai_key(provider)).ok().flatten()?;
+        let blob = blobs.first()?;
+        String::from_utf8(blob.bytes.clone()).ok()
+    }
+
+    /// Whether a key is filed, without reading one. This is what a settings row is drawn from, so
+    /// the material never leaves the store for a question about its presence.
+    pub fn has_ai_key(&self, provider: AiProviderId) -> bool {
+        self.inner
+            .get(&ai_key(provider))
+            .ok()
+            .flatten()
+            .is_some_and(|blobs| !blobs.is_empty())
+    }
+
     pub fn set_app_secret(&self, app: OauthAppId, secret: &str) -> Result<(), String> {
         self.inner
             .set(&app_key(app), &[blob(secret.as_bytes().to_vec())])
@@ -141,6 +180,20 @@ impl Store {
         let blobs = self.inner.get(&app_key(app)).ok().flatten()?;
         let blob = blobs.first()?;
         String::from_utf8(blob.bytes.clone()).ok()
+    }
+}
+
+/// Where an API provider's key is filed — a third namespace, because a provider key is neither a
+/// user's identity at a service nor Ubiq's own registration: it is material Ubiq spends when the
+/// user asks it to write a line of prose.
+///
+/// Keyed by the record's id alone. The kind is not in the key, so changing a provider's kind — an
+/// OpenAI-compatible endpoint the user re-points at Anthropic — keeps the key it already had
+/// rather than orphaning it under the old spelling.
+pub fn ai_key(provider: AiProviderId) -> CredentialId {
+    CredentialId {
+        harness: "ai-provider".to_string(),
+        name: provider.to_string(),
     }
 }
 

@@ -57,6 +57,7 @@ mod tests {
                     instructions: "write a line".into(),
                     prompt: "a change".into(),
                     max_tokens: None,
+                    role: ubiq_proto::assist::ModelRole::Fast,
                 })
                 .unwrap_err(),
             "assist unavailable: unsupported-platform — this build has no on-device model behind it"

@@ -7,9 +7,11 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use ubiq_proto::assist::{AssistLimits, AssistReason};
+use ubiq_proto::assist::{
+    AiModelList, AiProviderInfo, AiProviderKind, AssistLimits, AssistReason, ModelRole,
+};
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
-use ubiq_proto::ids::{ConnectId, ConnectionId, OauthAppId, PaneId};
+use ubiq_proto::ids::{AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, SuggestId};
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
 use ubiq_proto::settings::HostSettings;
 
@@ -228,6 +230,12 @@ pub struct LoginState {
     /// for, and read by `PaneExited`'s handler: a probe's outcome is decided locally, since the
     /// host sends none for it.
     pub probe: bool,
+    /// Whether the custom-command field is showing. Opened by the button, and opened on its own
+    /// when the picked harness already has an override to show.
+    pub command_open: bool,
+    /// What `CheckAgentCommand` last answered: whether it ran, and the line to print under the
+    /// field. Cleared whenever the harness changes, because the answer was about the old one.
+    pub command_check: Option<(bool, String)>,
 }
 
 /// A question asked about one account, over the harnesses section. Only one is up at a time —
@@ -391,6 +399,54 @@ pub struct CertPrompt {
     pub cert: CertInfo,
 }
 
+/// The API-provider form, while one is up.
+///
+/// It carries only what is chosen rather than what is typed: the name, the base URL, the key and
+/// the two model ids are read out of their fields at save time, the way [`AppForm`] reads its
+/// four. A picked model is typed too, in the end — the picker writes the id into the field it sits
+/// beside — so there is nothing here to keep in step with it. **No key is ever held here**: the
+/// field is the only place one exists, and it is cleared when the form closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiProviderForm {
+    /// The provider being rewritten, or `None` for one being added. The host mints the id, so an
+    /// abandoned form leaves nothing behind — and a form with no id has no models to offer, which
+    /// is why an add asks no model question at all.
+    pub id: Option<AiProviderId>,
+    pub kind: AiProviderKind,
+    /// Which of the two model pickers has its list down, if either. Held here because a picker
+    /// over a modal draws its own layer and the modal is redrawn from state on every frame — the
+    /// same reason [`AppForm::open`] is a field.
+    pub open: Option<ModelRole>,
+}
+
+/// The provider test, while its modal is up: which provider is being checked, and what the host
+/// has said so far.
+///
+/// The answer arrives as chunks, so the modal shows a first token instead of a spinner — which is
+/// the whole point of the subject. `suggest_id` is what tells a chunk for the run on screen from
+/// one for a run the user has already restarted, and nothing naming another id is drawn.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiTest {
+    pub provider_id: AiProviderId,
+    /// The provider's name, kept so the title reads right even if the list is redrawn under it.
+    pub name: String,
+    /// Whether the provider configured a smart model at all. Kept so the Smart pill can be
+    /// offered dead rather than dropped — a row that vanishes reads as gone, not as unset.
+    pub has_smart: bool,
+    pub role: ModelRole,
+    /// The request in flight, or `None` before the first run and after one ends.
+    pub suggest_id: Option<SuggestId>,
+    /// What has arrived so far: every chunk concatenated, replaced by the final text when the
+    /// whole answer lands. Cleared when a run starts, because a rerun is a new answer.
+    pub answer: String,
+    /// Whether the answer is complete. What turns the "waiting" note off for a backend that
+    /// streamed nothing and simply answered.
+    pub done: bool,
+    /// Why the check failed, in the host's words. Chunks already drawn are discarded with it —
+    /// a partial answer to a failed request is not an answer.
+    pub error: Option<String>,
+}
+
 /// The settings overlay, and the values it is showing.
 #[derive(Clone, Debug)]
 pub struct SettingsState {
@@ -445,6 +501,23 @@ pub struct SettingsState {
     pub cli: Option<CliShortcut>,
     /// What the host last said about assistance. Absent until it answers — see [`AssistInfo`].
     pub assist: Option<AssistInfo>,
+    /// The configured API providers, as the host last said, each with whether a key is filed
+    /// under it. Its own list rather than `host.ai_providers`, because that field is host-mutated
+    /// — the interface changes providers through the four provider messages and never through
+    /// `SetSettings` — and because `has_key` is an answer *about* a record rather than part of
+    /// one, the same split `connection_status` makes.
+    pub ai_providers: Vec<AiProviderInfo>,
+    /// The model list each provider last answered with, keyed by provider. Absent means never
+    /// listed, which the form says out loud rather than drawing an empty picker.
+    pub ai_models: HashMap<AiProviderId, AiModelList>,
+    /// The add-or-edit provider form, while one is up.
+    pub ai_form: Option<AiProviderForm>,
+    /// The provider test, while its modal is up.
+    pub ai_test: Option<AiTest>,
+    /// The provider a removal is being confirmed for. Its own field rather than a variant of
+    /// [`ConnectorDialog`], because that dialog belongs to the connectors section and this
+    /// question is raised from the assistance one.
+    pub ai_remove: Option<AiProviderId>,
     /// Whether the Hosts section's dropdown list is down.
     pub host_picker_open: bool,
     /// Addresses a reconnect started from the Hosts section most recently failed to reach —
@@ -465,6 +538,13 @@ impl SettingsState {
             .iter()
             .filter(|account| account.logged_in.iter().any(|id| id == agent_type))
             .collect()
+    }
+
+    /// One configured provider by id, for a form, a test or a removal that holds only the id.
+    /// Absent for a provider another window has since removed, which is what keeps a stale
+    /// dialog from drawing a record that no longer exists.
+    pub fn ai_provider(&self, id: AiProviderId) -> Option<&AiProviderInfo> {
+        self.ai_providers.iter().find(|info| info.provider.id == id)
     }
 }
 
@@ -490,6 +570,11 @@ impl Default for SettingsState {
             connection_status: HashMap::new(),
             cli: None,
             assist: None,
+            ai_providers: Vec::new(),
+            ai_models: HashMap::new(),
+            ai_form: None,
+            ai_test: None,
+            ai_remove: None,
             host_picker_open: false,
             failed_hosts: HashSet::new(),
             error: None,
@@ -500,9 +585,10 @@ impl Default for SettingsState {
 /// Whole days, hours or minutes between two timestamps, worded singular or plural: `3 days`,
 /// `1 hour`, `12 minutes`. Kept to whole units — a fractional one nobody reads precisely.
 ///
-/// Private because the only caller is [`describe_status`]; a second use is what promotes this
-/// to a shared helper.
-fn magnitude(diff_ms: i64) -> String {
+/// Shared rather than private now that there is a second caller: [`describe_status`] words a
+/// token's expiry with it and the provider form words a model list's age with it, and two callers
+/// wording a duration two ways would be two vocabularies for one fact.
+pub fn magnitude(diff_ms: i64) -> String {
     let diff_ms = diff_ms.abs();
     let minutes = diff_ms / 60_000;
     let hours = minutes / 60;

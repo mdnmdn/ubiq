@@ -179,6 +179,33 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::certificate(app, window, cx)),
         )
+        // The API-provider form, raised from the assistance section — painted here for the reason
+        // every settings modal above it is: where a dialog is asked for is not where it is drawn.
+        .children(
+            app.workbench
+                .settings
+                .ai_form
+                .as_ref()
+                .map(|_| settings::ai_form(app, window, cx)),
+        )
+        // The provider test, beside the form rather than over it: both are raised from a provider
+        // row, and only one is ever up.
+        .children(
+            app.workbench
+                .settings
+                .ai_test
+                .as_ref()
+                .map(|_| settings::ai_test(app, window, cx)),
+        )
+        // The removal question, last of the three: it is raised from the same row and has to sit
+        // on top of whatever raised it.
+        .children(
+            app.workbench
+                .settings
+                .ai_remove
+                .as_ref()
+                .map(|_| settings::ai_remove(app, window, cx)),
+        )
         // The clone modal, over the picker that raised it and over the settings page, since the
         // omni search can raise it from anywhere.
         .children(

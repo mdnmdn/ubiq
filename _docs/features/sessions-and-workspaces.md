@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -52,9 +52,9 @@ session is still there to spawn another into.
 **The agent type must be registered.** Spawning names an agent type; an unregistered name is
 rejected with an error the user sees, rather than a failed process spawn they have to interpret.
 The register is the harness library's own list, so a harness it learns about is offered without a
-change here, and each row says whether that harness's binary is on this machine — a row that cannot
-start says so before it is picked. A name the library does not know is a program, which is how a
-shell reaches a pane.
+change here, and each row says whether that harness can be started here — its own binary found on
+this machine, or a command override configured for it — a row that cannot start says so before it
+is picked. A name the library does not know is a program, which is how a shell reaches a pane.
 
 **An agent is composed, not executed.** Starting one provisions a throwaway configuration directory
 for that run, and the harness is launched against it with the environment the library computed —

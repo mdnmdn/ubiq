@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ubiq_proto::assist::SuggestSubject;
+use ubiq_proto::assist::{AssistProvider, SuggestSubject};
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
@@ -24,7 +24,7 @@ use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, PendingLogin};
-use crate::assist::{self, Assist};
+use crate::assist::{self, Assist, providers::Providers};
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::connectors::{Answer, Connectors};
@@ -62,11 +62,12 @@ const SUGGEST_DEADLINE: Duration = Duration::from_secs(60);
 /// repository read here is allowed to be slow.
 fn gather(
     subject: &SuggestSubject,
-    root: &std::path::Path,
+    root: Option<&std::path::Path>,
     assist: &dyn Assist,
 ) -> Result<assist::Request, String> {
     match subject {
         SuggestSubject::CommitMessage { .. } => {
+            let root = root.ok_or_else(|| "that project is not in the catalogue".to_string())?;
             let observation = git::observe(root, 0, true)
                 .map_err(|error| format!("read the repository: {error:?}"))?;
             let entries = observation
@@ -76,6 +77,9 @@ fn gather(
                 .ok_or_else(|| "there is nothing changed here to name".to_string())?;
             Ok(assist::subject::commit_message(&entries, &assist.limits()))
         }
+        // Nothing to gather: a check is about whether the provider answers at all, so its whole
+        // material is the prompt the host owns.
+        SuggestSubject::ProviderCheck { role, .. } => Ok(assist::subject::provider_check(*role)),
     }
 }
 
@@ -145,6 +149,10 @@ struct Coordinator {
     /// setting here is re-read from `self.settings.host()` at each use. Rebuilt when a
     /// `SetSettings` write changes the provider, which is the only thing that can change it.
     assist: Arc<dyn Assist>,
+    /// The configured API providers: their records, their keys and their cached model lists. Held
+    /// beside `assist` rather than inside it, because a provider exists whether or not it is the
+    /// one a suggestion currently runs on — and because it is also what lends `select` a key.
+    ai_providers: Providers,
     /// One flag per suggestion asked for, flipped by `CancelSuggest`. Reaped the way
     /// `active_searches` is: the worker sets the flag on its way out too, so an entry whose flag is
     /// already set is over and can be dropped when the next suggestion mints one.
@@ -603,13 +611,21 @@ impl Coordinator {
             let host = settings.host();
             let mut agents = Agents::new(root.path.clone(), host.isolate_agents);
             agents.set_policy(host.agent_home.clone(), host.extra_grants.clone());
+            agents.set_commands(host.agent_commands.clone());
             agents
         };
         agents.sweep();
-        let assist_provider = settings.host().assist;
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
+        // The provider family shares the connector family's keychain — one store, one probe of
+        // whether this platform has one — and is built before the backend because it is what
+        // lends `select` the key a backend is constructed with.
+        let ai_providers = Providers::open(settings.clone(), connectors.store(), &root.path);
+        let assist = {
+            let held = settings.host();
+            assist::select(&held.assist, &held.ai_providers, &ai_providers)
+        };
         // The catalogue was opened before the settings were parsed, so the tree it is allowed to
         // delete a project's own folder from is named here, and swept once now: an ephemeral clone
         // whose window went without a clean forget has nobody left to remove it.
@@ -643,7 +659,8 @@ impl Coordinator {
             search: Search::start(),
             index: crate::index::Index::start(),
             active_searches: HashMap::new(),
-            assist: assist::select(assist_provider),
+            assist,
+            ai_providers,
             active_suggests: HashMap::new(),
             watchers: HashMap::new(),
             pending,
@@ -1057,6 +1074,12 @@ impl Coordinator {
                 self.host
                     .send(To::Client(client), Message::AgentTypes { agent_types });
             }
+            Message::CheckAgentCommand {
+                agent_type,
+                command,
+            } => {
+                self.check_agent_command_job(client, agent_type, command);
+            }
 
             Message::ListAccounts => {
                 self.send_accounts(client);
@@ -1232,6 +1255,49 @@ impl Coordinator {
                 subject,
             } => self.suggest_job(client, suggest_id, subject),
 
+            // ── the ai provider family ──────────────────────────────
+            // Everything but a model refresh is answered from a file and the keychain, on this
+            // thread. A refresh is a network call, so `models` puts it on a thread of its own and
+            // answers nothing here.
+            Message::GetAiProviders => {
+                let replies = self.ai_providers.list();
+                self.answer(client, replies);
+            }
+            Message::AddAiProvider { draft, key } => {
+                // The mailbox is for the model listing a new provider starts with: the picker the
+                // user is about to need cannot be filled before an id and a key exist.
+                let asker = self.host.mailbox(To::Client(client));
+                let replies = self.ai_providers.add(draft, key, asker);
+                self.answer(client, replies);
+                self.resettle_assist();
+            }
+            Message::UpdateAiProvider {
+                provider_id,
+                draft,
+                key,
+            } => {
+                let replies = self.ai_providers.update(provider_id, draft, key);
+                self.answer(client, replies);
+                // An edit can change the model or the endpoint the selected provider runs on, so
+                // the held backend is rebuilt from what is now on disk.
+                self.resettle_assist();
+            }
+            Message::ForgetAiProvider { provider_id } => {
+                let replies = self.ai_providers.forget(provider_id);
+                self.answer(client, replies);
+                // The delete may have switched assistance off, since a setting cannot point at a
+                // record that is gone.
+                self.resettle_assist();
+            }
+            Message::ListAiModels {
+                provider_id,
+                refresh,
+            } => {
+                let asker = self.host.mailbox(To::Client(client));
+                let replies = self.ai_providers.models(provider_id, refresh, asker);
+                self.answer(client, replies);
+            }
+
             Message::GetSettings { layer } => {
                 let reply = self.settings.get(layer);
                 self.answer(client, vec![reply]);
@@ -1245,11 +1311,13 @@ impl Coordinator {
                 self.agents.set_isolate(host.isolate_agents);
                 self.agents
                     .set_policy(host.agent_home.clone(), host.extra_grants.clone());
+                self.agents.set_commands(host.agent_commands.clone());
                 // The assist backend is the exception to re-reading: selecting one can mean
-                // opening an FFI handle, so it is held and rebuilt only when the provider itself
-                // moved.
+                // opening an FFI handle or reading a key, so it is held and rebuilt only when the
+                // provider itself moved.
                 if host.assist != was {
-                    self.assist = assist::select(host.assist);
+                    self.assist =
+                        assist::select(&host.assist, &host.ai_providers, &self.ai_providers);
                 }
                 self.answer(client, replies);
                 // The default moved, so every project that never overrode it moved with it. Only
@@ -2139,6 +2207,25 @@ impl Coordinator {
         });
     }
 
+    /// Try a typed command line on its own thread, so a hung or slow binary cannot stall the
+    /// coordinator — the same reason [`Self::suggest_job`] runs a backend off this thread.
+    /// Answered only to the client that asked; nothing here is persisted or fed back into
+    /// `self.agents`, which only ever learns an override through `SetSettings`.
+    fn check_agent_command_job(&self, client: ClientId, agent_type: String, command: String) {
+        let mailbox = self.host.mailbox(To::Client(client));
+        thread::Builder::new()
+            .name(format!("check-agent-{agent_type}"))
+            .spawn(move || {
+                let (ok, detail) = crate::agent::check_command(&command);
+                mailbox.send(Message::AgentCommandChecked {
+                    agent_type,
+                    ok,
+                    detail,
+                });
+            })
+            .ok();
+    }
+
     /// Hand one git-family request to the worker.
     ///
     /// The only thing this decides is which folder the request is against; a project the catalogue
@@ -2257,13 +2344,29 @@ impl Coordinator {
         });
     }
 
+    /// Rebuild the held backend from what is now on disk.
+    ///
+    /// Called after every write to the provider records, because each of them changes what the
+    /// selected provider *is*: an edit moves its model, its endpoint or its key, and a delete
+    /// switches assistance off, since a setting cannot point at a record that is gone.
+    /// Unconditional, unlike the `SetSettings` path that compares first — a provider write is a
+    /// deliberate act on the exact thing the backend was built from.
+    fn resettle_assist(&mut self) {
+        let host = self.settings.host();
+        self.assist = assist::select(&host.assist, &host.ai_providers, &self.ai_providers);
+    }
+
     /// Answer one [`Message::Suggest`].
     ///
-    /// Generation blocks — an FFI hop into a model, or one day an HTTP round trip — so it happens
-    /// on a one-off named thread holding a mailbox, the same shape model discovery uses: the
+    /// Generation blocks — an FFI hop into a model, or an HTTP round trip — so it happens on a
+    /// one-off named thread holding a mailbox, the same shape model discovery uses: the
     /// coordinator must keep answering every other window while a model writes a sentence. The
     /// repository read happens there too, for the reason the whole git family has its own thread:
     /// a status walk is seconds on a large tree, and seconds here stall every pane's keystrokes.
+    ///
+    /// The text is forwarded as it arrives, as [`Message::SuggestChunk`], and then whole as the
+    /// [`Message::Suggestion`] that ends the id. A backend that cannot stream sends one chunk and
+    /// then the same text, so the interface reads one shape either way.
     fn suggest_job(&mut self, client: ClientId, suggest_id: SuggestId, subject: SuggestSubject) {
         // Reap suggestions that are over — the flag means both "cancelled" and "finished", set by
         // the worker on its way out. This is the one place `active_suggests` gains an entry, so it
@@ -2276,38 +2379,68 @@ impl Coordinator {
             mailbox.send(Message::SuggestError { suggest_id, error });
         };
 
-        // What the subject names, resolved here because the catalogue lives on this thread. The
-        // material itself is gathered by the worker.
-        let root = match &subject {
+        // Which backend answers, and what it reads. Both are settled here because the catalogue
+        // and the settings live on this thread; the material itself is gathered by the worker.
+        //
+        // A check is the one subject that names its own backend instead of using the held one: a
+        // user checking a key they have just typed is asking about *that* provider, not about
+        // whichever one the setting points at. It is built for this one request and dropped with
+        // it, which is why `self.assist` is left alone.
+        let (backend, root) = match &subject {
             SuggestSubject::CommitMessage { project_id } => {
                 match self.projects.record(*project_id) {
-                    Some(record) => PathBuf::from(&record.path),
+                    Some(record) => (self.assist.clone(), Some(PathBuf::from(&record.path))),
                     None => return fail("that project is not in the catalogue".to_string()),
                 }
             }
+            SuggestSubject::ProviderCheck { provider_id, .. } => {
+                let host = self.settings.host();
+                let named = AssistProvider::Api {
+                    provider_id: *provider_id,
+                };
+                (
+                    assist::select(&named, &host.ai_providers, &self.ai_providers),
+                    None,
+                )
+            }
         };
 
-        if let Some(unavailable) = self.assist.availability() {
+        if let Some(unavailable) = backend.availability() {
             return fail(assist::unavailable_message(&unavailable));
         }
 
         let cancel = Arc::new(AtomicBool::new(false));
         self.active_suggests.insert(suggest_id, cancel.clone());
-        let assist = self.assist.clone();
 
         thread::Builder::new()
             .name(format!("suggest-{suggest_id}"))
             .spawn(move || {
-                let answer = gather(&subject, &root, &*assist).and_then(|request| {
-                    // A deadline, because nothing below can be interrupted: a model that hangs
-                    // would otherwise leave the window waiting forever, and a mechanical name is
-                    // better than a control that never comes back. The generation itself runs on
-                    // one more thread only so this one can stop waiting for it.
+                let chunks = mailbox.clone();
+                let answer = gather(&subject, root.as_deref(), &*backend).and_then(|request| {
+                    // A deadline, because nothing below can be interrupted from here: a model
+                    // that hangs would otherwise leave the window waiting forever, and a
+                    // mechanical name is better than a control that never comes back. The
+                    // generation itself runs on one more thread only so this one can stop waiting
+                    // for it — and it holds the mailbox, so chunks reach the window while this
+                    // thread is still inside `recv_timeout`.
                     let (done, waiting) = std::sync::mpsc::channel();
+                    let stop = cancel.clone();
                     thread::Builder::new()
                         .name(format!("suggest-run-{suggest_id}"))
                         .spawn(move || {
-                            let _ = done.send(assist.generate(request));
+                            let mut sink = |text: &str| {
+                                // Two reasons to stop, and both mean the same thing to a
+                                // backend: the suggestion was given up on, or the window that
+                                // asked for it has gone and `send` says so.
+                                if stop.load(Ordering::Relaxed) {
+                                    return false;
+                                }
+                                chunks.send(Message::SuggestChunk {
+                                    suggest_id,
+                                    text: text.to_string(),
+                                })
+                            };
+                            let _ = done.send(backend.stream(request, &mut sink));
                         })
                         .map_err(|error| format!("assist thread: {error}"))?;
                     waiting

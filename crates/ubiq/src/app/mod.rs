@@ -43,9 +43,9 @@ use crate::state::nav::{
 use crate::state::navigator::NavigatorState;
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
-    self as ui_settings, AccountDialog, AppForm, AssistInfo, CertPrompt, CliShortcut, ConnectApp,
-    ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep, MAX_LOGIN_LINKS,
-    MarkdownOpen, PendingSecret, SettingsSection,
+    self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
+    CliShortcut, ConnectApp, ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep,
+    MAX_LOGIN_LINKS, MarkdownOpen, PendingSecret, SettingsSection,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -73,14 +73,16 @@ use gpui_component::input::{
     EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
 };
 use gpui_terminal::TerminalView;
-use ubiq_proto::assist::AssistProvider;
+use ubiq_proto::assist::{
+    AiProviderDraft, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
+};
 use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{
-    ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId, StepId, SuggestId,
-    TaskId,
+    AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
+    StepId, SuggestId, TaskId,
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
@@ -620,6 +622,10 @@ pub struct AppState {
     /// rather than a shared one, for the reason every other pair here is split: two
     /// states drawn at once would be one field in two places.
     pub login_account_input: Entity<InputState>,
+    /// What to run for the harness the login modal is on, when this machine does not have it
+    /// where the library expects. Empty means "whatever the library would run"; its placeholder
+    /// says what that is.
+    pub login_command_input: Entity<InputState>,
     /// The profile form's two typed fields: what the setup is called, and which model it picks.
     /// The model is free text rather than a picker — the conversation's own model list is the
     /// harness's answer, and it is offered where a conversation starts.
@@ -643,6 +649,23 @@ pub struct AppState {
     // ponytail: this kit has no masked field, so a pasted token is on screen until the modal
     // closes. Add masking to `kit::field` if that ceiling ever matters.
     pub connect_secret_input: Entity<InputState>,
+    /// The API-provider form's five typed fields: what the provider is called, the endpoint it
+    /// lives at, the key, and the two model ids. Read at save time rather than mirrored per
+    /// keystroke, for the reason `connect_instance_input` is.
+    pub ai_name_input: Entity<InputState>,
+    pub ai_base_url_input: Entity<InputState>,
+    // ponytail: this kit has no masked field, so a pasted key is on screen until the modal
+    // closes — the same ceiling `connect_secret_input` has, and the same fix.
+    pub ai_key_input: Entity<InputState>,
+    /// The two model ids, as typed. Boxes rather than the picker's own state, because the picker
+    /// beside each one is a filler for it and not a replacement: a provider whose models cannot be
+    /// listed is still configured by typing an id.
+    pub ai_fast_model_input: Entity<InputState>,
+    pub ai_smart_model_input: Entity<InputState>,
+    /// The filter above each model picker's list. One per picker rather than one shared: both are
+    /// drawn at once, and a shared buffer would filter the list the user is not looking at.
+    pub ai_fast_search: Entity<InputState>,
+    pub ai_smart_search: Entity<InputState>,
     /// The remote-connect modal's two fields: an address (which absorbs a whole pasted connection
     /// string — see `remote_connect::apply_remote_address_input`) and a token. Read at dial time
     /// rather than mirrored, for the same reason `connect_instance_input` is.

@@ -4,9 +4,11 @@
 //! are how the application behaves. Two layers, because the host must never parse what it does
 //! not own, and must parse what it does.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::assist::AssistProvider;
+use crate::assist::{AiProvider, AssistProvider};
 use crate::connectors::{Connection, OauthApp, TrustedCert};
 use crate::projects::IndexLevel;
 
@@ -60,6 +62,18 @@ pub struct HostSettings {
     /// denial somebody can fix.
     #[serde(default)]
     pub extra_grants: Vec<Grant>,
+    /// What to run for a harness, when the harness's own name is not what to run. Keyed by
+    /// harness id; the value is a command line — a bare name (`claudex`), an absolute path
+    /// (`/opt/bin/claude`, `C:\tools\claude.exe`) or a launcher and its arguments
+    /// (`mise exec -- opencode`).
+    ///
+    /// **This is the one launch fact Ubiq owns**, and it is here rather than in the harness
+    /// library because it is a property of this machine, not of the harness: the library says
+    /// what a harness is called, the user says where this machine keeps it. The host splits the
+    /// string, uses the first word as the program and puts the rest in front of the arguments
+    /// the library composed. An id with no entry resolves exactly as before.
+    #[serde(default)]
+    pub agent_commands: BTreeMap<String, String>,
     /// Globs every project search and every filename index skip, whatever a project record says.
     #[serde(default = "search_excludes_default")]
     pub search_excludes: Vec<String>,
@@ -84,11 +98,11 @@ pub struct HostSettings {
 
     /// The authenticated identities at external services — see [`crate::connectors`].
     ///
-    /// **The host owns this field and the two below, and that is unlike everything above them.**
+    /// **The host owns this field and the three below, and that is unlike everything above them.**
     /// They ride this record because it is already persisted, versioned and round-tripped, but the
     /// interface writes the whole blob back on `SetSettings`, and a flow completing while a
     /// settings dialog is open would otherwise be lost to that write. So the host discards whatever
-    /// the interface sent for these three and keeps what is on disk. The rule is "the half that
+    /// the interface sent for these four and keeps what is on disk. The rule is "the half that
     /// mutates a field owns it", and no other field here works that way.
     #[serde(default)]
     pub connections: Vec<Connection>,
@@ -101,6 +115,15 @@ pub struct HostSettings {
     /// server find the same row.
     #[serde(default)]
     pub trusted_certs: Vec<TrustedCert>,
+    /// The API providers assistance may be pointed at — see [`crate::assist`].
+    ///
+    /// Host-mutated for the same reason the three above are, and for one more of its own: a
+    /// provider's key lives in the OS secret store under the record's id, so a record the
+    /// interface wrote directly could name a key that was never filed. Every change comes in as
+    /// `AddAiProvider`, `UpdateAiProvider` or `ForgetAiProvider`, which is what keeps a row and
+    /// its key inseparable. **No key is ever on this record**, and none is ever in this file.
+    #[serde(default)]
+    pub ai_providers: Vec<AiProvider>,
 
     /// The remote hosts the interface knows how to reach, by name and address alone.
     ///
@@ -114,10 +137,11 @@ pub struct HostSettings {
     /// not to persist it at all. Reconnecting to a saved host asks for the token again, the same
     /// as the first dial did.
     ///
-    /// **Why this field is UI-mutated, unlike the three above it.** Each of those exists because a
-    /// background flow — a login polling a device code, a certificate confirmation — can complete
-    /// while a settings dialog sits open with a stale copy, so `Settings::set` re-overwrites them
-    /// from disk on every `SetSettings`. Nothing here runs unattended: a saved host is added or
+    /// **Why this field is UI-mutated, unlike the four above it.** Each of those exists because a
+    /// background flow — a login polling a device code, a certificate confirmation, a provider's
+    /// key being filed — can complete while a settings dialog sits open with a stale copy, so
+    /// `Settings::set` re-overwrites them from disk on every `SetSettings`. Nothing here runs
+    /// unattended: a saved host is added or
     /// forgotten only by a person editing this exact list on this exact settings page, so there is
     /// no concurrent writer for a UI write to clobber, and this rides `SetSettings` whole like
     /// `search_excludes` or `projects_root` above it.
@@ -193,7 +217,17 @@ pub struct SavedRemoteHost {
 /// Nine adds [`HostSettings::assist`], and earns the bump on the same footing: an older build
 /// reads the record fine — the field defaults to off — but drops it on its next write, silently
 /// reverting a user's provider choice to calling no model at all.
-pub const HOST_SETTINGS_SCHEMA: u32 = 9;
+///
+/// Ten adds [`HostSettings::ai_providers`] and gives [`AssistProvider`] its `Api` variant. This is
+/// the strongest case in the list: an older build drops the provider records on its next write and
+/// **strands their keys in the OS secret store**, filed under ids nothing on disk names any more —
+/// a leak of exactly the kind a keychain exists to prevent. It also cannot read `assist` at all
+/// when the variant is `Api`, which by the rule above is a refusal rather than a silent default.
+///
+/// Eleven adds [`HostSettings::agent_commands`]. An older build drops the overrides on its next
+/// write, and every harness they pointed at goes back to being looked up by its own name — a
+/// harness that is only reachable through one stops starting until it is set again.
+pub const HOST_SETTINGS_SCHEMA: u32 = 11;
 
 fn isolate_agents_default() -> bool {
     true
@@ -233,6 +267,7 @@ impl Default for HostSettings {
             assist: AssistProvider::default(),
             agent_home: AgentHome::default(),
             extra_grants: Vec::new(),
+            agent_commands: BTreeMap::new(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
             index_level: IndexLevel::default(),
@@ -241,6 +276,7 @@ impl Default for HostSettings {
             connections: Vec::new(),
             oauth_apps: Vec::new(),
             trusted_certs: Vec::new(),
+            ai_providers: Vec::new(),
             remote_hosts: Vec::new(),
         }
     }

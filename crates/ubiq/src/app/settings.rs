@@ -38,6 +38,11 @@ impl AppState {
     /// Write down how the host behaves. The blob is the host's own schema — this half only ever
     /// stamps the version it was built against and hands the rest across, unparsed on the way out
     /// the same way it is unparsed on the way back until the host answers.
+    ///
+    /// One field on it is host-mutated and travels here only as an echo: `ai_providers`, which the
+    /// host discards whatever this sends, because a provider record and the key filed under its id
+    /// go together and only the host can write the key. Providers change through the four provider
+    /// messages instead — see the assistance section below.
     fn remember_host_settings(&mut self) {
         let mut host = self.workbench.settings.host.clone();
         host.schema = HOST_SETTINGS_SCHEMA;
@@ -177,6 +182,12 @@ impl AppState {
             // Asked on arrival for the same reason the shortcut is: a flow that finished in
             // another window has to show up, and the answer is a list the host already holds.
             self.bus.send(Message::ListConnections);
+        }
+        if nav == SettingsSection::Assist {
+            // Asked on arrival rather than at startup, for the reason the connections are: a
+            // provider added in another window has to show up here, and the host is the only half
+            // that knows which of them has a key.
+            self.bus.send(Message::GetAiProviders);
         }
         if nav == SettingsSection::CommandLine {
             // Asked on arrival for the same reason the accounts are: the shortcut can be moved,
@@ -459,19 +470,113 @@ impl AppState {
             step: LoginStep::Choosing { agent_type: None },
             links: Vec::new(),
             probe: false,
+            command_open: false,
+            command_check: None,
         });
         self.workbench.settings.error = None;
         cx.notify();
     }
 
     /// Pick which harness the login is for. Re-picking before it starts is free.
-    pub fn pick_login_harness(&mut self, agent_type: String, cx: &mut Context<Self>) {
-        if let Some(login) = &mut self.workbench.settings.login
-            && let LoginStep::Choosing { agent_type: chosen } = &mut login.step
-        {
-            *chosen = Some(agent_type);
-            cx.notify();
+    ///
+    /// Seeds the custom-command field with whatever override this machine already holds for that
+    /// harness, and shows the field unasked when there is one — an override the user cannot see
+    /// is an override they will not think to blame.
+    pub fn pick_login_harness(
+        &mut self,
+        agent_type: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let saved = self
+            .workbench
+            .settings
+            .host
+            .agent_commands
+            .get(&agent_type)
+            .cloned();
+        let default = self
+            .workbench
+            .agent_types
+            .iter()
+            .find(|it| it.id == agent_type)
+            .map(|it| it.command.clone())
+            .unwrap_or_else(|| agent_type.clone());
+
+        let Some(login) = &mut self.workbench.settings.login else {
+            return;
+        };
+        let LoginStep::Choosing { agent_type: chosen } = &mut login.step else {
+            return;
+        };
+        *chosen = Some(agent_type);
+        login.command_open = saved.is_some();
+        login.command_check = None;
+
+        self.login_command_input.update(cx, |state, cx| {
+            state.set_placeholder(default, window, cx);
+            state.set_value(saved.unwrap_or_default(), window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Which harness the picker is on, while it is still on the picker.
+    fn login_harness(&self) -> Option<String> {
+        match &self.workbench.settings.login.as_ref()?.step {
+            LoginStep::Choosing { agent_type } => agent_type.clone(),
+            _ => None,
         }
+    }
+
+    /// Show or hide the custom-command field. Closing is what commits it, which is also how an
+    /// emptied field removes the override.
+    pub fn toggle_login_command(&mut self, cx: &mut Context<Self>) {
+        let Some(login) = &mut self.workbench.settings.login else {
+            return;
+        };
+        login.command_open = !login.command_open;
+        if !login.command_open {
+            self.commit_login_command(cx);
+        }
+        cx.notify();
+    }
+
+    /// Ask the host whether what is typed actually runs. Nothing is saved by asking — the answer
+    /// lands in `command_check` and is drawn under the field.
+    pub fn check_login_command(&mut self, cx: &mut Context<Self>) {
+        let Some(agent_type) = self.login_harness() else {
+            return;
+        };
+        let command = self.login_command_input.read(cx).value().trim().to_string();
+        if let Some(login) = &mut self.workbench.settings.login {
+            login.command_check = None;
+        }
+        self.bus.send(Message::CheckAgentCommand {
+            agent_type,
+            command,
+        });
+        cx.notify();
+    }
+
+    /// Write the typed command into `agent_commands` for the picked harness — or drop the entry
+    /// when the field is empty — and tell the host. `ListAgentTypes` goes straight back out
+    /// because whether a harness is available is a fact about the command that just changed.
+    fn commit_login_command(&mut self, cx: &mut Context<Self>) {
+        let Some(agent_type) = self.login_harness() else {
+            return;
+        };
+        let command = self.login_command_input.read(cx).value().trim().to_string();
+        let now = (!command.is_empty()).then(|| command.clone());
+        let commands = &mut self.workbench.settings.host.agent_commands;
+        let before = match &now {
+            Some(command) => commands.insert(agent_type, command.clone()),
+            None => commands.remove(&agent_type),
+        };
+        if before == now {
+            return;
+        }
+        self.remember_host_settings();
+        self.bus.send(Message::ListAgentTypes);
     }
 
     /// Start the harness's own login flow. The host answers with the pane it runs in.
@@ -495,6 +600,9 @@ impl AppState {
     /// the moment the flow starts, and a field the interface mirrors into its own state is a
     /// second copy that can disagree with the one on screen.
     fn begin_harness_login(&mut self, probe: bool, cx: &mut Context<Self>) {
+        // The command field is committed here too: signing in is the other moment its content
+        // stops being a draft, and the flow about to start is what will run it.
+        self.commit_login_command(cx);
         let account = self.login_account_input.read(cx).value().trim().to_string();
         let Some(login) = &mut self.workbench.settings.login else {
             return;
@@ -577,6 +685,8 @@ impl AppState {
             step: LoginStep::Running { pane: pane_id },
             links: Vec::new(),
             probe,
+            command_open: false,
+            command_check: None,
         });
         self.pending_focus = Some(pane_id);
         self.bus.send(Message::Focus { pane_id });
@@ -677,6 +787,8 @@ impl AppState {
             },
             links: Vec::new(),
             probe: false,
+            command_open: false,
+            command_check: None,
         });
         self.bus.send(Message::BeginHarnessLogin {
             agent_type,
@@ -1414,6 +1526,323 @@ impl AppState {
 
     pub fn close_connector_dialog(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.connector = None;
+        cx.notify();
+    }
+
+    // ── Assistance providers ────────────────────────────────────────
+    //
+    // Providers are the one part of the host record the interface does not write through
+    // `SetSettings`: the host discards whatever an interface sends for `ai_providers`, because a
+    // record and the key filed under its id go together and only the host can write the key. So
+    // every change here is one of the four provider messages, and every list on screen is what
+    // `AiProviders` last said.
+
+    /// Raise the provider form — empty for one being added, seeded for one being edited.
+    ///
+    /// The key box is always left empty, because a stored key is never read back: the row says
+    /// whether there is one and nothing shows it. An edit also asks for the provider's model list
+    /// so the two pickers have something to offer — `refresh: false`, so a cached list costs no
+    /// network and a picker is openable without one. There is usually one to serve: the host
+    /// lists a provider's models the moment it is added.
+    pub fn open_ai_form(
+        &mut self,
+        id: Option<AiProviderId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let held = id.and_then(|id| self.workbench.settings.ai_provider(id).cloned());
+        let kind = held
+            .as_ref()
+            .map_or(AiProviderKind::OpenAiCompatible, |info| info.provider.kind);
+        let name = held
+            .as_ref()
+            .map_or(String::new(), |info| info.provider.name.clone());
+        let base_url = held
+            .as_ref()
+            .and_then(|info| info.provider.base_url.clone())
+            .unwrap_or_default();
+        let fast_model = held
+            .as_ref()
+            .map_or(String::new(), |info| info.provider.fast_model.clone());
+        let smart_model = held
+            .and_then(|info| info.provider.smart_model.clone())
+            .unwrap_or_default();
+        self.set_ai_form_fields(&name, &base_url, &fast_model, &smart_model, window, cx);
+        self.workbench.settings.ai_form = Some(AiProviderForm {
+            id,
+            kind,
+            open: None,
+        });
+        self.workbench.settings.error = None;
+        if let Some(provider_id) = id {
+            self.bus.send(Message::ListAiModels {
+                provider_id,
+                refresh: false,
+            });
+        }
+        cx.notify();
+    }
+
+    /// Pick the wire protocol a provider speaks. Nothing follows it: the endpoint is the user's,
+    /// and which models exist is the provider's own answer rather than a property of the kind.
+    pub fn pick_ai_kind(&mut self, kind: AiProviderKind, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.ai_form {
+            form.kind = kind;
+        }
+        cx.notify();
+    }
+
+    /// Open one model picker's list, closing whichever was down: exactly one is ever open, the
+    /// rule every picker in this window follows.
+    pub fn toggle_ai_model_picker(&mut self, role: ModelRole, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.ai_form {
+            form.open = if form.open == Some(role) {
+                None
+            } else {
+                Some(role)
+            };
+        }
+        cx.notify();
+    }
+
+    /// Write a picked model into the box it belongs to, and close the list it came from.
+    ///
+    /// The box is the store and the picker fills it, so a picked id and a typed one are the same
+    /// thing by the time the form is saved. `None` is the smart picker's first row — "use the fast
+    /// model" — and empties the box rather than storing a sentinel, because an empty box is
+    /// already what "no smart model" means to `save_ai_form`.
+    pub fn pick_ai_model(
+        &mut self,
+        role: ModelRole,
+        model: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = match role {
+            ModelRole::Fast => self.ai_fast_model_input.clone(),
+            ModelRole::Smart => self.ai_smart_model_input.clone(),
+        };
+        let value = model.unwrap_or_default();
+        input.update(cx, |state, cx| state.set_value(&value, window, cx));
+        if let Some(form) = &mut self.workbench.settings.ai_form {
+            form.open = None;
+        }
+        cx.notify();
+    }
+
+    /// Ask the provider itself for its models. The only place `refresh: true` is sent, because it
+    /// is the only control a user pressed for it — every other ask takes the host's cache.
+    pub fn refresh_ai_models(&mut self, cx: &mut Context<Self>) {
+        let Some(provider_id) = self
+            .workbench
+            .settings
+            .ai_form
+            .as_ref()
+            .and_then(|form| form.id)
+        else {
+            return;
+        };
+        self.bus.send(Message::ListAiModels {
+            provider_id,
+            refresh: true,
+        });
+        cx.notify();
+    }
+
+    /// Send the form. The host mints the id for an add, files the key under it, answers with the
+    /// whole list and then lists that provider's models unasked — or refuses, which reads as the
+    /// banner in this section. The modal closes optimistically, the way the rename dialog does.
+    ///
+    /// An add carries no model, because the form asks for none: there is nothing to pick from
+    /// until the record exists. The two model boxes are empty in that case and stay that way on
+    /// the wire, which the host accepts as an unfinished record rather than a bad one.
+    pub fn save_ai_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.ai_name_input.read(cx).value().trim().to_string();
+        let base_url = self.ai_base_url_input.read(cx).value().trim().to_string();
+        // Trimmed, because a key pasted with a newline around it is not a different key.
+        let key = self.ai_key_input.read(cx).value().trim().to_string();
+        // Typed or picked, a model is read from its box. An empty fast box is the model-less
+        // record the host allows; an empty smart box is `None`, which means the fast model
+        // answers those subjects too.
+        let fast_model = self.ai_fast_model_input.read(cx).value().trim().to_string();
+        let smart_model = self
+            .ai_smart_model_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let Some(form) = self.workbench.settings.ai_form.take() else {
+            return;
+        };
+        // The two refusals the Save button is dimmed for, enforced here too: a click on a dimmed
+        // button is still a click. A key is required only for an add — leaving it blank on an
+        // edit is how the stored one is kept. A model is required by neither: the host writes a
+        // record with none, and an id that no list would have offered is typed into the box.
+        if name.is_empty() || (form.id.is_none() && key.is_empty()) {
+            self.workbench.settings.ai_form = Some(form);
+            return;
+        }
+        let draft = AiProviderDraft {
+            kind: form.kind,
+            name,
+            base_url: (!base_url.is_empty()).then_some(base_url),
+            fast_model,
+            smart_model: (!smart_model.is_empty()).then_some(smart_model),
+        };
+        let typed_a_key = !key.is_empty();
+        match form.id {
+            // `key: None` leaves the stored key alone. The interface is never sent a key, so it
+            // cannot send one back — a blank box is the only way to say "keep it".
+            Some(provider_id) => self.bus.send(Message::UpdateAiProvider {
+                provider_id,
+                draft,
+                key: typed_a_key.then(|| Secret::new(key)),
+            }),
+            None => self.bus.send(Message::AddAiProvider {
+                draft,
+                key: Secret::new(key),
+            }),
+        }
+        self.set_ai_form_fields("", "", "", "", window, cx);
+        cx.notify();
+    }
+
+    pub fn close_ai_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workbench.settings.ai_form = None;
+        self.set_ai_form_fields("", "", "", "", window, cx);
+        cx.notify();
+    }
+
+    /// Seed the form's typed fields. The key box and the two picker filters are always emptied: a
+    /// key is never read back, and a filter left over from the last form would hide the list.
+    fn set_ai_form_fields(
+        &mut self,
+        name: &str,
+        base_url: &str,
+        fast_model: &str,
+        smart_model: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for (input, value) in [
+            (&self.ai_name_input, name),
+            (&self.ai_base_url_input, base_url),
+            (&self.ai_key_input, ""),
+            (&self.ai_fast_model_input, fast_model),
+            (&self.ai_smart_model_input, smart_model),
+            (&self.ai_fast_search, ""),
+            (&self.ai_smart_search, ""),
+        ] {
+            input.update(cx, |state, cx| state.set_value(value, window, cx));
+        }
+    }
+
+    /// Raise the removal question. It is a danger confirm because the key in the OS keychain goes
+    /// with the record — there is nothing left behind to reattach a re-added provider to.
+    pub fn open_remove_ai_provider(&mut self, provider_id: AiProviderId, cx: &mut Context<Self>) {
+        self.workbench.settings.ai_remove = Some(provider_id);
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn confirm_remove_ai_provider(&mut self, cx: &mut Context<Self>) {
+        let Some(provider_id) = self.workbench.settings.ai_remove.take() else {
+            return;
+        };
+        self.bus.send(Message::ForgetAiProvider { provider_id });
+        cx.notify();
+    }
+
+    pub fn close_remove_ai_provider(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ai_remove = None;
+        cx.notify();
+    }
+
+    /// Raise the test modal over one provider's row. Nothing is sent yet — the run is a button
+    /// inside it, because a modal that calls a model as it opens calls one nobody asked for.
+    pub fn open_ai_test(&mut self, provider_id: AiProviderId, cx: &mut Context<Self>) {
+        let Some((name, has_smart)) =
+            self.workbench
+                .settings
+                .ai_provider(provider_id)
+                .map(|info| {
+                    (
+                        info.provider.name.clone(),
+                        info.provider.smart_model.is_some(),
+                    )
+                })
+        else {
+            return;
+        };
+        self.workbench.settings.ai_test = Some(AiTest {
+            provider_id,
+            name,
+            has_smart,
+            role: ModelRole::Fast,
+            suggest_id: None,
+            answer: String::new(),
+            done: false,
+            error: None,
+        });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Which of the provider's two models the test exercises. Smart is refused where none is
+    /// configured, so the dead pill cannot be talked into naming a model that is not there.
+    pub fn pick_ai_test_role(&mut self, role: ModelRole, cx: &mut Context<Self>) {
+        if let Some(test) = &mut self.workbench.settings.ai_test
+            && (role == ModelRole::Fast || test.has_smart)
+        {
+            test.role = role;
+        }
+        cx.notify();
+    }
+
+    /// Mint an id, keep it, and ask.
+    ///
+    /// The subject carries the provider and the role and no prompt at all: the prompt is the
+    /// host's for this subject as for every other, which is what keeps one off the bus tape. The
+    /// answer streams in as `SuggestChunk`, and `receive_assist` puts it here.
+    pub fn run_ai_test(&mut self, cx: &mut Context<Self>) {
+        let Some((provider_id, role, in_flight)) = self
+            .workbench
+            .settings
+            .ai_test
+            .as_ref()
+            .map(|test| (test.provider_id, test.role, test.suggest_id))
+        else {
+            return;
+        };
+        // A rerun gives up on the run before it. Best effort, like every cancel: an answer to the
+        // abandoned id may still arrive, and is discarded by the id it names.
+        if let Some(suggest_id) = in_flight {
+            self.bus.send(Message::CancelSuggest { suggest_id });
+        }
+        let suggest_id = SuggestId::generate();
+        self.suggest = Some(suggest_id);
+        if let Some(test) = &mut self.workbench.settings.ai_test {
+            test.suggest_id = Some(suggest_id);
+            test.answer.clear();
+            test.done = false;
+            test.error = None;
+        }
+        self.bus.send(Message::Suggest {
+            suggest_id,
+            subject: SuggestSubject::ProviderCheck { provider_id, role },
+        });
+        cx.notify();
+    }
+
+    /// Leave the test, giving up on a run still in flight.
+    pub fn close_ai_test(&mut self, cx: &mut Context<Self>) {
+        let Some(test) = self.workbench.settings.ai_test.take() else {
+            return;
+        };
+        if let Some(suggest_id) = test.suggest_id {
+            self.bus.send(Message::CancelSuggest { suggest_id });
+            self.suggest = None;
+        }
         cx.notify();
     }
 

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it.
 read_when: you changed a file and need to know which documents owe an update, or you are looking for where something lives
-updated: 2026-09-04
-verified: 2026-09-04
+updated: 2026-09-08
+verified: 2026-09-08
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -116,7 +116,9 @@ crates/ubiq-host/src/
     ├── apple.rs
     ├── mod.rs
     ├── stub.rs
-    └── subject.rs
+    ├── subject.rs
+    ├── api.rs
+    └── providers.rs
 
 crates/ubiq/src/
 ├── state/
@@ -328,6 +330,11 @@ the documents in its row.
 | `crates/ubiq-app/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/ubiq-host/src/assist/api.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/assist/mod.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/assist/providers.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/assist/stub.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/assist/subject.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/cli_shortcut.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq-host/src/connectors/app.rs` | [`features/connectors.md`](../features/connectors.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-host/src/connectors/flow.rs` | [`features/connectors.md`](../features/connectors.md) |
@@ -440,7 +447,7 @@ the documents in its row.
 | `crates/ubiq/src/state/vim/search.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/vim/step.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/when.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/state/windows.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/windows.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/work.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/workbench.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
@@ -531,9 +538,11 @@ the documents in its row.
 | `crates/ubiq/tests/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `vendor/gpui-terminal/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `vendor/gpui-terminal/src/clipboard.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
+| `vendor/gpui-terminal/src/event.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/input.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/mouse.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/render.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
+| `vendor/gpui-terminal/src/terminal.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/view.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 
 ## Unanchored
@@ -544,9 +553,6 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 |---|
 | `crates/ubiq-app/src/handoff.rs` |
 | `crates/ubiq-host/src/assist/apple.rs` |
-| `crates/ubiq-host/src/assist/mod.rs` |
-| `crates/ubiq-host/src/assist/stub.rs` |
-| `crates/ubiq-host/src/assist/subject.rs` |
 | `crates/ubiq-host/src/atomic.rs` |
 | `crates/ubiq-host/src/config.rs` |
 | `crates/ubiq-host/src/connectors/http.rs` |

@@ -76,15 +76,19 @@ impl Settings {
                 match parse_host(&value) {
                     Err(error) => vec![Reply::Asker(Message::SettingsError { layer, error })],
                     Ok(mut settings) => {
-                        // The three fields the host owns. The interface's copy of them is as old as
+                        // The four fields the host owns. The interface's copy of them is as old as
                         // the dialog it was opened with, and a flow that completed in between wrote
                         // the real one — so what came over the bus for these is discarded and what
-                        // is on disk is kept. Everything else in the blob is the interface's to
-                        // write, and is written unchanged.
+                        // is on disk is kept. For `ai_providers` there is one more reason: a
+                        // record's key is filed in the OS secret store under that record's id, so a
+                        // list the interface wrote directly could name a key that was never stored,
+                        // or drop a record and strand one. Everything else in the blob is the
+                        // interface's to write, and is written unchanged.
                         let held = self.host();
                         settings.connections = held.connections;
                         settings.oauth_apps = held.oauth_apps;
                         settings.trusted_certs = held.trusted_certs;
+                        settings.ai_providers = held.ai_providers;
                         match self.write(&settings) {
                             Ok(()) => Vec::new(),
                             Err(error) => {

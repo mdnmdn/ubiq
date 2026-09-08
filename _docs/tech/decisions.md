@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -1488,6 +1488,63 @@ either erased by the next host's answer or kept forever by every one of them. An
 destructive by design: a connection that drops for a second takes the window's remote panes with it,
 because there is no reconnect and nothing on the host side outlives the socket — `G189` and `G190`
 are what would make a blip survivable.
+
+### D86 — An API provider's key lives in the OS keychain, and its record is the host's to write
+
+`D83` left the API providers behind the `Assist` seam with one thing missing: somewhere to keep a
+key. `agent_manager::Account` was the wrong home — an account carries credential *references* and
+models an authentication a harness runs *as*, never a provider Ubiq itself calls — so the answer is
+the connector family's: `OsSecretStore` under Ubiq's config root, in a namespace of its own
+(`ai-provider`), keyed by the record's own id. One store rather than a second one beside it, because
+whether the platform has a usable keychain at all is one fact and one probe.
+
+The consequence is where the interesting part is. Because the key is filed under the record's id,
+**the record and the key have to be written together or not at all**, which rules out the record
+riding a `SetSettings` like an ordinary setting: a stale interface copy that dropped a row would
+strand its key in the keychain, unreachable and unlistable, which is precisely the leak a keychain
+exists to prevent. So `HostSettings.ai_providers` joins the three connector fields the host
+overwrites from disk, every change is one of `AddAiProvider`, `UpdateAiProvider` or
+`ForgetAiProvider`, the key crosses once in a `Secret` and is never sent back, and a record says
+only whether one is filed. `AddAiProvider` files the key *before* it writes the record and removes
+it again if the write fails, so the orphan that can exist is the harmless one.
+
+The model list took the opposite decision, and for the mirror of the same reason: it is derived, the
+host is its only writer, and losing it costs one button press — so it is a cache file the host owns
+(`ai-models.json`), not a settings field. Several hundred model names have no business in a file a
+user opens to change a preference, and a picker that costs a network round trip per keystroke is a
+picker nobody filters.
+
+**Cost:** four fields on one record now have an ownership rule the other twelve do not, and the rule
+is invisible in the type — `HostSettings` looks uniform and behaves in two ways. The keychain is
+also now load-bearing for a *feature* rather than only for a login: a machine whose secret store
+does not work cannot configure a provider at all, and is told so at the moment it tries rather than
+later. And a provider deleted while another window's settings dialog is open leaves that window
+showing a row whose key is gone until the broadcast lands.
+
+### D87 — A suggestion streams, and the trait's default is what makes that free
+
+`Assist::generate` returning a whole string was right for a commit subject line and wrong for
+anything a user watches arrive. Streaming was deferred until a subject wanted more than a line; the
+provider check is that subject — its whole job is to show a user that a provider they just
+configured answers, and a spinner followed by a paragraph demonstrates nothing a failure would not.
+
+What made it cheap is where the seam was drawn. `Assist::stream` is a **defaulted** trait method
+that calls `generate` and hands the answer over in one piece, so the on-device and stub backends
+gained streaming semantics without gaining code, and the coordinator forwards `SuggestChunk`
+without knowing who is behind them. An interface that draws only the final `Suggestion` stays
+correct, because every chunk concatenated is that message's text.
+
+The sink returning `false` is the second half, and it is the only cancellation an HTTP request has:
+a suggestion the user gave up on stops the backend *reading* and drops the connection, where before
+`CancelSuggest` could only stop the reply being forwarded. It still cannot stop a model that has
+already been asked.
+
+**Cost:** one more variant on the wire and one more thing an interface may ignore — which means
+chunk-handling is untested by anything that only reads `Suggestion`, and a backend that streams into
+a sink that panics would take the run thread with it. The final text is also trimmed while the
+chunks are not, so "every chunk concatenated equals `Suggestion.text`" is true only up to
+surrounding whitespace, and an interface that draws chunks and then swaps in the final text can
+show a one-frame reflow.
 
 ## Related docs
 

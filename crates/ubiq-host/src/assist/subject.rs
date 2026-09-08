@@ -7,7 +7,7 @@
 //! Each function truncates its material against the [`AssistLimits`] it is given, because the
 //! half that knows the budget is the half that must cut.
 
-use ubiq_proto::assist::AssistLimits;
+use ubiq_proto::assist::{AssistLimits, ModelRole};
 use ubiq_proto::git::{GitEntry, GitMark};
 
 use super::Request;
@@ -26,6 +26,11 @@ const RESPONSE_TOKENS: u32 = 32;
 
 /// What the answer may be at most. One short line, so a runaway generation ends early.
 const MAX_RESPONSE_TOKENS: u32 = 64;
+
+/// What a provider check may answer at most. Longer than a subject line on purpose: a check is
+/// watched arriving, and a few sentences is enough to see it stream without being enough to cost
+/// anything.
+const CHECK_RESPONSE_TOKENS: u32 = 160;
 
 const COMMIT_INSTRUCTIONS: &str = "\
 You write git commit messages. Given a summary of the changed files in a repository, reply with \
@@ -62,6 +67,35 @@ pub fn commit_message(changes: &[GitEntry], limits: &AssistLimits) -> Request {
         instructions: COMMIT_INSTRUCTIONS.to_string(),
         prompt,
         max_tokens: Some(MAX_RESPONSE_TOKENS),
+        // Naming a commit is what the fast model is for; a subject that wanted the other one
+        // would say so here, and none does yet.
+        role: ModelRole::Fast,
+    }
+}
+
+const CHECK_INSTRUCTIONS: &str = "\
+You are being tested by the application that just configured you. Reply with two or three short \
+sentences confirming that you can be reached, and nothing else.";
+
+const CHECK_PROMPT: &str = "\
+Confirm you are working. Say which model you are, if you know, and describe in one sentence what \
+you are for.";
+
+/// The prompt for [`ubiq_proto::assist::SuggestSubject::ProviderCheck`].
+///
+/// Deliberately asks for a few sentences rather than a word. This subject exists to show a user
+/// that a provider they just configured answers, and an answer arriving a token at a time is the
+/// half of that which a single word could not demonstrate — so the response ceiling here is the
+/// only one in this module that is not a line.
+///
+/// It takes no material and so needs no budget: there is nothing to cut, and the limits a
+/// backend reports are exactly what this is checking.
+pub fn provider_check(role: ModelRole) -> Request {
+    Request {
+        instructions: CHECK_INSTRUCTIONS.to_string(),
+        prompt: CHECK_PROMPT.to_string(),
+        max_tokens: Some(CHECK_RESPONSE_TOKENS),
+        role,
     }
 }
 
@@ -105,6 +139,14 @@ mod tests {
         assert!(request.prompt.contains("M src/a.rs"));
         assert!(request.prompt.contains("M src/b.rs"));
         assert!(!request.prompt.contains("more paths"));
+    }
+
+    #[test]
+    fn a_check_asks_the_role_it_was_given_and_carries_no_material() {
+        let request = provider_check(ModelRole::Smart);
+        assert_eq!(request.role, ModelRole::Smart);
+        assert_eq!(request.max_tokens, Some(CHECK_RESPONSE_TOKENS));
+        assert!(!request.prompt.is_empty());
     }
 
     #[test]

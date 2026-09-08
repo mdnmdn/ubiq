@@ -367,6 +367,30 @@ impl AppState {
             self.close_menu(cx);
             return;
         }
+        // A picker whose list is down over a form is the same case, and `open_menu` does not know
+        // about it: a picker inside a modal keeps its open state on the form, because the modal is
+        // redrawn from state on every frame. Peeled here, or Escape would take the half-filled
+        // form the list is sitting on.
+        if let Some(role) = self
+            .workbench
+            .settings
+            .ai_form
+            .as_ref()
+            .and_then(|form| form.open)
+        {
+            self.toggle_ai_model_picker(role, cx);
+            return;
+        }
+        if self
+            .workbench
+            .settings
+            .app_form
+            .as_ref()
+            .is_some_and(|form| form.open)
+        {
+            self.toggle_app_provider_picker(cx);
+            return;
+        }
         let settings = &self.workbench.settings;
         if self.workbench.remote_connect.is_some() {
             self.cancel_remote_connect(window, cx);
@@ -377,6 +401,14 @@ impl AppState {
             self.close_file_dialog(cx);
         } else if self.workbench.clone_project.is_some() {
             self.close_clone(cx);
+        } else if settings.ai_remove.is_some() {
+            // The three provider layers, in reverse paint order — `ui::shell` draws the form,
+            // then the test, then the removal question, so Escape takes them the other way up.
+            self.close_remove_ai_provider(cx);
+        } else if settings.ai_test.is_some() {
+            self.close_ai_test(cx);
+        } else if settings.ai_form.is_some() {
+            self.close_ai_form(window, cx);
         } else if settings.cert.is_some() {
             self.cancel_certificate(cx);
         } else if settings.connector.is_some() {

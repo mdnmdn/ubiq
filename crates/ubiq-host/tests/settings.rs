@@ -204,6 +204,60 @@ fn a_ui_write_keeps_its_own_fields_and_leaves_the_hosts_alone() {
     );
 }
 
+/// The same rule for the provider records, and the reason it matters more there.
+///
+/// A provider's key is filed in the OS keychain under the record's id. A stale interface copy that
+/// dropped a record would strand that key: unreachable, unlistable and still there. So this write
+/// is discarded exactly as the connector fields' is.
+#[test]
+fn a_ui_write_cannot_drop_an_ai_provider_and_strand_its_key() {
+    use ubiq_host::settings::Settings;
+    use ubiq_proto::assist::{AiProvider, AiProviderKind, AssistProvider};
+    use ubiq_proto::ids::AiProviderId;
+    use ubiq_proto::settings::SettingsLayer;
+
+    let settings = Settings::open(Box::new(MemorySettingsStore::new()));
+    let id = AiProviderId::generate();
+
+    // A provider is added: the host writes the record, having already filed the key.
+    settings
+        .update_host(|host| {
+            host.ai_providers.push(AiProvider {
+                id,
+                kind: AiProviderKind::Anthropic,
+                name: "work".into(),
+                base_url: None,
+                fast_model: "quick".into(),
+                smart_model: None,
+            });
+            host.assist = AssistProvider::Api { provider_id: id };
+        })
+        .unwrap();
+
+    // The interface writes back a record it opened before any of that existed.
+    let stale = HostSettings {
+        isolate_agents: false,
+        ..HostSettings::default()
+    };
+    let replies = settings.set(SettingsLayer::Host, serde_json::to_string(&stale).unwrap());
+    assert!(replies.is_empty(), "a good blob answers nothing");
+
+    let after = settings.host();
+    assert_eq!(
+        after.ai_providers.len(),
+        1,
+        "the interface's stale copy took the provider — and its key — with it"
+    );
+    assert_eq!(after.ai_providers[0].id, id);
+    assert!(
+        !after.isolate_agents,
+        "the toggle the interface actually owns was refused"
+    );
+    // The setting itself *is* the interface's to write, and reverting to the default is a real
+    // write: which provider assistance uses is a preference, unlike the records behind it.
+    assert_eq!(after.assist, AssistProvider::Off);
+}
+
 /// A record from a newer Ubiq is still refused, and the connector fields did not change that.
 #[test]
 fn a_newer_schema_is_still_refused() {

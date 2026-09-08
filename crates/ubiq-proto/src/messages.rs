@@ -9,7 +9,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::assist::{AssistLimits, AssistReason, SuggestSubject};
+use crate::assist::{
+    AiModelList, AiProviderDraft, AiProviderInfo, AssistLimits, AssistReason, SuggestSubject,
+};
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::files::{
@@ -18,8 +20,8 @@ use crate::files::{
 };
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
-    CloneId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId,
-    SessionId, StepId, SuggestId, TaskId,
+    AiProviderId, CloneId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, RepoQueryId,
+    SearchId, SessionId, StepId, SuggestId, TaskId,
 };
 use crate::projects::{IndexChange, ProjectSnapshot, Scope};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
@@ -141,6 +143,22 @@ pub enum Message {
     /// The agent types the host can start, in the order the menu offers them.
     AgentTypes {
         agent_types: Vec<AgentTypeInfo>,
+    },
+    /// Try `command` as the way to start `agent_type` on this machine, without saving it.
+    /// Answered with [`Message::AgentCommandChecked`].
+    ///
+    /// The one question the interface asks about a binary, and it asks it because the user is
+    /// typing the answer: a command line that resolves to nothing is a spawn failure a pane
+    /// would report minutes later. The host runs it, once, and says what happened.
+    CheckAgentCommand {
+        agent_type: String,
+        command: String,
+    },
+    /// What that command did: whether it ran, and one line saying what was found or what failed.
+    AgentCommandChecked {
+        agent_type: String,
+        ok: bool,
+        detail: String,
     },
 
     // ── Account family: the identities a harness runs as ─────────────
@@ -1214,6 +1232,44 @@ pub enum Message {
     CancelSuggest {
         suggest_id: SuggestId,
     },
+    /// List the configured API providers, answered with [`Message::AiProviders`]. Asked as a
+    /// settings page opens, because the host is the half that knows which of them has a key.
+    GetAiProviders,
+    /// Write a new provider. The host mints the id, files `key` in the OS secret store under it,
+    /// and answers with the whole list — a record whose key could not be stored is not written at
+    /// all, so a row on screen always has a key behind it.
+    ///
+    /// The draft's models may be blank, and normally are: a model picker needs an id to name and a
+    /// key to call with, so the host lists this provider's models as soon as it has written both
+    /// and the user chooses from the answer. A provider with a key and no model reports itself
+    /// unavailable with a detail saying so.
+    AddAiProvider {
+        draft: AiProviderDraft,
+        key: Secret,
+    },
+    /// Change a provider that exists. `key: None` leaves the stored key alone, which is what an
+    /// edit that only renames or re-models must do: the interface is never sent a key, so it
+    /// cannot send one back.
+    UpdateAiProvider {
+        provider_id: AiProviderId,
+        draft: AiProviderDraft,
+        key: Option<Secret>,
+    },
+    /// Remove a provider and its key together. If the assist setting named it, the setting falls
+    /// back to [`crate::assist::AssistProvider::Off`] — a setting pointing at nothing would report
+    /// itself unavailable forever.
+    ForgetAiProvider {
+        provider_id: AiProviderId,
+    },
+    /// The models a provider says it has, answered with [`Message::AiModels`].
+    ///
+    /// `refresh: false` is served from the host's cache when there is one and calls the provider
+    /// only when there is not, which is what makes a model picker openable without a network. The
+    /// interface sets `refresh: true` only for a control the user pressed.
+    ListAiModels {
+        provider_id: AiProviderId,
+        refresh: bool,
+    },
 
     // ── Assist family: host → UI ────────────────────────────────────
     /// Whether assistance can run, and what is behind it. `reason` is present exactly when
@@ -1231,10 +1287,43 @@ pub enum Message {
         suggest_id: SuggestId,
         text: String,
     },
+    /// Part of a suggestion, as it arrives.
+    ///
+    /// Zero or more of these precede the [`Message::Suggestion`] that ends the same id, and every
+    /// chunk concatenated is the answer that message carries — modulo the surrounding whitespace
+    /// `Suggestion` trims, since a suggestion is put where a user edits it. So an interface that
+    /// ignores chunks entirely still renders the right thing, and one that draws them shows a
+    /// first token instead of a spinner. A backend that cannot stream sends exactly one.
+    SuggestChunk {
+        suggest_id: SuggestId,
+        text: String,
+    },
     /// The suggestion could not be made. The subject keeps its mechanical name — nothing was
     /// changed on the way to failing — so this is a line to show beside the control, not a repair.
+    /// Chunks already delivered for this id are not a partial answer: the interface discards them.
     SuggestError {
         suggest_id: SuggestId,
+        error: String,
+    },
+    /// Every configured API provider, with whether each has a key. Which one is *selected* is not
+    /// here: that is `HostSettings.assist`, which every window already mirrors, so a row asks it
+    /// rather than being told twice.
+    ///
+    /// Broadcast rather than answered to the asker alone, because a provider list is a property of
+    /// the host and a second window's settings page must not show a row that no longer exists.
+    AiProviders {
+        providers: Vec<AiProviderInfo>,
+    },
+    /// A provider's model list, and when it was obtained. `refreshed` is true when the provider was
+    /// actually called for this answer, false when it came from the cache.
+    AiModels {
+        list: AiModelList,
+        refreshed: bool,
+    },
+    /// A provider list could not be obtained, or a write to the secret store failed. One line to
+    /// show on the settings page: nothing was changed on the way to failing.
+    AiProviderError {
+        provider_id: Option<AiProviderId>,
         error: String,
     },
 }
@@ -1330,16 +1419,25 @@ pub struct ShellInfo {
 ///
 /// Every field comes from the embedded harness library — `id` is the library's harness id, and it
 /// is what a spawn asks for on [`Message::SpawnWorkspace`]. The interface shows `label` and hands
-/// `id` back; it never names a binary, a config path or a launch flag, because how a harness is
-/// started is not a fact it holds.
+/// `id` back; it never names a config path or a launch flag, because how a harness is started is
+/// not a fact it holds.
+///
+/// `command` is the one exception, and it is here to be *shown*, not composed: the user may
+/// override what this machine runs for a harness ([`crate::settings::HostSettings::agent_commands`]),
+/// and a field asking for that override with no idea what it is replacing is a field nobody can
+/// fill in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentTypeInfo {
     /// The library's harness id, e.g. `claude-code`.
     pub id: String,
     /// What the row says — the harness's display name.
     pub label: String,
-    /// Whether the harness's own binary was found, so a row that cannot start says so before it is
-    /// picked rather than failing as a spawn the user has to interpret.
+    /// What the library would run for it, e.g. `claude` — the placeholder a custom command is
+    /// typed over, and never something the interface composes a launch from.
+    pub command: String,
+    /// Whether it can be started here: the harness's own binary was found, or a custom command is
+    /// configured for it. A row that cannot start says so before it is picked rather than failing
+    /// as a spawn the user has to interpret.
     pub available: bool,
     /// The permission modes this harness advertises, as the library reports them. Empty when
     /// the harness has no such axis — a mode is not a universal concept, it is whatever this

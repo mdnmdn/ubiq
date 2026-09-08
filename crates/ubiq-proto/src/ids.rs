@@ -196,6 +196,15 @@ ulid_id! {
 }
 
 ulid_id! {
+    /// One configured API provider. Minted by the host when the record is written, because a
+    /// provider exists only once its key is filed — an abandoned dialog leaves no id behind, on
+    /// [`ConnectionId`]'s discipline. Stable across a rename and across an edit of its endpoint:
+    /// the name and the URL are the user's, this is what the assist setting and the stored key
+    /// reference.
+    AiProviderId
+}
+
+ulid_id! {
     /// One suggestion, from the `Suggest` that asks for it to the single `Suggestion` or
     /// `SuggestError` that ends it. Minted by the interface so a reply naming a suggestion it is
     /// no longer holding is discarded by id, the same discipline [`SearchId`] buys for a search.

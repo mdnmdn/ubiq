@@ -162,6 +162,8 @@ impl AppState {
 
         let login_account_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
+        // Placeholder reseeded with the picked harness's own command whenever one is picked.
+        let login_command_input = cx.new(|cx| InputState::new(window, cx).placeholder("claude"));
 
         // Seeded whenever the profile form opens: empty for a new setup, the profile's own
         // values when one is being edited.
@@ -191,6 +193,27 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("Application id"));
         let connect_secret_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
+
+        // The API-provider form's typed fields. Seeded whenever the form opens — empty for a
+        // provider being added, the record's own values when one is being edited — and the key box
+        // is always left empty, because a stored key is never read back. No `PressEnter` or `Blur`
+        // subscription: every one of them is read at save time, the way the profile form's are,
+        // and the model boxes are also written by the picker that sits beside them.
+        let ai_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("work, local\u{2026}"));
+        let ai_base_url_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("https://api.example.com/v1 \u{2014} optional")
+        });
+        let ai_key_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Paste the key\u{2026}"));
+        let ai_fast_model_input = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Pick one, or type the id\u{2026}"));
+        let ai_smart_model_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Optional \u{2014} the fast model is used")
+        });
+        let ai_fast_search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter\u{2026}"));
+        let ai_smart_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter\u{2026}"));
 
         // The remote-connect modal's fields. `remote_address_input` doubles as the paste target
         // for a whole connection string — see the `InputEvent::Change` subscription below.
@@ -739,12 +762,20 @@ impl AppState {
             sink_textarea.read(cx).focus_handle(cx),
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
+            login_command_input.read(cx).focus_handle(cx),
             profile_id_input.read(cx).focus_handle(cx),
             profile_model_input.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
             connect_secret_input.read(cx).focus_handle(cx),
+            ai_name_input.read(cx).focus_handle(cx),
+            ai_base_url_input.read(cx).focus_handle(cx),
+            ai_key_input.read(cx).focus_handle(cx),
+            ai_fast_model_input.read(cx).focus_handle(cx),
+            ai_smart_model_input.read(cx).focus_handle(cx),
+            ai_fast_search.read(cx).focus_handle(cx),
+            ai_smart_search.read(cx).focus_handle(cx),
             remote_address_input.read(cx).focus_handle(cx),
             remote_token_input.read(cx).focus_handle(cx),
             clone_filter_input.read(cx).focus_handle(cx),
@@ -899,6 +930,7 @@ impl AppState {
             sink_textarea,
             sink_modal_input,
             login_account_input,
+            login_command_input,
             profile_id_input,
             profile_model_input,
             account_rename_input,
@@ -908,6 +940,13 @@ impl AppState {
             connect_instance_input,
             connect_client_id_input,
             connect_secret_input,
+            ai_name_input,
+            ai_base_url_input,
+            ai_key_input,
+            ai_fast_model_input,
+            ai_smart_model_input,
+            ai_fast_search,
+            ai_smart_search,
             remote_address_input,
             remote_token_input,
             sink_search,

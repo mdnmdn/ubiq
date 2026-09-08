@@ -12,6 +12,7 @@
 //! A path literal in this file is the clearest possible sign the boundary in
 //! `_docs/tech/agent-manager.md` has been crossed.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use agent_manager::Validity;
@@ -48,6 +49,9 @@ pub struct Agents {
     home: AgentHome,
     /// Directories a confined run may reach beyond what its policy grants.
     extra_grants: Vec<Grant>,
+    /// Custom command line overrides, harness id → what to run instead of the library's own
+    /// bare program, as the user set them in Settings.
+    commands: BTreeMap<String, String>,
 }
 
 /// A run composed and ready to spawn: what to exec, where its configuration
@@ -181,6 +185,7 @@ impl Agents {
             isolate,
             home: AgentHome::default(),
             extra_grants: Vec::new(),
+            commands: BTreeMap::new(),
         }
     }
 
@@ -203,6 +208,13 @@ impl Agents {
         self.isolate = isolate;
     }
 
+    /// Take the per-harness command overrides from the host settings, mirroring
+    /// [`set_policy`](Self::set_policy): read at the next spawn, never applied to a run already
+    /// under way.
+    pub fn set_commands(&mut self, commands: BTreeMap<String, String>) {
+        self.commands = commands;
+    }
+
     /// Every agent type the library knows, in the order a menu offers them,
     /// each marked with whether its binary is actually on this machine.
     ///
@@ -212,20 +224,28 @@ impl Agents {
     pub fn types(&self) -> Vec<AgentTypeInfo> {
         harness::all()
             .into_iter()
-            .map(|harness| AgentTypeInfo {
-                id: harness.id(),
-                label: harness.display_name().to_string(),
-                available: crate::shells::locate(harness.command()).is_some(),
-                modes: harness
-                    .modes()
-                    .into_iter()
-                    .map(|mode| ConfigChoice {
-                        value: mode.id,
-                        name: mode.label,
-                        description: mode.description,
-                        group: None,
-                    })
-                    .collect(),
+            .map(|harness| {
+                let id = harness.id();
+                // An override makes a harness available even when its own binary is not on
+                // this machine's `PATH` — that is the whole point of setting one.
+                let available = self.commands.contains_key(&id)
+                    || crate::shells::locate(harness.command()).is_some();
+                AgentTypeInfo {
+                    id,
+                    label: harness.display_name().to_string(),
+                    command: harness.command().to_string(),
+                    available,
+                    modes: harness
+                        .modes()
+                        .into_iter()
+                        .map(|mode| ConfigChoice {
+                            value: mode.id,
+                            name: mode.label,
+                            description: mode.description,
+                            group: None,
+                        })
+                        .collect(),
+                }
             })
             .collect()
     }
@@ -400,7 +420,7 @@ impl Agents {
         self.account_store().sign_out(account, &files)
     }
 
-    /// Rewrite `launch`'s program to an absolute path, when `shells::locate` can find it.
+    /// Rewrite `launch`'s program to what `agent_type` should actually run.
     ///
     /// A harness's own `Launch` names its program bare (`"claude"`), because
     /// `crates/agent-manager` reads no process environment — `isolate.rs` says so of itself.
@@ -410,7 +430,21 @@ impl Agents {
     /// closes by also asking the login shell. Left bare when `locate` finds nothing, so a
     /// genuinely missing binary still fails with the library's own "not found" error rather
     /// than a swallowed one here.
-    fn resolve_program(launch: &mut Launch) {
+    ///
+    /// A configured override replaces the program outright: `agent_type`'s command line is
+    /// split into words, the first resolved exactly as a bare harness name is, the rest
+    /// prepended to `launch.args` — so `mise exec -- opencode` runs the harness's own
+    /// arguments through `mise` rather than losing them.
+    fn resolve_program(&self, agent_type: &str, launch: &mut Launch) {
+        if let Some(command) = self.commands.get(agent_type) {
+            let mut words = split_command(command);
+            if !words.is_empty() {
+                launch.program = resolve_bare(&words.remove(0));
+                words.append(&mut launch.args);
+                launch.args = words;
+                return;
+            }
+        }
         if let Some(path) = crate::shells::locate(&launch.program) {
             launch.program = path.to_string_lossy().into_owned();
         }
@@ -448,7 +482,7 @@ impl Agents {
         let mut plan = harness
             .login(&home)
             .with_context(|| format!("asking {agent_type} how it logs in"))?;
-        Self::resolve_program(&mut plan.launch);
+        self.resolve_program(agent_type, &mut plan.launch);
 
         // The credential's timestamp before the login runs. A harness that exits cleanly
         // without refreshing its credential has not logged anyone in, and this is the only
@@ -734,7 +768,7 @@ impl Agents {
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
         let mut provisioned = provision::provision(harness.as_ref(), &spec, &templates)
             .with_context(|| format!("composing a {agent_type} run"))?;
-        Self::resolve_program(&mut provisioned.launch);
+        self.resolve_program(agent_type, &mut provisioned.launch);
 
         // Every confined run keeps the real home unless the user said otherwise. A home of its
         // own was once the answer to "a second run of the same profile should find its caches,
@@ -926,9 +960,147 @@ fn expand_home(path: &str) -> PathBuf {
     }
 }
 
+/// Split a command line into words: whitespace-separated, with `"` and `'` grouping a run of
+/// words into one. No backslash escaping — a Windows path (`C:\tools\claude.exe`) must reach the
+/// far side with its backslashes untouched, not eaten as escapes.
+fn split_command(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut in_word = false;
+    let mut quote: Option<char> = None;
+    for c in command.chars() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            } else {
+                current.push(c);
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => {
+                quote = Some(c);
+                in_word = true;
+            }
+            c if c.is_whitespace() => {
+                if in_word {
+                    words.push(std::mem::take(&mut current));
+                    in_word = false;
+                }
+            }
+            c => {
+                current.push(c);
+                in_word = true;
+            }
+        }
+    }
+    if in_word {
+        words.push(current);
+    }
+    words
+}
+
+/// Resolve one word of a command override to what should actually be exec'd: unchanged when it
+/// already names a path (it contains a `/` or a `\`), otherwise looked up on the login shell's
+/// `PATH` exactly as a harness's own bare program is — so `claudex` resolves the same way
+/// `claude` does.
+fn resolve_bare(word: &str) -> String {
+    if word.contains('/') || word.contains('\\') {
+        return word.to_string();
+    }
+    crate::shells::locate(word)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| word.to_string())
+}
+
+/// Try `command` as a way to start a harness: split it, resolve a bare program, and run it with
+/// `--version`. Used only for [`Message::CheckAgentCommand`][cac] — the user is typing the answer
+/// and wants to know before saving it, not after a pane fails to spawn.
+///
+/// `ok` is "it ran and exited successfully"; the detail is one short line either way: the
+/// version output's first line, or why it did not run.
+///
+/// [cac]: ubiq_proto::messages::Message::CheckAgentCommand
+pub(crate) fn check_command(command: &str) -> (bool, String) {
+    let mut words = split_command(command);
+    if words.is_empty() {
+        return (false, "empty command".to_string());
+    }
+    let program = resolve_bare(&words.remove(0));
+    words.push("--version".to_string());
+
+    let mut child = match std::process::Command::new(&program)
+        .args(&words)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return (false, "not found on PATH".to_string()),
+    };
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return command_outcome(child, status),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return (false, "timed out".to_string());
+            }
+        }
+    }
+}
+
+/// What a finished check command found: its first line of output, on either stream, and whether
+/// it counts as having worked.
+fn command_outcome(
+    mut child: std::process::Child,
+    status: std::process::ExitStatus,
+) -> (bool, String) {
+    use std::io::Read;
+
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    if out.trim().is_empty()
+        && let Some(mut stderr) = child.stderr.take()
+    {
+        let _ = stderr.read_to_string(&mut out);
+    }
+    let line = out.lines().next().unwrap_or("").trim().to_string();
+
+    if status.success() {
+        (true, line)
+    } else {
+        (false, format!("exited with status {status}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A bare name is one word, and a Windows path's backslashes are not escapes: both must
+    /// come out exactly as typed for `resolve_bare` to tell "look this up on PATH" from
+    /// "this already names a path".
+    #[test]
+    fn split_command_keeps_backslashes_and_splits_on_whitespace() {
+        assert_eq!(split_command("claudex"), vec!["claudex"]);
+        assert_eq!(split_command("/opt/bin/claude"), vec!["/opt/bin/claude"]);
+        assert_eq!(
+            split_command(r"C:\tools\claude.exe"),
+            vec![r"C:\tools\claude.exe"]
+        );
+        assert_eq!(
+            split_command("mise exec -- opencode"),
+            vec!["mise", "exec", "--", "opencode"]
+        );
+    }
 
     /// The test that protects the whole point of the probe feature: swapping in a shell must
     /// change nothing about the policy a real login would render, and the harness's own argv is

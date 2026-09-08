@@ -12,7 +12,7 @@ use gpui::{
 };
 use gpui_component::IconName;
 use gpui_component::input::Input;
-use ubiq_proto::assist::AssistProvider;
+use ubiq_proto::assist::{AiProviderInfo, AiProviderKind, AssistProvider, ModelRole};
 use ubiq_proto::connectors::{
     AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
     TrustedCert, origin,
@@ -24,8 +24,9 @@ use ubiq_proto::settings::AgentHome;
 
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
-    AccountDialog, AssistInfo, CliShortcut, ConnectApp, ConnectStep, ConnectorDialog, LoginStep,
-    MarkdownOpen, SettingsSection, connect_error_note, describe_status,
+    AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
+    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, connect_error_note, describe_status,
+    magnitude,
 };
 use crate::theme;
 use crate::ui::kit::{
@@ -435,31 +436,40 @@ fn assist(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         }
     };
 
-    // The switch is offered only where a backend could actually answer. The setting being off is
-    // the one negative answer the user can undo from here, so it keeps its controls live.
+    // The on-device switch is offered only where that backend could actually answer. The setting
+    // being off is the one negative answer the user can undo from here, so it keeps its controls
+    // live — and a configured API provider is never gated by it, since whether one can answer is
+    // not a question about this machine's own model.
     let switchable = state.as_ref().is_none_or(AssistInfo::switchable);
 
-    let mut rows = vec![
-        heading(
-            "Assistance",
-            "Ubiq writing a short line of prose it would otherwise invent mechanically \u{2014} a \
-             commit message from what is staged. Off by default, and never more than a \
-             suggestion: it fills an editable field, and it renames nothing.",
-        ),
-        div().flex().flex_none().child(chip).into_any_element(),
-        setting_row(
-            "Suggestions",
-            "Which backend writes one. Off calls no model at all, which is what a build with \
-             this untouched does.",
-            assist_provider_choice(app.workbench.settings.host.assist, switchable, cx),
-        ),
-    ];
+    let mut rows = vec![heading(
+        "Assistance",
+        "Ubiq writing a short line of prose it would otherwise invent mechanically \u{2014} a \
+         commit message from what is staged. Off by default, and never more than a suggestion: it \
+         fills an editable field, and it renames nothing.",
+    )];
+
+    // What the host last refused about a provider — a key it could not file, a list it could not
+    // fetch. The same banner the harnesses and connectors sections read.
+    if let Some(error) = app.workbench.settings.error.clone() {
+        rows.push(error_banner(&error, cx));
+    }
+
+    rows.push(div().flex().flex_none().child(chip).into_any_element());
+    rows.push(setting_row(
+        "Suggestions",
+        "Which backend writes one. Off calls no model at all, which is what a build with this \
+         untouched does; a provider below writes one over its own API.",
+        assist_provider_choice(app, switchable, cx),
+    ));
 
     // The host's own sentence about why, kept on screen rather than hidden: the harnesses section
     // makes the same choice for a harness that is not installed.
     if let Some(detail) = state.as_ref().and_then(|info| info.detail.clone()) {
         rows.push(note(&detail, theme::text_muted()));
     }
+
+    rows.push(ai_providers(app, cx));
 
     column(rows)
 }
@@ -475,39 +485,193 @@ fn assist_available(info: &AssistInfo) -> String {
     }
 }
 
-/// The two providers, one lit. The closed-choice shape [`index_level_choice`] draws, drawn at half
-/// opacity with dead listeners where the host says there is no backend to switch on.
+/// Every backend on offer, one lit: off, this platform's own model, and one pill per configured
+/// API provider. The closed-choice shape [`index_level_choice`] draws.
+///
+/// **Only the on-device pill is gated by `switchable`.** Whether a local model can run is the
+/// host's answer about that one backend, so a machine without one still offers Off and every
+/// configured provider — a provider's availability is whether it is configured, which is a fact
+/// this half holds. Without that split, a host with no local backend would dim the whole row and
+/// leave a user unable to switch away from it.
 fn assist_provider_choice(
-    current: AssistProvider,
+    app: &AppState,
     switchable: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let pill = |id: &'static str, label: &'static str, provider: AssistProvider| {
-        choice_pill(
-            id,
-            label,
-            current == provider,
-            cx.listener(move |this, _, _, cx| {
-                if switchable {
-                    this.set_assist_provider(provider, cx);
-                }
-            }),
-        )
-    };
+    let current = app.workbench.settings.host.assist.clone();
+    let mut pills = vec![
+        assist_pill(
+            "app-settings-assist-off".into(),
+            "Off".into(),
+            &current,
+            AssistProvider::Off,
+            true,
+            cx,
+        ),
+        assist_pill(
+            "app-settings-assist-on-device".into(),
+            "On-device".into(),
+            &current,
+            AssistProvider::OnDevice,
+            switchable,
+            cx,
+        ),
+    ];
+    for info in &app.workbench.settings.ai_providers {
+        let provider_id = info.provider.id;
+        pills.push(assist_pill(
+            ElementId::Name(format!("app-settings-assist-{provider_id}").into()),
+            info.provider.name.clone().into(),
+            &current,
+            AssistProvider::Api { provider_id },
+            true,
+            cx,
+        ));
+    }
 
     div()
         .flex()
         .flex_none()
         .items_center()
+        .flex_wrap()
         .gap_1()
-        .when(!switchable, |row| row.opacity(0.5))
-        .child(pill("app-settings-assist-off", "Off", AssistProvider::Off))
-        .child(pill(
-            "app-settings-assist-on-device",
-            "On-device",
-            AssistProvider::OnDevice,
-        ))
+        .children(pills)
         .into_any_element()
+}
+
+/// One backend pill. `live: false` is the dead treatment every ruled-out control in this panel
+/// gets: half opacity, and a listener that does nothing rather than one that lies.
+fn assist_pill(
+    id: ElementId,
+    label: SharedString,
+    current: &AssistProvider,
+    provider: AssistProvider,
+    live: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let pill = choice_pill(
+        id,
+        label,
+        *current == provider,
+        cx.listener(move |this, _, _, cx| {
+            if live {
+                this.set_assist_provider(provider.clone(), cx);
+            }
+        }),
+    );
+
+    if live {
+        pill.into_any_element()
+    } else {
+        pill.opacity(0.5).into_any_element()
+    }
+}
+
+/// The configured API providers, one row each, with a way to add the next one.
+///
+/// Drawn whether or not there are any, for the reason [`oauth_apps`] is: a section that vanishes
+/// when the list is empty is a section with no way to add the first row, which is exactly the
+/// state every user arrives in.
+fn ai_providers(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let providers = app.workbench.settings.ai_providers.clone();
+    let mut section = div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_4()
+        .child(section_label("API providers"))
+        .child(modal_note(
+            "A model behind somebody else\u{2019}s API, reached with a key this machine keeps in \
+             its own credential store \u{2014} never in the settings file, and never shown again \
+             once it is filed. Several are ordinary: a local endpoint and a hosted one are two \
+             providers, not a conflict.",
+        ))
+        .child(div().flex().items_center().gap_3().child(primary_button(
+            "app-settings-ai-add",
+            Some(IconName::Plus),
+            "Add provider\u{2026}",
+            cx.listener(|this, _, window, cx| this.open_ai_form(None, window, cx)),
+        )));
+
+    if providers.is_empty() {
+        return section
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme::text_faint())
+                    .child(SharedString::from(
+                        "No providers. Assistance runs on this platform\u{2019}s own model, or on \
+                         nothing at all.",
+                    )),
+            )
+            .into_any_element();
+    }
+
+    section = section.children(providers.iter().map(|info| ai_provider_row(info, cx)));
+    section.into_any_element()
+}
+
+/// One provider: what it is, which models it names, whether a key is filed, and the three things
+/// that can be done to it. Built on [`oauth_row`]'s shape, which answers the same kind of
+/// question — a record the host holds, and a credential it only says the presence of.
+fn ai_provider_row(info: &AiProviderInfo, cx: &mut Context<AppState>) -> AnyElement {
+    let id = info.provider.id;
+    // A provider with no model is unfinished rather than broken: it is what every provider looks
+    // like for the moment between being saved and having one picked, so the row says which half
+    // is missing and where the fix is.
+    let unset = info.provider.fast_model.trim().is_empty();
+    let models = match (&info.provider.smart_model, unset) {
+        (_, true) => "no model chosen \u{b7} Edit picks one".to_string(),
+        (Some(smart), false) => format!("{} \u{b7} {smart}", info.provider.fast_model),
+        (None, false) => info.provider.fast_model.clone(),
+    };
+    // The contract names no URL for a kind's own endpoint — the host resolves it — so neither
+    // does this row.
+    let where_it_is = info
+        .provider
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "the kind\u{2019}s own endpoint".to_string());
+    let (chip, colour) = if info.has_key {
+        ("key filed", theme::success())
+    } else {
+        ("no key", theme::text_faint())
+    };
+
+    setting_row(
+        &format!(
+            "{} \u{b7} {}",
+            info.provider.name,
+            info.provider.kind.label()
+        ),
+        &format!("{models} \u{b7} {where_it_is}"),
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(badge(chip, colour))
+            // Warning rather than danger: nothing is wrong, something is not finished.
+            .children(unset.then(|| badge("no model", theme::warning())))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-ai-{id}-test").into()),
+                None,
+                "Test",
+                cx.listener(move |this, _, _, cx| this.open_ai_test(id, cx)),
+            ))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-ai-{id}-edit").into()),
+                None,
+                "Edit",
+                cx.listener(move |this, _, window, cx| this.open_ai_form(Some(id), window, cx)),
+            ))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-ai-{id}-remove").into()),
+                None,
+                "Remove",
+                cx.listener(move |this, _, _, cx| this.open_remove_ai_provider(id, cx)),
+            ))
+            .into_any_element(),
+    )
 }
 
 /// The three indexing levels, one lit.
@@ -1725,31 +1889,28 @@ fn choosing(
                         .flex()
                         .flex_wrap()
                         .gap_2()
-                        // Only harnesses whose binary is actually here: a sign-in for a tool
-                        // that is not installed cannot start, and offering it would fail as a
-                        // spawn the user has to interpret.
-                        .children(
-                            app.workbench
-                                .agent_types
-                                .iter()
-                                .filter(|t| t.available)
-                                .map(|agent_type| {
-                                    let id = agent_type.id.clone();
-                                    choice_pill(
-                                        ElementId::Name(
-                                            format!("app-settings-login-harness-{}", agent_type.id)
-                                                .into(),
-                                        ),
-                                        &agent_type.label,
-                                        chosen == Some(agent_type.id.as_str()),
-                                        cx.listener(move |this, _, _, cx| {
-                                            this.pick_login_harness(id.clone(), cx)
-                                        }),
-                                    )
+                        // Every harness, installed or not: one that is missing is exactly the
+                        // case a custom command fixes, so it reads faint — the way a profile
+                        // naming an absent harness does — and stays pickable.
+                        .children(app.workbench.agent_types.iter().map(|agent_type| {
+                            let id = agent_type.id.clone();
+                            choice_pill(
+                                ElementId::Name(
+                                    format!("app-settings-login-harness-{}", agent_type.id).into(),
+                                ),
+                                &agent_type.label,
+                                chosen == Some(agent_type.id.as_str()),
+                                cx.listener(move |this, _, window, cx| {
+                                    this.pick_login_harness(id.clone(), window, cx)
                                 }),
-                        ),
+                            )
+                            .when(!agent_type.available, |pill| pill.opacity(0.55))
+                        })),
                 ),
         )
+        .when(chosen.is_some(), |body| {
+            body.child(login_command(app, window, cx))
+        })
         .child(
             div()
                 .flex()
@@ -1766,6 +1927,72 @@ fn choosing(
                         .child(Input::new(&app.login_account_input).appearance(false)),
                 ),
         )
+        .into_any_element()
+}
+
+/// The custom command for the picked harness: a ghost button that opens a field, the field
+/// itself, and the one line the host answered when `Check` was pressed.
+///
+/// Empty means "whatever the library would run", which is what the placeholder says. Closing the
+/// field is what saves it, so an emptied field closed again is how an override is removed.
+fn login_command(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let login = app.workbench.settings.login.as_ref();
+    let open = login.is_some_and(|it| it.command_open);
+    let focused = app
+        .login_command_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(div().child(ghost_button(
+            "app-settings-login-command-toggle",
+            None,
+            if open {
+                "Hide command"
+            } else {
+                "Custom command"
+            },
+            cx.listener(|this, _, _, cx| this.toggle_login_command(cx)),
+        )))
+        .when(open, |body| {
+            body.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        field(theme::border(), focused)
+                            .flex_1()
+                            .h(px(30.))
+                            .px_2()
+                            .child(Input::new(&app.login_command_input).appearance(false)),
+                    )
+                    .child(ghost_button(
+                        "app-settings-login-command-check",
+                        None,
+                        "Check",
+                        cx.listener(|this, _, _, cx| this.check_login_command(cx)),
+                    )),
+            )
+            .children(
+                login
+                    .and_then(|it| it.command_check.as_ref())
+                    .map(|(ok, detail)| {
+                        note(
+                            detail,
+                            if *ok {
+                                theme::success()
+                            } else {
+                                theme::danger()
+                            },
+                        )
+                    }),
+            )
+        })
         .into_any_element()
 }
 
@@ -2662,6 +2889,540 @@ pub fn app_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
         crate::ui::handler(&view, |this, window, cx| this.close_app_form(window, cx)),
         window,
     )
+}
+
+/// One labelled box in a form modal — [`app_form`]'s own field shape, as a function because the
+/// provider form's fields are built in two places (a picker replaces two of them on an edit) and a
+/// closure holding the render context would be alive across both.
+fn form_field(
+    label: &str,
+    note: &str,
+    input: &gpui::Entity<gpui_component::input::InputState>,
+    focused: bool,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(label_block(label, note))
+        .child(
+            field(theme::border(), focused)
+                .h(px(30.))
+                .px_2()
+                .child(Input::new(input).appearance(false)),
+        )
+        .into_any_element()
+}
+
+/// The API-provider form: which protocol, where, with which key, on which two models.
+///
+/// A [`modal`] rather than a [`prompt_modal`] because it asks several questions, and built on
+/// [`app_form`]'s shape for the same reason that one is built on the login modal's — it is the
+/// same kind of question, and a second visual language for it would be a second thing to learn.
+///
+/// **The key is write-only.** The box is always empty when the form opens, because the host never
+/// sends a key and this half has none to draw. On an edit that is also how the stored key is kept:
+/// blank means `key: None`, and only a typed one replaces what is filed.
+///
+/// **The model questions only exist on an edit.** A provider's model list is the provider's own
+/// answer, asked for by id, and an add has no id until the host mints one — so an add asks no
+/// model question at all, and needs none: writing the record is what files the key and makes the
+/// host list that provider's models, so an edit opens on a full list. A provider with no model is
+/// a real record in the meantime, and its row says so. On an edit each model is a box with a
+/// picker beside it: the list fills the box, and typing in it is equally valid — see
+/// [`model_row`].
+pub fn ai_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(form) = app.workbench.settings.ai_form.clone() else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let editing = form.id.is_some();
+    let named = !app.ai_name_input.read(cx).value().trim().is_empty();
+    let keyed = !app.ai_key_input.read(cx).value().trim().is_empty();
+    // A name is the only thing the host requires of a record, and a key is what makes an add
+    // writable at all; an edit already has one filed, so a blank key box there is a choice rather
+    // than an omission. A model is not required: a provider with none is exactly what one looks
+    // like between being given a key and having its models listed.
+    let ready = named && (editing || keyed);
+
+    // Read up front, because the ring is drawn by the parent and every field wants the same
+    // answer: which box holds the keyboard.
+    let focused = |input: &gpui::Entity<gpui_component::input::InputState>| {
+        input.read(cx).focus_handle(cx).is_focused(window)
+    };
+    let name_focus = focused(&app.ai_name_input);
+    let url_focus = focused(&app.ai_base_url_input);
+    let key_focus = focused(&app.ai_key_input);
+    let fast_focus = focused(&app.ai_fast_model_input);
+    let smart_focus = focused(&app.ai_smart_model_input);
+
+    let kinds: Vec<AnyElement> = AiProviderKind::ALL
+        .iter()
+        .map(|kind| {
+            let kind = *kind;
+            choice_pill(
+                ElementId::Name(format!("app-settings-ai-kind-{}", kind.code()).into()),
+                kind.label(),
+                form.kind == kind,
+                cx.listener(move |this, _, _, cx| this.pick_ai_kind(kind, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let models: AnyElement = match form.id {
+        Some(provider_id) => {
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let listed = match app.workbench.settings.ai_models.get(&provider_id) {
+                Some(list) => format!(
+                    "{} models \u{b7} listed {} ago",
+                    list.models.len(),
+                    magnitude(now_ms - list.fetched_at_ms)
+                ),
+                None => "Never listed \u{2014} press Refresh, or type the id yourself.".to_string(),
+            };
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(model_row(
+                    app,
+                    &form,
+                    ModelRole::Fast,
+                    fast_focus,
+                    &view,
+                    window,
+                    cx,
+                ))
+                .child(model_row(
+                    app,
+                    &form,
+                    ModelRole::Smart,
+                    smart_focus,
+                    &view,
+                    window,
+                    cx,
+                ))
+                .child(note(&listed, theme::text_faint()))
+                .into_any_element()
+        }
+        // No model question at all. An add has no id, so there is no list to pick from, and
+        // nothing worth typing from memory either: saving is what makes the list exist.
+        None => note(
+            "No model yet. Saving this files the key and asks the provider what it can run; Edit \
+             then chooses the fast model from that list, and a smart one if you want it \u{2014} \
+             or takes a model id typed by hand, for a provider that will not list its own. Until \
+             one is set the provider reports itself unavailable, which is what its row says.",
+            theme::text_faint(),
+        ),
+    };
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "A model behind an API, and the key to reach it. The key is filed in this \
+             machine\u{2019}s credential store under the record\u{2019}s own id, and is never \
+             read back \u{2014} not by this form, and not by anything else.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Kind",
+                    "Which wire protocol the endpoint speaks. Everything a deployment varies \
+                     \u{2014} the host, the path, the deployment name \u{2014} is the URL below \
+                     rather than a kind of its own.",
+                ))
+                .child(div().flex().flex_wrap().gap_2().children(kinds)),
+        )
+        .child(form_field(
+            "Name",
+            "What to call it \u{2014} \"local\", \"work\". Several of one kind are ordinary, so \
+             the name is what tells them apart.",
+            &app.ai_name_input,
+            name_focus,
+        ))
+        .child(form_field(
+            "Base URL",
+            "The endpoint, when it is not the kind\u{2019}s own. Empty means the kind\u{2019}s \
+             own, which the host resolves.",
+            &app.ai_base_url_input,
+            url_focus,
+        ))
+        .child(form_field(
+            "API key",
+            if editing {
+                "Leave it blank to keep the key already filed. Typing one replaces it."
+            } else {
+                "Required. It crosses once, on its way to this machine\u{2019}s credential store."
+            },
+            &app.ai_key_input,
+            key_focus,
+        ))
+        .child(models)
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-ai-form-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, window, cx| this.close_ai_form(window, cx)),
+        ))
+        .child(
+            primary_button(
+                "app-settings-ai-form-save",
+                None,
+                "Save",
+                cx.listener(|this, _, window, cx| this.save_ai_form(window, cx)),
+            )
+            .when(!ready, |button| button.opacity(0.5)),
+        )
+        .into_any_element();
+
+    modal(
+        "app-settings-ai-form-modal",
+        theme::accent(),
+        if editing {
+            "Edit provider"
+        } else {
+            "Add provider"
+        },
+        body,
+        footer,
+        crate::ui::handler(&view, |this, window, cx| this.close_ai_form(window, cx)),
+        window,
+    )
+}
+
+/// One model question on an edit: the box the id lives in, the picker that fills it, and — on the
+/// fast row — the button that re-asks the provider for its list.
+///
+/// The box is [`form_field`]'s own shape with the picker beside it rather than instead of it,
+/// because the list is a convenience and the field is the way through: a provider whose models
+/// cannot be listed is configured by typing an id, and there has to be somewhere to type it.
+fn model_row(
+    app: &AppState,
+    form: &AiProviderForm,
+    role: ModelRole,
+    focused: bool,
+    view: &gpui::Entity<AppState>,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let (label, about, input) = match role {
+        ModelRole::Fast => (
+            "Fast model",
+            "What every subject uses unless it asks for the other one. Pick one from the \
+             list, or type the id the provider answers to.",
+            &app.ai_fast_model_input,
+        ),
+        ModelRole::Smart => (
+            "Smart model",
+            "The capable, slower one, for a subject that will not fit in the fast model. Leave \
+             it empty and the fast model answers those too.",
+            &app.ai_smart_model_input,
+        ),
+    };
+
+    let mut row = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            field(theme::border(), focused)
+                .h(px(30.))
+                .flex_1()
+                .min_w(px(0.))
+                .px_2()
+                .child(Input::new(input).appearance(false)),
+        )
+        .child(model_picker(app, form, role, view, window, cx));
+    // One Refresh for the two rows: it re-asks for the provider's whole list, which is what both
+    // pickers read, so a second button would be the same call under another name.
+    if role == ModelRole::Fast {
+        row = row.child(ghost_button(
+            "app-settings-ai-models-refresh",
+            None,
+            "Refresh",
+            cx.listener(|this, _, _, cx| this.refresh_ai_models(cx)),
+        ));
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(label_block(label, about))
+        .child(row)
+        .into_any_element()
+}
+
+/// One model picker: the provider's cached list, filtered by what is typed above it.
+///
+/// [`Picker::above_modal`] because it is drawn inside one, and [`Picker::search`] because a
+/// provider's list runs to hundreds of rows — the caller filters and the kit draws the field,
+/// which is the split that method documents. The smart picker's first row is None, meaning the
+/// fast model, and it is kept whatever is typed: it is the way back rather than a model.
+///
+/// **The list is a convenience over the field beside it, not a replacement for it**, because a
+/// provider that will not list its models must still be usable — Azure OpenAI addresses
+/// deployments rather than models, and a listing can fail outright at a proxy or on a key scoped
+/// to inference. So picking a row writes an id into the box, which is the only store either way,
+/// and which row reads as selected is whatever that box currently holds.
+fn model_picker(
+    app: &AppState,
+    form: &AiProviderForm,
+    role: ModelRole,
+    view: &gpui::Entity<AppState>,
+    window: &Window,
+    cx: &gpui::App,
+) -> AnyElement {
+    let (value_input, search_input) = match role {
+        ModelRole::Fast => (&app.ai_fast_model_input, &app.ai_fast_search),
+        ModelRole::Smart => (&app.ai_smart_model_input, &app.ai_smart_search),
+    };
+    let chosen = value_input.read(cx).value().trim().to_string();
+    let query = search_input.read(cx).value().trim().to_lowercase();
+
+    // What each row is called, and what picking it stores. `None` is the smart picker's own first
+    // row; every other row is a model the provider said it has.
+    let mut rows: Vec<(String, Option<String>)> = Vec::new();
+    if role == ModelRole::Smart {
+        rows.push(("None (use the fast model)".to_string(), None));
+    }
+    rows.extend(
+        form.id
+            .and_then(|id| app.workbench.settings.ai_models.get(&id))
+            .map(|list| list.models.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .filter(|model| {
+                query.is_empty()
+                    || model.id.to_lowercase().contains(&query)
+                    || model.label.to_lowercase().contains(&query)
+            })
+            .map(|model| (model.label.clone(), Some(model.id.clone()))),
+    );
+
+    // An empty box is the None row on the smart picker — its own first row, at index 0 — and is
+    // nothing at all on the fast one, where no row means "no model".
+    let selected = if chosen.is_empty() {
+        (role == ModelRole::Smart).then_some(0)
+    } else {
+        rows.iter()
+            .position(|(_, id)| id.as_deref() == Some(chosen.as_str()))
+    };
+    let picks: Vec<Option<String>> = rows.iter().map(|(_, id)| id.clone()).collect();
+    let items: Vec<String> = rows.into_iter().map(|(label, _)| label).collect();
+
+    // The trigger names the list rather than the value: the value is already on screen in the box
+    // beside it, and a trigger repeating it would draw one fact twice.
+    let mut picker = Picker::new(
+        ElementId::Name(format!("app-settings-ai-model-{}", role.code()).into()),
+        "Pick\u{2026}",
+    )
+    .items(items)
+    .open(form.open == Some(role))
+    .above_modal()
+    .search(
+        search_input,
+        search_input.read(cx).focus_handle(cx).is_focused(window),
+    )
+    .on_toggle(crate::ui::handler(view, move |this, _, cx| {
+        this.toggle_ai_model_picker(role, cx)
+    }))
+    .on_pick({
+        let view = view.clone();
+        move |index, window, cx| {
+            let Some(model) = picks.get(index).cloned() else {
+                return;
+            };
+            view.update(cx, |this, cx| {
+                this.pick_ai_model(role, model, window, cx);
+            });
+        }
+    })
+    .on_dismiss(crate::ui::handler(view, move |this, _, cx| {
+        this.toggle_ai_model_picker(role, cx)
+    }));
+    if let Some(index) = selected {
+        picker = picker.selected(index);
+    }
+
+    picker.into_any_element()
+}
+
+/// The removal question. Danger, because the key in the machine's credential store goes with the
+/// record and there is nothing left behind to reattach a re-added provider to.
+pub fn ai_remove(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(provider_id) = app.workbench.settings.ai_remove else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    // A provider another window has already removed leaves the question naming nothing, which is
+    // still answerable — the host has already forgotten it.
+    let name = app
+        .workbench
+        .settings
+        .ai_provider(provider_id)
+        .map(|info| info.provider.name.clone())
+        .unwrap_or_else(|| "this provider".to_string());
+
+    confirm_modal(
+        "app-settings-ai-remove",
+        "Remove provider",
+        &format!(
+            "Remove {name}? The key filed under it goes from this machine\u{2019}s credential \
+             store with it, so adding it again is a new record and a re-typed key. If assistance \
+             names this provider, it falls back to calling no model at all."
+        ),
+        "Remove",
+        true,
+        crate::ui::handler(&view, |this, _, cx| this.confirm_remove_ai_provider(cx)),
+        crate::ui::handler(&view, |this, _, cx| this.close_remove_ai_provider(cx)),
+        window,
+    )
+}
+
+/// The provider test: one short answer from one provider, drawn as it arrives.
+///
+/// **The streaming is the point.** A check that shows a spinner until the whole answer lands says
+/// nothing about how long the first token took, which is most of what a user is checking. So the
+/// body draws whatever `SuggestChunk` has delivered so far, and a "waiting" line before the first
+/// one — see [`crate::state::settings::AiTest`].
+pub fn ai_test(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(test) = app.workbench.settings.ai_test.clone() else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let running = test.suggest_id.is_some();
+    let ran = !test.answer.is_empty() || test.error.is_some();
+
+    let roles = div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .child(test_role_pill(
+            "app-settings-ai-test-fast",
+            "Fast",
+            ModelRole::Fast,
+            test.role,
+            true,
+            cx,
+        ))
+        .child(test_role_pill(
+            "app-settings-ai-test-smart",
+            "Smart",
+            ModelRole::Smart,
+            test.role,
+            test.has_smart,
+            cx,
+        ));
+
+    let answer: AnyElement = match &test.error {
+        Some(error) => note(error, theme::danger()),
+        None if !test.answer.is_empty() => slab(theme::accent())
+            .p_2()
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(theme::text())
+                    .child(SharedString::from(test.answer.clone())),
+            )
+            .into_any_element(),
+        None if running => note("Waiting for the first token\u{2026}", theme::text_faint()),
+        None => note(
+            "Nothing yet. Run the test to see what this provider answers.",
+            theme::text_faint(),
+        ),
+    };
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "One short answer from this provider, to the host\u{2019}s own prompt. It is the one \
+             subject that names its backend instead of using the selected one, because the \
+             provider just configured is what is being checked \u{2014} and it streams, so a \
+             first token arrives long before the last.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Model",
+                    "Which of the provider\u{2019}s two models answers. Smart is offered only \
+                     where one is configured.",
+                ))
+                .child(roles),
+        )
+        .child(div().flex().items_center().gap_2().child(primary_button(
+            "app-settings-ai-test-run",
+            None,
+            if ran { "Rerun" } else { "Run test" },
+            cx.listener(|this, _, _, cx| this.run_ai_test(cx)),
+        )))
+        .child(answer)
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-ai-test-close",
+            None,
+            "Close",
+            cx.listener(|this, _, _, cx| this.close_ai_test(cx)),
+        ))
+        .into_any_element();
+
+    modal(
+        "app-settings-ai-test-modal",
+        theme::accent(),
+        &format!("Test {}", test.name),
+        body,
+        footer,
+        crate::ui::handler(&view, |this, _, cx| this.close_ai_test(cx)),
+        window,
+    )
+}
+
+/// One of the test's two role pills. Smart is drawn dead rather than dropped where the provider
+/// configured no smart model: a row that vanishes reads as gone, not as unset.
+fn test_role_pill(
+    id: &'static str,
+    label: &'static str,
+    role: ModelRole,
+    current: ModelRole,
+    live: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let pill = choice_pill(
+        id,
+        label,
+        current == role,
+        cx.listener(move |this, _, _, cx| this.pick_ai_test_role(role, cx)),
+    );
+
+    if live {
+        pill.into_any_element()
+    } else {
+        pill.opacity(0.5).into_any_element()
+    }
 }
 
 /// The connect modal: pick a provider and a flow, then watch it run.

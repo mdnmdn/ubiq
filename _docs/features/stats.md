@@ -6,7 +6,7 @@ status: draft
 summary: The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not.
 read_when: you are changing what the Control screen reports, the usage meter's schema or its buckets, or the one thing the interface polls the host for
 updated: 2026-09-06
-verified: 2026-09-06
+verified: 2026-09-08
 code_anchors: [crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/tests/stats.rs, crates/ubiq-host/tests/usage.rs]
 depends_on: [tech-transport, feat-workbench, tech-structure]
 review_cycle: monthly

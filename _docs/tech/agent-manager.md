@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -36,6 +36,7 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | What a run is composed of — skills, MCPs, account, instructions, hooks | the library |
 | What a saved definition can pin, how it inherits, and where it is stored | the library |
 | The permission modes a harness has (`Harness::modes`), and how `Profile.mode` reaches a policy | the library |
+| Which executable this machine runs for a harness, when it is not the harness's own name | Ubiq |
 | Which definition a conversation starts from, and the form that writes one | Ubiq |
 | Which accounts exist and how credentials are referenced | the library |
 | Session history and resume, as the *harness* understands it | the library |
@@ -66,9 +67,20 @@ pseudo-terminal it owns.
 
 `crates/ubiq-host/src/agent.rs` is the whole of that consumption, and it is deliberately thin. The
 agent-type list is `harness::all()` projected into `AgentTypeInfo`, each row marked with whether the
-harness's own binary is on this machine. A spawn naming one of those ids composes a run, provisions
-it, and answers with what to exec. A spawn naming anything else is a program name, which is what a
-shell is.
+harness's own binary is on this machine or a command override is configured for it. A spawn naming
+one of those ids composes a run, provisions it, and answers with what to exec. A spawn naming
+anything else is a program name, which is what a shell is.
+
+**What this machine runs for a harness is Ubiq's answer, applied where the launch is resolved
+rather than by changing the library.** The library says what a harness is called and how to launch
+it; `Agents::resolve_program` in `crates/ubiq-host/src/agent.rs` is the seam, already there to turn
+a bare `claude` into an absolute path, that now also checks `HostSettings.agent_commands` first. An
+override for the harness splits into words — quote-aware, backslashes preserved so a Windows path
+survives — the first word becomes the program (looked up on the login shell's `PATH` only when it
+has no path separator), and the rest is prepended to the arguments the library already composed. No
+entry for a harness resolves exactly as before, and `crates/agent-manager` is unchanged either way:
+which binary a harness is called is still the library's fact, an override is a fact about this
+machine.
 
 **Ubiq does not build the `RunSpec` itself — `resolve` does.** `agent.rs` calls
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and

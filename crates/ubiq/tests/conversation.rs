@@ -383,12 +383,14 @@ fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
                 AgentTypeInfo {
                     id: "claude-code".to_string(),
                     label: "Claude Code".to_string(),
+                    command: "claude".to_string(),
                     available: true,
                     modes: Vec::new(),
                 },
                 AgentTypeInfo {
                     id: "codex".to_string(),
                     label: "Codex".to_string(),
+                    command: "codex".to_string(),
                     available: false,
                     modes: Vec::new(),
                 },

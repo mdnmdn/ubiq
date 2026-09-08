@@ -283,7 +283,9 @@ def walk_files(root: Path) -> list[Path]:
         return []
     out = []
     for p in root.rglob("*"):
-        if p.is_file() and not any(d in IGNORED_DIRS for d in p.parts):
+        # The ignore check comes first: it short-circuits the stat, so an
+        # unreadable path under `refs/` cannot fail a walk that skips it anyway.
+        if not any(d in IGNORED_DIRS for d in p.parts) and p.is_file():
             out.append(p)
     return sorted(out)
 

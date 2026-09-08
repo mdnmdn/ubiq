@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -912,7 +912,9 @@ agent is confined, whose home it runs in, and the directories it may reach beyon
 **Search** (what every project's search skips, and what a project is indexed to), **Connectors**
 (the named identities at each provider, and the registrations a flow picks from), **Hosts** (the
 remote hosts a window may attach to), **Assistance** (which backend writes the short lines Ubiq
-would otherwise invent mechanically, and what that backend reports about itself), and
+would otherwise invent mechanically, what that backend reports about itself, and the API providers
+configured here — each with its key typed once, its models picked from what the provider lists, and
+a test that streams a real answer back), and
 **Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
@@ -961,6 +963,17 @@ wants the whole of the user's attention for the half-minute it takes, and a logi
 away behind a pane is a login nobody finishes. Abort is always available and always safe — a flow
 that wrote no credential captured nothing, and the host says so rather than recording a half-made
 account, so starting again is free.
+
+**The picker lists every harness, installed or not, because an override is what makes an absent one
+startable.** A row for a harness whose binary this machine lacks draws faint but stays pickable,
+the way an absent harness reads elsewhere in this settings page, rather than being withheld the way
+the new-agent menu withholds one. Picking a harness reveals a **Custom command** ghost toggle; open,
+it shows a text field pre-filled with whatever override this machine already holds for that harness
+(placeholder-only when there is none, showing what the library would otherwise run) and a **Check**
+button beside it that asks the host to try the typed command and answers with one line, shown under
+the field, without saving anything. The value is committed — folded into the settings the interface
+holds, and `ListAgentTypes` re-asked so every row's availability reflects it — when the field is
+closed and again when **Sign in** or **Shell** is pressed; an emptied field removes the override.
 
 **A `Shell` button beside `Sign in` runs a plain shell under the login's own sandbox, and signs
 nobody in.** Same harness and identity picker, but the pane it opens runs the user's shell rather
@@ -2024,13 +2037,13 @@ opened. `SettingsState::cli` in `state/settings.rs` holds the answer, and it is 
 arrives, which is what lets the section say it is looking rather than say there is no shortcut. Its
 Assistance section is `assist()` over `assist_provider_choice()`, and it reads the same way for the
 same reason: `SettingsState::assist` is `None` until `Assist` answers, so the chip says it is
-checking rather than say there is no backend. What may be switched on is
-`AssistInfo::switchable()` — available, or off by the user's own choice — because a backend the
-host says is not there is not a thing to turn on; the sentence under the row is the host's own, and
-the interface authors no sentence about a platform. `app/settings.rs` is the traffic,
-`set_assist_provider()` out and `receive_assist()` in `app/wire.rs` back, with `GetAssist` asked
-once on attach and again whenever the provider changes, because availability is asked and never
-inferred (`D84`). The
+checking rather than say there is no backend. The choice is a row of `assist_pill()`s — Off,
+On-device, then one for each provider configured below — and the On-device pill is the only one
+`AssistInfo::switchable()` gates, dimmed and inert unless the backend is available or off by the
+user's own choice. It is the only one, because a machine whose local model is not there must still
+be able to switch *away* from it: gating the row would strand a user on a backend that cannot
+answer. The sentence under the row is the host's own, and
+the interface authors no sentence about a platform. The
 half that knows anything about a path is the host's `crates/ubiq-host/src/cli_shortcut.rs`:
 `handle()` takes the action, `candidates()` and `install_dir()` decide where, `script()` writes the
 launcher, `marked_target()` reads the marker line, and `state()` is the answer all three actions
@@ -2039,6 +2052,45 @@ marked and executable, a bundle is launched through `open -a` where a bare binar
 remove takes Ubiq's own file and leaves a foreign `ubiq` alone. Shared primitives are in `ui/kit/`;
 the conventions behind that split are in
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md).
+
+The providers under the Assistance row are `ai_providers()`, one `ai_provider_row()` each: the name
+and the kind, a badge saying whether a key is filed and another saying no model is chosen, and Test,
+Edit and Remove. `ai_form()` is both the add and the edit — a `kit::modal` rather than a
+`prompt_modal`, because it asks several questions — and its boxes are `form_field()`, `app_form()`'s
+own field shape lifted into a free function because a provider's fields are built in two places and
+a closure holding the render context cannot live across both. An add asks for kind, name, endpoint and key
+alone. Writing the record is what files the key and makes the host list that provider's models, so
+an add has no model question to ask and needs none: by the time Edit opens there is a list to choose
+from. Each of the two model rows is a `model_row()` — a box, then a `model_picker()` over what the
+provider answered, then one Refresh, the only place `ListAiModels { refresh: true }` is sent. **The
+box is the field and the picker fills it**, rather than the picker being the only way in, because a
+provider that will not list its models must still be usable: Azure OpenAI addresses deployments
+rather than models, and a listing can fail at a proxy or on a key scoped to inference alone. An
+empty smart box means the fast model, which is what its picker's first row writes. The key box is empty every time the form opens, because
+the host never sends a key back and this half has none to draw; on an edit that same blank box is
+the only way to say keep the one that is filed. A provider with a key and no model is a real record
+in between, and its row is where that reads.
+
+`ai_test()` is the reason a suggestion streams at all. It sends `SuggestSubject::ProviderCheck` for
+the fast or the smart model — `test_role_pill()` picks which, the Smart pill inert where no smart
+model is configured — and appends each `SuggestChunk` to the answer it draws, so a user who has
+just typed a key watches a first token arrive instead of a spinner, which is the whole of what the
+modal is for. The `Suggestion` that ends the id replaces the accumulated text with the host's
+trimmed whole; closing the modal or pressing Rerun sends `CancelSuggest` for the id in flight, so a
+provider nobody is watching stops being read. `ai_remove()` is a `confirm_modal` on the danger edge,
+because the record's key goes with it. `ui/shell.rs` paints the three in that order — form, test,
+removal question — and `app/shell.rs::cancel_dialog` peels them the other way up, because the
+question raised last is the one on top.
+
+`app/settings.rs` carries that traffic: `set_assist_provider()`, the
+`open_ai_form()`/`save_ai_form()`/`close_ai_form()` group, `refresh_ai_models()` and `run_ai_test()`
+out, and `receive_assist()` in `app/wire.rs` back, which drops any suggestion whose id is not the
+one the interface minted before it asked. `GetAssist` goes once on attach and again whenever the
+provider changes, because availability is asked and never inferred (`D84`); `GetAiProviders` goes on
+every arrival at the section, so a provider written from another window is drawn without a restart.
+A refusal is an `AiProviderError` in the section's own banner rather than a dialog of its own, in
+the same shape the Harnesses section's refusals take, because nothing was changed on the way to
+failing.
 
 Vim mode is split the way the rest of the window is not: a pure command set in `state/vim/`
 (`step.rs` for the dispatch, `motion.rs`, `object.rs` and `search.rs` under it) that takes a `&str`
