@@ -117,9 +117,15 @@ impl HostBrowseState {
 /// One [`HostDirEntry`] as a forest node, rooted under `parent` — the canonical path the listing
 /// carrying it answered for, so a child's own path is itself something this session can later ask
 /// the host about and recognise the answer to.
+///
+/// The separator follows the parent: the host may be Windows (`C:\…`) or Unix (`/…`) while this
+/// window runs on either, so joining a verbatim parent with `/` — `\\?\C:\foo/bar` — must never
+/// happen here. Whatever the host sent is what is extended.
 fn child_path(parent: &str, name: &str) -> String {
-    if parent.ends_with('/') {
+    if parent.ends_with('/') || parent.ends_with('\\') {
         format!("{parent}{name}")
+    } else if parent.contains('\\') {
+        format!("{parent}\\{name}")
     } else {
         format!("{parent}/{name}")
     }
@@ -451,5 +457,21 @@ mod tests {
             answered.classify(HostRef::Remote(host), None),
             Arrival::Stale
         );
+    }
+
+    /// Unix parents join with `/`, without doubling the root's own.
+    #[test]
+    fn a_unix_child_joins_with_a_forward_slash() {
+        assert_eq!(child_path("/home/mdn", "works"), "/home/mdn/works");
+        assert_eq!(child_path("/", "home"), "/home");
+    }
+
+    /// Windows parents join with `\` — the host may be Windows while this window is not, so the
+    /// separator follows the parent rather than the local platform. Joining with `/` is what
+    /// produced `\\?\C:\foo/bar` and os error 123.
+    #[test]
+    fn a_windows_child_joins_with_a_backslash() {
+        assert_eq!(child_path(r"C:\works", "ubiq"), r"C:\works\ubiq");
+        assert_eq!(child_path(r"C:\", "works"), r"C:\works");
     }
 }

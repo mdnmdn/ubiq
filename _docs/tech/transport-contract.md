@@ -267,7 +267,10 @@ there is no project root yet for it to be relative to — this family exists to 
 is also why the file family's containment check (`crates/ubiq-host/src/files/path.rs`) plays no part
 here: there is nothing yet to contain a path inside, and this family answers a different question
 than that one guards. Neither weakens the other. `HostDirListing.path` is always canonicalised, so
-the interface shows where the host actually landed rather than the string it asked with.
+the interface shows where the host actually landed rather than the string it asked with — and never
+carries the verbatim `\\?\` prefix on Windows, which does not display and does not survive the
+interface joining it with a separator. A request path carrying `/` separators is accepted all the
+same: the host normalises it before listing.
 
 **`parent` is `None` only at the filesystem root**, so a picker knows when to stop offering to walk
 up.

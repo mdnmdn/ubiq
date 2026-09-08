@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '{print $NF}')",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo check *)",
+      "Bash(cargo test *)",
+      "Read(//Users/mdn/.config/agent-manager/accounts/**)",
+      "Read(//Users/mdn/.config/agent-manager/accounts/test/**)",
+      "Read(//Users/mdn/.config/agent-manager/accounts/test/.claude/**)",
+      "Bash(python3 -c \"import datetime; print\\(datetime.datetime.fromtimestamp\\(1783843231652/1000, datetime.timezone.utc\\)\\)\")",
+      "Bash(cargo build *)",
+      "Bash(cargo run *)",
+      "Read(//Users/mdn/.config/agent-manager/runs/1784408446919-86533/**)",
+      "Bash(claude --version)",
+      "Bash(claude auth *)",
+      "Bash(CLAUDE_CONFIG_DIR=/Users/mdn/.config/agent-manager/runs/1784408446919-86533 claude auth status)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(CLAUDE_CONFIG_DIR=/Users/mdn/.config/agent-manager/runs/1784408446919-86533 timeout 30 claude -p 'reply with exactly OK' --output-format json)",
+      "Bash(cargo clippy *)",
+      "Bash(CLAUDE_CONFIG_DIR=/Users/mdn/.config/agent-manager/accounts/test claude auth status)",
+      "Bash(CLAUDE_CONFIG_DIR=/Users/mdn/.config/agent-manager/accounts/test timeout 30 claude -p \"reply with exactly OK\" --output-format json)",
+      "Read(//Users/mdn/.config/agent-manager/runs/1784409820637-89651/**)",
+      "Bash(CLAUDE_CONFIG_DIR=/Users/mdn/.config/agent-manager/runs/1784409820637-89651 claude auth status)",
+      "Bash(CLAUDE_CONFIG_DIR=/Users/mdn/.config/agent-manager/runs/1784409820637-89651 timeout 30 claude -p 'reply with exactly OK' --output-format json)",
+      "Bash(rm -rf /tmp/am-empty-test)",
+      "Bash(mkdir -p /tmp/am-empty-test)",
+      "Bash(CLAUDE_CONFIG_DIR=/tmp/am-empty-test claude auth status)",
+      "Bash(CLAUDE_CONFIG_DIR=/tmp/am-empty-test timeout 30 claude -p \"reply with exactly OK\" --output-format json)",
+      "Read(//tmp/**)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(copilot help *)",
+      "Bash(copilot --help)",
+      "Bash(grep -E \"^d|\\\\.toml$|\\\\.json$|\\\\.html$\")",
+      "Bash(git -C /Users/mdn/works/projects/agent-manager/workspace/ubiq log --oneline -10)",
+      "Bash(wc -l /Users/mdn/works/projects/agent-manager/workspace/ubiq/src-tauri/src/*.rs)",
+      "Bash(rm -rf src-tauri src public dist node_modules)",
+      "Bash(rm -f index.html package.json package-lock.json vite.config.js tsconfig.json)"
+    ]
+  }
+}

@@ -2341,7 +2341,9 @@ keeping one off by default, and a folder's own truncation is a row's mark rather
 under-count. `crate::app::host_browse` is the one caller that fills a forest this way today, over a
 remote host's filesystem before any project exists on it — see the Behaviour section above and the
 host browse family (`tech/transport-contract.md`) — walking the tree straight from an already-loaded
-explorer's `forest_from_explorer` still needs none of it.
+explorer's `forest_from_explorer` still needs none of it. A child's path joins with the separator
+its parent uses, since the host runs Windows or Unix independently of this window; the host strips
+the verbatim prefix before a path ever reaches the wire (`crates/ubiq-host/src/host_path.rs`).
 
 `AppState` holds `file_picker: Option<FilePickerState>`, `picker_filter` and `picker_scroll`, because
 exactly one dialog may be up per window and the field above its rows is one of the window's like every

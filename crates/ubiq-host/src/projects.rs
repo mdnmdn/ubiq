@@ -14,6 +14,7 @@ use ubiq_proto::projects::{IndexChange, ProjectRecord, ProjectSnapshot, Scope};
 
 use crate::gc;
 use crate::health::probe;
+use crate::host_path::{request_path, wire_string};
 use crate::reply::Reply;
 use crate::store::{PreferenceStore, ProjectStore, StoreError};
 
@@ -235,7 +236,7 @@ impl Projects {
         custom_colour: Option<u32>,
         temporary: bool,
     ) -> Vec<Reply> {
-        let canonical = match std::fs::canonicalize(path) {
+        let canonical = match std::fs::canonicalize(request_path(path)) {
             Ok(canonical) => canonical,
             Err(error) => {
                 return vec![Reply::Asker(message_error(
@@ -252,7 +253,7 @@ impl Projects {
             ))];
         }
 
-        let as_text = canonical.to_string_lossy().into_owned();
+        let as_text = wire_string(&canonical);
         if let Some(existing) = self.records.iter().find(|r| r.path == as_text) {
             // Without this, a folder dropped and then also added through the picker looks
             // persisted to the caller while still carrying the flag, and would be silently
@@ -438,7 +439,7 @@ impl Projects {
         };
         let mut record = record.clone();
 
-        let canonical = match std::fs::canonicalize(path) {
+        let canonical = match std::fs::canonicalize(request_path(path)) {
             Ok(canonical) if canonical.is_dir() => canonical,
             Ok(canonical) => {
                 return vec![Reply::Asker(message_error(
@@ -454,7 +455,7 @@ impl Projects {
             }
         };
 
-        let as_text = canonical.to_string_lossy().into_owned();
+        let as_text = wire_string(&canonical);
         if let Some(other) = self
             .records
             .iter()

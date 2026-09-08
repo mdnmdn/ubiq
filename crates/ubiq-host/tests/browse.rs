@@ -147,3 +147,30 @@ fn the_default_request_answers_with_a_real_absolute_path() {
     assert!(listing.path.starts_with('/'), "{}", listing.path);
     assert!(std::path::Path::new(&listing.path).is_dir());
 }
+
+// A `/`-joined child of a verbatim parent — `\\?\C:\foo/bar` — was rejected with os error 123,
+// because past the `\\?\` prefix only `\` is legal. The host normalises before listing, so an
+// older UI's mixed string still answers.
+#[cfg(windows)]
+#[test]
+fn a_verbatim_path_with_mixed_separators_still_lists() {
+    let dir = scratch();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let mixed = canonical.to_string_lossy().replace('\\', "/");
+    assert!(mixed.contains('/'), "{mixed}");
+    let listing = browse::list(Some(&mixed)).unwrap();
+    assert_eq!(listing.entries.len(), 3);
+}
+
+// The wire never carries the verbatim `\\?\` prefix: it does not display and it does not
+// survive a `/`-joining round-trip.
+#[cfg(windows)]
+#[test]
+fn a_listing_carries_no_verbatim_prefix() {
+    let dir = scratch();
+    let listing = browse::list(Some(dir.path().to_str().unwrap())).unwrap();
+    assert!(!listing.path.starts_with(r"\\?\"), "{}", listing.path);
+    if let Some(parent) = listing.parent {
+        assert!(!parent.starts_with(r"\\?\"), "{parent}");
+    }
+}
