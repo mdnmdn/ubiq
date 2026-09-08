@@ -1546,10 +1546,37 @@ chunks are not, so "every chunk concatenated equals `Suggestion.text`" is true o
 surrounding whitespace, and an interface that draws chunks and then swaps in the final text can
 show a one-frame reflow.
 
+### D88 — Notifications are the host's, and both answers are broadcast
+
+The bell is drawn in every window and its state is one thing, so the history and the mute rules live
+in the host — `notifications::Centre` — and both host → UI variants go to `To::Everyone`. Three
+things forced it. A mute rule the user set in one window has to govern every window, or "mute this
+agent for an hour" means "in this window". The desktop must be told **once** however many windows
+are open, and only something that sees every window can promise that. And a notification is raised
+by subsystems that sit host-side — a harness, a clone, a watch — so a window-owned history
+would need them to route through a window to reach a bell.
+
+The alternative was a per-window list fed by ordinary replies, which is cheaper by one broadcast and
+wrong at the first second window: two badges disagreeing, two toasts for one event, and a rule that
+silences half the application.
+
+The same reasoning fixes what "muted" means. It is the **host's verdict**, computed once when the
+record is filed — the request's own flag OR'd with every rule in force — rather than a predicate a
+window re-evaluates while it draws. A window that decided for itself would flash a bell that another
+window had silenced, and the rule's expiry would make the two disagree over time rather than at
+once.
+
+**Cost:** the state travels whole. `NotificationsState` carries the entire capped history on every
+tick, dismissal and mute, which is a few kilobytes of message for a one-bit change and would be the
+wrong shape if the cap were thousands rather than 200. A diff protocol buys that back and costs the
+property that two windows cannot disagree, which is the property being bought here. And the history
+is in memory: a host restart loses it and every standing mute with it (`G197`).
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
 - [`agent-manager.md`](./agent-manager.md) — the boundary D8 and D9 create
 - [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, the
   naming rule D58 states, and the connector family D65 to D71 produce
+- [`../features/notifications.md`](../features/notifications.md) — the bell D88 shapes
 - [`../backlog.md`](../backlog.md) — the choices still open

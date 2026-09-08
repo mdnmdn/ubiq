@@ -210,3 +210,10 @@ ulid_id! {
     /// no longer holding is discarded by id, the same discipline [`SearchId`] buys for a search.
     SuggestId
 }
+
+ulid_id! {
+    /// One notification in the bell's history. Minted by the host when the record is filed,
+    /// because a notification exists only once it is in the history — a request a mute rule
+    /// swallowed still gets one, since the badge counts it and a click has to name it.
+    NotificationId
+}

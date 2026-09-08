@@ -391,6 +391,16 @@ impl AppState {
             self.toggle_app_provider_picker(cx);
             return;
         }
+        // The bell's list is painted last of the window's overlays, so it is peeled first — and
+        // the mute picker inside it before the list it is drawn in.
+        if self.notifications.muting.is_some() {
+            self.cancel_mute(cx);
+            return;
+        }
+        if self.notifications.open {
+            self.close_notifications(cx);
+            return;
+        }
         let settings = &self.workbench.settings;
         if self.workbench.remote_connect.is_some() {
             self.cancel_remote_connect(window, cx);

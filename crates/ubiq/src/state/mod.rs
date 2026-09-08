@@ -24,6 +24,7 @@ pub mod layout;
 pub mod logs;
 pub mod nav;
 pub mod navigator;
+pub mod notifications;
 pub mod orchestration;
 pub mod prefs;
 pub mod remote;

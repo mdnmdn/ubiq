@@ -52,6 +52,14 @@ notify = "7"
 # Deleting to the platform's trash, so a removal the user regrets is recoverable outside Ubiq. It
 # talks to the desktop's own trash service and draws nothing, so `just host` stays green.
 trash = "5"
+# Telling the desktop about a notification, on the one path in the notification family that leaves
+# Ubiq. One crate for three platforms — the Freedesktop D-Bus service, `NSUserNotification`, a
+# WinRT toast — so the host writes no platform code of its own. `default-features = false` drops
+# the image support, which would drag an image decoder in to show an icon nothing here sends, and
+# `z` picks the pure-Rust `zbus` backend over the one that links the system's D-Bus C library —
+# nothing else in this tree needs a C toolchain, and a notification is not the thing to start.
+# Draws nothing; `just host` stays green.
+notify-rust = { version = "4", default-features = false, features = ["z"] }
 
 # The connector family's HTTP: a blocking client, because every request it makes is already on a
 # flow's own thread and an async runtime would be a second scheduler for nobody. `default-features

@@ -8,9 +8,11 @@ use gpui::{
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::notifications::{Level, UbiqLink};
+
 use crate::app::{AppState, NavBack, NavForward};
 use crate::theme;
-use crate::ui::kit::{field, icon_button, mono};
+use crate::ui::kit::{badge, field, icon_button, mono};
 use crate::ui::navigator;
 use crate::ui::project_menu;
 
@@ -147,13 +149,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     )
                     .h_full(),
                 )
-                .child(
-                    icon_button("bell", IconName::Bell, false, |_, _, _| {})
-                        .h_full()
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Notifications").build(window, cx)
-                        }),
-                )
+                .child(bell(app, cx))
                 .child(
                     icon_button(
                         "remote-connect",
@@ -304,6 +300,102 @@ fn nav_control(
                     gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
                 })
         })
+}
+
+/// The bell, its unread badge, and the flash that says something just arrived.
+///
+/// Its own helper rather than a bare [`icon_button`] for the reason [`nav_control`] is one: this
+/// control carries two things the kit's square button has no room for — a count over the glyph,
+/// and a tint that alternates while the bell is flashing. The glyph itself is the kit's, the
+/// button's rhythm is the row's 30px, and the badge is drawn over it rather than beside it so the
+/// strip's spacing does not shift when a count appears.
+fn bell(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let state = &app.notifications;
+    let unread = state.wire.unread();
+    // The flash is the level's colour, on the beat the blink is on. Off the beat, and at rest,
+    // the bell reads as any other control in the row.
+    let flashing = state.flash_on.then_some(state.flash_level).flatten();
+    let tint = flashing.map(|level| match level {
+        Level::Info => theme::info(),
+        Level::Warning => theme::warning(),
+        Level::Error => theme::danger(),
+    });
+    // A flashing bell that carries a link goes there instead of opening the list, so the tooltip
+    // says where rather than repeating the name of a control the user is already looking at.
+    let tip: gpui::SharedString = match state
+        .flash_until
+        .is_some()
+        .then_some(state.flash_link.as_ref())
+        .flatten()
+    {
+        Some(link) => format!("Notifications — go to {}", link_label(link)).into(),
+        None => "Notifications".into(),
+    };
+
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .h_full()
+        .child(
+            icon_button(
+                "bell",
+                IconName::Bell,
+                state.open,
+                cx.listener(|this, _, window, cx| this.toggle_notifications(window, cx)),
+            )
+            .h_full()
+            .when_some(tint, |this, colour| {
+                this.child(
+                    div()
+                        .absolute()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size_full()
+                        .child(
+                            Icon::new(IconName::Bell)
+                                .with_size(Size::Small)
+                                .text_color(colour),
+                        ),
+                )
+            })
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+            }),
+        )
+        .when(unread > 0, |this| {
+            // Past ninety-nine the number has stopped being information; that there are many is.
+            let count = if unread > 99 {
+                "99+".to_string()
+            } else {
+                unread.to_string()
+            };
+            this.child(
+                div()
+                    .absolute()
+                    .top(px(3.))
+                    .right(px(1.))
+                    .px(px(3.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(theme::danger_soft())
+                    .child(badge(&count, theme::danger())),
+            )
+        })
+}
+
+/// Where a link goes, in the few words a tooltip has room for. The ids name things this row
+/// cannot resolve without the catalogue in front of it, so each says what kind of place it is.
+fn link_label(link: &UbiqLink) -> &'static str {
+    match link {
+        UbiqLink::Pane(_) => "the pane",
+        UbiqLink::Project(_) => "the project",
+        UbiqLink::Agent(_) => "the conversation",
+        UbiqLink::File { .. } => "the file",
+        UbiqLink::Url(_) => "the page",
+    }
 }
 
 /// The repository's page on its provider, when the project's default remote names one.

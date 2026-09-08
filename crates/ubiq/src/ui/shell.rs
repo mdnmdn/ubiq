@@ -263,6 +263,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| remote_connect::render(app, window, cx)),
         )
+        // The bell's list, painted last of the overlays: it is reached from the titlebar, which
+        // is above every screen, so it has to be above every dialog a screen raised.
+        .child(crate::ui::notifications::render(app, window, cx))
         // The build-channel ribbon, over everything: the window always says which build it is.
         .child(ribbon::render())
 }

@@ -881,6 +881,7 @@ impl AppState {
             workbench: WorkbenchState::default(),
             sink: SinkState::default(),
             stats: StatsState::default(),
+            notifications: NotificationsState::default(),
             file_picker: None,
             host_browse: None,
             navigator: None,
