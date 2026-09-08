@@ -23,6 +23,7 @@ pub mod kit;
 pub mod logs;
 pub mod navigator;
 pub mod new_pane_menu;
+pub mod notifications;
 pub mod orchestration;
 pub mod outline;
 pub mod project_menu;

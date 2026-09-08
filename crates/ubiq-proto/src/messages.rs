@@ -20,8 +20,11 @@ use crate::files::{
 };
 use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
-    AiProviderId, CloneId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, RepoQueryId,
-    SearchId, SessionId, StepId, SuggestId, TaskId,
+    AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
+    RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId,
+};
+use crate::notifications::{
+    Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
 use crate::projects::{IndexChange, ProjectSnapshot, Scope};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
@@ -1340,6 +1343,50 @@ pub enum Message {
     AiProviderError {
         provider_id: Option<AiProviderId>,
         error: String,
+    },
+
+    // ── Notification family: UI → host ──────────────────────────────
+    /// File a notification. Any subsystem on either side may raise one; the host is what decides
+    /// whether a standing mute rule silences it, mints its id, and tells every window.
+    RaiseNotification {
+        request: NotificationRequest,
+    },
+    /// Send the bell's whole state. A window asks once, when it attaches.
+    ListNotifications,
+    /// Tick one notification off, or every one of them when `id` is `None`.
+    ReadNotifications {
+        id: Option<NotificationId>,
+    },
+    /// Drop one notification from the history, or every one of them when `id` is `None`.
+    DismissNotifications {
+        id: Option<NotificationId>,
+    },
+    /// Stand up a mute rule. A scope holds at most one rule, so this replaces any rule already on
+    /// that scope rather than stacking a second.
+    MuteNotifications {
+        scope: MuteScope,
+        max_level: Level,
+        duration: MuteFor,
+    },
+    /// Lift the rule on one scope. Lifting a scope that has no rule is not an error.
+    UnmuteNotifications {
+        scope: MuteScope,
+    },
+
+    // ── Notification family: host → UI ──────────────────────────────
+    /// One notification, as it was filed. Broadcast, because the bell is in every window and a
+    /// badge that disagrees between two of them is the bug this avoids by construction.
+    ///
+    /// `notification.muted` is the host's verdict after the rules: a window flashes its bell for a
+    /// notification that is not muted, and only counts one that is.
+    NotificationRaised {
+        notification: Box<Notification>,
+    },
+    /// The bell's whole state — the history, newest first, and the rules in force. Broadcast for
+    /// the same reason, and sent whole rather than as a diff: the list is capped and it changes on
+    /// a click, so a patch protocol would buy nothing and could leave two windows disagreeing.
+    NotificationsState {
+        state: Box<Notifications>,
     },
 }
 

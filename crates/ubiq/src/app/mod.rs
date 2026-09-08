@@ -41,6 +41,7 @@ use crate::state::nav::{
     toggle_mark,
 };
 use crate::state::navigator::NavigatorState;
+use crate::state::notifications::{BLINK, FLASH, MutePick, NotificationsState};
 use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
     self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
@@ -85,6 +86,9 @@ use ubiq_proto::ids::{
     StepId, SuggestId, TaskId,
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
+use ubiq_proto::notifications::{
+    HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
+};
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{
     AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, SavedRemoteHost, SettingsLayer,
@@ -462,6 +466,10 @@ pub struct AppState {
     /// The Control screen's own state: which page is open, and the last reading the host sent. On
     /// the window for the same reason the sink's is — the figures are the host's, not a project's.
     pub stats: StatsState,
+    /// The bell: the host's notification state as last broadcast, and this window's own view of
+    /// it. On the window rather than inside a project for the same reason the two above are — a
+    /// notification names its origin, and that origin is as often the host as a project.
+    pub notifications: NotificationsState,
     /// What the log console is showing. The records themselves belong to the process-wide sink.
     pub logs: LogState,
     /// The project search panel's state: query, options, results.
@@ -763,6 +771,7 @@ pub use hosts::{
 };
 mod image_edit;
 mod nav;
+mod notifications;
 mod panels;
 mod picker;
 mod projects;

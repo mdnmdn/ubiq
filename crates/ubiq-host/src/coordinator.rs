@@ -32,6 +32,7 @@ use crate::conversation::{Conversation, UsageMeter};
 use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
+use crate::notifications;
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
 use crate::reply::Reply;
@@ -157,6 +158,10 @@ struct Coordinator {
     /// `active_searches` is: the worker sets the flag on its way out too, so an entry whose flag is
     /// already set is over and can be dropped when the next suggestion mints one.
     active_suggests: HashMap<SuggestId, Arc<AtomicBool>>,
+    /// The bell's history and the mute rules over it. Held here rather than per window because a
+    /// rule set in one window governs every window, and because the desktop must be told about an
+    /// event once however many windows are open.
+    notifications: notifications::Centre,
     /// One filesystem watch per window per open project. Keyed by both because a project is open
     /// in exactly one window and a window shows one project at a time — there is no
     /// `CloseProject` message, so replacing a client's entry when it opens another project is how
@@ -660,6 +665,7 @@ impl Coordinator {
             assist,
             ai_providers,
             active_suggests: HashMap::new(),
+            notifications: notifications::Centre::new(),
             watchers: HashMap::new(),
             pending,
             pane_projects: HashMap::new(),
@@ -986,6 +992,39 @@ impl Coordinator {
                         shells: shells::available(),
                     },
                 );
+            }
+
+            // ── the notification family ─────────────────────────────
+            // The centre decides everything: whether a rule silences the request, whether the
+            // desktop is told, and who hears the answer. Nothing here draws a conclusion of its
+            // own — see `crates/ubiq-host/src/notifications/mod.rs`.
+            Message::RaiseNotification { request } => {
+                let replies = self.notifications.raise(request);
+                self.answer(client, replies);
+            }
+            Message::ListNotifications => {
+                let replies = self.notifications.list();
+                self.answer(client, replies);
+            }
+            Message::ReadNotifications { id } => {
+                let replies = self.notifications.read(id);
+                self.answer(client, replies);
+            }
+            Message::DismissNotifications { id } => {
+                let replies = self.notifications.dismiss(id);
+                self.answer(client, replies);
+            }
+            Message::MuteNotifications {
+                scope,
+                max_level,
+                duration,
+            } => {
+                let replies = self.notifications.mute(scope, max_level, duration);
+                self.answer(client, replies);
+            }
+            Message::UnmuteNotifications { scope } => {
+                let replies = self.notifications.unmute(scope);
+                self.answer(client, replies);
             }
 
             // ── the project family ──────────────────────────────────

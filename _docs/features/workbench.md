@@ -787,11 +787,13 @@ group that holds a terminal or the console, in the pane region even when it hold
 while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
 machine has, and a row that puts the console on screen. What the rows are and what a click does is
-`feat-panes`'s. Past a divider, the titlebar offers search and a bell (both stubs), a network button
-that raises the "Connect to a remote host" modal, a browser button, a capture button, a gear that
-raises application
+`feat-panes`'s. Past a divider, the titlebar offers search (a stub), the notification bell, a
+network button that raises the "Connect to a remote host" modal, a browser button, a capture button,
+a gear that raises application
 settings, and the theme switch. The gear lights while settings are up; the network button lights
-while its modal is up. Settings are interface-wide, so the overlay opens with no project.
+while its modal is up; the bell lights while its list is up, carries a badge of what has not been
+read, and flashes when something arrives — [`notifications.md`](./notifications.md) owns all of it.
+Settings are interface-wide, so the overlay opens with no project.
 
 **The network button's modal takes a pasted connection string or an address and token typed
 separately**, and steps through editing, connecting, connected and failed-with-reason —

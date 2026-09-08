@@ -300,6 +300,9 @@ impl AppState {
         let Some(message) = self.receive_host_browse(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_notifications(host, message, cx) else {
+            return;
+        };
         // The rest are the window's own words, coming back the wrong way.
         tracing::warn!("the window was sent a message only it may send: {message:?}");
     }
@@ -1147,6 +1150,49 @@ impl AppState {
         None
     }
 
+    /// The notification family: the bell's whole state, and each arrival as it is filed.
+    ///
+    /// Both are broadcast to every window, so nothing here is a reply to a request this window
+    /// made — it redraws from what the host says, and never edits the state it was sent.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_notifications(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
+        match message {
+            // The whole state, replacing what was held: the list is capped and the host is the
+            // one that keeps it, so half an old state beside half a new one is nobody's bell.
+            Message::NotificationsState { state } => {
+                self.notifications.wire = *state;
+                cx.notify();
+            }
+
+            // One arrival, put at the front because the list is newest first. The host has
+            // already applied the rules, so `muted` is its verdict and not a question: a muted
+            // one only moves the badge, and a loud one is what the bell flashes for.
+            Message::NotificationRaised { notification } => {
+                let (level, link, muted) = (
+                    notification.level,
+                    notification.link.clone(),
+                    notification.muted,
+                );
+                self.notifications.wire.items.insert(0, *notification);
+                self.notifications.wire.items.truncate(HISTORY_CAP);
+                if muted {
+                    cx.notify();
+                } else {
+                    self.flash_bell(level, link, cx);
+                }
+            }
+
+            other => return Some(other),
+        }
+        None
+    }
+
     /// The session family: what the host is, and what can be started on it.
     ///
     /// Answers with the message when it belongs to another family.
@@ -1185,6 +1231,9 @@ impl AppState {
                 // And the setups built on top of them, for the same reason: the menu offers a
                 // row per profile.
                 self.bus.send(Message::ListProfiles);
+                // And the bell, so a window that has just attached draws the badge the other
+                // windows are already drawing rather than an empty one until something arrives.
+                self.bus.send(Message::ListNotifications);
                 cx.notify();
             }
 

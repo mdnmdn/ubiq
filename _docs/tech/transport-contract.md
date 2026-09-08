@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository and assist families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-08
 verified: 2026-09-08
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-proto/src/wire.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -749,7 +749,7 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Thirty-five records travel inside payloads.
+Forty-two records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -780,6 +780,13 @@ Thirty-five records travel inside payloads.
 | `RateLimitRecord` | `five_hour_pct?`, `five_hour_resets_at?`, `seven_day_pct?`, `seven_day_resets_at?`, `status` |
 | `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
 | `ConfigChoice` | `value`, `name`, `description?`, `group?` |
+| `Notification` | `id`, `level`, `family`, `actor?`, `category?`, `text`, `link?`, `at`, `muted`, `read` |
+| `NotificationRequest` | `level`, `family`, `actor?`, `category?`, `text`, `link?`, `muted`, `os` — the last two default `false` |
+| `UbiqLink` | one of: `Pane`, `Project`, `Agent`, `File{project,path}`, `Url` |
+| `MuteScope` | one of: `All`, `Family`, `Actor{family,actor}`, `Category{family,category}` |
+| `MuteRule` | `scope`, `max_level`, `until?` |
+| `MuteFor` | one of: `Minutes5`, `Minutes15`, `Hour1`, `Hours8`, `Always` |
+| `Notifications` | `items[]` newest first, `mutes[]` |
 | `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
@@ -1392,6 +1399,47 @@ record answers to. Its `provider_id` is present when the refusal is about one pa
 and absent when it is about the list. Nothing was changed on the way to failing, so it is a line to
 show on a settings page rather than a state to unwind.
 
+## The notification family
+
+The sixteenth family, and the only one whose messages name nothing in Ubiq at all: a notification
+names an **origin** — a family, an optional actor inside it, an optional category of event — and
+that origin is what a mute rule matches on. **The host decides whether a notification is silenced**,
+because the rules live there and because the operating system must be told at most once however
+many windows are open. Both host → UI variants are broadcast to `To::Everyone`: the bell is drawn
+in every window, and two badges that disagree is the bug this rules out by construction.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `RaiseNotification` | UI → host | `request` | `NotificationRaised` |
+| `ListNotifications` | UI → host | — | `NotificationsState` |
+| `ReadNotifications` | UI → host | `id?` — `None` is all of them | `NotificationsState` |
+| `DismissNotifications` | UI → host | `id?` — `None` is all of them | `NotificationsState` |
+| `MuteNotifications` | UI → host | `scope`, `max_level`, `duration` | `NotificationsState` |
+| `UnmuteNotifications` | UI → host | `scope` | `NotificationsState` |
+| `NotificationRaised` | host → UI | `notification` (boxed) | — |
+| `NotificationsState` | host → UI | `state` (boxed) | — |
+
+**A raiser is on either side.** `RaiseNotification` is a UI → host message because the host is what
+files a record, but the host raises its own the same way internally — a subsystem hands the
+notification centre a `NotificationRequest` and the same rules apply. Nothing raises a notification
+by drawing one.
+
+**Muted is the host's verdict, not the raiser's wish.** A request carries `muted` (arrive quietly)
+and the host ORs it with every rule in force; `Notification.muted` is the answer. A muted
+notification is still filed and still counts against the badge — it only stops the bell flashing
+and stops the operating system hearing about it.
+
+**`os` is opt-in, always.** A request that does not ask for it never reaches the desktop, and a
+request that does is still suppressed when the notification comes out muted.
+
+**One rule per scope.** `MuteNotifications` on a scope that already has a rule replaces it, which is
+what makes "mute this agent for an hour" idempotent from a menu. A rule whose `until` has passed
+silences nothing and is dropped the next time the centre is touched.
+
+**The state is sent whole.** `NotificationsState` carries the history — newest first, capped at
+`HISTORY_CAP` (200) — and the rules in force. There is no patch protocol: the list is small, it
+changes on a click, and a whole-state message cannot leave two windows disagreeing.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -1452,6 +1500,7 @@ ever dropped.
    family. If it names a **remote repository** — listing one, or cloning one into a project that
    does not exist yet — the repository family. If it names a **subject Ubiq wants a sentence for**
    and carries no prompt, or configures the provider that would write it, the assist family.
+   If it names **nothing in Ubiq and reports that something happened**, the notification family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

@@ -19,6 +19,7 @@
 //! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
 //! - `repos`: a repository somewhere else, and the clone that turns one into a project
 //! - `stats`: one reading of the host, and the usage meter's buckets
+//! - `notifications`: what a subsystem raises for the bell, and how it is silenced
 //! - `work`: a task as it is written down, and the sessions and agents doing it
 //! - `conversation`: what a live agent says, in the Agent Client Protocol's vocabulary
 //! - `bus`: the switchboard between the one host and the windows attached to it
@@ -34,6 +35,7 @@ pub mod git;
 pub mod ids;
 pub mod log;
 pub mod messages;
+pub mod notifications;
 pub mod projects;
 pub mod repos;
 pub mod search;

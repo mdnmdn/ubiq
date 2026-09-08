@@ -25,6 +25,8 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::MenuId;
+use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
+
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
@@ -52,6 +54,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .child(files(app, cx))
         .child(fields(app, window, cx))
         .child(modals(cx))
+        .child(notifications(cx))
         .into_any_element()
 }
 
@@ -725,6 +728,63 @@ fn modals(cx: &mut Context<AppState>) -> AnyElement {
         "Modals",
         "One question, over the window. Dismissed by a click outside it or by its own close; the \
          scrim is a token, so both palettes dim by what their ground needs.",
+        vec![row(triggers)],
+    )
+}
+
+// ── Notifications ───────────────────────────────────────────────────
+
+/// The bell, raised by hand.
+///
+/// Nothing is wired to the notification system yet, so this is how a person checks the badge, the
+/// flash, the list and the desktop's own notification: each button raises a real request, and the
+/// host answers it exactly as it would answer a subsystem's.
+fn notifications(cx: &mut Context<AppState>) -> AnyElement {
+    // One button's label and the request it raises.
+    type Raiser = (&'static str, fn() -> NotificationRequest);
+
+    let raisers: [Raiser; 6] = [
+        ("Info", || {
+            NotificationRequest::info(Family::Ubiq, "The index finished walking the project.")
+        }),
+        ("Warning", || {
+            NotificationRequest::warning(Family::Files, "Two files were skipped: they are too big.")
+        }),
+        ("Error", || {
+            NotificationRequest::error(Family::Host, "A store would not write to disk.")
+        }),
+        ("With an origin", || {
+            NotificationRequest::info(Family::Agents, "The turn finished.")
+                .with_actor("claude")
+                .with_category("turn")
+        }),
+        ("Quietly", || {
+            NotificationRequest::info(Family::Terminal, "A pane exited on its own.").quietly()
+        }),
+        ("With a link", || {
+            NotificationRequest::warning(Family::Connectors, "A sign-in wants finishing.")
+                .with_link(UbiqLink::Url("https://example.com".to_string()))
+                .with_os()
+        }),
+    ];
+
+    let triggers: Vec<AnyElement> = raisers
+        .into_iter()
+        .map(|(label, build)| {
+            ghost_button(
+                ElementId::Name(format!("sink-notification-{label}").into()),
+                Some(IconName::Bell),
+                label,
+                cx.listener(move |this, _, _, _| this.raise_notification(build())),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    group(
+        "Notifications",
+        "Each raises a real one. A loud one flashes the bell and counts against the badge; a \
+         quiet one only counts; the last also asks the desktop and carries somewhere to go.",
         vec![row(triggers)],
     )
 }

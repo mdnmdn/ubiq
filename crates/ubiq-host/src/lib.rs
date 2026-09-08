@@ -44,6 +44,7 @@ pub mod host_path;
 pub mod index;
 pub mod links;
 pub mod mcp_server;
+pub mod notifications;
 pub mod projects;
 pub mod pty;
 pub mod remote;
