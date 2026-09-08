@@ -42,7 +42,7 @@ use crate::state::nav::{
 };
 use crate::state::navigator::NavigatorState;
 use crate::state::notifications::{BLINK, FLASH, MutePick, NotificationsState};
-use crate::state::orchestration::{GraphView, Held, InspectorTab, Selection};
+use crate::state::orchestration::{Algo, GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
     self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
     CliShortcut, ConnectApp, ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep,

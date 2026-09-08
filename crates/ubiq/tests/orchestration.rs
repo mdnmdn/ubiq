@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 
 use ubiq::state::layout::{CARD_GAP_X, CARD_GAP_Y};
 use ubiq::state::orchestration::{
-    CARD_HEIGHT, CARD_WIDTH, GRAIN_CEILING, GRAIN_LIFE, GROUP_LABEL, GROUP_PAD, GraphView, Held,
-    Selection, ZOOM_MAX, ZOOM_MIN,
+    Algo, CARD_HEIGHT, CARD_WIDTH, GRAIN_CEILING, GRAIN_LIFE, GROUP_LABEL, GROUP_PAD, GraphView,
+    Held, Selection, ZOOM_MAX, ZOOM_MIN,
 };
 use ubiq::state::work::WorkProjection;
 use ubiq_proto::ids::{SessionId, TaskId};
@@ -101,6 +101,13 @@ fn edit_agent(work: &mut WorkProjection, id: AgentId, edit: impl FnOnce(&mut Wor
     work.apply_agent(agent);
 }
 
+/// Whether two boxes, each `(x, y, w, h)`, overlap at all.
+fn overlap(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> bool {
+    let (ax, ay, aw, ah) = a;
+    let (bx, by, bw, bh) = b;
+    ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
+}
+
 /// One project's work and the graph's view of it, with a name for every id in it.
 struct Fixture {
     work: WorkProjection,
@@ -115,6 +122,14 @@ struct Fixture {
     plumbing: TaskId,
     parser: TaskId,
     elsewhere: TaskId,
+    // A third session, added only for the arrangement tests: a hand-off across two containers
+    // (`hq` → `wing`, for Tree) and a row wide enough to force a shelf to wrap (`barracks`, for
+    // Packed). Nothing above reads any of it, so the original fixture's shape is unchanged.
+    camp: SessionId,
+    hq: TaskId,
+    wing: TaskId,
+    barracks: TaskId,
+    depot: TaskId,
 }
 
 /// Two sessions, three tasks, five agents — one in each bucket, and one in the other session that
@@ -131,9 +146,27 @@ fn seeded() -> Fixture {
     let parser = TaskId::generate();
     let elsewhere = TaskId::generate();
 
+    let camp = SessionId::generate();
+    let hq = TaskId::generate();
+    let wing = TaskId::generate();
+    let barracks = TaskId::generate();
+    let depot = TaskId::generate();
+    let chief = AgentId::generate();
+    let officer = AgentId::generate();
+    let scout1 = AgentId::generate();
+    let scout2 = AgentId::generate();
+    let scout3 = AgentId::generate();
+    let scout4 = AgentId::generate();
+    let miner = AgentId::generate();
+    let driller = AgentId::generate();
+
     let mut work = WorkProjection::empty();
     work.replace_all(
-        vec![session(refit, "refit"), session(spike, "spike")],
+        vec![
+            session(refit, "refit"),
+            session(spike, "spike"),
+            session(camp, "camp"),
+        ],
         vec![
             doing(
                 agent(writer, refit, Some(plumbing), "writer"),
@@ -152,11 +185,42 @@ fn seeded() -> Fixture {
                 Activity::Failed,
             ),
             doing(agent(loose, spike, None, "loose"), Activity::Thinking),
+            // `officer`'s container (`wing`) hangs under `chief`'s (`hq`) once its cards' parent
+            // is read: `officer` answers to `chief`, and `chief` sits in `hq`.
+            agent(chief, camp, Some(hq), "chief"),
+            {
+                let mut a = agent(officer, camp, Some(wing), "officer");
+                a.parent = Some(chief);
+                a
+            },
+            // Four peers in one container — a row wide enough that a shelf built to
+            // `LAYOUT_WIDTH` has to wrap it onto its own row, which is what makes Packed's
+            // folding of the row show up in the session's overall bounding box.
+            agent(scout1, camp, Some(barracks), "scout1"),
+            agent(scout2, camp, Some(barracks), "scout2"),
+            agent(scout3, camp, Some(barracks), "scout3"),
+            agent(scout4, camp, Some(barracks), "scout4"),
+            // A hand-off chain, tall rather than wide, to round out the shapes `camp` packs.
+            agent(miner, camp, Some(depot), "miner"),
+            {
+                let mut a = agent(driller, camp, Some(depot), "driller");
+                a.parent = Some(miner);
+                a
+            },
         ],
         vec![
             task(plumbing, refit, "plumbing", &[Some(writer), Some(waiter)]),
             task(parser, refit, "parser", &[Some(stopped)]),
             task(elsewhere, spike, "elsewhere", &[Some(loose)]),
+            task(hq, camp, "hq", &[Some(chief)]),
+            task(wing, camp, "wing", &[Some(officer)]),
+            task(
+                barracks,
+                camp,
+                "barracks",
+                &[Some(scout1), Some(scout2), Some(scout3), Some(scout4)],
+            ),
+            task(depot, camp, "depot", &[Some(miner), Some(driller)]),
         ],
     );
 
@@ -175,6 +239,11 @@ fn seeded() -> Fixture {
         plumbing,
         parser,
         elsewhere,
+        camp,
+        hq,
+        wing,
+        barracks,
+        depot,
     }
 }
 
@@ -342,7 +411,7 @@ fn a_new_card_is_placed_without_moving_what_is_already_drawn() {
     let arriving = AgentId::generate();
     f.work
         .apply_agent(agent(arriving, f.refit, Some(f.plumbing), "just spawned"));
-    f.graph.layout.place_new(&f.work.agents, &f.work.tasks);
+    f.graph.absorb_new(&f.work);
 
     assert_ne!(
         f.graph.layout.offset(arriving),
@@ -675,4 +744,172 @@ fn zoom_is_clamped_at_both_ends() {
         f.graph.zoom_by(1.0);
     }
     assert_eq!(f.graph.zoom, ZOOM_MAX);
+}
+
+// ── The four arrangements ───────────────────────────────────────────
+
+/// Whichever arrangement is chosen, the same three things stay true: two containers in one
+/// session never overlap, a card sits inside its own container's box, and a task with no cards
+/// still gets a place to hang a dropped card off.
+#[test]
+fn every_arrangement_keeps_the_geometry_sound() {
+    let mut f = seeded();
+
+    for algo in Algo::ALL {
+        f.graph.set_algo(algo, &f.work);
+
+        for session in [f.refit, f.spike, f.camp] {
+            let boxes: Vec<(f32, f32, f32, f32)> = f
+                .work
+                .tasks
+                .iter()
+                .filter(|t| t.session == Some(session))
+                .filter_map(|t| f.graph.bounds_of(&f.work, t.id))
+                .collect();
+            for i in 0..boxes.len() {
+                for j in i + 1..boxes.len() {
+                    assert!(
+                        !overlap(boxes[i], boxes[j]),
+                        "{}: two containers of one session overlap: {:?} vs {:?}",
+                        algo.label(),
+                        boxes[i],
+                        boxes[j]
+                    );
+                }
+            }
+        }
+
+        for a in &f.work.agents {
+            let Some(task) = a.task else { continue };
+            let (bx, by, bw, bh) = f
+                .graph
+                .bounds_of(&f.work, task)
+                .expect("a served container has a box");
+            let (cx, cy) = f.graph.at(a);
+            assert!(
+                cx >= bx - 0.01 && cx + CARD_WIDTH <= bx + bw + 0.01,
+                "{}: {} sits outside its container on x: card at {cx}, box [{bx}, {}]",
+                algo.label(),
+                a.name,
+                bx + bw
+            );
+            assert!(
+                cy >= by - 0.01 && cy + CARD_HEIGHT <= by + bh + 0.01,
+                "{}: {} sits outside its container on y: card at {cy}, box [{by}, {}]",
+                algo.label(),
+                a.name,
+                by + bh
+            );
+        }
+
+        let origin = f.graph.layout.task_origin(f.elsewhere);
+        assert!(
+            origin.0 > 0.0 && origin.1 > 0.0,
+            "{}: the cardless task still gets a place on the canvas",
+            algo.label()
+        );
+    }
+}
+
+/// Choosing an arrangement is not a separate step from laying it out: it both records the choice
+/// and throws the arrangement away and recomputes it, so a card the user had dragged off comes
+/// back home the moment the arrangement is picked — even to the same arrangement it already had.
+#[test]
+fn choosing_an_arrangement_lays_out_and_brings_a_dragged_card_home() {
+    let mut f = seeded();
+    f.graph.set_algo(Algo::Columns, &f.work);
+    assert_eq!(f.graph.algo, Algo::Columns);
+    let home = f.graph.at_id(&f.work, f.writer).unwrap();
+
+    f.graph.place(&f.work, f.writer, (2_000.0, 2_000.0));
+    assert_eq!(f.graph.at_id(&f.work, f.writer), Some((2_000.0, 2_000.0)));
+
+    f.graph.set_algo(Algo::Columns, &f.work);
+    assert_eq!(f.graph.at_id(&f.work, f.writer), Some(home));
+}
+
+/// Switching the arrangement is not cosmetic: at least one card genuinely moves.
+#[test]
+fn switching_the_arrangement_actually_moves_a_card() {
+    let mut f = seeded();
+    let under_flow = f.graph.at_id(&f.work, f.waiter).unwrap();
+
+    f.graph.set_algo(Algo::Columns, &f.work);
+    let under_columns = f.graph.at_id(&f.work, f.waiter).unwrap();
+
+    assert_ne!(
+        under_flow, under_columns,
+        "waiter sits somewhere different under Columns than under Flow"
+    );
+}
+
+/// Columns is one card per row: every card of a container shares one x.
+#[test]
+fn columns_puts_every_card_of_a_container_at_the_same_x() {
+    let mut f = seeded();
+    f.graph.set_algo(Algo::Columns, &f.work);
+
+    let xs: Vec<f32> = f
+        .work
+        .agents
+        .iter()
+        .filter(|a| a.task == Some(f.barracks))
+        .map(|a| f.graph.at(a).0)
+        .collect();
+    assert_eq!(xs.len(), 4, "the fixture's whole barracks");
+    assert!(
+        xs.windows(2).all(|w| w[0] == w[1]),
+        "every card in one container shares one x under Columns: {xs:?}"
+    );
+}
+
+/// Tree hangs a container under the one holding whoever its cards answer to: `wing`'s only card
+/// answers to `chief`, who sits in `hq`, so `wing`'s box falls below `hq`'s.
+#[test]
+fn tree_hangs_a_container_under_the_one_holding_its_parent() {
+    let mut f = seeded();
+    f.graph.set_algo(Algo::Tree, &f.work);
+
+    let (_, hq_y, _, hq_h) = f.graph.bounds_of(&f.work, f.hq).unwrap();
+    let (_, wing_y, _, _) = f.graph.bounds_of(&f.work, f.wing).unwrap();
+
+    assert!(
+        wing_y >= hq_y + hq_h,
+        "wing's box starts below hq's: {wing_y} vs {}",
+        hq_y + hq_h
+    );
+}
+
+/// Packed exists to remove the whitespace a wide row like `barracks` drags every other container
+/// out past — `camp` has four containers of different shapes for exactly that reason. The claim
+/// tested here is the one `pack_best`'s own docs and `layout.rs`'s
+/// `packing_beats_the_shelf_and_stays_squarish` make of it: packed is no larger, by area, than
+/// the shelf it replaces — not narrower on any one axis, which the docs never promise.
+#[test]
+fn packed_is_no_larger_than_flow_for_a_session_with_several_tasks() {
+    let mut f = seeded();
+    let camp_tasks = [f.hq, f.wing, f.barracks, f.depot];
+
+    let extent = |f: &Fixture| -> (f32, f32) {
+        let boxes: Vec<(f32, f32, f32, f32)> = camp_tasks
+            .iter()
+            .map(|&t| f.graph.bounds_of(&f.work, t).unwrap())
+            .collect();
+        (
+            boxes.iter().map(|b| b.0 + b.2).fold(0.0f32, f32::max),
+            boxes.iter().map(|b| b.1 + b.3).fold(0.0f32, f32::max),
+        )
+    };
+
+    f.graph.set_algo(Algo::Flow, &f.work);
+    let flow = extent(&f);
+    f.graph.set_algo(Algo::Packed, &f.work);
+    let packed = extent(&f);
+
+    let flow_area = flow.0 * flow.1;
+    let packed_area = packed.0 * packed.1;
+    assert!(
+        packed_area <= flow_area + 1.0,
+        "packed {packed:?} ({packed_area}) is no larger than flow's {flow:?} ({flow_area})"
+    );
 }

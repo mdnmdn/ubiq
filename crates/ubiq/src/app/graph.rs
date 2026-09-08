@@ -61,6 +61,18 @@ impl AppState {
         cx.notify();
     }
 
+    /// Pick an arrangement off the toolbar's dropdown, by its row in `Algo::ALL`.
+    pub fn set_graph_layout(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+        let Some(algo) = Algo::ALL.get(index).copied() else {
+            return;
+        };
+        if let Some((graph, work)) = self.graph_over_work(cx) {
+            graph.set_algo(algo, work);
+        }
+        cx.notify();
+    }
+
     pub fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut(cx) {
             graph.show_inspector = !graph.show_inspector;
