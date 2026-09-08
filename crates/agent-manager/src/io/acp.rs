@@ -3,7 +3,7 @@
 //! Since the neutral model *is* ACP's `session/update` vocabulary (see
 //! [`super::model`]), this is a rename and a re-casing rather than a
 //! translation: the discriminant moves from `type` to `sessionUpdate`, and
-//! keys go from snake_case to camelCase. `refs/acp-protocol.md` is the wire
+//! keys go from snake_case to camelCase. `_docs/inbox/acp-protocol.md` is the wire
 //! reference; the two rules it turns on are that **ACP keys are camelCase
 //! while discriminator values stay snake_case**, and that every union is
 //! internally tagged with its payload flattened beside the tag.
@@ -160,6 +160,9 @@ pub fn tool_call_value(call: &ToolCall) -> Map<String, Value> {
     if let Some(raw) = &call.raw_input {
         object.insert("rawInput".to_string(), raw.clone());
     }
+    if let Some(raw) = &call.raw_output {
+        object.insert("rawOutput".to_string(), raw.clone());
+    }
     object
 }
 
@@ -183,6 +186,9 @@ pub fn tool_call_update_value(update: &ToolCallUpdate) -> Map<String, Value> {
     if let Some(locs) = &update.locations {
         object.insert("locations".to_string(), locations(locs));
     }
+    if let Some(raw) = &update.raw_input {
+        object.insert("rawInput".to_string(), raw.clone());
+    }
     if let Some(raw) = &update.raw_output {
         object.insert("rawOutput".to_string(), raw.clone());
     }
@@ -192,14 +198,24 @@ pub fn tool_call_update_value(update: &ToolCallUpdate) -> Map<String, Value> {
 /// ACP's `stopReason`, for the `session/prompt` response a server sends when
 /// it sees an [`AgentEvent::TurnEnded`].
 ///
-/// ACP has no "the run broke" reason, so [`StopReason::Failed`] becomes a
-/// refusal — the nearest thing that says the turn produced no answer.
+/// ACP has no "the run broke" reason, and [`StopReason::Failed`] is **not**
+/// `refusal` even though both mean "no answer arrived": spec section 6 says
+/// `refusal` carries a specific contract — the agent *declined*, and "the
+/// user prompt and everything after it will not be included in the next
+/// prompt". A crash has neither property. The harness did not decline
+/// anything, and a client that drops the prompt from context because of a
+/// transient failure loses history it should keep for the retry. `end_turn`
+/// is the honest fallback: the turn is over, and the client keeps its
+/// context. A server that wants to say *why* the turn ended in failure
+/// carries that in `_meta` on the `session/prompt` response — this function
+/// only produces the `stopReason` enum value, since [`AgentEvent::TurnEnded`]
+/// is mapped by the server, not here (see the module docs).
 pub fn stop_reason(reason: &StopReason) -> &'static str {
     match reason {
-        StopReason::EndTurn => "end_turn",
+        StopReason::EndTurn | StopReason::Failed => "end_turn",
         StopReason::MaxTokens => "max_tokens",
         StopReason::MaxTurnRequests => "max_turn_requests",
-        StopReason::Refusal | StopReason::Failed => "refusal",
+        StopReason::Refusal => "refusal",
         StopReason::Cancelled => "cancelled",
     }
 }
@@ -513,8 +529,16 @@ mod tests {
     #[test]
     fn stop_reasons_map_onto_acps_five() {
         assert_eq!(stop_reason(&StopReason::EndTurn), "end_turn");
+        assert_eq!(stop_reason(&StopReason::MaxTokens), "max_tokens");
+        assert_eq!(
+            stop_reason(&StopReason::MaxTurnRequests),
+            "max_turn_requests"
+        );
+        assert_eq!(stop_reason(&StopReason::Refusal), "refusal");
         assert_eq!(stop_reason(&StopReason::Cancelled), "cancelled");
-        // ACP has no "the run broke", so the nearest true thing is used.
-        assert_eq!(stop_reason(&StopReason::Failed), "refusal");
+        // ACP has no "the run broke", and `refusal` is the wrong stand-in: it promises the
+        // client may drop the prompt from context, which a crash has not earned. `end_turn`
+        // keeps that context intact.
+        assert_eq!(stop_reason(&StopReason::Failed), "end_turn");
     }
 }

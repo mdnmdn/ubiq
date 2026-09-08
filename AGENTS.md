@@ -43,6 +43,7 @@ document; file it instead.
    - Only main agents could spawn subagents
    - Unless the task is trivial, the main agent should act as a pm/coordinator an spawn subagents to performs the tasks. 
    - create subagents with smaller model according to the task (eg sonnet, haiku), use big model for more reasoning tasks
+   - max 3 subagents running
 - Keep it simple.
 - Follow the project conventions and existing patterns if possible
 - Be coincise and efficient
@@ -54,6 +55,7 @@ document; file it instead.
   evaulate to create a new `_tools`
 - USE THE DEFAULT TOOLS for targeted updates, do not run scripts
 - If you have a technical problem compiling or other automated task notify it and envetually do other remaing activities, don't use
+- be breif
 
 ## Architecture rules
 

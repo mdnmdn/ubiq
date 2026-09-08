@@ -868,7 +868,7 @@ silent.
 
 **Cost:** three of them. Our vocabulary lags upstream's, and a v2 that reshapes diffs into structured
 file changes and makes the message id required is drafted — every one of those is a change here, and
-`refs/acp-protocol.md` records what is coming. Two variants are on the wire and refused, because the
+`_docs/inbox/acp-protocol.md` records what is coming. Two variants are on the wire and refused, because the
 family was designed whole rather than grown one at a time. And a conversation and a pane are two
 spawn messages rather than one, which is the price of a record that does not carry geometry nobody
 set.

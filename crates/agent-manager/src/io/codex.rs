@@ -608,7 +608,10 @@ fn approval_event(method: &str, value: &Value) -> Vec<AgentEvent> {
             // The request's own param shape isn't pinned down beyond "what
             // it's approving", so the raw params are kept here for a
             // consumer that wants to dig further rather than guessed at.
-            raw_output: value.get("params").cloned(),
+            // This is what the harness is asking to run, not a result, so it
+            // belongs on `rawInput` now that `ToolCallUpdate` has one —
+            // it rode on `rawOutput` before that field existed.
+            raw_input: value.get("params").cloned(),
             ..ToolCallUpdate::default()
         },
         options: approval_options(),

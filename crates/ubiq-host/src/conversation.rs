@@ -89,10 +89,22 @@ pub struct Conversation {
     /// The pump's own sequence counter, published after every send, so an unload can hand the
     /// coordinator the last `seq` it reached without racing the pump for it.
     seq: Arc<AtomicU64>,
-    /// Set by `stop(true)` before the pump is asked to exit. Read by the pump on its way out to
-    /// decide whether to send the final `ConversationEnded` — an unload wants exactly one
-    /// lifecycle message (`ConversationUnloaded`), not that plus this.
+    /// Set by `stop(true)` before the pump is asked to exit, or at [`Conversation::start`] for a
+    /// harness that ends every turn by exiting. Read by the pump on its way out to decide whether
+    /// to send the final `ConversationEnded` — an unload wants exactly one lifecycle message
+    /// (`ConversationUnloaded`), not that plus this.
+    ///
+    /// **A one-shot harness sets it before the pump starts, not at reap.** Its process ends
+    /// unasked, so by the time the coordinator polls `ended()` the pump has already decided
+    /// whether to speak; there is no later moment at which setting the flag would still be read.
     quiet: Arc<AtomicBool>,
+    /// The harness's own session id, as its `SessionStarted` reported it. Written by the pump,
+    /// read by the coordinator — the same `Mutex`-over-a-shared-fact shape `outstanding` uses,
+    /// and for the same reason: the pump is what sees it and the coordinator is what needs it.
+    ///
+    /// It is the whole of what continues a one-shot conversation: the next turn is a fresh
+    /// process launched with this id as its resume.
+    session: Arc<Mutex<Option<String>>>,
     /// Every permission request this harness is still waiting on, in arrival order.
     ///
     /// **Shared with the pump, because the pump is what sees a request and the coordinator is
@@ -109,22 +121,30 @@ impl Conversation {
     /// `start_seq` is where the sequence counter picks up rather than always zero, so a
     /// conversation that said something before this harness existed — P3's pending picker, over
     /// `ConversationUpdate` — and the harness's own first frame are one unbroken sequence.
+    ///
+    /// `quiet` set means this process ending is a *turn* ending, not the conversation's: the pump
+    /// says nothing on its way out and the coordinator decides what that means. It is what a
+    /// one-shot harness is started with, because a `ConversationEnded` after every answer is
+    /// exactly what makes such a harness read as dead.
     pub fn start(
         id: AgentId,
         bridge: Box<dyn IoBridge>,
         out: Mailbox,
         start_seq: u64,
         usage: Option<UsageMeter>,
+        quiet: bool,
     ) -> Self {
         let input = bridge.input();
         let ended = Arc::new(AtomicBool::new(false));
         let seq = Arc::new(AtomicU64::new(start_seq));
-        let quiet = Arc::new(AtomicBool::new(false));
+        let quiet = Arc::new(AtomicBool::new(quiet));
         let outstanding = Arc::new(Mutex::new(Vec::new()));
+        let session = Arc::new(Mutex::new(None));
         let pump_ended = ended.clone();
         let pump_seq = seq.clone();
         let pump_quiet = quiet.clone();
         let pump_outstanding = outstanding.clone();
+        let pump_session = session.clone();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
             .spawn(move || {
@@ -137,6 +157,7 @@ impl Conversation {
                     pump_seq,
                     pump_quiet,
                     pump_outstanding,
+                    pump_session,
                     usage,
                 )
             })
@@ -150,7 +171,16 @@ impl Conversation {
             seq,
             quiet,
             outstanding,
+            session,
         }
+    }
+
+    /// The harness's own session id, once it has named one. `None` until its `SessionStarted`
+    /// arrives, and for a harness that names none at all — a conversation with no id to resume
+    /// from cannot be continued by relaunching, which is a fact worth reading as `None` rather
+    /// than guessing around.
+    pub fn session_id(&self) -> Option<String> {
+        self.session.lock().ok().and_then(|held| held.clone())
     }
 
     /// Whether the harness behind this conversation has ended by itself — its pump thread has
@@ -274,6 +304,7 @@ fn pump(
     seq_counter: Arc<AtomicU64>,
     quiet: Arc<AtomicBool>,
     outstanding: Arc<Mutex<Vec<String>>>,
+    session: Arc<Mutex<Option<String>>>,
     usage: Option<UsageMeter>,
 ) {
     let mut seq = start_seq;
@@ -303,6 +334,16 @@ fn pump(
             if let Ok(mut held) = outstanding.lock() {
                 held.clear();
             }
+        }
+
+        // Recorded rather than merely forwarded: for a one-shot harness this id is the only
+        // thread between one turn's process and the next's, and the coordinator has no other
+        // sight of it — every `ConvUpdate` goes straight to the window.
+        if let AgentEvent::SessionStarted { session_id, .. } = &event
+            && let Some(session_id) = session_id
+            && let Ok(mut held) = session.lock()
+        {
+            *held = Some(session_id.clone());
         }
 
         // Written before the update goes out, so a cancel that arrives the instant the window
@@ -1112,6 +1153,7 @@ mod tests {
             seq: Arc::new(AtomicU64::new(0)),
             quiet: Arc::new(AtomicBool::new(false)),
             outstanding: Arc::new(Mutex::new(Vec::new())),
+            session: Arc::new(Mutex::new(None)),
         };
         (conversation, seen)
     }

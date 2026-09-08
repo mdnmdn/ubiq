@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 
 use crate::Result;
 use crate::config::{McpServer, McpTransport};
+use crate::source::Source;
 use crate::spec::{HookRef, McpRef, RunSpec};
 
 use super::{ConfigAnchor, Harness, Launch, ModelInfo, Relocate, SeedFile};
@@ -57,6 +58,7 @@ impl Harness for Claude {
         aliases: ["claude"],
         passthrough: true,
         structured: true,
+        multi_turn: true,
     }
 
     /// Class A: `CLAUDE_CONFIG_DIR` relocates the entire config — credentials
@@ -427,25 +429,38 @@ impl Harness for Claude {
         _creds: &[crate::credentials::CredentialBlob],
     ) -> Result<Vec<crate::credentials::CredentialBlob>> {
         use crate::credentials::CredentialBlob;
-        let creds = crate::account::read_claude_keychain_credentials()?;
+        let (creds, identity) = read_ambient_keychain_login()?;
         let mut blobs = vec![CredentialBlob {
             name: ".credentials.json".to_string(),
             rel_path: std::path::PathBuf::from(".claude/.credentials.json"),
             bytes: creds,
         }];
-        if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
-            let identity = home.join(".claude.json");
-            if identity.is_file()
-                && let Ok(bytes) = std::fs::read(&identity)
-            {
-                blobs.push(CredentialBlob {
-                    name: ".claude.json".to_string(),
-                    rel_path: std::path::PathBuf::from(".claude.json"),
-                    bytes,
-                });
-            }
+        if let Some(bytes) = identity {
+            blobs.push(CredentialBlob {
+                name: ".claude.json".to_string(),
+                rel_path: std::path::PathBuf::from(".claude.json"),
+                bytes,
+            });
         }
         Ok(blobs)
+    }
+
+    /// The user's live Claude Code session, as it actually lives on macOS: the
+    /// OAuth token in the Keychain (see [`Claude::renew_credentials`]'s doc),
+    /// not a file under `$HOME` — so [`crate::provision::seed_zero_config_login`]'s
+    /// file-copy tier finds nothing and a direct run reports "Not logged in"
+    /// even though `claude` itself would find the session fine. Returns the
+    /// same two files [`Claude::config_anchor`] names as a `Source::Files`, so
+    /// [`super::seed_login`] places them exactly as a copied file would be.
+    /// Off macOS, or with no readable Keychain entry, this is the same as no
+    /// login: `None`, never an error surfaced to the run.
+    fn ambient_login(&self) -> Option<Source> {
+        let (creds, identity) = read_ambient_keychain_login().ok()?;
+        let mut files = vec![(std::path::PathBuf::from(".claude/.credentials.json"), creds)];
+        if let Some(bytes) = identity {
+            files.push((std::path::PathBuf::from(".claude.json"), bytes));
+        }
+        Some(Source::Files(files))
     }
 
     /// User-editable preference defaults, merged into the run by
@@ -515,6 +530,23 @@ impl Harness for Claude {
             .with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
+}
+
+/// Read the user's live Claude Code session as it lives on disk/Keychain
+/// today: the OAuth credential blob from the macOS Keychain (required —
+/// errors propagate), plus the `.claude.json` identity companion from the
+/// real `HOME`, when one is set and the file exists (optional — a missing or
+/// unreadable companion is silently `None`, never an error). Shared by
+/// [`Claude::renew_credentials`] and [`Claude::ambient_login`], which differ
+/// only in how they wrap this pair.
+fn read_ambient_keychain_login() -> Result<(Vec<u8>, Option<Vec<u8>>)> {
+    let creds = crate::account::read_claude_keychain_credentials()?;
+    let identity = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .map(|home| home.join(".claude.json"))
+        .filter(|path| path.is_file())
+        .and_then(|path| std::fs::read(&path).ok());
+    Ok((creds, identity))
 }
 
 /// Render one [`McpServer`] into the JSON shape Claude Code's `--mcp-config`

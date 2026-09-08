@@ -115,7 +115,7 @@ feature gate) are `am`'s **harness-neutral** internal model, defined in
 
 `AgentEvent`'s variants and their fields *are* the Agent Client Protocol's
 `session/update` vocabulary, minus two things: the JSON-RPC envelope, and the
-session id. `refs/acp-protocol.md` is the full wire reference this
+session id. `_docs/inbox/acp-protocol.md` is the full wire reference this
 transcribes; this document doesn't restate its shapes, only how `am` uses
 them.
 

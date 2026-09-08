@@ -76,6 +76,37 @@ pub struct Composed {
     spec_account: Option<String>,
 }
 
+/// Everything a caller chooses about one run, over and above the harness, the folder and the
+/// face it wears.
+///
+/// One struct rather than seven parameters because [`Agents::converse`] and
+/// [`Agents::compose`] hand the identical set through to the same place, and a pane's answer to
+/// all of it is `Default::default()` — the library resolves what nothing named.
+///
+/// Every field is a *pick*, and a pick outranks the profile inside the library's `resolve`. `None`
+/// everywhere is the zero-config start: whatever the harness, its profile and its own defaults
+/// say.
+#[derive(Default)]
+pub struct ConverseOptions {
+    /// The identity this run answers as, when one was named.
+    pub account: Option<String>,
+    /// The harness-native model id, never interpreted here.
+    pub model: Option<String>,
+    /// The harness-native reasoning-effort level.
+    pub thinking: Option<String>,
+    /// One of the harness's own `modes()` ids.
+    pub mode: Option<String>,
+    /// The saved setup the picks above sit on top of.
+    pub profile: Option<String>,
+    /// The first turn's text, for a **one-shot** harness whose prompt is argv rather than a frame
+    /// on a pipe. Left `None` for a multi-turn harness, which is prompted over its bridge after
+    /// it is running — putting a prompt here for one of those would run its first turn twice.
+    pub prompt: Option<String>,
+    /// The harness's own session id, to continue a conversation whose last process has exited.
+    /// Which flag that becomes is the library's answer, never Ubiq's.
+    pub resume: Option<String>,
+}
+
 /// A login that has been prepared and not yet finished: what to run, and what finishing it
 /// would mean.
 ///
@@ -235,6 +266,7 @@ impl Agents {
                     label: harness.display_name().to_string(),
                     command: harness.command().to_string(),
                     available,
+                    chat: harness.io_support().structured,
                     modes: harness
                         .modes()
                         .into_iter()
@@ -254,6 +286,28 @@ impl Agents {
     /// see rather than failing as a process that would not start.
     pub fn is_agent_type(&self, id: &str) -> bool {
         harness::resolve(id).is_some()
+    }
+
+    /// Whether `agent_type` can be *conversed* with at all — the library has a structured bridge
+    /// for it. False for a harness that only knows how to draw a screen, which a pane can still
+    /// do; there is simply nothing on the other end of a pipe to map onto `ConvUpdate`s.
+    ///
+    /// Asked before anything is spawned, because it is a fact of the harness rather than of a
+    /// process. An unknown id is not conversable either — refusing is the honest answer, and
+    /// [`Self::is_agent_type`] is what tells the two refusals apart.
+    pub fn converses(&self, agent_type: &str) -> bool {
+        harness::resolve(agent_type).is_some_and(|harness| harness.io_support().structured)
+    }
+
+    /// Whether one process of `agent_type` survives its own first answer.
+    ///
+    /// False for a **one-shot** harness — Copilot, opencode — which takes its prompt in argv,
+    /// answers once and exits. That is not a broken harness: it converses one turn per process,
+    /// and the caller continues it by launching again with [`ConverseOptions::resume`] set to the
+    /// id its last run reported. `false` for anything that does not converse at all, where the
+    /// question does not arise.
+    pub fn multi_turn(&self, agent_type: &str) -> bool {
+        harness::resolve(agent_type).is_some_and(|harness| harness.io_support().multi_turn)
     }
 
     /// The binary `agent_type` launches as — `claude`, `codex` — which is what a conversation is
@@ -596,11 +650,7 @@ impl Agents {
             cwd,
             args,
             IoModes::Passthrough,
-            None,
-            None,
-            None,
-            None,
-            None,
+            ConverseOptions::default(),
         )
     }
 
@@ -616,31 +666,29 @@ impl Agents {
     /// rendered into an argv (`sandbox-exec -p <policy> -- <harness>`) which
     /// the bridge spawns with pipes of its own, so nothing about the sandbox
     /// needs to own the descriptors.
-    #[allow(clippy::too_many_arguments)]
     pub fn converse(
         &self,
         agent: AgentId,
         agent_type: &str,
         cwd: &Path,
-        account: Option<String>,
-        model: Option<String>,
-        thinking: Option<String>,
-        mode: Option<String>,
-        profile: Option<String>,
+        options: ConverseOptions,
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        if !harness.io_support().structured {
+            bail!(
+                "{} has no structured bridge, so it cannot hold a conversation — run it in a \
+                 terminal pane instead",
+                harness.display_name()
+            );
+        }
         let mut composed = self.compose_run(
             &agent.to_string(),
             agent_type,
             cwd,
             Vec::new(),
             IoModes::Structured,
-            account,
-            model,
-            thinking,
-            mode,
-            profile,
+            options,
         )?;
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
@@ -700,9 +748,6 @@ impl Agents {
         }
     }
 
-    // As many arguments as `Message::StartConversation` has fields to route through: composing
-    // a run is naming each of them, not a sign this wants a struct nobody else would reuse.
-    #[allow(clippy::too_many_arguments)]
     fn compose_run(
         &self,
         key: &str,
@@ -710,11 +755,7 @@ impl Agents {
         cwd: &Path,
         args: Vec<String>,
         io: IoModes,
-        account: Option<String>,
-        model: Option<String>,
-        thinking: Option<String>,
-        mode: Option<String>,
-        profile: Option<String>,
+        options: ConverseOptions,
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
@@ -734,13 +775,19 @@ impl Agents {
             // Highest precedence in `resolve`, which is what "the user picked this one" has to
             // mean: an identity — or a model, a thinking level, a mode — chosen when the
             // conversation started outranks the profile's.
-            account,
-            model,
-            thinking,
-            permission_mode: mode,
+            account: options.account,
+            model: options.model,
+            thinking: options.thinking,
+            permission_mode: options.mode,
             // The saved setup the picks sit on top of. `None` is a bare start, and the
             // library then falls back to whatever profile it resolves on its own.
-            profile,
+            profile: options.profile,
+            // The two fields a one-shot harness converses through: its prompt is argv, and the
+            // only thing joining one turn to the next is the harness's own session id. `resolve`
+            // lands them on `spec.initial.prompt` and `spec.resume`, and each harness's
+            // provisioner spells out its own flag for them — Ubiq names neither.
+            prompt: options.prompt,
+            resume: options.resume,
             ..Default::default()
         };
         let mut spec = resolve::resolve(
@@ -1085,6 +1132,47 @@ fn command_outcome(
 mod tests {
     use super::*;
 
+    /// The two questions the coordinator asks before it spawns anything, and the three answers
+    /// they have between them. Both are the library's facts, read here rather than restated —
+    /// a list of harness names in this crate is the bug `G95` was.
+    ///
+    /// `converses` decides whether a conversation may start at all; `multi_turn` decides whether
+    /// a turn is written to a running process or becomes the next launch's argv. A harness can
+    /// be neither (Grok — a pane is all it does), conversable but one-shot (Copilot, opencode),
+    /// or both (Claude Code, codex).
+    #[test]
+    fn converses_and_multi_turn_read_the_librarys_three_answers() {
+        let agents = Agents::new(std::env::temp_dir().join("ubiq-test-agents"), false);
+
+        for id in ["claude-code", "codex"] {
+            assert!(agents.converses(id), "{id} should converse");
+            assert!(agents.multi_turn(id), "{id} should take a second turn");
+        }
+        for id in ["copilot", "opencode"] {
+            assert!(agents.converses(id), "{id} should converse");
+            assert!(
+                !agents.multi_turn(id),
+                "{id} is one-shot: its turn is its argv"
+            );
+        }
+        assert!(
+            !agents.converses("grok"),
+            "grok has no structured bridge, so there is nothing to converse with"
+        );
+        assert!(!agents.multi_turn("grok"));
+    }
+
+    /// An id the library does not know converses no more than one it knows cannot. Refusing is
+    /// the honest answer to both; `is_agent_type` is what tells the two refusals apart.
+    #[test]
+    fn an_unknown_harness_neither_converses_nor_takes_a_second_turn() {
+        let agents = Agents::new(std::env::temp_dir().join("ubiq-test-agents"), false);
+
+        assert!(!agents.converses("not-a-harness"));
+        assert!(!agents.multi_turn("not-a-harness"));
+        assert!(!agents.is_agent_type("not-a-harness"));
+    }
+
     /// A bare name is one word, and a Windows path's backslashes are not escapes: both must
     /// come out exactly as typed for `resolve_bare` to tell "look this up on PATH" from
     /// "this already names a path".
@@ -1233,11 +1321,7 @@ mod tests {
                 cwd.path(),
                 Vec::new(),
                 IoModes::Structured,
-                None,
-                None,
-                None,
-                None,
-                None,
+                ConverseOptions::default(),
             )
             .expect("composing a structured claude-code run");
 
@@ -1267,11 +1351,10 @@ mod tests {
                     cwd.path(),
                     Vec::new(),
                     IoModes::Structured,
-                    None,
-                    None,
-                    None,
-                    None,
-                    profile,
+                    ConverseOptions {
+                        profile,
+                        ..Default::default()
+                    },
                 )
                 .expect("composing a structured claude-code run")
         };

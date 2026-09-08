@@ -146,13 +146,22 @@ fn host_inproc_mcps(spec: &RunSpec) -> Result<(RunSpec, Vec<crate::mcp::server::
 
 /// Zero-config login reuse (tier A "just works"): when a bare `am <harness>`
 /// run got no login from an account home or a profile overlay, seed the
-/// harness's captured login from the user's **real** `HOME` so it reuses the
-/// existing session instead of onboarding.
+/// harness's captured login so it reuses the existing session instead of
+/// onboarding. Two tiers, tried in order:
+///
+/// 1. Copy [`crate::harness::ConfigAnchor::login_seed`] out of the user's
+///    **real** `HOME` — correct for every harness that keeps its credential
+///    as a plain file, since that's the same file the harness itself would
+///    read.
+/// 2. If that copy placed nothing, fall back to [`Harness::ambient_login`] —
+///    the harness's own account of its live login, for the harnesses (Claude
+///    Code, via the OS Keychain) whose credential isn't a `HOME`-relative
+///    file at all, so tier 1 can never find it.
 ///
 /// No-op when: the harness declares no `login_seed`; a login was already placed
-/// (an account home or overlay seeded it — that wins); the account supplies
-/// env/key/helper credentials (those manage their own auth); or `HOME` is
-/// unset. Missing source files are skipped (see [`crate::harness::seed_login`]),
+/// (an account home or overlay seeded it — that wins over both tiers below);
+/// or the account supplies env/key/helper credentials (those manage their own
+/// auth). Missing source files are skipped (see [`crate::harness::seed_login`]),
 /// so this only ever *adds* an existing login and never fails a run for the lack
 /// of one. Never overrides `HOME`.
 fn seed_zero_config_login(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Result<()> {
@@ -170,10 +179,20 @@ fn seed_zero_config_login(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> 
     {
         return Ok(());
     }
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    // Tier 1: a real file under the real HOME wins — it's what the harness
+    // itself would read.
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        crate::harness::seed_login(dir, &Source::Dir(home), &anchor.login_seed)?;
+    }
+    if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
         return Ok(());
-    };
-    crate::harness::seed_login(dir, &Source::Dir(home), &anchor.login_seed)
+    }
+    // Tier 2: no file landed — ask the harness for its own account of the
+    // live login (e.g. Claude Code's OS-Keychain session).
+    if let Some(ambient) = harness.ambient_login() {
+        crate::harness::seed_login(dir, &ambient, &anchor.login_seed)?;
+    }
+    Ok(())
 }
 
 /// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.
@@ -207,12 +226,116 @@ fn new_run_dir() -> Result<PathBuf> {
     Ok(base.join(run_id))
 }
 
+/// A harness stand-in for [`seed_zero_config_login`]'s tier-2 (ambient
+/// login) tests: a single `login_seed` file whose `src` name is unique
+/// enough that no real `$HOME` on the test machine could ever contain it, so
+/// tier 1's file copy always finds nothing and the test doesn't depend on —
+/// or need to mock — the process's real `HOME`.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+struct AmbientDummyHarness {
+    ambient: Option<Source>,
+}
+
+#[cfg(test)]
+impl Harness for AmbientDummyHarness {
+    fn id(&self) -> crate::spec::HarnessId {
+        "ambient-dummy".to_string()
+    }
+    fn display_name(&self) -> &str {
+        "ambient dummy"
+    }
+    fn command(&self) -> &str {
+        "ambient-dummy"
+    }
+    fn aliases(&self) -> &[&str] {
+        &[]
+    }
+    fn io_support(&self) -> crate::harness::IoSupport {
+        crate::harness::IoSupport {
+            passthrough: false,
+            structured: false,
+            multi_turn: false,
+        }
+    }
+    fn config_anchor(&self) -> crate::harness::ConfigAnchor {
+        crate::harness::ConfigAnchor {
+            levers: Vec::new(),
+            login_seed: vec![crate::harness::SeedFile::new(
+                "am-test-ambient-login-src-2f0c1e6a.json",
+                "ambient-login-dst.json",
+            )],
+            requires_home_relocation: false,
+        }
+    }
+    fn ambient_login(&self) -> Option<Source> {
+        self.ambient.clone()
+    }
+    fn provision(&self, _spec: &RunSpec, _dir: &Path) -> Result<Launch> {
+        anyhow::bail!("ambient-dummy harness provision not implemented")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::harness::Claude;
     use crate::spec::RunSpec;
     use std::path::PathBuf;
+
+    /// Tier 2: no file landed from `$HOME` (the seed `src` name is unique to
+    /// this test, so tier 1 finds nothing on any real machine) — the
+    /// harness's own `ambient_login()` gets seeded instead.
+    #[test]
+    fn seed_zero_config_login_falls_back_to_ambient_login_when_home_has_no_file() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let spec = RunSpec::new("ambient-dummy".to_string(), PathBuf::from("."));
+        let harness = AmbientDummyHarness {
+            ambient: Some(Source::Files(vec![(
+                PathBuf::from("am-test-ambient-login-src-2f0c1e6a.json"),
+                b"AMBIENT-LOGIN".to_vec(),
+            )])),
+        };
+
+        seed_zero_config_login(&harness, &spec, config_dir.path()).unwrap();
+
+        let dst = config_dir.path().join("ambient-login-dst.json");
+        assert!(
+            dst.exists(),
+            "ambient login should be seeded when HOME has no file"
+        );
+        assert_eq!(std::fs::read(&dst).unwrap(), b"AMBIENT-LOGIN");
+    }
+
+    /// A login already materialized into `dir` (by an account home or a
+    /// profile overlay, run before this function) wins outright: the
+    /// harness's `ambient_login()` is never consulted, let alone allowed to
+    /// overwrite it.
+    #[test]
+    fn seed_zero_config_login_does_not_call_ambient_login_when_a_file_already_landed() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            config_dir.path().join("ambient-login-dst.json"),
+            b"REAL-LOGIN",
+        )
+        .unwrap();
+        let spec = RunSpec::new("ambient-dummy".to_string(), PathBuf::from("."));
+        let harness = AmbientDummyHarness {
+            ambient: Some(Source::Files(vec![(
+                PathBuf::from("am-test-ambient-login-src-2f0c1e6a.json"),
+                b"AMBIENT-LOGIN".to_vec(),
+            )])),
+        };
+
+        seed_zero_config_login(&harness, &spec, config_dir.path()).unwrap();
+
+        let dst = config_dir.path().join("ambient-login-dst.json");
+        assert_eq!(
+            std::fs::read(&dst).unwrap(),
+            b"REAL-LOGIN",
+            "a pre-existing file must not be overwritten by ambient_login"
+        );
+    }
 
     #[test]
     fn fixed_strategy_uses_the_given_dir_and_is_not_ephemeral() {

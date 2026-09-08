@@ -5,7 +5,7 @@
 //! Names and shapes here are ACP's `session/update` vocabulary. Only the
 //! vocabulary: the transport stays the bus, because putting JSON-RPC between
 //! two halves of one process would undo the embedding for no gain — see `D53`
-//! and `D9`. `refs/acp-protocol.md` is the wire reference, and
+//! and `D9`. `_docs/inbox/acp-protocol.md` is the wire reference, and
 //! `crates/agent-manager/src/io/model.rs` is the library-side twin these
 //! records are mapped from, in `crates/ubiq-host/src/conversation.rs` and
 //! nowhere else.

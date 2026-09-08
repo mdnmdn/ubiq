@@ -77,9 +77,13 @@ to be discovered from. Its controls are `Close all` and `New agent`. `Close all`
 on screen — `bench_agent` for every tab in every column, the same thing a tab's own close already
 does, not `EndConversation` — and is shown only when there is something on screen to bench; a row
 with no columns gets no button rather than one that would silently do nothing. `New
-agent` reads the harness library's agent types, the same `ListAgentTypes` answer the new-pane menu
-reads so the two lists cannot disagree, plus the accounts signed in. `WorkbenchState::harness_choices`
-groups what it offers into three: every available harness bare, under a `Default` heading; then —
+agent` reads the same `ListAgentTypes` answer the new-pane menu reads, plus the accounts signed in,
+but not the same rows from it: `WorkbenchState::harness_choices` keeps only the harnesses whose
+`AgentTypeInfo::chat` is true, because a harness with no structured bridge (Grok) can draw a pane's
+screen but has nothing to turn into a `ConvUpdate` — offering it here would start a conversation
+that never speaks. The new-pane menu keeps every harness regardless, `chat` or not, since a pane
+asks nothing of the bridge. `WorkbenchState::harness_choices` then groups what survives that filter
+into three: every available harness bare, under a `Default` heading; then —
 only when at least one account is signed in — a `Configured` heading below a separator with one row
 per `(harness, account)` pair; then, on the same terms, a `Defined` heading with one row per saved
 profile, `HarnessChoice::Profile(usize)` indexing the list settings holds. A group with nothing in

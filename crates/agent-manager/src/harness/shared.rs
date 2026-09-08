@@ -7,7 +7,7 @@
 
 /// Emit the five identity methods of [`super::Harness`].
 ///
-/// Every harness answers these with string literals and two booleans; the
+/// Every harness answers these with string literals and three booleans; the
 /// bodies are otherwise identical. Invoke it as the first item inside
 /// `impl Harness for X`.
 macro_rules! harness_identity {
@@ -17,7 +17,8 @@ macro_rules! harness_identity {
         command: $command:literal,
         aliases: [$($alias:literal),* $(,)?],
         passthrough: $passthrough:literal,
-        structured: $structured:literal $(,)?
+        structured: $structured:literal,
+        multi_turn: $multi_turn:literal $(,)?
     ) => {
         fn id(&self) -> $crate::spec::HarnessId {
             $id.to_string()
@@ -39,6 +40,7 @@ macro_rules! harness_identity {
             $crate::harness::IoSupport {
                 passthrough: $passthrough,
                 structured: $structured,
+                multi_turn: $multi_turn,
             }
         }
     };

@@ -1441,6 +1441,16 @@ pub struct AgentTypeInfo {
     /// configured for it. A row that cannot start says so before it is picked rather than failing
     /// as a spawn the user has to interpret.
     pub available: bool,
+    /// Whether this harness can hold a *conversation* — the library has a structured bridge for
+    /// it, so its output arrives as `ConvUpdate`s rather than as terminal bytes. False for a
+    /// harness that can only be driven through a pane, which is a real thing it can still do:
+    /// this field is what keeps such a harness out of every chat-start menu without taking it out
+    /// of the new-pane one.
+    ///
+    /// It says nothing about how many turns one process takes. A one-shot harness — prompt in
+    /// argv, one answer, exit — is `chat: true`, because the host continues it by launching again
+    /// with the session id the last run reported.
+    pub chat: bool,
     /// The permission modes this harness advertises, as the library reports them. Empty when
     /// the harness has no such axis — a mode is not a universal concept, it is whatever this
     /// particular harness named.

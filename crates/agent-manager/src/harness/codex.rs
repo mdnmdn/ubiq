@@ -51,6 +51,7 @@ impl Harness for Codex {
         aliases: ["codex"],
         passthrough: true,
         structured: true,
+        multi_turn: true,
     }
 
     /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included

@@ -423,17 +423,30 @@ impl WorkbenchState {
     /// identities.
     /// Saved setups add a third, `Defined` group below the other two, omitted heading and all
     /// when there are none — the rule `Configured` already follows.
+    ///
+    /// **A harness that cannot converse is omitted entirely**, unavailable ones notwithstanding:
+    /// the two absences say different things. "Not installed" is a row worth drawing disabled,
+    /// because installing it is the fix; "has no structured bridge" is not something the reader
+    /// can act on, and the harness is not missing — it still runs perfectly well in a pane, which
+    /// is where [`Self::new_pane_rows`] keeps offering it. Indices stay indices into
+    /// `agent_types`, so the two menus read one list.
     pub fn harness_choices(
         &self,
         accounts: &[AccountInfo],
         profiles: &[ProfileInfo],
     ) -> Vec<HarnessChoice> {
-        let defaults = (0..self.agent_types.len()).map(HarnessChoice::Harness);
-
-        let pairs: Vec<HarnessChoice> = self
+        let conversable: Vec<usize> = self
             .agent_types
             .iter()
             .enumerate()
+            .filter(|(_, harness)| harness.chat)
+            .map(|(index, _)| index)
+            .collect();
+        let defaults = conversable.iter().copied().map(HarnessChoice::Harness);
+
+        let pairs: Vec<HarnessChoice> = conversable
+            .iter()
+            .map(|&index| (index, &self.agent_types[index]))
             .flat_map(|(index, harness)| {
                 accounts
                     .iter()
@@ -482,6 +495,7 @@ mod tests {
             label: id.to_string(),
             command: id.to_string(),
             available,
+            chat: true,
             modes: Vec::new(),
         }
     }
@@ -649,5 +663,46 @@ mod tests {
                 account: "mdn".to_string()
             }
         );
+    }
+
+    /// A harness with no structured bridge is not offered as a conversation — it would be started
+    /// and then never say anything. It is not *missing*, though: it keeps its place in
+    /// `agent_types` and its row in the new-pane menu, where a terminal is exactly what it wants.
+    #[test]
+    fn a_harness_that_cannot_converse_is_not_offered_as_one() {
+        let mut grok = harness("grok", true);
+        grok.chat = false;
+        let state = with(vec![
+            harness("claude-code", true),
+            grok,
+            harness("codex", true),
+        ]);
+
+        assert_eq!(
+            state.harness_choices(&[], &[]),
+            vec![HarnessChoice::Harness(0), HarnessChoice::Harness(2)],
+            "the indices are still positions in `agent_types`, gap and all"
+        );
+        assert_eq!(
+            state
+                .new_pane_rows(true)
+                .iter()
+                .filter(|row| matches!(row, NewPaneRow::Agent(_)))
+                .count(),
+            3,
+            "a pane can still run it"
+        );
+    }
+
+    /// A logged-in identity for a harness that cannot converse adds no row either: the pair would
+    /// name a conversation that cannot happen.
+    #[test]
+    fn an_account_on_a_non_chat_harness_adds_no_pair() {
+        let mut grok = harness("grok", true);
+        grok.chat = false;
+        let state = with(vec![grok]);
+        let accounts = [account("mdn", &["grok"])];
+
+        assert_eq!(state.harness_choices(&accounts, &[]), Vec::new());
     }
 }

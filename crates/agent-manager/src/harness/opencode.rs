@@ -43,6 +43,7 @@ impl Harness for Opencode {
         aliases: ["opencode"],
         passthrough: true,
         structured: true,
+        multi_turn: false,
     }
 
     /// Class A-clean: `OPENCODE_CONFIG_DIR` relocates the config tier and

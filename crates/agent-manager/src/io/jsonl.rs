@@ -1356,6 +1356,9 @@ fn map_control_request(value: &Value) -> Vec<AgentEvent> {
             status: Some(call.status),
             content: (!call.content.is_empty()).then_some(call.content),
             locations: (!call.locations.is_empty()).then_some(call.locations),
+            // `tool_call` already read the request's `input` into `raw_input`; carry it
+            // through rather than dropping it, since this is a request, not a result.
+            raw_input: call.raw_input,
             raw_output: None,
         },
         options,

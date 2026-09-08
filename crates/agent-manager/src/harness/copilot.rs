@@ -104,6 +104,7 @@ impl Harness for Copilot {
         aliases: [],
         passthrough: true,
         structured: true,
+        multi_turn: false,
     }
 
     /// Class A: `COPILOT_HOME` relocates the CLI's entire config/state tree —

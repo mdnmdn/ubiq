@@ -202,6 +202,20 @@ pub struct IoSupport {
     /// JSON-RPC `app-server`, etc. — is a per-harness implementation
     /// detail). False until each harness's bridge lands (P2, C2/C3/C4).
     pub structured: bool,
+    /// The structured bridge stays open for a second turn: the process
+    /// survives its first answer and takes further prompts, cancellations and
+    /// permission answers over its own stream (Claude Code, codex).
+    ///
+    /// False for a **one-shot** harness (Copilot, opencode), which takes its
+    /// prompt in argv, answers once and exits. A one-shot harness is not
+    /// "unsupported" — it converses one turn per process, and a caller
+    /// continues it by launching again with [`crate::spec::RunSpec::resume`]
+    /// set to the id [`crate::io::AgentEvent::SessionStarted`] reported.
+    ///
+    /// Meaningless when `structured` is false. Mirrors what
+    /// [`crate::io::IoBridge::input`] answers once a bridge exists; this is
+    /// the same fact available *before* one is spawned.
+    pub multi_turn: bool,
 }
 
 /// How a harness's native env lever relocates its config/credentials into a
@@ -606,6 +620,30 @@ pub trait Harness {
             self.id()
         )
     }
+    /// The user's live login as this harness itself would find it, when that
+    /// login is **not a file under `$HOME`** that
+    /// [`crate::provision`]'s zero-config fallback could copy.
+    ///
+    /// The fallback exists so a direct run — no account, no profile — reuses
+    /// the session the user already has. It copies
+    /// [`ConfigAnchor::login_seed`] out of the real `HOME`, which is enough
+    /// for every harness that keeps a plaintext credential on disk. It is not
+    /// enough for one that keeps it in the OS keychain: there is no file to
+    /// copy, the run directory stays empty, and the harness reports itself
+    /// logged out from inside the transcript.
+    ///
+    /// A harness in that position overrides this and returns its credential
+    /// as a [`Source::Files`] keyed by the same `login_seed` `src` paths, so
+    /// [`seed_login`] places it exactly as an account's captured login would
+    /// be. Reading must be cheap and side-effect free — this runs on every
+    /// launch, unlike [`Self::renew_credentials`], whose default *spawns the
+    /// harness*. Errors are the same as no login: return `None` and let the
+    /// run start logged out rather than fail.
+    ///
+    /// Default: `None` — the file copy is the whole story.
+    fn ambient_login(&self) -> Option<Source> {
+        None
+    }
     /// Fix up `dir` after all login seeding (account-based and zero-config)
     /// has landed. Default: no-op. Overridden by harnesses whose captured
     /// login needs a tweak beyond a byte-for-byte file copy — e.g. Claude
@@ -735,6 +773,33 @@ mod tests {
     }
 
     #[test]
+    fn multi_turn_io_support_matches_the_one_shot_split() {
+        // Claude Code and codex stay open across turns: one process takes
+        // further prompts, cancellations and permission answers. Copilot and
+        // opencode are one-shot — prompt in argv, one answer, exit — so a
+        // caller continues them by launching again with `RunSpec::resume`.
+        // Grok converses at all, so the question does not arise for it.
+        //
+        // Pinned here because a consumer reads this to decide whether a turn
+        // is written to a running process or becomes the next launch's argv;
+        // getting it wrong is a prompt that silently reaches nothing.
+        for h in all() {
+            let expected_multi_turn = matches!(h.id().as_str(), "claude-code" | "codex");
+            assert_eq!(
+                h.io_support().multi_turn,
+                expected_multi_turn,
+                "{} multi-turn support mismatch",
+                h.id()
+            );
+            assert!(
+                !h.io_support().multi_turn || h.io_support().structured,
+                "{} claims multi-turn without a structured bridge to take the turn",
+                h.id()
+            );
+        }
+    }
+
+    #[test]
     fn harness_without_structured_bridge_override_errors_mentioning_structured() {
         // A test-only harness that doesn't override `structured_bridge`
         // inherits the trait's default "unsupported" error. All real harnesses
@@ -760,6 +825,7 @@ mod tests {
                 IoSupport {
                     passthrough: false,
                     structured: false,
+                    multi_turn: false,
                 }
             }
             fn provision(&self, _spec: &crate::spec::RunSpec, _dir: &Path) -> Result<Launch> {

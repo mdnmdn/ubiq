@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-06
+updated: 2026-09-08
 verified: 2026-09-08
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
@@ -28,11 +28,12 @@ remains is the thinking level and permissions (P7).
 **Two corrections to earlier notes in this tree, both load-bearing.**
 
 `_docs/wip/agent-login-note.md` concluded that a Ubiq run receives no login. It does:
-`seed_zero_config_login` (`crates/agent-manager/src/provision.rs:158`) copies the harness's own
-login files from the real `$HOME` into the run directory whenever no account is named. The "Not
-logged in" transcript that prompted the note was a **stale token**, not missing wiring. Account
-selection was still worth building — but for owning several identities, not for repairing
-authentication.
+`seed_zero_config_login` (`crates/agent-manager/src/provision.rs`) copies the harness's own
+login files from the real `$HOME` into the run directory whenever no account is named, and — for a
+harness whose login is not a `$HOME` file at all, Claude Code's Keychain-held OAuth token — falls
+back to `Harness::ambient_login()` when that copy lands nothing. The "Not logged in" transcript that
+prompted the note was a **stale token**, not missing wiring. Account selection was still worth
+building — but for owning several identities, not for repairing authentication.
 
 And a model **cannot be changed mid-conversation**. `spec.model` is applied at launch
 (`crates/agent-manager/src/harness/claude.rs:195`), and every bridge refuses
@@ -50,7 +51,7 @@ false are deleted rather than annotated: this is what is true now.
 |---|---|
 | `AgentId` **is** `WorkspaceId` — one type, deliberately, "until a workspace outlives its pane" | Nothing to reconcile: a real agent and a pane are already one identity |
 | `IoBridge` is two methods, both `&mut self`, and `next_event` **blocks** | The host needs one pump thread per structured workspace; `send` and `next_event` cannot be called concurrently without splitting the bridge |
-| Only **Claude** and **Codex** accept input after launch. opencode and Copilot bridges are one-shot: the prompt goes in through argv, `send` is a no-op | Only two harnesses can back a conversation column. The other two are single-turn runs wearing the same trait |
+| Only **Claude** and **Codex** accept a second turn on the same process (`IoSupport::multi_turn`). opencode and Copilot bridges are one-shot: the prompt goes in through argv, the process answers once and exits, and `send` on that process is a no-op | All four still back a conversation column. A one-shot harness's turn ending is a process exiting, not the conversation — the coordinator's `finish_one_shot_turn` relaunches it with the harness's own session id on the next prompt (`RunSpec::resume`), so the composer never has to know which kind it is talking to |
 | **Every bridge auto-approves.** Claude's reader answers every `control_request` with `allow`; Codex auto-accepts every approval RPC; opencode runs `--dangerously-skip-permissions`; Copilot runs `--allow-all --no-ask-user` | A permission prompt in the UI would be theatre — the tool has already run. This is the one item with a security consequence, and it gates any "ask me first" feature |
 | **Model discovery is implemented for all five harnesses** — `Harness::discover_models` (`harness/mod.rs:501`) is overridden by every one. But it takes **no account and no directory**, so a list is per harness rather than per identity, and Claude's probe reads the *ambient* login; discovery **is** cached now — `FileHarnessCache` (`crates/ubiq-host/src/store/harness.rs`) writes `<config root>/cache/harness-models.toml`, keyed on `(harness, account, version)`, with `version` read off the harness binary's own `--version` — so a hit skips the probe outright and a harness whose version cannot be read bypasses the cache in both directions | A model picker is available today, and its list is the same whichever account was chosen. Per-account lists need the trait signature to change. The catalogue can go stale until the harness binary's version string changes |
 | **A thinking / reasoning-effort catalog exists in Rust for two of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses. opencode, Copilot CLI and Grok CLI still answer the empty default — none of the three exposes a reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is still a *label on an option*, not wired to this catalog | The library-side catalog exists for the two harnesses that support reasoning effort; nothing in the UI or bridge layer consumes it yet, so "thinking budget" is still not a picker anyone can draw |
@@ -106,7 +107,7 @@ model makes an inbound bridge a reader of its own vocabulary rather than a third
 `io/acp.rs` becomes a real adapter rather than a lossy projection; and the UI's render model is
 already ACP-shaped by coincidence. **The mapping is settled and recorded elsewhere** — `D53` in
 `tech/decisions.md`, the family in `tech/transport-contract.md`, and the wire in
-[`../../refs/acp-protocol.md`](../../refs/acp-protocol.md). (`refs/multica` holds no ACP code, so an
+[`../inbox/acp-protocol.md`](../inbox/acp-protocol.md). (`refs/multica` holds no ACP code, so an
 earlier claim that these were confirmed against its clients was unsupported.)
 
 Two corrections a reader would not get from the harness documents.
@@ -273,8 +274,9 @@ interesting — it makes ACP an *input* protocol here for the first time, and on
 two variations to diff: one conversation, two wire formats, one rendered result. It needs an ACP
 client bridge, which does not exist; `io/acp.rs` is an output mapper only.
 
-**Watch for:** a one-shot harness (opencode, Copilot) accepts no second prompt — the composer must
-be told by the capability query, not discover it by sending into a void.
+**Watch for:** a one-shot harness (opencode, Copilot) takes its second prompt as a fresh process,
+not a second write to the first one — proving the seam here means proving that relaunch, not
+assuming every variation looks like Claude's long-lived pipe.
 
 **Done when** the same prompt, run as both variations, produces the same transcript, and the two
 raw logs show why any difference exists.

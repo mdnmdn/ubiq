@@ -174,7 +174,7 @@ message rather than three so the board never draws a card naming a session it ha
 `ConversationUpdate`, `ConversationEnded`, `ConversationUnloaded`, `ConversationError`.
 
 The one family whose vocabulary was borrowed rather than invented — the Agent Client Protocol's
-(`D53`), with `refs/acp-protocol.md` as the reference.
+(`D53`), with `_docs/inbox/acp-protocol.md` as the reference.
 
 - **`agent_id` is the multiplexing key**, the role `sessionId` plays in ACP: one bus hosts many
   conversations and every variant names its own. **Minted by the window**, so a surface attaches

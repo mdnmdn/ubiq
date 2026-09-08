@@ -181,7 +181,13 @@ false is offered and not pickable, so the interface never has to decide what a m
 `available` is true when the harness's own binary is found on this machine **or** an override is
 configured for it in `HostSettings.agent_commands`; `command` is what the library would run —
 `claude`, say — carried to be shown as the field's placeholder when a user types an override, never
-composed into a launch.
+composed into a launch. `chat` is a separate axis: whether the harness has a structured bridge at
+all, so its output can become a `ConvUpdate` rather than terminal bytes. A harness with no bridge
+(Grok) still gets a pane — `available` and `command` mean the same thing for it as for any other —
+but `harness_choices` in `crates/ubiq/src/state/workbench.rs` filters every chat-start menu on
+`chat`, since starting a conversation with one would compose a run nothing ever reads. `chat` says
+nothing about how many turns one process takes; a one-shot harness (Copilot, opencode) is `chat:
+true` the same as a multi-turn one (Claude Code, codex).
 
 **`CheckAgentCommand` tries a typed command line before it is saved.** The UI sends `agent_type` and
 the candidate `command`; the coordinator runs it with `--version` on its own thread against a 5s
@@ -584,7 +590,7 @@ is what multiplexes several of them down one channel.
 | `ConversationError` | host → UI | `agent_id`, `error` | — |
 
 **The vocabulary is the Agent Client Protocol's; the transport is the bus.** `D53` states why, and
-[`../../refs/acp-protocol.md`](../../refs/acp-protocol.md) is the wire reference every name here
+[`../inbox/acp-protocol.md`](../inbox/acp-protocol.md) is the wire reference every name here
 comes from. What that buys is that the library's own event model, this family and the mapper between
 them are one vocabulary rather than three, and that a harness which speaks ACP natively is read
 rather than translated.
@@ -726,7 +732,7 @@ Thirty-five records travel inside payloads.
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `modes[]` |
+| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
@@ -821,7 +827,7 @@ override" would become indistinguishable from "say nothing about it".
 
 The conversation family's own enums are the Agent Client Protocol's and are named after it rather
 than after anything here, so a reader can check them against
-[`../../refs/acp-protocol.md`](../../refs/acp-protocol.md) directly. `ToolKind` is ACP's ten —
+[`../inbox/acp-protocol.md`](../inbox/acp-protocol.md) directly. `ToolKind` is ACP's ten —
 `Read`, `Edit`, `Delete`, `Move`, `Search`, `Execute`, `Think`, `Fetch`, `SwitchMode`, `Other` —
 and carries the verb its block's header leads with. `ToolStatus` is `Pending`, `InProgress`,
 `Completed` or `Failed`. `PermissionKind` is `AllowOnce`, `AllowAlways`, `RejectOnce` or

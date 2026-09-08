@@ -85,6 +85,7 @@ impl Harness for Grok {
         aliases: [],
         passthrough: true,
         structured: false,
+        multi_turn: false,
     }
 
     /// Class C: Grok has **no config-dir lever** — its only relocation seam is

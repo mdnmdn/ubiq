@@ -23,7 +23,7 @@ use ubiq_proto::projects::{IndexLevel, ProjectHealth};
 use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
-use crate::agent::{Agents, PendingLogin};
+use crate::agent::{Agents, ConverseOptions, PendingLogin};
 use crate::assist::{self, Assist, providers::Providers};
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
@@ -241,15 +241,13 @@ struct PendingConversation {
     /// model-discovery thread's `ConfigOptions`, always seq 1) and the harness's first frame after
     /// it are one unbroken sequence.
     next_seq: u64,
-}
-
-/// Whether `agent_type` takes anything after its first turn — the inventory table in
-/// `_docs/wip/agent-setup.md` names Claude and Codex as the only two; opencode, Copilot and Grok
-/// bridges are one-shot. Known before a bridge exists because it is a fact of the harness, not of
-/// the running process — [`Conversation::accepts_input`] reports the identical thing once a bridge
-/// is there to ask.
-fn accepts_second_turn(agent_type: &str) -> bool {
-    matches!(agent_type, "claude-code" | "codex")
+    /// The harness's own session id, as the last process to run this conversation reported it.
+    ///
+    /// **This is what makes a one-shot harness converse.** Such a harness answers once and exits,
+    /// so the next turn is a new process — and the only thing joining the two is this id, handed
+    /// back to the library as the run's resume. `None` before the first run, and for a harness
+    /// that named none.
+    resume: Option<String>,
 }
 
 /// `base`, then `base 2`, `base 3` … — the first that nothing in `taken` is wearing. A counter
@@ -1758,6 +1756,22 @@ impl Coordinator {
             );
             return;
         }
+        // A harness the library has no structured bridge for can be *run* — in a pane, where it
+        // draws its own screen — but it cannot be conversed with, because nothing turns its
+        // output into a transcript. `AgentTypeInfo::chat` keeps it out of every start menu, so
+        // reaching here means a stale menu or another client; refusing names the reason rather
+        // than leaving a conversation that silently never speaks.
+        if !self.agents.converses(&agent_type) {
+            self.refuse_conversation(
+                client,
+                agent_id,
+                format!(
+                    "'{agent_type}' has no structured bridge, so it cannot hold a conversation — \
+                     run it in a terminal pane instead"
+                ),
+            );
+            return;
+        }
 
         let label = self
             .agents
@@ -1812,10 +1826,14 @@ impl Coordinator {
         self.conversation_owners
             .insert(agent_id, (client, project_id));
 
-        // Whether this harness takes a second turn is a fact of the harness, not of a running
-        // process, so it is known without a bridge — the same answer `Conversation::accepts_input`
-        // would give once one exists.
-        let accepts_input = accepts_second_turn(&agent_type);
+        // Whether this harness can be conversed with is a fact of the harness, not of a running
+        // process, so it is known without a bridge — the library answers it.
+        //
+        // **It is not the same question as "does one process take a second turn".** A one-shot
+        // harness accepts every turn it is given; what ends with its answer is the *process*, and
+        // the coordinator relaunches it (see `finish_one_shot_turn`). Saying `false` here for one
+        // of those is what drew it as `Lifecycle::Ended` before it had spoken at all (`G95`).
+        let accepts_input = self.agents.converses(&agent_type);
         // `account` is inert in `discover_models` today, but it is already the cache key's
         // identity leg — captured before `account` moves into the pending record below.
         let account_key = account.clone().unwrap_or_default();
@@ -1849,6 +1867,8 @@ impl Coordinator {
                 // The discovery thread below always sends the first message this agent_id will
                 // ever see, and always as seq 1 — nothing else can race ahead of it.
                 next_seq: 1,
+                // Nothing has run, so there is no harness session to continue.
+                resume: None,
             },
         );
 
@@ -1915,11 +1935,17 @@ impl Coordinator {
     /// Returns whether the launch succeeded. A failure has to retract what `start_conversation`
     /// (a first launch) or the previous run (a resume) already made visible — the `WorkAgent`, its
     /// owner, and the recipe itself, since nothing can relaunch a harness that will not compose.
+    ///
+    /// `first_prompt` is set only for a one-shot harness, whose turn *is* its argv: there is no
+    /// pipe to write a prompt into afterwards. A multi-turn harness passes `None` and is prompted
+    /// over its bridge once it is running, which is what keeps its launch byte-identical to what
+    /// it was.
     fn launch(
         &mut self,
         client: ClientId,
         agent_id: AgentId,
         pending: PendingConversation,
+        first_prompt: Option<String>,
     ) -> bool {
         let (last_model, last_thinking) = self
             .catalogue
@@ -1937,11 +1963,15 @@ impl Coordinator {
             agent_id,
             &pending.agent_type,
             &pending.cwd,
-            pending.account.clone(),
-            model.clone(),
-            thinking.clone(),
-            mode,
-            pending.profile.clone(),
+            ConverseOptions {
+                account: pending.account.clone(),
+                model: model.clone(),
+                thinking: thinking.clone(),
+                mode,
+                profile: pending.profile.clone(),
+                prompt: first_prompt,
+                resume: pending.resume.clone(),
+            },
         ) {
             Ok(started) => started,
             Err(error) => {
@@ -1982,16 +2012,28 @@ impl Coordinator {
             harness: pending.agent_type.clone(),
             account: pending.account.clone().unwrap_or_default(),
         });
-        let conversation = Conversation::start(agent_id, bridge, mailbox, pending.next_seq, usage);
+        // A one-shot harness's process exits at the end of every turn, so its pump must not
+        // announce that as the conversation ending — `finish_one_shot_turn` decides what it
+        // means, and says `ConversationUnloaded` instead.
+        let quiet = !self.agents.multi_turn(&pending.agent_type);
+        let conversation =
+            Conversation::start(agent_id, bridge, mailbox, pending.next_seq, usage, quiet);
         self.conversations.insert(agent_id, conversation);
         self.agents_this_run += 1;
         true
     }
 
-    /// Launch a pending agent now that its first prompt has arrived — the moment P3 draws the
+    /// Launch a pending agent now that its next prompt has arrived — the moment P3 draws the
     /// line between "asked for" and "running" — then forward that prompt. `ConversationStarted`
     /// already went out when this agent was registered as pending, and `accepts_input` cannot
     /// have changed since — it is the harness's own fact, not the process's.
+    ///
+    /// **The two harness kinds take their prompt through different doors.** A multi-turn harness
+    /// is launched and then written to over its bridge. A one-shot harness has no such door — its
+    /// bridge hands out no input sink, so `Conversation::prompt` would no-op into nothing — and
+    /// takes the turn in its argv instead. This is also the path a one-shot harness's *second*
+    /// turn arrives on, because `finish_one_shot_turn` put it back in `pending_conversations`
+    /// with the id its last run resumes from.
     fn launch_pending(&mut self, client: ClientId, agent_id: AgentId, text: String) {
         if !self.drives(client, agent_id) {
             return;
@@ -1999,14 +2041,22 @@ impl Coordinator {
         let Some(pending) = self.pending_conversations.get(&agent_id).cloned() else {
             return;
         };
-        if !self.launch(client, agent_id, pending) {
+        let one_shot = !self.agents.multi_turn(&pending.agent_type);
+        let argv_prompt = one_shot.then(|| text.clone());
+        if !self.launch(client, agent_id, pending, argv_prompt) {
             return;
         }
-        self.drive(client, agent_id, |conversation| conversation.prompt(text));
+        if !one_shot {
+            self.drive(client, agent_id, |conversation| conversation.prompt(text));
+        }
     }
 
     /// Start an unloaded (or never-launched) conversation's harness again, with no prompt to
     /// forward. Already live is left alone — resuming twice must not spawn a second pump.
+    ///
+    /// A one-shot harness has nothing to resume *into*: its process is a turn, and a turn with no
+    /// prompt is a process that would answer nothing and exit. Its next prompt is what relaunches
+    /// it, so this is deliberately a no-op there rather than a run nobody asked for.
     fn resume_conversation(&mut self, client: ClientId, agent_id: AgentId) {
         if self.conversations.contains_key(&agent_id) {
             return;
@@ -2017,7 +2067,15 @@ impl Coordinator {
         let Some(pending) = self.pending_conversations.get(&agent_id).cloned() else {
             return;
         };
-        self.launch(client, agent_id, pending);
+        if !self.agents.multi_turn(&pending.agent_type) {
+            tracing::debug!(
+                agent = %agent_id,
+                harness = %pending.agent_type,
+                "a one-shot harness resumes with its next prompt, not on its own"
+            );
+            return;
+        };
+        self.launch(client, agent_id, pending, None);
     }
 
     /// Kill the harness without ending the conversation. The transcript, the run directory and the
@@ -2087,14 +2145,18 @@ impl Coordinator {
         }
     }
 
-    /// Reap conversations whose harness ended on its own — a one-shot bridge's stream, or any
-    /// bridge's process exiting unasked — rather than by an explicit `EndConversation`.
+    /// Reap conversations whose harness ended on its own — a one-shot harness finishing its turn,
+    /// or any harness's process exiting unasked — rather than by an explicit `EndConversation`.
     ///
-    /// Without this, a one-shot harness (`accepts_second_turn` false: everything but
-    /// claude-code/codex) leaks its `conversations`/`conversation_owners`/`work.live` rows and its
-    /// run directory — credentials included — on every conversation, until the window closes.
-    /// The same shape `active_searches` already uses: a flag the worker sets on its way out,
-    /// polled here rather than raced against.
+    /// Without this, a harness that exits leaks its
+    /// `conversations`/`conversation_owners`/`work.live` rows and its run directory — credentials
+    /// included — until the window closes. The same shape `active_searches` already uses: a flag
+    /// the worker sets on its way out, polled here rather than raced against.
+    ///
+    /// **What an exit means depends on the harness.** For a multi-turn one it is the conversation
+    /// over. For a one-shot one it is a turn over, and the two must not be confused: reaping the
+    /// second as the first is what left copilot and opencode looking dead the moment they were
+    /// started (`G95`).
     fn reap_conversations(&mut self) {
         let ended: Vec<AgentId> = self
             .conversations
@@ -2103,8 +2165,63 @@ impl Coordinator {
             .map(|(agent_id, _)| *agent_id)
             .collect();
         for agent_id in ended {
+            let one_shot = self
+                .pending_conversations
+                .get(&agent_id)
+                .is_some_and(|pending| !self.agents.multi_turn(&pending.agent_type));
+            if one_shot {
+                self.finish_one_shot_turn(agent_id);
+                continue;
+            }
             tracing::debug!("agent {agent_id}'s harness ended on its own; reaping");
             self.end_conversation(agent_id, StopReason::EndTurn);
+        }
+    }
+
+    /// A one-shot harness answered and exited. Put the conversation back where the *next* prompt
+    /// can relaunch it, rather than ending it.
+    ///
+    /// This is [`Self::unload_conversation`] with nobody having asked: the same three things
+    /// happen — the `Conversation` goes, the transcript's sequence is carried forward on the
+    /// pending row, and the window is told `ConversationUnloaded` — plus the one thing that makes
+    /// the next launch a *continuation*: the harness's own session id, which the next
+    /// `PromptAgent` hands back as the run's resume. The pump was started `quiet`, so no
+    /// `ConversationEnded` raced this.
+    ///
+    /// A harness that named no session id is still put back: it will answer the next prompt with
+    /// no memory of this one, which is the honest limit of what a harness that reports no
+    /// resumable id can do, and better than a conversation that refuses to take another turn.
+    fn finish_one_shot_turn(&mut self, agent_id: AgentId) {
+        let Some(conversation) = self.conversations.remove(&agent_id) else {
+            return;
+        };
+        let session_id = conversation.session_id();
+        // `true` matches what the pump was already started with; a `Conversation::stop` that
+        // cleared it would let a pump still on its way out speak after all.
+        let last_seq = conversation.stop(true);
+        let Some(pending) = self.pending_conversations.get_mut(&agent_id) else {
+            return;
+        };
+        // One past the last seq actually used, so the next process's first message continues this
+        // transcript's sequence rather than restarting it — a restarted sequence reads as a gap
+        // and the window draws it as one.
+        pending.next_seq = last_seq + 1;
+        // Only ever overwritten by a newer id: a run that reported none must not erase the one
+        // that lets the conversation continue.
+        if session_id.is_some() {
+            pending.resume = session_id;
+        }
+        tracing::debug!(
+            agent = %agent_id,
+            harness = %pending.agent_type,
+            resume = ?pending.resume,
+            "a one-shot harness finished its turn; the conversation stays"
+        );
+        if let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() {
+            self.host.send(
+                To::Client(client),
+                Message::ConversationUnloaded { agent_id },
+            );
         }
     }
 
@@ -3315,11 +3432,18 @@ mod tests {
                 chosen_mode: None,
                 catalogue: Vec::new(),
                 next_seq: last_seq,
+                resume: None,
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));
-        let conversation =
-            Conversation::start(agent_id, Box::new(Idle::new()), mailbox, last_seq, None);
+        let conversation = Conversation::start(
+            agent_id,
+            Box::new(Idle::new()),
+            mailbox,
+            last_seq,
+            None,
+            false,
+        );
         coordinator.conversations.insert(agent_id, conversation);
 
         (agent_id, project_id)

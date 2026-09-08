@@ -515,14 +515,14 @@ mod tests {
 
         let creds = blobs
             .iter()
-            .find(|b| b.rel_path == *".claude/.credentials.json")
+            .find(|b| b.rel_path == std::path::Path::new(".claude/.credentials.json"))
             .expect("credentials blob present");
         assert_eq!(creds.name, ".credentials.json");
         assert_eq!(creds.bytes, b"{\"claudeAiOauth\":{}}");
 
         let identity = blobs
             .iter()
-            .find(|b| b.rel_path == *".claude.json")
+            .find(|b| b.rel_path == std::path::Path::new(".claude.json"))
             .expect("identity blob present");
         assert_eq!(identity.name, ".claude.json");
 

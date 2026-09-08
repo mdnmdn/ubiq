@@ -142,6 +142,9 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
         label: label.to_string(),
         command: id.to_string(),
         available,
+        // The new-pane menu draws every harness, conversable or not — a pane is a terminal, and
+        // a harness that cannot hold a transcript still draws its own screen perfectly well.
+        chat: true,
         modes: Vec::new(),
     }
 }

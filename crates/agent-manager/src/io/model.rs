@@ -6,7 +6,7 @@
 //!
 //! The event names and shapes here are the Agent Client Protocol's
 //! `session/update` vocabulary, minus two things: the JSON-RPC envelope, and
-//! the session id. `refs/acp-protocol.md` is the wire reference this
+//! the session id. `_docs/inbox/acp-protocol.md` is the wire reference this
 //! transcribes, and `_docs/io-modes.md` is the design note.
 //!
 //! **An event carries no session identity, deliberately.** Whoever holds the
@@ -246,6 +246,12 @@ pub struct ToolCall {
     /// rendered summary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_input: Option<serde_json::Value>,
+    /// The raw result the tool returned, where the harness has one by the time the call is
+    /// announced. Spec section 8 puts `rawOutput` on `ToolCall` as well as `ToolCallUpdate` —
+    /// most bridges only learn the result later and carry it on the update instead, but a
+    /// harness that reports a call already finished needs it here too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_output: Option<serde_json::Value>,
     /// Whether the conversation itself or one of its subagents made the call.
     #[serde(default)]
     pub origin: Origin,
@@ -262,6 +268,7 @@ impl ToolCall {
             content: Vec::new(),
             locations: Vec::new(),
             raw_input: None,
+            raw_output: None,
             origin: Origin::default(),
         }
     }
@@ -290,6 +297,11 @@ pub struct ToolCallUpdate {
     /// The call's locations, replacing the previous set — not appended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locations: Option<Vec<ToolLocation>>,
+    /// The raw parameters the tool was called with, where a bridge only learns them once the
+    /// call has already been announced (e.g. streamed input arriving after the initial
+    /// `tool_call`). Spec section 8 puts `rawInput` on `ToolCallUpdate` as well as `ToolCall`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_input: Option<serde_json::Value>,
     /// The raw result the tool returned, once it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_output: Option<serde_json::Value>,
@@ -493,8 +505,16 @@ pub enum PermissionOutcome {
     /// request must be answered this way when a turn is cancelled.
     Cancelled,
     /// The human picked one of the offered options.
+    ///
+    /// `rename_all = "snake_case"` on the enum (above) renames the *variant*
+    /// — the `outcome` tag value — not this payload field. Spec section 9
+    /// requires `optionId` camelCase inside the payload, so the field needs
+    /// its own rename; without it the wire read `{"outcome":{"outcome":
+    /// "selected","option_id":"..."}}`, which a conforming ACP client would
+    /// not recognise.
     Selected {
         /// The `option_id` of the [`PermissionOption`] chosen.
+        #[serde(rename = "optionId")]
         option_id: String,
     },
 }
@@ -1101,12 +1121,15 @@ mod tests {
         let outcome = PermissionOutcome::Selected {
             option_id: "allow".to_string(),
         };
-        let json = serde_json::to_string(&outcome).unwrap();
-        assert!(
-            json.contains("\"outcome\":\"selected\""),
-            "json was: {json}"
+        let json = serde_json::to_value(&outcome).unwrap();
+        // Spec section 9: `{"outcome":{"outcome":"selected","optionId":"..."}}` — the tag
+        // renames the variant, and the payload field needs its own `optionId` rename since
+        // `rename_all` on the enum does not reach into a variant's fields.
+        assert_eq!(
+            json,
+            serde_json::json!({"outcome": "selected", "optionId": "allow"})
         );
-        let back: PermissionOutcome = serde_json::from_str(&json).unwrap();
+        let back: PermissionOutcome = serde_json::from_str(&json.to_string()).unwrap();
         assert_eq!(back, outcome);
     }
 

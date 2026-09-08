@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-08
 verified: 2026-09-08
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -123,13 +123,42 @@ other: `IoModes::Structured`, and a `structured_bridge` over the harness's own J
 launch, because a conversation's harness writes frames on a pipe rather than drawing a screen. What
 differs between them beyond the mode is the run directory's name and the isolation, both below.
 
+**A bare run with no account and no profile still reuses the login already on the machine.**
+`seed_zero_config_login` in `crates/agent-manager/src/provision.rs` runs after profile resolution
+finds no login named, and tries two tiers in order: first, copy the harness's own
+`Harness::config_anchor().login_seed` files out of the real `$HOME` — correct for every harness
+whose credential is a plain file, since that is the same file the harness itself reads. If that
+copy places nothing, it falls back to `Harness::ambient_login()`, a harness's own account of its
+live login when that login is **not** a `$HOME` file the first tier could ever find — Claude Code
+overrides it to read the OAuth blob the macOS Keychain holds, which is where it actually keeps a
+session rather than in `~/.claude/.credentials.json`. Either tier is skipped once a login has
+already landed from an account home or a profile overlay, and `ambient_login`'s default is `None`,
+so a harness that keeps no such out-of-band login is unaffected.
+
 **The bridge is owned by a pump thread, and `crates/ubiq-host/src/conversation.rs` is that thread.**
 `IoBridge::next_event` blocks and both its methods take `&mut self`, so whoever reads a bridge
 cannot also be handed a prompt; the reader owns it and a turn reaches the harness through the
-detached `AgentInputSink` the bridge hands out. A harness that answers `None` there takes no second
-turn, which is the honest signal rather than a guess, and `Conversation::accepts_input` is how the
-interface asks. Events reach the window on the same unbounded mailbox a pseudo-terminal's reader
-uses, so a window behind on drawing never stalls the harness.
+detached `AgentInputSink` the bridge hands out. Events reach the window on the same unbounded
+mailbox a pseudo-terminal's reader uses, so a window behind on drawing never stalls the harness.
+
+**Every harness the library returns a structured bridge for can hold a conversation; not every one
+of those keeps its process alive across turns.** `IoSupport::structured` is the first question —
+`Agents::converses` answers it, and a harness that fails it (Grok) is refused as a conversation
+outright, with a message naming the reason, and left out of the chat-start menus by
+`AgentTypeInfo::chat` on the wire. `IoSupport::multi_turn` is the second, narrower question, and
+`Agents::multi_turn` answers it: whether one process takes a second prompt over the bridge's own
+`AgentInputSink`, true for Claude Code and codex. A **one-shot** harness (opencode, Copilot) answers
+`multi_turn: false` and still converses — its prompt is argv rather than a pipe write, one process
+answers exactly once and exits, and that exit is a turn ending, not the conversation's. The
+coordinator starts a one-shot harness's pump `quiet`, so it never announces `ConversationEnded`
+on its own; when the process exits, `finish_one_shot_turn` in `crates/ubiq-host/src/coordinator.rs`
+carries the transcript's sequence counter forward, keeps the harness's own session id off
+`Conversation::session_id()` (populated from `AgentEvent::SessionStarted` as the pump sees it), and
+puts the conversation back into `pending_conversations` rather than ending it. The next prompt
+relaunches the harness with that id as `RunSpec::resume` and the new text as
+`RunSpec::initial.prompt` — `ConverseOptions` in `crates/ubiq-host/src/agent.rs` carries both
+through `Agents::converse`. A harness that names no session id is relaunched anyway and answers with
+no memory of the turn before it, which is `G95`.
 
 **One file knows both vocabularies.** `map_event()` in the same module is the only place that names
 `agent_manager::io::AgentEvent` and `ubiq_proto::conversation::ConvUpdate` together. Both are the
