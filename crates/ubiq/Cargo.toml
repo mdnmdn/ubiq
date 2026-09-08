@@ -120,6 +120,14 @@ core-video = "0.5"
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 zed-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", package = "zed-scap", version = "0.0.8-zed", default-features = false }
 
+# Pin windows-capture to the 1.4 line on Windows: zed-scap@4afea48 needs the 1.4 API
+# (`Context`, `as_nopadding_buffer`) but predates the 1.5 `Settings::new` breakage
+# (new SecondaryWindow, MinimumUpdateInterval, DirtyRegion args). Upstream reverted the
+# 1.5 bump and stayed on the 1.3/1.4 line, so stay there too.
+# Named here only to constrain the resolver — no code uses it directly.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-capture = "=1.4.4"
+
 [build-dependencies]
 flate2 = "1"
 
