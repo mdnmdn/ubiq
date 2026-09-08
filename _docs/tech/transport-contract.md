@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository and assist families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -255,7 +255,10 @@ there is no project root yet for it to be relative to — this family exists to 
 is also why the file family's containment check (`crates/ubiq-host/src/files/path.rs`) plays no part
 here: there is nothing yet to contain a path inside, and this family answers a different question
 than that one guards. Neither weakens the other. `HostDirListing.path` is always canonicalised, so
-the interface shows where the host actually landed rather than the string it asked with.
+the interface shows where the host actually landed rather than the string it asked with — and never
+carries the verbatim `\\?\` prefix on Windows, which does not display and does not survive the
+interface joining it with a separator. A request path carrying `/` separators is accepted all the
+same: the host normalises it before listing.
 
 **`parent` is `None` only at the filesystem root**, so a picker knows when to stop offering to walk
 up.

@@ -13,6 +13,8 @@ use std::path::PathBuf;
 use ubiq_proto::files::{EntryKind, HostDirEntry, HostPathError};
 use ubiq_proto::messages::Message;
 
+use crate::host_path::{request_path, wire_string};
+
 /// One directory's ceiling.
 ///
 /// Independent of the file family's own [`super::MAX_ENTRIES`]: a browse listing is always exactly
@@ -35,7 +37,9 @@ pub struct Listing {
 /// same absolute answer a picker can walk from.
 pub fn list(path: Option<&str>) -> Result<Listing, HostPathError> {
     let target = match path {
-        Some(path) => PathBuf::from(path),
+        // `request_path` normalises `/` to `\` on Windows, where a verbatim `\\?\` prefix
+        // carrying `/` separators is rejected with os error 123.
+        Some(path) => request_path(path),
         None => default_path()?,
     };
 
@@ -68,8 +72,10 @@ pub fn list(path: Option<&str>) -> Result<Listing, HostPathError> {
     entries.sort_by(|a, b| super::dir_first_then_name(a.kind, &a.name, b.kind, &b.name));
 
     Ok(Listing {
-        path: canonical.to_string_lossy().into_owned(),
-        parent: canonical.parent().map(|p| p.to_string_lossy().into_owned()),
+        // The wire never carries the verbatim `\\?\` prefix `canonicalize` leaves behind on
+        // Windows — it does not display and it does not survive a `/`-joining round-trip.
+        path: wire_string(&canonical),
+        parent: canonical.parent().map(wire_string),
         entries,
         truncated,
     })

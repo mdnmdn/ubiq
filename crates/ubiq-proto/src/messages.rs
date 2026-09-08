@@ -655,9 +655,11 @@ pub enum Message {
     HostDirListing {
         /// The path that was listed, canonicalised — so the interface shows where it actually
         /// landed, not the string it asked for (or asked for nothing and got the default).
+        /// Without the verbatim `\\?\` prefix on Windows, which does not display and does not
+        /// survive the interface joining it with a separator.
         path: String,
-        /// `path`'s parent, canonicalised. Absent only at the filesystem root, so a picker knows
-        /// when to stop offering to walk up.
+        /// `path`'s parent, canonicalised the same way. Absent only at the filesystem root, so a
+        /// picker knows when to stop offering to walk up.
         parent: Option<String>,
         entries: Vec<HostDirEntry>,
         /// Whether the entry ceiling cut the listing short, on [`crate::files::DirListing`]'s own

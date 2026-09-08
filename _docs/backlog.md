@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-07
+updated: 2026-09-08
 verified: 2026-09-07
 review_cycle: monthly
 ---
@@ -191,6 +191,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G189 | A remote session has no keepalive and no heartbeat. `HANDSHAKE_TIMEOUT` covers the handshake alone and the session that follows is deliberately untimed, so a half-open connection — a laptop suspended, a NAT entry expired — is noticed only when a frame is next written and fails, which for an idle pane can be never. A periodic ping in `crates/ubiq-host/src/remote.rs`'s pump and its answer in `crates/ubiq/src/app/remote_connect.rs` is the shape, and it needs a message on the wire or a frame type below it | [`tech/architecture.md`](./tech/architecture.md), [`tech/transport-contract.md`](./tech/transport-contract.md) |
 | G190 | Nothing reconnects. A socket that ends runs `AppState::disconnect_host`, which closes the host's panes and forgets its projects (`D85`), and the address is left marked as a failed attempt for the user to dial again by hand. Retrying it would need the token, which is never kept (`G169`), and would be worth little until a harness outlives its connection — the host reaps a pane when the client attaching it goes, so there is nothing to reattach to | [`tech/architecture.md`](./tech/architecture.md), [`tech/decisions.md`](./tech/decisions.md) |
 | G191 | Two interface features read a host's absolute paths directly and so do nothing useful against a remote. The web-export server (`crates/ubiq/src/web_export/`) walks a project's folder with `std::fs` on the interface's machine (`D55`), and the diagram render cache writes into the project's `workarea`, which is a path on the host's machine — `Q10` asks what a remote host should mean for that cache; this row is the same question for the export, whose answer is likelier a host-side walk than a fallback root. `G32`'s folder dialog is the third instance of the pattern | [`tech/architecture.md`](./tech/architecture.md), [`features/workbench.md`](./features/workbench.md) |
+| G192 | Two `agent` tests fail on Windows only. Their fixtures write a tempdir path with single backslashes into a TOML string, which the parser reads as escape sequences, so `a_profile_s_account_is_what_composes_the_run` and `every_confined_run_keeps_the_real_home` in `crates/ubiq-host/src/agent.rs` fail while every other host test passes | [`tech/agent-manager.md`](./tech/agent-manager.md) |
 
 ## Open questions — a decision nobody has made
 

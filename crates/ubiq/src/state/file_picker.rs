@@ -952,9 +952,25 @@ impl FilePickerState {
 
 /// The folder an entry is in, as the list writes it. The project root is `.`, because a blank
 /// column would read as missing rather than as "at the top".
+///
+/// Both separators: project-relative paths are always `/` by contract, but a host-browse node
+/// carries the host's own absolute path, which is `\`-joined on Windows.
 fn parent_of(path: &str) -> String {
-    match path.rsplit_once('/') {
-        Some((parent, _)) if !parent.is_empty() => parent.to_string(),
+    let split = path
+        .rsplit_once('/')
+        .filter(|(parent, _)| !parent.is_empty());
+    let split_back = path
+        .rsplit_once('\\')
+        .filter(|(parent, _)| !parent.is_empty());
+    // The later split names the nearer folder when both separators appear.
+    let nearer = match (split, split_back) {
+        (Some((a, _)), Some((b, _))) if b.len() > a.len() => split_back,
+        (Some(_), Some(_)) => split,
+        (one, None) => one,
+        (None, one) => one,
+    };
+    match nearer {
+        Some((parent, _)) => parent.to_string(),
         _ => ".".to_string(),
     }
 }
