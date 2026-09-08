@@ -31,6 +31,11 @@ pub struct Provisioned {
     /// True if `dir` is a throwaway the runner should delete on exit
     /// (`Ephemeral`); false if the user pinned it (`Fixed`).
     pub ephemeral: bool,
+    /// Where this run's login was seeded *from*, when one was — the origin
+    /// [`crate::harness::harvest_login`] writes a refreshed credential back to
+    /// before `dir` is discarded. `None` when nothing was seeded (no login, or
+    /// a profile overlay placed it and there is no single origin to name).
+    pub login_origin: Option<Source>,
     /// In-process MCP servers started for this run. Kept alive for the
     /// run's lifetime; dropping a `Provisioned` shuts them down. Only
     /// present when the `inproc-mcp` feature is enabled.
@@ -45,6 +50,7 @@ impl Clone for Provisioned {
             dir: self.dir.clone(),
             launch: self.launch.clone(),
             ephemeral: self.ephemeral,
+            login_origin: self.login_origin.clone(),
         }
     }
 }
@@ -83,13 +89,15 @@ pub fn provision(
         let launch = harness.provision(&effective_spec, &dir)?;
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
-        seed_zero_config_login(harness, spec, &dir)?;
+        let account_origin = account_login_origin(harness, spec, &dir);
+        let login_origin = account_origin.or(seed_zero_config_login(harness, spec, &dir)?);
         crate::harness::apply_templates(&dir, &harness.id(), &harness.templates(), templates)?;
         harness.post_seed(&effective_spec, &dir)?;
         Ok(Provisioned {
             dir,
             launch,
             ephemeral,
+            login_origin,
             inproc_servers,
         })
     }
@@ -98,13 +106,15 @@ pub fn provision(
         let launch = harness.provision(spec, &dir)?;
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
-        seed_zero_config_login(harness, spec, &dir)?;
+        let account_origin = account_login_origin(harness, spec, &dir);
+        let login_origin = account_origin.or(seed_zero_config_login(harness, spec, &dir)?);
         crate::harness::apply_templates(&dir, &harness.id(), &harness.templates(), templates)?;
         harness.post_seed(spec, &dir)?;
         Ok(Provisioned {
             dir,
             launch,
             ephemeral,
+            login_origin,
         })
     }
 }
@@ -164,35 +174,61 @@ fn host_inproc_mcps(spec: &RunSpec) -> Result<(RunSpec, Vec<crate::mcp::server::
 /// auth). Missing source files are skipped (see [`crate::harness::seed_login`]),
 /// so this only ever *adds* an existing login and never fails a run for the lack
 /// of one. Never overrides `HOME`.
-fn seed_zero_config_login(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Result<()> {
+///
+/// Returns the [`Source`] it seeded from, so the run can write a refreshed
+/// credential back to it at teardown ([`crate::harness::harvest_login`]).
+fn seed_zero_config_login(
+    harness: &dyn Harness,
+    spec: &RunSpec,
+    dir: &Path,
+) -> Result<Option<Source>> {
     let anchor = harness.config_anchor();
     if anchor.login_seed.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     // A login was already materialized (account home or overlay) — respect it.
     if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
-        return Ok(());
+        return Ok(None);
     }
     // Env/key/helper accounts manage their own auth; don't seed a stale OAuth login.
     if let Some(acct) = &spec.account
         && (acct.api_key_env.is_some() || acct.auth_token_env.is_some() || acct.helper.is_some())
     {
-        return Ok(());
+        return Ok(None);
     }
     // Tier 1: a real file under the real HOME wins — it's what the harness
     // itself would read.
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        crate::harness::seed_login(dir, &Source::Dir(home), &anchor.login_seed)?;
-    }
-    if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
-        return Ok(());
+        let home = Source::Dir(home);
+        crate::harness::seed_login(dir, &home, &anchor.login_seed)?;
+        if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
+            return Ok(Some(home));
+        }
     }
     // Tier 2: no file landed — ask the harness for its own account of the
     // live login (e.g. Claude Code's OS-Keychain session).
     if let Some(ambient) = harness.ambient_login() {
         crate::harness::seed_login(dir, &ambient, &anchor.login_seed)?;
+        return Ok(Some(ambient));
     }
-    Ok(())
+    Ok(None)
+}
+
+/// Which [`Source`] an *account's* login was seeded from, when one was.
+///
+/// That seeding happens inside each harness's own `provision` (from
+/// `spec.account_login`, else the account's `home`), so it is recognised here
+/// by its result: the login files are already in `dir` before the zero-config
+/// fallback runs. A profile overlay can place the same files and names no
+/// origin — those yield `None` rather than a guess at the account's.
+fn account_login_origin(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Option<Source> {
+    let anchor = harness.config_anchor();
+    if !anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
+        return None;
+    }
+    spec.account_login
+        .clone()
+        .or_else(|| Some(Source::Dir(spec.account.as_ref()?.home.clone()?)))
 }
 
 /// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.

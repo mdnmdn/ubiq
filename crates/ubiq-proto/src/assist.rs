@@ -119,6 +119,11 @@ pub struct AssistLimits {
 pub enum AiProviderKind {
     /// `POST /chat/completions`, bearer key, SSE `data:` frames. OpenAI and everything that
     /// copied it.
+    ///
+    /// Spelled out rather than left to `kebab-case`, which reads the `Ai` as its own word and
+    /// renders `open-ai-compatible` — a second spelling of the one string [`Self::code`] is
+    /// there to keep single.
+    #[serde(rename = "openai-compatible")]
     OpenAiCompatible,
     /// `POST /v1/messages`, `x-api-key` header, SSE with typed events.
     Anthropic,

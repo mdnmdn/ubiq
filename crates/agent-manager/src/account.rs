@@ -566,6 +566,57 @@ pub fn read_claude_keychain_credentials() -> Result<Vec<u8>> {
     }
 }
 
+/// Write Claude Code's OAuth credentials back into the macOS Keychain.
+///
+/// The counterpart of [`read_claude_keychain_credentials`], for a run that
+/// refreshed the token it was seeded with (an OAuth refresh rotates the refresh
+/// token, so the Keychain's copy is dead the moment the run rewrites its own).
+/// Runs `security add-generic-password -U -a $USER -s 'Claude Code-credentials'
+/// -w <secret>`; `-U` updates the existing entry rather than failing on it.
+///
+/// The secret goes on argv because the `security` CLI offers no stdin seam —
+/// the same exposure the vault-password path in `credentials/os.rs` already
+/// accepts, and matching it beats inventing a second mechanism.
+pub fn write_claude_keychain_credentials(creds: &[u8]) -> Result<()> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = creds;
+        bail!("Claude Keychain export is only supported on macOS");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .context(
+                "USER/LOGNAME not set (needed as Keychain account attribute for Claude credentials)",
+            )?;
+        let secret = std::str::from_utf8(creds).context("Claude credentials are not UTF-8")?;
+        let output = std::process::Command::new("security")
+            .args([
+                "add-generic-password",
+                "-U",
+                "-a",
+                &user,
+                "-s",
+                CLAUDE_KEYCHAIN_SERVICE,
+                "-w",
+                secret,
+            ])
+            .output()
+            .context("running `security add-generic-password` (is the security CLI available?)")?;
+        if !output.status.success() {
+            bail!(
+                "Keychain entry {:?} (account {:?}) not writable ({}): {}",
+                CLAUDE_KEYCHAIN_SERVICE,
+                user,
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    }
+}
+
 /// Write a Claude login layout under `home` for later [`crate::harness::seed_login`]:
 /// - `<home>/.claude/.credentials.json` (from `creds`, mode `0600` on Unix)
 /// - `<home>/.claude.json` copied from the real user home when present (identity)

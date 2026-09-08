@@ -374,6 +374,15 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
     `control_request`/`AnswerPermission` handshake and nothing else (see
     [`./harness/claude-code.md`](./harness/claude-code.md) §"Tool approval
     in headless mode").
+  - `unattended_mode() -> Option<&'static str>` — which of this harness's
+    own `modes()` ids means "ask nothing", for an embedder whose run is
+    already contained by something else (a sandbox), where a prompt buys
+    nothing. The returned id must be one `modes()` lists, so the
+    harness-native spelling stays the harness's: `Claude` answers
+    `bypassPermissions`, `Codex` answers `danger-full-access`. Defaults to
+    `None` — no such mode, or the harness already asks nothing, which is
+    the honest answer for opencode, Copilot CLI and Grok CLI for the same
+    reason `modes()` is empty there.
 
 ## 7. The credential copy-in / copy-back lifecycle
 

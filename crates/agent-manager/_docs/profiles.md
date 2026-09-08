@@ -160,6 +160,13 @@ A single `seed_login(dir, account.home, harness.config_anchor().login_seed)`
 then serves every Class A/B harness. (The Claude `seed_account_login` we landed
 is the concrete first instance of this — generalize it here.)
 
+Each `SeedFile` says whether it *is* the credential (`SeedFile::credential`) or
+a companion the login also needs (`SeedFile::new`, e.g. Claude's `.claude.json`).
+Only the former travels back: `harvest_login` is `seed_login`'s mirror, writing a
+credential the run refreshed to the `Source` it was seeded from before the run dir
+is discarded — see `_docs/open-points.md` §9 for why (an OAuth refresh rotates the
+refresh token, so the origin is dead the moment the run rewrites its copy).
+
 ## 6. The profile model
 
 ```

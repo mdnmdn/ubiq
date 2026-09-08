@@ -689,11 +689,12 @@ empty); `"deny"` rejects it. `updatedInput` may rewrite the tool input before ex
 forcing `run_in_background: false` so no orphaned background tool survives the parent process. A
 `tool_result` carrying `status:"async_launched"` signals a still-running background tool.
 
-**An unanswered request stalls the turn indefinitely, and closing stdin first is worse than
-denying**: Claude then fails the call with "AbortError: Tool permission stream closed before
-response received". So a cancel answers every outstanding ask `deny` and only then closes stdin —
-which is exactly what `AgentInput::Cancel` does in `io/jsonl.rs`, per `_docs/io-modes.md`
-§"Permissions".
+**An unanswered request stalls the turn indefinitely, and leaving the permission stream first is
+worse than denying**: Claude then fails the call with "AbortError: Tool permission stream closed
+before response received". So a cancel answers every outstanding ask `deny` and only then
+interrupts the turn — which is exactly what `AgentInput::Cancel` does in `io/jsonl.rs`, per
+`_docs/io-modes.md` §"Permissions and cancellation". `AgentInput::Shutdown` denies first for the
+same reason before it closes stdin.
 
 **Nothing answers on the bridge's behalf.** `io/jsonl.rs` records each ask as outstanding, emits
 `AgentEvent::PermissionRequest` (options `allow`, one `allow_always:<n>` per `setMode` suggestion,
@@ -720,8 +721,33 @@ is per turn, not per call, so which agent failed is not knowable from the stream
 ### Process lifecycle
 
 - Framing: prompt in on stdin (NDJSON), events out on stdout (NDJSON), diagnostics on stderr.
-- Cancellation: close stdin, then close the stdout reader to unblock the scanner; allow ~10s for the process to drain before killing.
 - Minimum version: the stream-JSON input/output contract is stable from **Claude Code ≥ 2.0.0**.
+
+**Cancelling a turn and ending a session are two different writes, and closing stdin is only the
+second one.** The client interrupts the running turn with a `control_request` of its own:
+
+```json
+{"type":"control_request","request_id":"am-interrupt-1","request":{"subtype":"interrupt","reason":"interrupt"}}
+```
+
+The CLI answers it `{"type":"control_response","response":{"subtype":"success","request_id":"…",
+"response":{"still_queued":[]}}}` and aborts the turn — **the session stays open and the next
+prompt line goes to the same process.** `reason` is an open set forwarded to the turn's
+`AbortSignal.reason`; tool implementations branch on it, and `interrupt` is the value that means
+"the human pressed stop", which suppresses the error output a generic abort prints. `cancel_queued:
+true` additionally cancels every uuid-stamped message still queued, listing them on the response's
+`cancelled` field; `am` leaves it off, having nothing queued behind the turn it is stopping.
+*(Verified against the installed 2.1.258 bundle: the request's own Zod schema — `subtype:
+x("interrupt")`, `reason`, `cancel_queued`, described as "Interrupts the currently running
+conversation turn" — the `interrupt` arm of the stdin dispatch that answers `subtype:"success"`,
+and the `interrupt_receipt_v1` / `interrupt_cancel_queued_v1` capability names `system`/`init`
+advertises.)*
+
+**Ending the session is closing stdin**, then closing the stdout reader to unblock the scanner;
+allow ~10s for the process to drain before killing. `io/jsonl.rs` splits the two:
+`AgentInput::Cancel` writes the interrupt and leaves stdin open, `AgentInput::Shutdown` (and
+`Drop`) closes it. Both deny every outstanding permission ask first — see §"Tool approval in
+headless mode".
 
 ### Model discovery & selection (agent-manager)
 

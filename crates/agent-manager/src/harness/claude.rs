@@ -69,7 +69,7 @@ impl Harness for Claude {
         ConfigAnchor {
             levers: vec![("CLAUDE_CONFIG_DIR".to_string(), Relocate::All)],
             login_seed: vec![
-                SeedFile::new(".claude/.credentials.json", ".credentials.json"),
+                SeedFile::credential(".claude/.credentials.json", ".credentials.json"),
                 SeedFile::new(".claude.json", ".claude.json"),
             ],
             requires_home_relocation: false,
@@ -180,6 +180,12 @@ impl Harness for Claude {
             description: None,
         })
         .collect()
+    }
+
+    /// `bypassPermissions` is Claude Code's own name for asking nothing — see
+    /// [`super::Harness::unattended_mode`].
+    fn unattended_mode(&self) -> Option<&'static str> {
+        Some("bypassPermissions")
     }
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
@@ -461,6 +467,17 @@ impl Harness for Claude {
             files.push((std::path::PathBuf::from(".claude.json"), bytes));
         }
         Some(Source::Files(files))
+    }
+
+    /// Put a refreshed login back in the macOS Keychain — the write side of
+    /// [`Claude::ambient_login`]. Only the credential is stored: `.claude.json`
+    /// is identity/onboarding state, never a [`super::SeedFile::credential`],
+    /// so [`super::harvest_login`] never offers it here.
+    fn adopt_login(&self, src: &Path, bytes: &[u8]) -> Result<()> {
+        if src != Path::new(".claude/.credentials.json") {
+            anyhow::bail!("claude-code cannot store {} outside a run", src.display());
+        }
+        crate::account::write_claude_keychain_credentials(bytes)
     }
 
     /// User-editable preference defaults, merged into the run by

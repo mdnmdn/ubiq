@@ -1684,6 +1684,9 @@ impl Coordinator {
             Message::UnloadConversation { agent_id } => {
                 self.unload_conversation(client, agent_id);
             }
+            Message::AbortConversation { agent_id } => {
+                self.abort_conversation(client, agent_id);
+            }
             Message::ResumeConversation { agent_id } => {
                 self.resume_conversation(client, agent_id);
             }
@@ -2092,6 +2095,32 @@ impl Coordinator {
         let last_seq = conversation.stop(true);
         // One past the last seq actually used, so a relaunched pump's first message continues
         // this conversation's sequence rather than restarting it.
+        if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+            pending.next_seq = last_seq + 1;
+        }
+        self.host.send(
+            To::Client(client),
+            Message::ConversationUnloaded { agent_id },
+        );
+    }
+
+    /// Unload, without asking the harness first: its process is killed and then reaped, rather
+    /// than asked to exit and waited for. Everything else is an unload, down to the
+    /// `ConversationUnloaded` — so this shares the whole of that path and differs in one call.
+    ///
+    /// A harness that does not act on that ask is what this is for. `unload_conversation`'s wait is
+    /// this thread's, and this thread answers every window (`G121`), so the difference is felt by
+    /// every pane in the application and not only by the conversation being unloaded.
+    fn abort_conversation(&mut self, client: ClientId, agent_id: AgentId) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let Some(conversation) = self.conversations.remove(&agent_id) else {
+            return;
+        };
+        // Always quiet, for the reason an unload is: `ConversationUnloaded` below is the one
+        // lifecycle message an abort produces.
+        let last_seq = conversation.abort();
         if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
             pending.next_seq = last_seq + 1;
         }

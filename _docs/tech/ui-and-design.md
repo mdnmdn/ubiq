@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-07
+updated: 2026-09-08
 verified: 2026-09-08
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
 depends_on: [tech-architecture]
@@ -392,21 +392,29 @@ instead of text, so a searchable picker can carry group headings — themselves 
 rows — in the one `items` list a caller builds and a pick indexes into, the way the agents screen's
 column `+` groups the bench from what is already on screen elsewhere.
 
-The state dot itself is what the shared conversation view's lifecycle glyph is, beside its
-three-dots menu — no primitive of its own. `ui::conversation::lifecycle` derives one `Lifecycle` from
-the conversation's own fields (Starting, Ready, Working carrying an `Activity`, Idle, Unloaded,
-Ended); the glyph colours a `status_dot` from it — `activity_colour` while a turn runs, the same
-tokens the bucket colours use otherwise — and says the word in a tooltip, one or two of them, never a
-sentence.
+The state dot itself is what a conversation's lifecycle reading is drawn as — no primitive of its
+own. `ui::conversation::lifecycle` derives one `Lifecycle` from the conversation's own fields
+(Starting, Ready, Waiting, Working carrying an `Activity`, Idle, Unloaded, Ended), and
+`lifecycle_colour` puts it on a `status_dot`, with the word in a tooltip, one or two of them, never
+a sentence.
 
-**Whether the shared conversation view draws that glyph and menu itself is per surface, not fixed.**
+**A state dot has four readings and only four: `warning` wants you, `info` is working, `success` is
+idle, `text_faint` has stopped.** What a dot read at a glance across a window full of columns has
+to answer is whether that conversation wants the reader, and four colours is as many as the glance
+holds — so every working turn is one `info` rather than `Activity`'s own palette, which kind of work
+being a question the transcript beside it answers. Every value is a status token the window
+gives that meaning elsewhere, so a dot invents no colour, and `lifecycle_colour` is the one place the mapping
+is written: the agents column's title, each of its tabs and the chat panel's toolbar mark all read
+it.
+
+**Whether the shared conversation view draws the three-dots menu itself is per surface, not fixed.**
 `ConversationView` carries `header: bool` beside its existing `footer` and `composer` — the agents
-column keeps it `true` and gets the strip unchanged; the chat panel sets it `false` and draws the
-identical fragment, `ui::conversation::lifecycle_controls`, inline in its own toolbar row instead,
-beside its `New chat` and `New tab`. The glyph's state and the menu's enable rule — `lifecycle` and
-`lifecycle_menu_enabled` — are read in exactly one place regardless of which surface calls them, so
-a second surface adopting the shared view is a `ConversationView` field, never a forked copy of
-either rule.
+column keeps it `true` and gets a bordered strip holding the menu; the chat panel sets it `false`
+and draws the identical fragments, `ui::conversation::lifecycle_mark` and `lifecycle_menu`, at
+opposite ends of its own toolbar row instead, beside its `New chat` and `New tab`. The state's
+reading and the menu's enable rule — `lifecycle`, `lifecycle_colour` and `lifecycle_menu_enabled` —
+are read in exactly one place regardless of which surface calls them, so a second surface adopting
+the shared view is a `ConversationView` field, never a forked copy of any of the three.
 
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
 icon set.** The chat panel's toolbar is icon-only: the lifecycle menu, `New chat` and `New tab` each
@@ -460,6 +468,28 @@ is the standard way a GPUI flex child refuses to shrink.
 **Scrolling needs an `.id(...)` and a tracked handle.** `.overflow_y_scroll()` does nothing without
 an id. A scrollbar is a sibling of the scroll area, absolutely positioned over it, so it stays put
 while the content moves under it — not a child, which would scroll with the content.
+
+**A control that floats over a scroll area is a sibling too**, in a `relative` wrapper around it,
+for the same reason and one more: nothing in the scrolled content moves when the control appears,
+so the line under it stays where the reader put it. The transcript's `Go to last message` overlay
+is the pattern.
+
+**A list long enough to window replaces an off-screen child with its own measured height, never a
+guess.** The scroll handle records where every child of the last frame was painted, so a child well
+clear of the viewport can be left unbuilt behind an empty box of exactly that height — the content
+above and below stays put and the scroll position cannot move. A guessed height moves it, which is
+the whole cost the windowing was buying off. Two things make it safe: a margin beyond the viewport,
+so a wheel notch lands on drawn content rather than on a stand-in waiting for the next frame, and a
+floor below which every child is built every frame, because the bookkeeping outweighs the drawing
+and the first frame has nothing measured to read.
+
+**A scroll position belongs to the element, and what it is a position *in* belongs beside it.** A
+surface that shows several documents through one scroll handle keys the offsets it saves by which
+document it was showing, restores on the way in and follows the tail only for a reader who is on
+it; anything else is a reader dragged away from what they were reading by an arrival somewhere
+else. `state::conversation::TranscriptScroll` is that shape, one per composer slot, and every field
+of it is interior-mutable because `render` holds `&AppState` and the values are readings of the
+last frame rather than state the application owns.
 
 **A row keyed by a ULID takes its id through `ui::eid`.** `ElementId`'s tuple form carries a `u64`
 and a ULID is twice that, so a row that names a task, a step or a project is built by `eid` and

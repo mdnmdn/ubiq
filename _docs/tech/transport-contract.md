@@ -582,6 +582,7 @@ is what multiplexes several of them down one channel.
 | `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
 | `EndConversation` | UI → host | `agent_id` | `ConversationEnded` |
 | `UnloadConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
+| `AbortConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
 | `ResumeConversation` | UI → host | `agent_id` | `ConvUpdate::Started`, or nothing if already live |
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
@@ -682,10 +683,24 @@ own session is not one of the work's, so an agent whose session nothing names is
 draws. The host holds the sessions its live agents belong to beside the agents themselves, and a
 `WorkList` carries both.
 
-**`accepts_input` travels with the agent rather than being discovered.** Two of the four bridges are
-one-shot: their prompt goes in through the launch and they take nothing after it. A composer that
-learned that from a refused turn would have offered the user something that was never there, so the
-capability is on the message that says the agent exists.
+**`accepts_input` travels with the agent rather than being discovered.** It answers whether the
+harness can be conversed with at all — a fact of the harness, which the library knows without a
+bridge — and a composer that learned it from a refused turn would have offered the user something
+that was never there. **It is not the question of whether one process survives a second turn.**
+Two of the four bridges are one-shot: their prompt goes in through the launch and the process ends
+with its answer, but the *conversation* takes every turn it is given, because the coordinator
+relaunches the process for the next one. So a one-shot harness answers `true` here; answering
+`false` is what drew one as `Lifecycle::Ended` before it had spoken at all (`G95`).
+
+**`CancelTurn` reaches the harness as its own turn abort, not as a closed pipe.**
+`Conversation::cancel` sends the library's `AgentInput::Cancel`, and each bridge writes whatever
+its harness documents for "stop this turn": Claude Code an `interrupt` `control_request`, codex a
+`turn/interrupt`. Closing the harness's input is a *different* library input, `AgentInput::Shutdown`,
+which is what an unload and an abort send — so a cancel leaves a process that takes the next
+`PromptAgent`, which is exactly what the stop button promises. The two one-shot harnesses have no
+turn to interrupt short of ending the run, so for them a cancel kills the process; the conversation
+survives it, which is why `accepts_input` stays `true`. `crates/agent-manager/_docs/io-modes.md`
+§"Permissions and cancellation" carries the per-harness table.
 
 **A conversation outlives its harness, and can start another one.** `ConversationEnded` says the
 process is gone for good; the transcript stays on screen, and the agent stops accepting turns.
@@ -696,6 +711,15 @@ not launched yet: the pickers return, `launched` is false again, and either `Res
 the next `PromptAgent` starts a fresh process under the same `agent_id`, picking the sequence up
 where the old one left off rather than restarting it at one. Only `EndConversation` discards what
 was said.
+
+**`AbortConversation` is an unload that does not ask.** An unload asks the harness to shut down
+and waits for it to; a harness that does not act on the ask is what makes that wait long, and the
+wait is the coordinator's own thread (`G121`). An abort kills the process first and reaps it
+afterwards, so the answer does not depend on the harness cooperating.
+Everything else is an unload — the transcript, the run directory and the `WorkAgent` stay, the same
+`agent_id` resumes, and the reply is the same `ConversationUnloaded`, so an interface handles the
+two identically. A turn in flight is lost rather than stopped: `CancelTurn` is what interrupts one
+and leaves the harness running.
 
 **`AnswerPermission` closes a loop the harness is blocked on.** A `ConvUpdate::PermissionRequest`
 carries a `request_id`, the `ToolCallPatch` it is asking about and the `PermissionOption`s the

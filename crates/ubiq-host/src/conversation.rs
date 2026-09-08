@@ -33,7 +33,7 @@ use std::thread;
 use std::time::SystemTime;
 
 use agent_manager::io::{
-    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionOutcome,
+    AgentEvent, AgentInput, AgentInputSink, AgentKill, Content, IoBridge, PermissionOutcome,
 };
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::conversation::{
@@ -80,6 +80,10 @@ pub struct UsageMeter {
 pub struct Conversation {
     id: AgentId,
     input: Option<Arc<dyn AgentInputSink>>,
+    /// The way out that does not ask: kills the harness's process outright. `None` for a bridge
+    /// that names no process. Taken at [`Conversation::start`] for the same reason `input` is —
+    /// the pump thread owns the bridge, so nothing else can reach the child through it.
+    kill: Option<Arc<dyn AgentKill>>,
     pump: Option<thread::JoinHandle<()>>,
     /// Set by the pump, just before it returns, whether the harness ended on its own or the
     /// window went first. The coordinator polls this — the same shape it already polls
@@ -135,6 +139,7 @@ impl Conversation {
         quiet: bool,
     ) -> Self {
         let input = bridge.input();
+        let kill = bridge.killer();
         let ended = Arc::new(AtomicBool::new(false));
         let seq = Arc::new(AtomicU64::new(start_seq));
         let quiet = Arc::new(AtomicBool::new(quiet));
@@ -166,6 +171,7 @@ impl Conversation {
         Self {
             id,
             input,
+            kill,
             pump,
             ended,
             seq,
@@ -205,7 +211,9 @@ impl Conversation {
         })
     }
 
-    /// Interrupt the turn in flight.
+    /// Interrupt the turn in flight, and nothing else: **the conversation and its harness stay**,
+    /// and the next [`Conversation::prompt`] reaches the same agent. Ending the harness is
+    /// [`Conversation::stop`].
     ///
     /// **Every request still waiting is answered as cancelled first.** Upstream makes that the
     /// cancelling client's obligation, and it is not a courtesy: a harness holding an unanswered
@@ -213,6 +221,14 @@ impl Conversation {
     /// refused answer is logged rather than returned — the cancel itself is what the caller asked
     /// for, and a harness that would not take the answer is already on its way out.
     pub fn cancel(&self) -> anyhow::Result<()> {
+        self.answer_outstanding_as_cancelled();
+        self.send(AgentInput::Cancel)
+    }
+
+    /// Answer everything still waiting as cancelled — shared by [`Conversation::cancel`] and
+    /// [`Conversation::stop`], because both leave the turn and neither may leave a harness
+    /// holding an ask nothing will ever answer.
+    fn answer_outstanding_as_cancelled(&self) {
         for request_id in self.take_outstanding() {
             if let Err(error) = self.send(AgentInput::AnswerPermission {
                 request_id,
@@ -222,7 +238,6 @@ impl Conversation {
                 tracing::debug!(agent = %self.id, %error, "a cancelled permission went unanswered");
             }
         }
-        self.send(AgentInput::Cancel)
     }
 
     /// Answer a permission request by naming one of the options it offered.
@@ -272,20 +287,55 @@ impl Conversation {
 
     /// Stop the harness and wait for its pump to finish, returning the last `seq` it reached.
     ///
-    /// Cancelling closes the child's input, which is what makes it exit; the
+    /// [`AgentInput::Shutdown`] closes the child's input, which is what makes it exit; the
     /// bridge's own teardown then gives it a bounded window to drain before
     /// killing it. So the wait here is for a thread that is already ending
-    /// rather than one that has to be interrupted.
+    /// rather than one that has to be interrupted. **This is the teardown, not
+    /// [`Conversation::cancel`]** — a cancel interrupts the turn and keeps the harness, so a stop
+    /// that reused it would leave the process running.
     ///
     /// `quiet` set is an unload: the pump skips its final `ConversationEnded` so the coordinator's
     /// own `ConversationUnloaded` is the only lifecycle message this stop produces.
     pub fn stop(mut self, quiet: bool) -> u64 {
         self.quiet.store(quiet, Ordering::Relaxed);
-        let _ = self.cancel();
+        self.answer_outstanding_as_cancelled();
+        let _ = self.send(AgentInput::Shutdown);
         if let Some(pump) = self.pump.take() {
             let _ = pump.join();
         }
         tracing::debug!(agent = %self.id, "conversation stopped");
+        self.seq.load(Ordering::Relaxed)
+    }
+
+    /// Kill the harness now and then reap it, returning the last `seq` its pump reached.
+    ///
+    /// The forceful twin of [`Self::stop`], and the difference is the order: `stop` asks the
+    /// harness to shut down and then waits, so a harness that does not act on the ask holds the
+    /// caller for the bridge's whole grace window. This kills the process first, so the stream
+    /// the pump is blocked on hits end-of-file straight away and the join that follows is for a
+    /// thread already on its way out. Nothing is asked and no outstanding permission is answered
+    /// — there is no process left to answer to.
+    ///
+    /// Always quiet: the pump skips its own `ConversationEnded`, on the same terms as an unload,
+    /// because the coordinator's `ConversationUnloaded` is the one lifecycle message an abort
+    /// produces. A bridge with no killer degrades to exactly what `stop(true)` does.
+    pub fn abort(mut self) -> u64 {
+        self.quiet.store(true, Ordering::Relaxed);
+        match &self.kill {
+            Some(kill) => {
+                if let Err(error) = kill.kill() {
+                    tracing::warn!(agent = %self.id, %error, "the harness would not be killed");
+                }
+            }
+            // Asking is all that is left to unblock the pump — which is what `stop` does.
+            None => {
+                let _ = self.send(AgentInput::Shutdown);
+            }
+        }
+        if let Some(pump) = self.pump.take() {
+            let _ = pump.join();
+        }
+        tracing::debug!(agent = %self.id, "conversation aborted");
         self.seq.load(Ordering::Relaxed)
     }
 }
@@ -766,7 +816,7 @@ pub(crate) mod test_support {
 
     use agent_manager::io::{AgentEvent, AgentInput, AgentInputSink, IoBridge};
 
-    /// Blocks in `next_event` until cancelled, the same way a real child blocks until closing its
+    /// Blocks in `next_event` until shut down, the same way a real child blocks until closing its
     /// input makes it exit.
     pub(crate) struct Idle {
         rx: mpsc::Receiver<()>,
@@ -803,7 +853,9 @@ pub(crate) mod test_support {
 
     impl AgentInputSink for IdleInput {
         fn send(&self, input: AgentInput) -> anyhow::Result<()> {
-            if matches!(input, AgentInput::Cancel) {
+            // A stop is a `Shutdown`; a cancel leaves the harness alive, so only the
+            // former ends this fake's stream.
+            if matches!(input, AgentInput::Shutdown) {
                 let _ = self.tx.send(());
             }
             Ok(())
@@ -1149,6 +1201,7 @@ mod tests {
             id: AgentId::generate(),
             input: Some(Arc::new(Recorder { seen: seen.clone() })),
             pump: None,
+            kill: None,
             ended: Arc::new(AtomicBool::new(false)),
             seq: Arc::new(AtomicU64::new(0)),
             quiet: Arc::new(AtomicBool::new(false)),
@@ -1214,5 +1267,31 @@ mod tests {
             }
         ));
         assert!(matches!(seen[1], AgentInput::Cancel));
+    }
+
+    /// A cancel keeps the harness — so a stop cannot be one. It answers what is outstanding for
+    /// the same reason a cancel does, then sends the teardown that actually closes the child's
+    /// input; reusing `cancel()` here would leave the process running.
+    #[test]
+    fn a_stop_tears_down_rather_than_cancelling() {
+        let (conversation, seen) = recording();
+        *conversation.outstanding.lock().unwrap() = vec!["r1".to_string()];
+
+        conversation.stop(false);
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "the answer, then the teardown");
+        assert!(matches!(
+            &seen[0],
+            AgentInput::AnswerPermission {
+                outcome: PermissionOutcome::Cancelled,
+                ..
+            }
+        ));
+        assert!(
+            matches!(seen[1], AgentInput::Shutdown),
+            "a stop sends Shutdown, not Cancel: {:?}",
+            seen[1]
+        );
     }
 }

@@ -26,7 +26,8 @@ use agent_manager::registry::FsRegistry;
 use agent_manager::resolve;
 use agent_manager::session;
 use agent_manager::settings::Settings;
-use agent_manager::spec::{ConfigStrategy, IoModes, Isolation};
+use agent_manager::source::Source;
+use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::PaneId;
@@ -799,10 +800,10 @@ impl Agents {
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
 
-        // The three answers that are Ubiq's rather than the library's: which directory this
-        // run's configuration lives in, which face it wears, and whether it is confined.
-        // The last one replaces whatever a profile asked for, because the toggle belongs to
-        // Ubiq's own settings and applies to both faces alike.
+        // The four answers that are Ubiq's rather than the library's: which directory this
+        // run's configuration lives in, which face it wears, whether it is confined, and — when
+        // it is — that it asks nothing. The isolation replaces whatever a profile asked for,
+        // because the toggle belongs to Ubiq's own settings and applies to both faces alike.
         let structured = io == IoModes::Structured;
         spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
         spec.io = io;
@@ -811,6 +812,19 @@ impl Agents {
         } else {
             Isolation::None
         };
+        // A confined run is contained by the sandbox, not by the prompts, so it launches with
+        // permissions bypassed — otherwise every step stops on an ask the sandbox already
+        // answered. Which mode that *is* stays the harness's own word (`unattended_mode`);
+        // Ubiq names none. An explicit pick for this run outranks it: the profile's mode does
+        // not, being a default like the isolation toggle it sits under.
+        if self.isolate
+            && flags.permission_mode.is_none()
+            && let Some(mode) = harness.unattended_mode()
+        {
+            spec.policy
+                .get_or_insert_with(Policy::default)
+                .permission_mode = Some(mode.to_string());
+        }
 
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
         let mut provisioned = provision::provision(harness.as_ref(), &spec, &templates)
@@ -866,6 +880,14 @@ impl Agents {
         // it is what a teardown has in hand, and the harness's own session id
         // never reaches this process.
         meta.id = key.to_string();
+        // Where the login came from, so the teardown can write a refreshed one
+        // back. It is recorded here rather than kept in memory because nothing
+        // holds the `Composed` that long: a pane's run is torn down by
+        // `retire`, which has an id and this record and nothing else.
+        meta.login_home = match &provisioned.login_origin {
+            Some(Source::Dir(home)) => Some(home.clone()),
+            _ => None,
+        };
         let _ = session::save(&self.sessions_dir(), &meta);
 
         Ok(Composed {
@@ -886,13 +908,26 @@ impl Agents {
     }
 
     /// Copy the harness's own record of the conversation out of a run
-    /// directory, before that directory is deleted.
+    /// directory, and put a login the run refreshed back where it came from,
+    /// before that directory is deleted.
     ///
     /// Which files those are is the harness's answer, not Ubiq's — a path
     /// literal here would be the boundary this module's header names. Entirely
     /// best effort: this runs on teardown paths, and no session that cannot be
     /// archived is a reason to fail a close. A run with no meta is a plain
     /// shell pane, which is the common case rather than an error.
+    ///
+    /// The harvest belongs here rather than in [`retire`](Self::retire) and
+    /// [`sweep`](Self::sweep) separately because this is the one thing both do
+    /// before the directory goes, and the session record is where the origin
+    /// was written down — neither of them holds the run's `Provisioned` any
+    /// more. A run whose login was not seeded from a directory records no
+    /// origin, and the harness's own account of its live login (a keychain) is
+    /// what finds it again.
+    ///
+    /// ponytail: harvesting at teardown means a token the harness rotated
+    /// mid-run is lost if Ubiq is killed. Upgrade path is a watcher on the
+    /// credential file, writing back as it changes.
     fn archive(&self, key: &str) {
         let sessions = self.sessions_dir();
         let Ok(mut meta) = session::load(&sessions, key) else {
@@ -901,6 +936,15 @@ impl Agents {
         let Some(harness) = harness::resolve(&meta.harness) else {
             return;
         };
+
+        if let Some(origin) = meta
+            .login_home
+            .clone()
+            .map(Source::Dir)
+            .or_else(|| harness.ambient_login())
+        {
+            let _ = harness::harvest_login(harness.as_ref(), &self.run_dir_for(key), &origin);
+        }
 
         let dest = sessions.join(key).join("harness");
         for src in harness.transcripts(&self.run_dir_for(key)) {

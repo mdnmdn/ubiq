@@ -12,8 +12,13 @@
 //! the fixture records the answer it received in `$AM_FAKE_ANSWER`, so an
 //! auto-answer would show up as a file that exists before the test wrote
 //! one — (b) `AgentInput::Cancel` denies a still-pending ask before it
-//! closes stdin, and (c) the run terminates (the event channel closes,
+//! interrupts the turn, and (c) the run terminates (the event channel closes,
 //! `next_event` returns `None`) rather than hanging.
+//!
+//! A second fixture (`tests/fake-claude-interrupt.sh`) covers what the first cannot: it never
+//! stops reading stdin, so a test can see that a cancel writes an `interrupt` `control_request`
+//! and leaves the session open for the next turn, and that closing stdin is
+//! `AgentInput::Shutdown`'s separate job.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -42,6 +47,39 @@ fn launch(answer_file: &Path) -> Launch {
         env_remove: Vec::new(),
         env_clear: false,
     }
+}
+
+/// The cancellation fixture next door: it appends every stdin line it reads to `$AM_FAKE_STDIN`
+/// and loops until EOF, which is how these tests see what a cancel wrote and that the session
+/// outlived it.
+fn interrupt_launch(stdin_log: &Path) -> Launch {
+    Launch {
+        program: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fake-claude-interrupt.sh")
+            .to_string_lossy()
+            .to_string(),
+        args: Vec::new(),
+        env: vec![(
+            "AM_FAKE_STDIN".to_string(),
+            stdin_log.to_string_lossy().to_string(),
+        )],
+        env_remove: Vec::new(),
+        env_clear: false,
+    }
+}
+
+/// Pump events up to and including the next `TurnEnded`, returning everything seen on the way.
+/// Each of the cancellation fixture's turns ends with a `result`, so this is one turn's worth.
+fn drain_to_turn_end(bridge: &mut JsonlBridge) -> Vec<AgentEvent> {
+    let mut events = Vec::new();
+    while let Some(ev) = bridge.next_event().expect("next_event") {
+        let ended = matches!(ev, AgentEvent::TurnEnded { .. });
+        events.push(ev);
+        if ended {
+            return events;
+        }
+    }
+    panic!("stream ended before the turn did: {events:?}");
 }
 
 /// Pump events until the harness asks for permission, returning what it asked *and* everything
@@ -189,11 +227,11 @@ fn jsonl_bridge_round_trips_events_and_terminates() {
     );
 }
 
-/// Cancelling a turn with an ask outstanding denies it, and only then closes stdin: the harness
-/// would otherwise sit on a permission stream that just went away
-/// (`_docs/io-modes.md` §"Permissions").
+/// Cancelling a turn with an ask outstanding denies it before it interrupts: the harness would
+/// otherwise fail the tool with "Tool permission stream closed before response received"
+/// (`_docs/io-modes.md` §"Permissions and cancellation").
 #[test]
-fn cancel_denies_a_pending_permission_request_before_closing_stdin() {
+fn cancel_denies_a_pending_permission_request_before_interrupting() {
     let cwd = std::env::current_dir().unwrap();
     let answers = tempfile::TempDir::new().unwrap();
     let answer_file = answers.path().join("answer.json");
@@ -206,7 +244,12 @@ fn cancel_denies_a_pending_permission_request_before_closing_stdin() {
     let (_events, request_id) = drain_to_permission_ask(&mut bridge);
     assert_eq!(request_id, "req-1");
 
-    bridge.send(AgentInput::Cancel).expect("cancel");
+    // The result is deliberately not asserted: the deny goes out first and is ignored either
+    // way, and the interrupt line behind it lands on a fixture that answers its one ask and
+    // exits — so a broken pipe here is the harness already being gone, not a cancel that failed.
+    // What the cancel *wrote* is asserted below; `cancel_interrupts_the_turn_and_keeps_the_session`
+    // is where the interrupt line itself is.
+    let _ = bridge.send(AgentInput::Cancel);
 
     // Drain to end-of-stream, which is also how we know the harness got past its blocking read.
     while bridge.next_event().expect("next_event").is_some() {}
@@ -217,4 +260,91 @@ fn cancel_denies_a_pending_permission_request_before_closing_stdin() {
         answer.contains(r#""behavior":"deny""#),
         "a cancelled ask must be denied, got: {answer}"
     );
+}
+
+/// A cancel interrupts the turn and stops there: it writes Claude Code's own `interrupt`
+/// `control_request` and leaves stdin open, so the conversation takes the next prompt on the same
+/// process. Closing stdin is `AgentInput::Shutdown`'s job — a cancel that closed it would end the
+/// harness, which is not what a stop button means
+/// (`_docs/harness/claude-code.md` §"Process lifecycle").
+#[test]
+fn cancel_interrupts_the_turn_and_keeps_the_session() {
+    let cwd = std::env::current_dir().unwrap();
+    let seen = tempfile::TempDir::new().unwrap();
+    let stdin_log = seen.path().join("stdin.ndjson");
+    let child = spawn_piped(&interrupt_launch(&stdin_log), &cwd).expect("spawn fake harness");
+    let mut bridge = JsonlBridge::new(child).expect("build bridge");
+
+    bridge
+        .send(AgentInput::prompt("first"))
+        .expect("send the first prompt");
+    let first = drain_to_turn_end(&mut bridge);
+    assert!(
+        first.iter().any(|e| matches!(
+            e,
+            AgentEvent::AgentMessageChunk { content, .. } if content.as_text() == Some("turn 1")
+        )),
+        "expected the first turn's reply, got: {first:?}"
+    );
+
+    bridge.send(AgentInput::Cancel).expect("cancel");
+    let cancelled = drain_to_turn_end(&mut bridge);
+    assert!(
+        cancelled
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TurnEnded { .. })),
+        "the interrupt must end the turn, got: {cancelled:?}"
+    );
+
+    // The session survived the cancel: a second prompt reaches the *same* process, which it could
+    // not if the cancel had closed stdin.
+    bridge
+        .send(AgentInput::prompt("second"))
+        .expect("the session must still take a prompt after a cancel");
+    let second = drain_to_turn_end(&mut bridge);
+    assert!(
+        second.iter().any(|e| matches!(
+            e,
+            AgentEvent::AgentMessageChunk { content, .. } if content.as_text() == Some("turn 2")
+        )),
+        "expected a second turn on the same process, got: {second:?}"
+    );
+
+    let written = std::fs::read_to_string(&stdin_log).expect("the harness read our stdin");
+    let interrupt = written
+        .lines()
+        .find(|line| line.contains(r#""subtype":"interrupt""#))
+        .unwrap_or_else(|| panic!("cancel wrote no interrupt control_request: {written}"));
+    assert!(
+        interrupt.contains(r#""type":"control_request""#),
+        "the interrupt must be a control_request: {interrupt}"
+    );
+    // `reason` is the value Claude forwards to the turn's `AbortSignal.reason`; `interrupt` is
+    // the one that reads as "the human pressed stop" and suppresses a tool's error output.
+    assert!(
+        interrupt.contains(r#""reason":"interrupt""#),
+        "the interrupt must name its reason: {interrupt}"
+    );
+}
+
+/// A shutdown closes stdin, which is what makes the harness exit — the teardown a cancel no
+/// longer does.
+#[test]
+fn shutdown_closes_stdin_and_ends_the_harness() {
+    let cwd = std::env::current_dir().unwrap();
+    let seen = tempfile::TempDir::new().unwrap();
+    let stdin_log = seen.path().join("stdin.ndjson");
+    let child = spawn_piped(&interrupt_launch(&stdin_log), &cwd).expect("spawn fake harness");
+    let mut bridge = JsonlBridge::new(child).expect("build bridge");
+
+    bridge
+        .send(AgentInput::prompt("first"))
+        .expect("send the first prompt");
+    let _ = drain_to_turn_end(&mut bridge);
+
+    bridge.send(AgentInput::Shutdown).expect("shutdown");
+
+    // The fixture loops on stdin forever and only leaves on EOF, so reaching end-of-stream here
+    // *is* the proof stdin was closed.
+    while bridge.next_event().expect("next_event").is_some() {}
 }

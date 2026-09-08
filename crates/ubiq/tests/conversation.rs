@@ -23,12 +23,13 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::agents::{COMPOSER_ROWS_MAX, COMPOSER_ROWS_MIN};
-use ubiq::state::conversation::{Run, short_model_label};
+use ubiq::state::conversation::{Conversation, Pending, Run, TranscriptScroll, short_model_label};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
-    ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate, StopReason,
-    Subagent, ToolCallPatch, ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
+    ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate,
+    PermissionKind, PermissionOption, StopReason, Subagent, ToolCallPatch, ToolCallRecord,
+    ToolKind, ToolStatus, UsageRecord,
 };
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
@@ -878,10 +879,10 @@ fn a_thought_level_missing_from_the_new_options_is_forgotten(cx: &mut TestAppCon
 }
 
 /// The three-dots menu's own rule, pulled out where it can be checked without rendering it: Stop
-/// only while a turn runs, Unload only while launched, Resume only while it is not, Delete always.
+/// only while a turn runs, Abort and Unload only while launched, Resume only while it is not,
+/// Delete always.
 #[test]
 fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not() {
-    use ubiq::state::conversation::Conversation;
     use ubiq::ui::conversation::lifecycle_menu_enabled;
 
     let mut conversation = Conversation::new(
@@ -893,8 +894,9 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     // Freshly launched: running a turn, Unload applies, Resume does not.
     conversation.launched = true;
     conversation.run = Run::Working;
-    let [stop, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
+    let [stop, abort, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
     assert!(stop, "a turn is running");
+    assert!(abort, "there is a process to kill");
     assert!(unload, "the harness is up");
     assert!(!resume, "already launched");
     assert!(delete, "always enabled");
@@ -902,8 +904,9 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     // Unloaded: no turn to stop, nothing to unload, Resume is what applies now.
     conversation.launched = false;
     conversation.run = Run::Idle;
-    let [stop, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
+    let [stop, abort, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
     assert!(!stop, "nothing is running");
+    assert!(!abort, "there is no process left to kill");
     assert!(!unload, "there is no harness to unload");
     assert!(resume, "not launched");
     assert!(delete, "always enabled");
@@ -914,7 +917,7 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
 /// `Conversation` for it.
 #[test]
 fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
-    use ubiq::state::conversation::{ConvBlock, Conversation};
+    use ubiq::state::conversation::ConvBlock;
     use ubiq::ui::conversation::{Lifecycle, lifecycle};
 
     let fresh = || {
@@ -989,6 +992,411 @@ fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
     let mut c = fresh();
     c.accepts_input = false;
     assert_eq!(lifecycle(&c), Lifecycle::Ended);
+}
+
+/// A bare conversation, the way the state layer's own tests build one: nothing said, nothing
+/// launched, no harness behind it.
+fn a_conversation() -> Conversation {
+    Conversation::new(
+        AgentId::generate(),
+        "Claude Code".to_string(),
+        String::new(),
+    )
+}
+
+/// A tool call as the harness announces one. `subagent` is who raised it — `None` for the
+/// conversation's own turn, and the delegate's instance id for one of its calls.
+fn a_tool_call(id: &str, title: &str, subagent: Option<&str>) -> ConvUpdate {
+    ConvUpdate::ToolCall(ToolCallRecord {
+        id: id.to_string(),
+        title: title.to_string(),
+        kind: ToolKind::Execute,
+        status: ToolStatus::InProgress,
+        content: Vec::new(),
+        locations: Vec::new(),
+        subagent: subagent.map(|id| Subagent {
+            id: id.to_string(),
+            kind: Some("general-purpose".to_string()),
+            ..Default::default()
+        }),
+    })
+}
+
+/// One line spoken by a delegate — the only evidence the window has that the agent exists, and
+/// so what puts it in the switcher at all.
+fn a_delegate_line(id: &str) -> ConvUpdate {
+    ConvUpdate::AgentChunk {
+        content: ConvContent::Text("On it.".to_string()),
+        message_id: Some(format!("m-{id}")),
+        subagent: Some(Subagent {
+            id: id.to_string(),
+            kind: Some("general-purpose".to_string()),
+            ..Default::default()
+        }),
+    }
+}
+
+fn a_permission_option(option_id: &str, name: &str, kind: PermissionKind) -> PermissionOption {
+    PermissionOption {
+        option_id: option_id.to_string(),
+        name: name.to_string(),
+        kind,
+    }
+}
+
+/// The three-option request a harness that offers to remember sends: yes, yes-always, no.
+/// `call_id` is the call the request is about, which is the whole of how it is routed.
+fn a_permission_request(request_id: &str, call_id: &str) -> ConvUpdate {
+    ConvUpdate::PermissionRequest {
+        request_id: request_id.to_string(),
+        tool_call: ToolCallPatch {
+            id: call_id.to_string(),
+            ..ToolCallPatch::default()
+        },
+        options: vec![
+            a_permission_option("allow-once", "Yes", PermissionKind::AllowOnce),
+            a_permission_option("allow-always", "Yes, always", PermissionKind::AllowAlways),
+            a_permission_option("reject-once", "No", PermissionKind::RejectOnce),
+        ],
+    }
+}
+
+/// Where the "needs you" strip sends a reader: whose transcript, and which block of it. Both
+/// halves are one reading of the call the request names — a strip that switched to one agent and
+/// scrolled to a block of another's would land the reader where the prompt is not.
+#[test]
+fn a_request_routes_to_the_delegate_that_raised_it_and_the_block_its_call_is_drawn_as() {
+    let mut c = a_conversation();
+    // 0: the Task call that spawned the delegate, which is the main agent's own call.
+    c.apply(1, a_tool_call("t751", "Formal greeting agent", None));
+    // 1: what the delegate said, which is what puts it in the transcript at all.
+    c.apply(2, a_delegate_line("t751"));
+    // 2: a call the delegate raised. 3: one the conversation raised itself.
+    c.apply(3, a_tool_call("sub-call", "Bash ls", Some("t751")));
+    c.apply(4, a_tool_call("own-call", "Bash git status", None));
+    c.apply(5, a_permission_request("r-sub", "sub-call"));
+    c.apply(6, a_permission_request("r-own", "own-call"));
+    c.apply(7, a_permission_request("r-ghost", "never-announced"));
+
+    let route = |request_id: &str| {
+        let held = c
+            .pending
+            .iter()
+            .find(|held| held.request_id == request_id)
+            .expect("the request is held");
+        c.pending_route(held)
+    };
+
+    assert_eq!(
+        route("r-sub"),
+        (Some("t751".to_string()), Some(2)),
+        "a request about a delegate's call is the delegate's, at the block its call is drawn as"
+    );
+    assert_eq!(
+        route("r-own"),
+        (None, Some(3)),
+        "a request about the conversation's own call belongs to no delegate"
+    );
+    assert_eq!(
+        route("r-ghost"),
+        (None, None),
+        "a call the transcript never saw has no block — and this is the reading that sends the \
+         strip to the self-contained prompt at the tail rather than nowhere"
+    );
+}
+
+/// A request naming a call this transcript has never seen reads as the main agent's rather than
+/// being filed under a guess — there is nothing to file it under.
+#[test]
+fn a_request_for_a_call_the_transcript_never_saw_reads_as_the_main_agents() {
+    let mut c = a_conversation();
+    c.apply(1, a_permission_request("r-ghost", "never-announced"));
+
+    let held = &c.pending[0];
+    assert_eq!(
+        c.pending_subagent(held),
+        None,
+        "no block, no speaker — and the main agent's own turn is the honest fallback"
+    );
+    assert_eq!(
+        c.pending_route(held),
+        (None, None),
+        "and no block to be taken to either"
+    );
+    assert_eq!(
+        c.pending_count(None),
+        1,
+        "counted against the conversation itself, so nothing goes unanswered"
+    );
+}
+
+/// What each row of the switcher is counting. Two delegates each blocked on their own request are
+/// blocked on one each: a count that read the whole list would put every delegate's question on
+/// every delegate's row.
+#[test]
+fn two_delegates_blocked_on_their_own_requests_count_one_each() {
+    let mut c = a_conversation();
+    c.apply(1, a_tool_call("t751", "Formal greeting agent", None));
+    c.apply(2, a_delegate_line("t751"));
+    c.apply(3, a_tool_call("t754", "Pirate-style greeting agent", None));
+    c.apply(4, a_delegate_line("t754"));
+    c.apply(5, a_tool_call("call-a", "Bash ls", Some("t751")));
+    c.apply(6, a_tool_call("call-b", "Bash pwd", Some("t754")));
+    c.apply(7, a_permission_request("r-a", "call-a"));
+    c.apply(8, a_permission_request("r-b", "call-b"));
+
+    let who = |request_id: &str| {
+        let held = c
+            .pending
+            .iter()
+            .find(|held| held.request_id == request_id)
+            .expect("the request is held");
+        c.pending_subagent(held).map(str::to_string)
+    };
+
+    assert_eq!(who("r-a").as_deref(), Some("t751"));
+    assert_eq!(who("r-b").as_deref(), Some("t754"));
+    assert_eq!(
+        c.pending_count(Some("t751")),
+        1,
+        "its own question, not its sibling's as well"
+    );
+    assert_eq!(c.pending_count(Some("t754")), 1);
+    assert_eq!(
+        c.pending_count(None),
+        0,
+        "the conversation itself is blocked on neither"
+    );
+}
+
+/// The count reaches the row: `waiting` is what puts `need you` on a delegate in place of what it
+/// would otherwise say it was doing, and a delegate with nothing outstanding says nothing.
+#[test]
+fn a_delegates_tab_reports_the_requests_it_is_blocked_on() {
+    let mut c = a_conversation();
+    c.apply(1, a_tool_call("t751", "Formal greeting agent", None));
+    c.apply(2, a_delegate_line("t751"));
+    c.apply(3, a_tool_call("t754", "Pirate-style greeting agent", None));
+    c.apply(4, a_delegate_line("t754"));
+    c.apply(5, a_tool_call("call-a", "Bash ls", Some("t751")));
+    c.apply(6, a_permission_request("r-a", "call-a"));
+
+    assert_eq!(
+        c.subagents()
+            .iter()
+            .map(|tab| (tab.id.clone(), tab.waiting))
+            .collect::<Vec<_>>(),
+        vec![("t751".to_string(), 1), ("t754".to_string(), 0)],
+        "one row per instance, each counting only its own question"
+    );
+}
+
+/// The "all" of yes / no / all: the one option that both goes ahead and is remembered. It is not
+/// the plain allow — answering with that would draw a control that lies about lasting — and where
+/// the harness offered no such reading there is nothing to draw.
+#[test]
+fn the_always_option_is_the_one_that_both_allows_and_remembers() {
+    let three = Pending {
+        request_id: "r1".to_string(),
+        tool_call: ToolCallPatch::default(),
+        options: vec![
+            a_permission_option("allow-once", "Yes", PermissionKind::AllowOnce),
+            a_permission_option("allow-always", "Yes, always", PermissionKind::AllowAlways),
+            a_permission_option("reject-once", "No", PermissionKind::RejectOnce),
+        ],
+    };
+    assert_eq!(
+        three.always_option().map(|option| option.kind),
+        Some(PermissionKind::AllowAlways),
+        "the one that allows and remembers, picked by hint rather than by reading an id"
+    );
+    assert_eq!(
+        three
+            .always_option()
+            .map(|option| option.option_id.as_str()),
+        Some("allow-always"),
+        "and answered with the harness's own opaque id"
+    );
+    assert_eq!(
+        three
+            .option_for(true)
+            .map(|option| option.option_id.as_str()),
+        Some("allow-once"),
+        "the plain allow is still what the keyboard answers with"
+    );
+
+    let two = Pending {
+        request_id: "r2".to_string(),
+        tool_call: ToolCallPatch::default(),
+        options: vec![
+            a_permission_option("allow-once", "Yes", PermissionKind::AllowOnce),
+            a_permission_option("reject-once", "No", PermissionKind::RejectOnce),
+        ],
+    };
+    assert_eq!(
+        two.always_option(),
+        None,
+        "no lasting reading offered, so no All button — one drawn here would not last"
+    );
+    assert_eq!(
+        two.option_for(true).map(|option| option.option_id.as_str()),
+        Some("allow-once"),
+        "yes and no are still answerable"
+    );
+}
+
+/// A question outranks the turn it is blocking. `Working` is what a turn in flight reads as, but a
+/// turn in flight *and* blocked on a human is not working — it is the one state that needs the
+/// reader to do something, and the dot in the title exists to carry exactly that across a window
+/// nobody is looking at.
+#[test]
+fn a_pending_request_reads_waiting_and_outranks_the_turn_it_blocks() {
+    use ubiq::ui::conversation::{Lifecycle, lifecycle};
+
+    let mut c = a_conversation();
+    c.launched = true;
+    c.apply(1, chunk("working on it"));
+    assert_eq!(
+        lifecycle(&c),
+        Lifecycle::Working(Activity::Writing),
+        "a turn in flight and nothing blocking it"
+    );
+
+    c.apply(2, a_permission_request("r1", "never-announced"));
+    assert_eq!(c.run, Run::Working, "the turn has not ended, only stalled");
+    assert_eq!(
+        lifecycle(&c),
+        Lifecycle::Waiting,
+        "the question outranks the turn it is blocking"
+    );
+    assert_ne!(
+        lifecycle(&c),
+        Lifecycle::Working(Activity::NeedsYou),
+        "a blocked turn is never drawn as a kind of working"
+    );
+    assert_eq!(Lifecycle::Waiting.label(), "Needs you");
+
+    c.answered("r1");
+    assert_eq!(
+        lifecycle(&c),
+        Lifecycle::Working(Activity::Writing),
+        "answered, and back to whatever the turn was doing"
+    );
+
+    // Ended still outranks everything: a harness taking no more turns is not waiting on anybody,
+    // whatever a race left in `pending`.
+    c.apply(3, a_permission_request("r2", "never-announced"));
+    c.run = Run::Ended;
+    assert_eq!(lifecycle(&c), Lifecycle::Ended);
+}
+
+/// The dot's four readings, pinned because a dot that changes meaning silently is exactly the bug
+/// this rule exists to prevent: amber needs you, blue is moving, green is fine, grey is not
+/// running. And `Working` no longer varies with the activity — the colour answers "is it moving",
+/// and the tooltip is where "doing what" is said.
+#[test]
+fn the_lifecycle_dot_has_four_readings_and_working_is_one_of_them() {
+    use ubiq::theme;
+    use ubiq::ui::conversation::{Lifecycle, lifecycle_colour};
+
+    assert_eq!(lifecycle_colour(Lifecycle::Waiting), theme::warning());
+
+    for activity in [
+        Activity::Thinking,
+        Activity::Writing,
+        Activity::Tools,
+        Activity::NeedsYou,
+    ] {
+        assert_eq!(
+            lifecycle_colour(Lifecycle::Working(activity)),
+            theme::info(),
+            "every kind of working is the one working colour"
+        );
+    }
+
+    assert_eq!(lifecycle_colour(Lifecycle::Ready), theme::success());
+    assert_eq!(lifecycle_colour(Lifecycle::Idle), theme::success());
+
+    assert_eq!(lifecycle_colour(Lifecycle::Starting), theme::text_faint());
+    assert_eq!(lifecycle_colour(Lifecycle::Unloaded), theme::text_faint());
+    assert_eq!(lifecycle_colour(Lifecycle::Ended), theme::text_faint());
+
+    assert_ne!(
+        lifecycle_colour(Lifecycle::Waiting),
+        lifecycle_colour(Lifecycle::Working(Activity::Thinking)),
+        "the two states the reader has to tell apart at a glance are not the same colour"
+    );
+}
+
+/// A request to be taken to a block is answered once, and not by the frame that cannot answer it.
+///
+/// The frame that switched transcripts is measuring the transcript that has gone, so it holds the
+/// request back and the next frame — the first whose measurements are of the transcript the block
+/// is in — answers it. Then it is gone: a jump answered every frame afterwards would pin the
+/// reader to that block for good.
+///
+/// Only the bookkeeping is reachable here. `away_from_tail`, `near_viewport` and where `sync`
+/// actually leaves the handle are readings of the last frame's layout, and a `ScrollHandle` that
+/// has never been painted has no bounds and no maximum offset — a test asserting against those
+/// would be asserting against zeroes, which is why there is none.
+#[test]
+fn a_scroll_request_is_held_until_the_transcript_has_settled_and_then_answered_once() {
+    let scroll = TranscriptScroll::default();
+    let key = (AgentId::generate(), None);
+
+    assert!(!scroll.request_held(), "nothing asked for yet");
+    scroll.request(7);
+    assert!(scroll.request_held(), "asked for, and not yet answered");
+
+    // The frame that arrived at this transcript: its measurements are of the one before it.
+    scroll.sync(key.clone(), 1);
+    assert_eq!(
+        scroll.take_request(),
+        None,
+        "the frame that switched transcripts cannot answer a jump"
+    );
+    assert!(
+        scroll.request_held(),
+        "so it stays held rather than being dropped — and the frame asks to be drawn again"
+    );
+
+    // The next frame is drawing the same transcript, so it is the one that can.
+    scroll.sync(key, 1);
+    assert_eq!(
+        scroll.take_request(),
+        Some(7),
+        "answered by the frame that can"
+    );
+    assert!(!scroll.request_held(), "and cleared by being answered");
+    assert_eq!(
+        scroll.take_request(),
+        None,
+        "answered exactly once, not re-answered every frame afterwards"
+    );
+}
+
+/// Windowing is an optimisation with a floor: below it every block is built every frame, which is
+/// both cheaper than the bookkeeping and exact on the first frame. And it needs a painted
+/// viewport to measure against, so a slot that has never drawn windows nothing whatever its
+/// length — the first frame builds the lot and the second one narrows it.
+#[test]
+fn a_transcript_windows_only_when_it_is_long_and_the_slot_has_painted() {
+    let scroll = TranscriptScroll::default();
+
+    assert!(!scroll.windows(0), "nothing to window");
+    assert!(
+        !scroll.windows(40),
+        "at the floor, not above it — every block is built"
+    );
+    assert!(
+        !scroll.windows(41),
+        "long enough, but a slot that has never painted has no viewport to measure against"
+    );
+    assert_eq!(
+        scroll.child_bounds(0),
+        None,
+        "and no child was painted to measure either"
+    );
 }
 
 /// A window whose only content is one conversation, drawn with whichever `header` the test wants —

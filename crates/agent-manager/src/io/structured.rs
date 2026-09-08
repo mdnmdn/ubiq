@@ -53,6 +53,58 @@ pub fn spawn_piped(launch: &Launch, cwd: &Path) -> Result<Child> {
     Ok(child)
 }
 
+/// The [`crate::io::AgentKill`] for a process [`spawn_piped`] started: it holds the pid
+/// and nothing else, so it is `Send + Sync` and detachable from the bridge
+/// that owns the [`Child`].
+///
+/// **The pid cannot go stale while the bridge is alive.** A bridge keeps its
+/// `Child` unreaped until it is dropped, and an unreaped child keeps its pid —
+/// a zombie on Unix, an open handle on Windows — so there is no window in
+/// which this could name a process the operating system has since given to
+/// somebody else.
+///
+/// The kill goes through the platform's own tool rather than a signal call:
+/// `std` has no kill-by-pid, `libc::kill` is `unsafe` and this crate forbids
+/// unsafe code, and one bounded process is cheaper than two platform
+/// dependencies in a module that must keep building under
+/// `--no-default-features`.
+pub struct ProcessKill {
+    pid: u32,
+}
+
+impl ProcessKill {
+    /// A killer for `child`, taken while the bridge still owns it.
+    pub fn new(child: &Child) -> Self {
+        Self { pid: child.id() }
+    }
+}
+
+impl crate::io::AgentKill for ProcessKill {
+    fn kill(&self) -> Result<()> {
+        let pid = self.pid.to_string();
+        #[cfg(unix)]
+        let mut cmd = {
+            let mut cmd = Command::new("kill");
+            cmd.args(["-KILL", pid.as_str()]);
+            cmd
+        };
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut cmd = Command::new("taskkill");
+            cmd.args(["/F", "/T", "/PID", pid.as_str()]);
+            cmd
+        };
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+        // A non-zero status is "no such process" — it has already exited, which
+        // is the state the caller asked for.
+        let _ = cmd.status()?;
+        tracing::debug!(pid = self.pid, "harness process killed");
+        Ok(())
+    }
+}
+
 /// Build the structured-I/O bridge for `harness`'s already-provisioned run.
 ///
 /// A thin convenience wrapper — the real work is
@@ -128,6 +180,27 @@ mod tests {
     /// reliably present without mutating the test process's real
     /// environment (`std::env::set_var` is `unsafe` as of edition 2024, and
     /// this crate forbids unsafe code).
+    /// The killer ends a process that would otherwise outlive the test, and
+    /// the wait that follows is what a bridge's own teardown does — so this
+    /// covers the whole of the abort path's contract: kill, then reap.
+    #[test]
+    #[cfg(unix)]
+    fn a_process_kill_ends_the_child_it_names() {
+        use crate::io::AgentKill;
+
+        let cwd = std::env::current_dir().unwrap();
+        let mut child = spawn_piped(&launch("/bin/sh", &["-c", "sleep 30"]), &cwd).unwrap();
+        let killer = ProcessKill::new(&child);
+
+        killer.kill().unwrap();
+
+        let status = child.wait().unwrap();
+        assert!(
+            !status.success(),
+            "a killed process does not exit successfully; status was {status:?}"
+        );
+    }
+
     #[test]
     fn spawn_piped_applies_env_remove() {
         assert!(

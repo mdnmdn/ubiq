@@ -83,6 +83,11 @@ same `agent_id`, continuing the same message sequence rather than starting a new
 (`EndConversation`) is still what removes the run directory and its credentials, and takes the
 conversation with it.
 
+**An abort is an unload that does not ask.** `UnloadConversation` asks the harness to shut down
+and waits for it to; `AbortConversation` kills its process and reaps it afterwards, for the harness
+that does not act on the ask. The two are the same unload otherwise, down to the
+`ConversationUnloaded` that answers both, and the interface reads them identically.
+
 **An agent runs confined unless the settings say otherwise.** The policy grants the project's folder
 and that run's own directory and denies the rest of the machine. `$HOME` is the user's own, and the
 policy's toolchain grants are what makes the home usable: they name `~/.cargo`, `~/.npm` and their

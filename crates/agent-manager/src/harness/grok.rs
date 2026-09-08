@@ -97,7 +97,7 @@ impl Harness for Grok {
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![],
-            login_seed: vec![SeedFile::new(".grok/auth.json", ".grok/auth.json")],
+            login_seed: vec![SeedFile::credential(".grok/auth.json", ".grok/auth.json")],
             requires_home_relocation: true,
         }
     }

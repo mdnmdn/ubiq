@@ -84,10 +84,15 @@ machine.
 
 **Ubiq does not build the `RunSpec` itself — `resolve` does.** `agent.rs` calls
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
-overrides exactly three fields of what comes back: the configuration directory (Ubiq owns where a
-run's state lives), the I/O mode (Ubiq owns which face the workspace wears), and the isolation
-(Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane).
-Everything else — which account, which model, which skills and MCP servers, which config overlays — is the library's
+overrides exactly four fields of what comes back: the configuration directory (Ubiq owns where a
+run's state lives), the I/O mode (Ubiq owns which face the workspace wears), the isolation
+(Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane), and —
+when that isolation is on — the permission mode, because a confined run is contained by the sandbox
+rather than by the prompts and would otherwise stop on every ask the sandbox has already answered.
+Ubiq names no mode to do it: `Harness::unattended_mode` is the library's own word for which of its
+`modes()` means "ask nothing" (`None` for a harness that has no such mode or already asks nothing),
+and an explicit mode picked for this run outranks it — a profile's `mode` does not, being a default
+under the same toggle. Everything else — which account, which model, which skills and MCP servers, which config overlays — is the library's
 answer, read from the profile that names them. So an account reaches a pane without `agent.rs`
 learning what an account is, and a harness that grows a new composition knob needs no change here.
 
@@ -135,11 +140,31 @@ session rather than in `~/.claude/.credentials.json`. Either tier is skipped onc
 already landed from an account home or a profile overlay, and `ambient_login`'s default is `None`,
 so a harness that keeps no such out-of-band login is unaffected.
 
+**A login the run refreshes is written back to where it was seeded from, at teardown.** An OAuth
+refresh rotates the refresh token, so once a harness rewrites the copy in its run directory the
+original is revoked — deleting that directory would log the user out everywhere. `Agents::archive`
+calls the library's `harness::harvest_login` before either teardown path removes a run directory,
+and it is the one place both `retire` and `sweep` pass through. The origin it writes to is recorded
+on the run's `SessionMeta::login_home` rather than held in memory, because nothing holds the
+`Composed` that long; a login that came from no directory at all (Claude Code's macOS Keychain) is
+found again through `Harness::ambient_login` and stored through `Harness::adopt_login`. Only the
+files the harness marks `SeedFile::credential` travel back — the identity and onboarding state a
+login also seeds picks up a run's own project history, and must not reach the user's real file.
+
 **The bridge is owned by a pump thread, and `crates/ubiq-host/src/conversation.rs` is that thread.**
 `IoBridge::next_event` blocks and both its methods take `&mut self`, so whoever reads a bridge
 cannot also be handed a prompt; the reader owns it and a turn reaches the harness through the
 detached `AgentInputSink` the bridge hands out. Events reach the window on the same unbounded
 mailbox a pseudo-terminal's reader uses, so a window behind on drawing never stalls the harness.
+
+**A detached `AgentKill` is the second handle out of a bridge, for the same reason the first one
+exists.** Asking a harness to shut down is the graceful way out and a harness that does not act on
+the ask keeps the pump thread waiting; nothing else can reach the child, because the pump owns the
+bridge. So
+`IoBridge::killer` hands out a kill-by-pid over the process the library spawned — the library keeps
+naming how a harness is started and stopped — and Ubiq's `Conversation::abort` is what uses it,
+behind `AbortConversation`. The pid cannot go stale: a bridge holds its child unreaped until it is
+dropped, and reaping is still the bridge's own teardown.
 
 **Every harness the library returns a structured bridge for can hold a conversation; not every one
 of those keeps its process alive across turns.** `IoSupport::structured` is the first question —

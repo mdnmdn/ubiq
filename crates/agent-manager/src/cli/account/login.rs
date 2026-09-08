@@ -91,6 +91,8 @@ pub(super) fn cmd_login(
             dir: home.clone(),
             launch: plan.launch.clone(),
             ephemeral: false, // persistent home — never auto-deleted
+            // A capture writes the login; there is nothing seeded to harvest back.
+            login_origin: None,
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };
@@ -119,7 +121,7 @@ pub(super) fn cmd_login(
         let cwd = std::env::current_dir()?;
         // A login capture runs unconfined here; `--isolate` on `am account
         // login` takes the `isol8::Sandbox` path below instead.
-        crate::run::run(&provisioned, &cwd, true, None)? // keep_config: persistent
+        crate::run::run(harness.as_ref(), &provisioned, &cwd, true, None)? // keep_config: persistent
     };
     if code != 0 {
         bail!("harness login exited with code {code}; no account recorded");

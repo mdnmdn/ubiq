@@ -57,10 +57,14 @@ suite cannot: `command -v node` succeeding while `node -v` fails is this bug's e
 
 ## 2. A conversation's vocabulary
 
-`Harness` gained `version()`, `discover_thinking()` and `modes()`, all defaulted so a harness with no
+`Harness` gained `version()`, `discover_thinking()`, `modes()` and `unattended_mode()`, all defaulted
+so a harness with no
 such concept needs no override — which is the honest answer for opencode, Copilot and Grok. Claude's
 reasoning levels are scraped from `--help`; Codex's come free from the bundled-models probe already
-run for `discover_models`. Modes are fixed CLI enums and are **not** probed.
+run for `discover_models`. Modes are fixed CLI enums and are **not** probed. `unattended_mode()`
+names which of a harness's own modes means "ask nothing" — `bypassPermissions` for Claude,
+`danger-full-access` for Codex — so an embedder whose sandbox already contains the run can pick it
+without spelling it; `None` where the harness has no such mode or already asks nothing.
 
 Three launch-time `ConfigOption`s now reach the composer instead of one — `model`, `thinking`,
 `mode` — inside the existing `ConfigOptions` update, so no new `ConvUpdate` variant was needed. All

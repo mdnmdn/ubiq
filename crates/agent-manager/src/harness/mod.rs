@@ -242,15 +242,35 @@ pub struct SeedFile {
     pub src: PathBuf,
     /// Destination path RELATIVE TO the relocated dir (e.g. `.credentials.json`).
     pub dst: PathBuf,
+    /// This file *is* the credential, so a harness that rewrites it mid-run
+    /// (an OAuth refresh rotates the refresh token and revokes the old one)
+    /// has produced the only live copy — [`harvest_login`] writes it back to
+    /// where it was seeded from before the run dir is thrown away.
+    ///
+    /// False for the identity/onboarding companions a login also needs
+    /// (Claude's `.claude.json`): the harness rewrites those too, with a run's
+    /// worth of project history and onboarding state that must never land back
+    /// on the user's real file.
+    pub credential: bool,
 }
 
 impl SeedFile {
     /// A seed-file mapping from an account-home-relative `src` to a
-    /// relocated-dir-relative `dst`.
+    /// relocated-dir-relative `dst`. Not a credential — never written back.
     pub fn new(src: impl Into<PathBuf>, dst: impl Into<PathBuf>) -> Self {
         SeedFile {
             src: src.into(),
             dst: dst.into(),
+            credential: false,
+        }
+    }
+
+    /// Same mapping, for the file that *is* the login: [`harvest_login`] writes
+    /// a refreshed one back to its origin.
+    pub fn credential(src: impl Into<PathBuf>, dst: impl Into<PathBuf>) -> Self {
+        SeedFile {
+            credential: true,
+            ..SeedFile::new(src, dst)
         }
     }
 }
@@ -297,6 +317,67 @@ pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Resul
         }
         std::fs::write(&dst, &bytes)
             .with_context(|| format!("seeding login to {}", dst.display()))?;
+    }
+    Ok(())
+}
+
+/// The mirror of [`seed_login`]: write a login the run *refreshed* back to the
+/// [`Source`] it was seeded from, before the run dir is discarded.
+///
+/// A harness that refreshes an OAuth token mid-run rewrites the seeded copy —
+/// and the refresh **rotates** the refresh token, so the original the copy came
+/// from is now revoked. Throwing the run dir away therefore logs the user out
+/// everywhere; harvesting is what keeps the origin the live credential.
+///
+/// Only [`SeedFile::credential`] files are considered, and only when their
+/// bytes actually changed. A [`Source::Dir`] origin is written in place (mode
+/// `0600` on unix); anything else came from somewhere that is not a directory
+/// (Claude Code's macOS Keychain) and is handed to [`Harness::adopt_login`].
+///
+/// Never fails the caller: this runs on teardown paths, and a write-back that
+/// could not happen is a warning, not a reason to break a run that is over.
+pub fn harvest_login(harness: &dyn Harness, dir: &Path, origin: &Source) -> Result<()> {
+    for file in harness
+        .config_anchor()
+        .login_seed
+        .iter()
+        .filter(|f| f.credential)
+    {
+        let path = dir.join(&file.dst);
+        let Ok(fresh) = std::fs::read(&path) else {
+            continue;
+        };
+        if origin.read(&file.src)?.as_deref() == Some(&fresh[..]) {
+            continue;
+        }
+        let outcome = match origin {
+            Source::Dir(home) => write_credential(&home.join(&file.src), &fresh),
+            Source::Files(_) => harness.adopt_login(&file.src, &fresh),
+        };
+        if let Err(error) = outcome {
+            tracing::warn!(
+                harness = %harness.id(),
+                file = %file.src.display(),
+                "a refreshed login could not be written back, so the original may now be \
+                 revoked: {error:#}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Write a credential blob to `path`, creating parents, `0600` on unix.
+fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 600 {}", path.display()))?;
     }
     Ok(())
 }
@@ -610,6 +691,19 @@ pub trait Harness {
     fn modes(&self) -> Vec<ModeInfo> {
         Vec::new()
     }
+    /// Which of this harness's own [`Self::modes`] means "ask nothing" — the mode a caller
+    /// picks when something outside the harness already contains the run (a sandbox), so a
+    /// permission prompt buys nothing and only stalls an unattended agent.
+    ///
+    /// The returned id must be one of the ids [`Self::modes`] lists; the harness's own
+    /// spelling is the only spelling, and naming it here is what keeps callers from
+    /// hard-coding one. Default `None`: the harness has no such mode, or it already asks
+    /// nothing — the truthful answer for opencode, Copilot and Grok, whose bridges run
+    /// `--dangerously-skip-permissions` / `--allow-all` unconditionally (see
+    /// [`Self::modes`]), so there is no mode left to ask for.
+    fn unattended_mode(&self) -> Option<&'static str> {
+        None
+    }
     /// Build a [`LoginPlan`] to interactively log this harness into `home` (a
     /// persistent per-account dir) and capture the resulting credential file(s).
     /// Implementations may write force-file-storage config into `home` before
@@ -643,6 +737,22 @@ pub trait Harness {
     /// Default: `None` — the file copy is the whole story.
     fn ambient_login(&self) -> Option<Source> {
         None
+    }
+    /// Store a login this run *refreshed* back where [`Self::ambient_login`]
+    /// found it — the write side of a credential that is not a file under
+    /// `$HOME`, called by [`harvest_login`] for a non-[`Source::Dir`] origin.
+    ///
+    /// `src` is the [`ConfigAnchor::login_seed`] source path that names which
+    /// credential this is; `bytes` are what the run left behind. Default: an
+    /// error, which [`harvest_login`] logs — a harness whose login came from
+    /// bytes rather than a directory and that cannot put them back is exactly
+    /// the case worth a warning.
+    fn adopt_login(&self, src: &Path, _bytes: &[u8]) -> Result<()> {
+        anyhow::bail!(
+            "harness '{}' has no way to store a refreshed login ({})",
+            self.id(),
+            src.display()
+        )
     }
     /// Fix up `dir` after all login seeding (account-based and zero-config)
     /// has landed. Default: no-op. Overridden by harnesses whose captured
@@ -734,6 +844,19 @@ mod tests {
     fn every_harness_has_a_command() {
         for h in all() {
             assert!(!h.command().is_empty(), "{} missing command", h.id());
+        }
+    }
+
+    #[test]
+    fn unattended_mode_is_one_of_the_harnesss_own_modes() {
+        for h in all() {
+            if let Some(mode) = h.unattended_mode() {
+                assert!(
+                    h.modes().iter().any(|m| m.id == mode),
+                    "{}'s unattended mode '{mode}' is not one of its modes()",
+                    h.id()
+                );
+            }
         }
     }
 
@@ -844,6 +967,7 @@ mod tests {
                 env_clear: false,
             },
             ephemeral: true,
+            login_origin: None,
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };
@@ -854,5 +978,143 @@ mod tests {
             Ok(_) => panic!("expected an error"),
             Err(err) => assert!(err.to_string().contains("structured"), "error was: {err}"),
         }
+    }
+
+    /// A harness whose login is one credential file plus one companion that is
+    /// deliberately not a credential — the shape `harvest_login` has to tell
+    /// apart. No `adopt_login`, so a non-directory origin takes the trait's
+    /// default error.
+    struct SeedHarness;
+
+    impl Harness for SeedHarness {
+        fn id(&self) -> crate::spec::HarnessId {
+            "seedy".to_string()
+        }
+        fn display_name(&self) -> &str {
+            "seedy"
+        }
+        fn command(&self) -> &str {
+            "seedy"
+        }
+        fn aliases(&self) -> &[&str] {
+            &[]
+        }
+        fn io_support(&self) -> IoSupport {
+            IoSupport {
+                passthrough: true,
+                structured: false,
+                multi_turn: false,
+            }
+        }
+        fn config_anchor(&self) -> ConfigAnchor {
+            ConfigAnchor {
+                levers: Vec::new(),
+                login_seed: vec![
+                    SeedFile::credential(".creds/token.json", "token.json"),
+                    SeedFile::new(".claude.json", ".claude.json"),
+                ],
+                requires_home_relocation: false,
+            }
+        }
+        fn provision(&self, _spec: &crate::spec::RunSpec, _dir: &Path) -> Result<Launch> {
+            anyhow::bail!("seedy provision not implemented")
+        }
+    }
+
+    /// Seed both files from `home` into a fresh run dir, and hand back the two.
+    fn seeded() -> (tempfile::TempDir, tempfile::TempDir) {
+        let home = tempfile::TempDir::new().unwrap();
+        let run = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(home.path().join(".creds")).unwrap();
+        std::fs::write(home.path().join(".creds/token.json"), "OLD-TOKEN").unwrap();
+        std::fs::write(home.path().join(".claude.json"), "OLD-IDENTITY").unwrap();
+        seed_login(
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+            &SeedHarness.config_anchor().login_seed,
+        )
+        .unwrap();
+        (home, run)
+    }
+
+    #[test]
+    fn harvest_leaves_an_unchanged_credential_alone() {
+        let (home, run) = seeded();
+        let origin = home.path().join(".creds/token.json");
+        // A write-back would also chmod to 0600, so the mode is what tells
+        // "left alone" apart from "written with identical bytes".
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&origin, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        harvest_login(
+            &SeedHarness,
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&origin).unwrap(), "OLD-TOKEN");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&origin).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o644, "an untouched credential was rewritten");
+        }
+    }
+
+    #[test]
+    fn harvest_writes_a_refreshed_credential_back_to_its_origin() {
+        let (home, run) = seeded();
+        std::fs::write(run.path().join("token.json"), "NEW-TOKEN").unwrap();
+
+        harvest_login(
+            &SeedHarness,
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
+            "NEW-TOKEN"
+        );
+    }
+
+    #[test]
+    fn harvest_never_writes_back_a_non_credential_seed_file() {
+        let (home, run) = seeded();
+        // What Claude Code's `.claude.json` picks up during a run: project
+        // history and onboarding state that must not reach the user's own file.
+        std::fs::write(run.path().join(".claude.json"), "RUN-IDENTITY").unwrap();
+
+        harvest_login(
+            &SeedHarness,
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".claude.json")).unwrap(),
+            "OLD-IDENTITY"
+        );
+    }
+
+    #[test]
+    fn harvest_logs_rather_than_fails_when_the_origin_is_not_a_directory() {
+        let run = tempfile::TempDir::new().unwrap();
+        let origin = Source::Files(vec![(
+            PathBuf::from(".creds/token.json"),
+            b"OLD-TOKEN".to_vec(),
+        )]);
+        seed_login(run.path(), &origin, &SeedHarness.config_anchor().login_seed).unwrap();
+        std::fs::write(run.path().join("token.json"), "NEW-TOKEN").unwrap();
+
+        // `SeedHarness` has no `adopt_login`, so the write-back errors — and
+        // harvesting still succeeds, because a teardown must not break.
+        harvest_login(&SeedHarness, run.path(), &origin).unwrap();
     }
 }

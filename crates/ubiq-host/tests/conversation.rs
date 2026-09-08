@@ -113,7 +113,9 @@ impl IoBridge for Cancellable {
 
 impl AgentInputSink for CancellableInput {
     fn send(&self, input: AgentInput) -> anyhow::Result<()> {
-        if matches!(input, AgentInput::Cancel) {
+        // A stop is a `Shutdown`; a cancel leaves the harness alive, so only the former ends
+        // this fake's stream.
+        if matches!(input, AgentInput::Shutdown) {
             let _ = self.tx.send(None);
         }
         Ok(())

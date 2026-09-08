@@ -82,6 +82,7 @@ approval RPC, opencode runs `--dangerously-skip-permissions` and Copilot `--allo
 | `AnswerPermission { agent_id, request_id, option_id }` | Answers one `PermissionRequest`. The option id is echoed back unchanged |
 | `SetAgentConfig { agent_id, config_id, value }` | A model, a mode, a thinking level — one message for all of them, because upstream has one mechanism for all of them |
 | `UnloadConversation { agent_id }` | Kills the harness, keeps the conversation: the transcript stays, the run directory stays (seeded credentials included), and the same id restarts |
+| `AbortConversation { agent_id }` | The same unload, for a harness that does not act on the ask: kills the process (`IoBridge::killer`) and reaps it rather than asking it to shut down and waiting. Answered by the same `ConversationUnloaded` |
 | `ResumeConversation { agent_id }` | Starts an unloaded conversation's harness again under the same id, with no prompt |
 | `EndConversation { agent_id }` | Stops the agent and cleans up after it |
 
@@ -96,7 +97,7 @@ family (`BeginHarnessLogin` → `HarnessLoginStarted` → zero or more `HarnessL
 
 | Message | Carries |
 |---|---|
-| `ConversationStarted` | `project_id`, a boxed `WorkAgent`, the `WorkSession` it belongs to (**the session travels with the agent** — the sidebar lists agents *under* a session, so an agent whose session nothing names is an agent nothing draws), and `accepts_input` — a one-shot harness answers `false`, so the capability travels rather than being discovered by a refusal |
+| `ConversationStarted` | `project_id`, a boxed `WorkAgent`, the `WorkSession` it belongs to (**the session travels with the agent** — the sidebar lists agents *under* a session, so an agent whose session nothing names is an agent nothing draws), and `accepts_input` — whether the harness converses at all, which travels rather than being discovered by a refusal. A one-shot harness answers `true`: its *process* ends with its answer, its conversation does not (`G95`) |
 | `ConversationUpdate` | `agent_id`, `seq` (per agent, monotonic, from one — order is promised per agent and not across them), a boxed `ConvUpdate`, and optional `raw`: the harness's own line, drawn by the debug viewer and read by nothing in the transcript |
 | `ConversationEnded { agent_id, stop_reason }` | The harness is gone; the transcript stays |
 | `ConversationUnloaded { agent_id }` | The harness is gone and the conversation is not — back to the state before its first turn |

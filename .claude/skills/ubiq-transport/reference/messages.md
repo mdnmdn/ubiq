@@ -170,7 +170,8 @@ message rather than three so the board never draws a card naming a session it ha
 ### 8. Conversation — a live agent
 
 `StartConversation`, `PromptAgent`, `CancelTurn`, `AnswerPermission`, `SetAgentConfig`,
-`EndConversation`, `UnloadConversation`, `ResumeConversation`; `ConversationStarted`,
+`EndConversation`, `UnloadConversation`, `AbortConversation`, `ResumeConversation`;
+`ConversationStarted`,
 `ConversationUpdate`, `ConversationEnded`, `ConversationUnloaded`, `ConversationError`.
 
 The one family whose vocabulary was borrowed rather than invented — the Agent Client Protocol's
@@ -187,6 +188,9 @@ The one family whose vocabulary was borrowed rather than invented — the Agent 
   `ConvUpdate::UserChunk` echoed back, which is what the harness actually received.
 - **`UnloadConversation` kills the harness and keeps the conversation**; only `EndConversation`
   discards what was said. A resumed conversation picks the sequence up rather than restarting it.
+- **`AbortConversation` is that unload without the asking** — the process is killed and then
+  reaped, for a harness that does not act on the ask. Same reply (`ConversationUnloaded`), so an
+  interface handles the two identically.
 - **`ConversationUpdate` boxes its payload**, the second variant in the set to do so.
 
 `ubiq-agents`'s `reference/wire.md` covers every `ConvUpdate` variant in detail.

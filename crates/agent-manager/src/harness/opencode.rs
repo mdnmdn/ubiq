@@ -61,7 +61,7 @@ impl Harness for Opencode {
                 ("OPENCODE_CONFIG_DIR".to_string(), Relocate::Config),
                 ("XDG_DATA_HOME".to_string(), Relocate::Data),
             ],
-            login_seed: vec![SeedFile::new(
+            login_seed: vec![SeedFile::credential(
                 ".local/share/opencode/auth.json",
                 "opencode/auth.json",
             )],

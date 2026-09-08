@@ -9,9 +9,9 @@
 //!
 //! **The row reads left to right in the order a reader asks.** The state mark says what the
 //! conversation *is*, the control says what it is *on*, and the three-dots at the far end says
-//! what can be *done to it* — so the two halves of [`conversation::lifecycle_controls`] sit at
-//! opposite ends of the row rather than as a pair, through the split fragments that module
-//! exposes for exactly this.
+//! what can be *done to it* — so [`conversation::lifecycle_mark`] and
+//! [`conversation::lifecycle_menu`] sit at opposite ends of the row rather than as a pair,
+//! through the split fragments that module exposes for exactly this.
 //!
 //! **Nothing here names the tab.** The dock's tab already carries the conversation's name, and a
 //! second copy of it directly under the first was the same answer twice.

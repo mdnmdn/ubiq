@@ -114,7 +114,7 @@ impl Harness for Copilot {
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("COPILOT_HOME".to_string(), Relocate::All)],
-            login_seed: vec![SeedFile::new("config.json", "config.json")],
+            login_seed: vec![SeedFile::credential("config.json", "config.json")],
             requires_home_relocation: false,
         }
     }

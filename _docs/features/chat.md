@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-08
+verified: 2026-09-08
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -113,6 +113,35 @@ since a spinner would claim progress nothing measures. It is not drawn while an 
 question on screen is what is happening, and two marks would compete to say so. The run is folded
 into `tail_signature`, so the mark appearing scrolls the tail into view the way a new block does.
 
+**Where a reader was left is remembered per transcript.** A composer slot's transcript keeps its
+position in `state::conversation::TranscriptScroll`, keyed by the conversation *and* which of its
+delegates is being viewed: switching to a delegate is arriving at a different transcript rather
+than moving within one, so a slot moved to a delegate and back restores both positions. A
+transcript the slot has never shown opens on its tail.
+
+**The tail is followed only for a reader who is on it.** A transcript scrolled away from the bottom
+stays where it was put while the conversation goes on writing, and `tail_signature` is read over
+the blocks *on screen* rather than over all of them — while a delegate's transcript is up, the main
+agent writing below it is not the tail of anything the reader can see, and following it would
+scroll a transcript nothing was added to.
+
+**A transcript scrolled away from the tail carries one overlay, `Go to last message`.** It sits
+over the transcript's lower right rather than in the column, so nothing moves when it appears and
+the last line stays readable under it, and it is drawn only while there is something below the
+viewport — a button that is always there is a button that says nothing. It scrolls and does nothing
+else: it marks nothing read, and the next thing said resumes the follow, which is what coming back
+down asked for.
+
+**A long transcript stops building what is off screen.** Above forty blocks, a child the last frame
+painted well clear of the viewport — plus a margin, so a wheel notch lands on drawn content rather
+than on a placeholder waiting for the next frame — is replaced by a stand-in of the exact height it
+was measured at. Measured, never guessed: the content above and below stays where it was, so
+nothing about the scroll position changes, and the markdown, the diffs and the highlighting of a
+hundred blocks nobody is looking at go unbuilt. Below forty every block is built every frame,
+because the bookkeeping costs more than the drawing and the first frame has no measurements to work
+from. The same pass records which block each child is, which is how the strip above resolves a
+block to a child to scroll to.
+
 **A run of the same kind of tool call is folded to its last card.** Three or more consecutive tool
 blocks of one kind — `GROUP_MIN` — are drawn as the last of them plus one `tool_group` row standing
 for the ones before it, wearing that kind's own colour and reading `N earlier calls`, which opens on
@@ -142,10 +171,29 @@ which is a prompt with less to say rather than a question the user cannot answer
 **Several asks may be up at once, and every one of them blocks.** They are held as an ordered list
 keyed by `request_id`, arrival order preserved, because a harness may raise a second question before
 the first is answered and there are no timeouts: a request left unanswered stalls the turn with
-nothing on screen to say so. A compact "needs you" strip above the footer counts what is
+nothing on screen to say so. A "needs you" strip above the footer carries what is
 outstanding, since a prompt attached to a block partway up the transcript can be scrolled out of
 view while the conversation waits on it. Cancelling the turn discharges all of them at once — the
 strip and the prompts go with it.
+
+**The strip is answerable, and it is the way to the prompt.** It carries Yes, All and No for the
+oldest request outstanding, because the one control on screen while a turn is blocked should be the
+one that unblocks it. Each button is drawn only where that request offered an option of that
+reading — `Pending::option_for` for the plain allow and the reject, `Pending::always_option` for
+the allow that is remembered — so a control never answers with a reading the harness did not offer,
+and a third button standing in for a lasting allow would be a control that lies about lasting.
+Clicking the strip's label goes to the question instead: `AppState::reveal_permission` switches to
+whoever raised the request and scrolls the call it authorises into view, both from the one routing
+`Conversation::pending_route` resolves, so the two ways of answering lead to the same place rather
+than competing. A request naming a call the transcript does not hold routes to the tail, which is
+where its self-contained prompt is drawn.
+
+**The strip counts, and it names whose question it is.** Above one request outstanding, a count
+badge sits beside the `NEEDS YOU` mark rather than a clause in the label: the number is the part a
+reader counts down, and a trailing "and 3 more waiting" read as part of what the operation was. A
+request a delegate raised carries that delegate's name, since with the main agent's transcript on
+screen the operation alone is not enough to go on. The rest are answered by working through them
+one strip at a time, because each request's options are its own.
 
 **⌘⌥Y allows and ⌘⌥N rejects the oldest ask outstanding.** They answer the conversation being read —
 the active tab of the agents screen's focused column — with the first allow-kind or reject-kind
@@ -164,7 +212,9 @@ every menu in the window uses, so the composer never moves under the cursor. Eac
 what it is doing, and clicking one switches the transcript to that agent; the main agent is always
 a row, because it is the way back. A subagent whose spawning call is not in the transcript reads
 `unknown` rather than being claimed to be running. **A delegate says what it is answering with**:
-the reading strip above its transcript carries its model beside its name, and its row's hover names
+the reading strip above its transcript carries its model beside its name, its row carries the same
+model faint beside the name — a delegate is chiefly identified by what it answers with, and a
+reading only on hover made the reader hover three rows to compare three — and its row's hover names
 its kind, its model and its thinking level where the harness stated one — the model shortened by
 `short_model_label`, the same shortener the composer's model chip uses, so one conversation never
 spells a model two ways. Both read the one `SubagentTab` field, resolved on `Conversation` beside
@@ -173,6 +223,14 @@ nothing, and `thinking` is `None` on every harness today because no stream state
 effort level. The `AGENT` block that spawned an agent is the
 same door: clicking it switches the transcript, and stays inert until that agent has said
 something.
+
+**A blocked delegate says so in place of what it was doing.** A row whose delegate is waiting on a
+permission answer reads `need you` in the warning tokens where its status would be — `need you ×N`
+above one request, and the bare words for one, because `need you 1` is a number nobody needed. In
+place of rather than beside: a delegate waiting on a human is not doing anything, so `running` and
+the question together would be one of them wrong, and the question is the more useful of the two
+readings. `Conversation::pending_count` is what counts, resolved onto `SubagentTab::waiting` beside
+the rest of the row, and the main agent's own row is read the same way.
 
 **Files are attached to the turn being written, as tags rather than as text.** The composer's `+`
 raises the window's own file picker over the project's explorer tree, taking as many files as are
@@ -213,6 +271,20 @@ accent ring beside the context one would read as the same fact twice — and say
 rather than a how-is-this-turn-going one and the footer row is glanced at; the setting that turns it
 on is [`workbench.md`](./workbench.md)'s.
 
+**The footer reports whoever is being read.** With a delegate's transcript up, `tot` and the cache
+ring are that delegate's spend rather than the conversation's, off
+`Conversation::subagent_tokens` — a reader looking at one agent's turns wants that agent's numbers,
+and the conversation's own total is a click away on the main agent's row. Two limits of the wire
+show through here, and the row states both rather than smoothing them. **A delegate's spend is
+banked per subagent *type*, not per instance**: `UsageRecord::subagent` is deliberately a type, so
+two `general-purpose` delegates share one bucket, which the `tot` tooltip says outright wherever
+several of a type have run — nothing divides a shared total between instances to make it look
+exact. **A delegate has no context level at all**: a subagent's usage report repeats the *parent's*
+occupancy, so there is no per-delegate window to draw, and the parent's ring beside a delegate's
+transcript would be a number about somebody else. The ring is dropped rather than borrowed, on the
+same rule that keeps a ring off a conversation whose harness named no window.
+[`../backlog.md`](../backlog.md) carries both as `G194` and `G195`.
+
 **Stop is there for the whole of a running turn, and it is a filled square.** The moment a message
 is sent is the moment a reader most wants it back, so a control that appears only while the field is
 empty is a control that vanishes as soon as the follow-up is being typed. It sends `CancelTurn`: the
@@ -228,19 +300,23 @@ draws them, not the shared view.** `ConversationView::header` tells the shared v
 its own bordered strip for them — `true` on the agents column, unchanged; `false` here, because the
 chat panel's header draws the identical fragment inline instead — and at *opposite ends* of its
 row, so it takes the two halves separately: `ui::conversation::lifecycle_mark` for the glyph and
-`lifecycle_menu` for the three-dots, the same pair `lifecycle_controls` composes for the column. One
-set of functions either way: the glyph's state and the menu's enable rule are read once, in
+`lifecycle_menu` for the three-dots. The agents column's bordered strip is the menu alone, its own
+reading of the state being the dot on its title. One set of functions either way: the glyph's state and the menu's enable rule are read once, in
 `crates/ubiq/src/ui/conversation/mod.rs`, and both surfaces call them rather than each keeping an
 answer of its own.
 
 **The glyph says the conversation's state; the word lives in its tooltip.**
-`ui::conversation::lifecycle` reads `launched`, `run`, `blocks`, `accepts_input` and `config` into one
-`Lifecycle` — Starting, Ready, Working (carrying which `Activity`), Idle, Unloaded, or Ended — derived
-rather than stored, so nothing new sits on `Conversation` for it. `Unloaded` and `Starting` are both
-`launched == false`; the transcript, `blocks`, is what tells them apart, because a harness that is
-gone still leaves what it said and one never started leaves nothing. The glyph is a `kit::status_dot`,
-no new primitive, coloured by `Activity`'s own reading while a turn runs and by the same tokens the
-bucket colours use otherwise; the tooltip is one or two words, `Unloaded`, `Working · Tools`, never a
+`ui::conversation::lifecycle` reads `launched`, `run`, `pending`, `blocks`, `accepts_input` and
+`config` into one `Lifecycle` — Starting, Ready, Waiting, Working (carrying which `Activity`), Idle,
+Unloaded, or Ended — derived rather than stored, so nothing new sits on `Conversation` for it.
+`Waiting` outranks the turn it is blocking: a request outstanding is the one state that needs the
+reader to do something, so it is read before `run`, and `Working` therefore never carries
+`Activity::NeedsYou`. `Unloaded` and `Starting` are both `launched == false`; the transcript,
+`blocks`, is what tells them apart, because a harness that is gone still leaves what it said and one
+never started leaves nothing. The glyph is a `kit::status_dot`, no new primitive, coloured by
+`lifecycle_colour` — **yellow needs you, blue is working, green is idle, grey has stopped**, four
+readings and only four, since what a dot read at a glance has to answer is whether this conversation
+wants the reader; the tooltip is one or two words, `Unloaded`, `Working · Tools`, never a
 sentence — replacing the muted line P7 drew above the composer for the same fact.
 
 **Each tab owns a composer of its own, from the same fixed pool a column draws from.** The window
@@ -308,18 +384,36 @@ conversation renderer (`header: false`), or draws the empty page; `sidebar.rs` d
 row: the state mark and the unified control on the left, the three-dots on the right. The permission prompt is that shared renderer's
 too: `crates/ubiq/src/state/conversation.rs` holds `Pending` — the request id, the tool-call patch
 and the options — in `Conversation::pending`, with `oldest_pending()` for what the keyboard means,
-`answered()` for one request leaving, `Pending::option_for` for the first option of a reading, and
-`tool_block_index()` for the id join the prompt draws through; `crates/ubiq/src/ui/conversation/mod.rs`'s
-`permission()` draws the block-attached prompt, its fallback and the counting strip. The same module
+`answered()` for one request leaving, `Pending::option_for` for the first option of a reading,
+`Pending::always_option` for the allow the harness remembers, `tool_block_index()` for the id join
+the prompt draws through, `pending_subagent()` and `pending_route()` for whose transcript a request
+belongs to and which block of it, and `pending_count()` for what a switcher row marks itself with;
+`crates/ubiq/src/ui/conversation/mod.rs`'s `permission()` draws the block-attached prompt and its
+fallback, and `needs_you_strip()` the answerable strip, with `waiting_count()` for its badge.
+`AppState::reveal_permission` in `crates/ubiq/src/app/agents.rs` is what the strip's label runs,
+taking the surface's own slot because the scroll belongs to the surface: the same conversation may
+be open in a column and a chat tab, and only the one that was clicked moves. The same module
 holds the rest of the transcript's own furniture: `transcript()` walks the visible blocks, folding
 each run of same-kind calls into one `tool_group()` row plus the run's last card — `one_block()` is
 the arm it reuses for a card it does not fold and for the ones it unfolds — `writing_mark()` is the
-tail's running mark, and `tail_signature()` is what the follow-the-tail scroll compares. The fold's
+tail's running mark, and `tail_signature()` is what the follow-the-tail scroll compares, read over
+the visible blocks it is handed. The private `Built` helper in the same module is the children that
+walk produces: it records which block each child stands for, so a block can be resolved to a child
+to scroll to, and above `TranscriptScroll::windows` it leaves a child the last frame painted clear
+of the viewport unbuilt behind a stand-in of that child's measured height. `to_tail_button()` is
+the overlay, on `AppState::scroll_transcript_to_tail`. `state::conversation::TranscriptScroll` is
+the rest: `sync()` is the once-a-frame decision — save the outgoing transcript's position, restore
+this one's, follow the tail only for a reader on it — with `away()` for the overlay, `request()`
+and `take_request()` for the block the strip asked to be taken to, and `to_tail()`. `AppState`
+holds one per composer slot as `transcript_scrolls`, indexed exactly as `column_inputs` is; every
+field of it is interior-mutable, because `render` holds `&AppState` and these are readings of the
+last frame rather than state the application owns. The fold's
 open set is `Conversation::open_groups` with `toggle_group()` beside it in
 `crates/ubiq/src/state/conversation.rs`, reached from the row through
 `AppState::toggle_conversation_tool_group` in `crates/ubiq/src/app/agents.rs`. `footer()` reads
 `show_cache_ring` off the workbench's UI settings and draws the cache ring from `cached_tokens()`
-over `total_tokens()`; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
+over `total_tokens()` — or, on a delegate's transcript, from `Conversation::subagent_tokens()`,
+with `delegate_spend_tip()` for the tooltip that says which grain the figure is banked at; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
 the `action_button()` the Send and Enqueue states share.
 `AppState::answer_permission` in `crates/ubiq/src/app/agents.rs` sends one answer and forgets that
 one request only, `answer_oldest_permission` is what the keyboard resolves through
@@ -355,7 +449,10 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | The same file is picked twice, or picked again while already attached | One tag, not two — a second tag would be a second mention in the prompt and a remove that only half worked. The size on the tag it already had is refreshed from the newer listing |
 | No host ever reported a size for an attached file | The tag is drawn plainly, with no size in its tooltip; an unknown size is not a small one and is not guessed at |
 | An attached file is deleted or moved before the turn is sent | The mention goes out anyway and the harness answers for it; the interface reads no disk, so it has nothing newer to know |
-| A permission request names a tool call the transcript does not hold | The prompt draws self-contained at the end of the transcript, with the options it carries |
+| A permission request names a tool call the transcript does not hold | The prompt draws self-contained at the end of the transcript, with the options it carries, and the strip's label sends the reader to the tail where it is |
+| A permission request offers no lasting allow | The strip draws Yes and No and no All; a third button answering with the plain allow would be a control that lies about lasting |
+| A delegate's transcript is being read | `tot` and the cache ring are that delegate's spend, banked by subagent type; no context ring is drawn, because no harness reports a delegate's own occupancy |
+| The transcript is scrolled up while the conversation goes on writing | It stays where it was put, the `Go to last message` overlay appears, and the follow resumes once the reader is back on the tail |
 | A permission request offers no option of the reading ⌘⌥Y or ⌘⌥N asks for | The keyboard does nothing; the buttons the harness did offer are still there to press |
 | A conversation reports a total but no cached figure, or a total of zero | The cache ring is not drawn; a ring at nothing over nothing is not a reading |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |

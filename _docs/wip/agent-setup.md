@@ -316,7 +316,7 @@ conversation holding prompts, file contents and tool output (`G164`).
 Two changes that together are what made an identity reachable at all.
 
 **`compose_run` calls `resolve`.** `crates/ubiq-host/src/agent.rs` no longer hand-sets five fields
-of a `RunSpec`; it calls `agent_manager::resolve::resolve` and overrides only the three answers that
+of a `RunSpec`; it calls `agent_manager::resolve::resolve` and overrides only the four answers that
 are Ubiq's — see [`../tech/agent-manager.md`](../tech/agent-manager.md), which owns that division and
 the stores behind it. Everything else comes from the profile, so an account reaches a pane without
 `agent.rs` learning what an account is. An unknown id fails the spawn with the fuzzy suggestions
@@ -606,8 +606,9 @@ wrote it — and waits only on the replay that hands it to a fresh harness (`G12
    conversation the host owns, so closing a panel ends nothing — which means a project accumulates
    live harnesses. Partly answered: a process can now be stopped without ending the conversation —
    `UnloadConversation`/`ConversationUnloaded`, and `ResumeConversation` to start it again under the
-   same `agent_id` — so a harness someone is not actively driving no longer has to be killed outright
-   to reclaim it. What is still open is *when* — nothing today unloads one on the user's behalf after
+   same `agent_id`, with `AbortConversation` as the same unload for a harness that does not
+   act on the ask (it kills the process through `IoBridge::killer`, then reaps) — so a harness someone
+   is not actively driving no longer has to be killed outright to reclaim it. What is still open is *when* — nothing today unloads one on the user's behalf after
    a while of disuse, and a resumed harness starts with no memory of the transcript above it. P2c
    gives it a record to replay from; nothing replays it (`G120`).
 

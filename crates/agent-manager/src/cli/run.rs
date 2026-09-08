@@ -230,7 +230,7 @@ pub(super) fn run_provisioned(
     // `ephemeral` check.)
     let keep_config = keep_config || recorder.is_some();
 
-    let code = crate::run::run(provisioned, cwd, keep_config, confined)?;
+    let code = crate::run::run(harness, provisioned, cwd, keep_config, confined)?;
 
     if let Some(recorder) = recorder {
         let _ = recorder.finish(Some(code));
@@ -322,7 +322,7 @@ fn run_structured(
 /// longer answer for themselves (`src/io/jsonl.rs` holds each ask outstanding until the caller
 /// speaks), so an unanswered ask would stall the turn forever. This takes the plain "allow once"
 /// the harness offered — falling back to whatever other option allows — and nothing else: a
-/// library embedder answers for itself. See `_docs/io-modes.md` §"Permissions".
+/// library embedder answers for itself. See `_docs/io-modes.md` §"Permissions and cancellation".
 fn unattended_answer(ev: &crate::io::AgentEvent) -> Option<crate::io::AgentInput> {
     let crate::io::AgentEvent::PermissionRequest {
         request_id,

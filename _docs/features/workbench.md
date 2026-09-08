@@ -60,6 +60,17 @@ the user *talks to* the agents; Orchestration is where the user *arranges* them.
 who spawned whom, a column is a transcript and a composer, and neither screen draws the other's
 view. Both read one projection of what the host reports about a project.
 
+**The state dot is on a column's title, and on every one of its tabs.** Four readings and only
+four — **yellow wants you, blue is working, green is idle, grey has stopped** — from
+`ui::conversation::lifecycle_colour` over the live conversation's own `lifecycle`, so the dot a
+column wears, the dot on each of its tabs and the mark the chat panel's toolbar draws are one
+answer. It sits *before* the agent's name, because the dot is what the eye lands on when it is
+scanning a row of columns rather than reading one, and a reader hunting for the conversation that
+wants them looks at the title rather than a line below it. An agent the host reports but is not
+streaming has no lifecycle to read and keeps its activity colour: a record is not idle, it is a
+record. The reading in a grouped column's tabs comes from the same function as its title's, so the
+two cannot disagree about which of its agents wants something.
+
 **A column is a place to talk to an agent, not a place an agent lives.** Which column an agent's
 conversation is drawn in is the interface's own fact: no message carries it and no drop sends one,
 the same rule the graph's card positions follow. What the host owns is which agents exist and what
@@ -112,16 +123,22 @@ brings it back. Nothing on this screen kills an agent — `Close all` benches th
 way a single close does. Ending an agent for good is the shared conversation view's own three-dots
 menu, below, not a gesture on the tab.
 
-**A three-dots menu, top left of the shared conversation view, is where a live agent's four
+**A three-dots menu, top left of the shared conversation view, is where a live agent's five
 lifecycle verbs live.** Stop (`CancelTurn`) interrupts the turn in flight and leaves the harness up.
-Unload (`UnloadConversation`) kills the harness but keeps the conversation, its transcript and its
-run directory — the pickers return, exactly as a conversation that has not launched yet reads.
+Abort (`AbortConversation`) kills the harness's process outright, keeping the conversation, its
+transcript and its run directory, so Resume brings it back — it is what is left when a harness has
+stopped answering and Stop has nothing to interrupt it with, the one verb that does not ask.
+Unload (`UnloadConversation`) asks the harness to shut down and keeps the same three things — the
+pickers return, exactly as a conversation that has not launched yet reads.
 Resume (`ResumeConversation`) starts the harness again under the same agent, with no prompt. Delete
 (`EndConversation`) ends the conversation outright, taking the run directory and the transcript with
-it, and is the one item confirmed before it fires rather than acted on the click. Each item disables
-rather than disappears when it does not apply — Stop only while a turn runs, Unload only while
-launched, Resume only while it is not, Delete always — so the menu's shape never changes under the
-cursor. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
+it, and is the one item confirmed before it fires rather than acted on the click — it is the only
+irreversible one of the five. Each item disables
+rather than disappears when it does not apply — Stop only while a turn runs, Abort and Unload only
+while launched, Resume only while it is not, Delete always — so the menu's shape never changes under
+the cursor. The labels are one list, `LIFECYCLE_ROWS`, because
+`ui::conversation::lifecycle_menu_enabled` answers by position and a label in one copy of the list
+and not another is a menu whose rows do the wrong thing. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
 delete does not.
 
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
@@ -2171,6 +2188,12 @@ down a carry whose drag ended where the canvas's drop handler never sees it. `ui
 is the frame; `graph.rs`, `inspector.rs` and `tasks.rs` are its three areas, painted from the layers
 in `ui/kit/canvas.rs`.
 
+`ui/conversation/mod.rs` is the one place a *conversation's* state becomes a colour:
+`lifecycle_colour()` puts the four lifecycle readings on four status tokens, and every surface that
+draws a state dot — the column's title, each of its tabs, the chat panel's toolbar mark — calls it
+rather than keeping a palette. `ui/agents/column.rs` falls back to `activity_colour()` for an agent
+with no live conversation behind it.
+
 `ui/work.rs` is the one place a work state becomes a colour, for every screen that draws one.
 `activity_colour()` and `bucket_colour()` put the four buckets on the four status tokens — the three
 ways of working share the one that means "moving" — and `role_icon()` and `role_mark()` are the glyph
@@ -2244,7 +2267,9 @@ explorer's. `reveal_agent()`, `group_agent_into()`, `bench_agent()`, `select_col
 `settle_tab_drag()` are the drag, the last putting down a tab whose drag ended where no drop handler
 sees it. `steer_column()` is the one thing this screen sends through the Enter key, and appends
 nothing itself; `close_all_conversations()` is `bench_agent()` for every tab in every column, not
-`end_conversation()`. `fill_columns()` gives each composer its placeholder and its draft, drained in
+`end_conversation()`. The lifecycle menu's five rows resolve by position through
+`pick_conversation_menu()` onto `cancel_turn()`, `abort_agent()`, `unload_agent()`,
+`resume_agent()` and the confirm `end_conversation()` fires from. `fill_columns()` gives each composer its placeholder and its draft, drained in
 `render` for the reason `fill_task_form()` is: `set_placeholder` and `set_value` both need a window,
 and an arriving message, a project switch and a jump from another screen have none. `MenuId::AgentBench`
 carries the column its `+` was clicked in, because a row of columns has one each and only one menu

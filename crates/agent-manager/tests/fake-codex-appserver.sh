@@ -16,6 +16,15 @@
 #      then the script exits. This is the key behavior under test: the
 #      script terminates on its own once the turn is "done", so the
 #      integration test's event-drain loop returns rather than hanging.
+#   5. `turn/interrupt` request -> response with an empty `result`, then a
+#      `turn/completed` notification: the turn ends, the thread does not.
+#
+# Two env vars, both optional, both for the cancellation test:
+#   - `AM_FAKE_CODEX_STAY` set  -> do NOT exit after a turn, so the same
+#     process can be interrupted and then take another turn (which is what
+#     `turn/interrupt` leaving the session alive means).
+#   - `AM_FAKE_STDIN` set       -> append every stdin line read to that file,
+#     so a test can assert what the bridge actually wrote.
 #
 # **Key order is not fixed, and nothing here may assume it is.** `serde_json`
 # sorts object keys alphabetically only in its default configuration; with the
@@ -43,6 +52,9 @@ extract_id() {
 }
 
 while IFS= read -r line; do
+    if [ -n "$AM_FAKE_STDIN" ]; then
+        printf '%s\n' "$line" >>"$AM_FAKE_STDIN"
+    fi
     case "$line" in
         *'"method":"initialize"'*)
             extract_id "$line"
@@ -61,8 +73,16 @@ while IFS= read -r line; do
             echo '{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item-1","itemType":"agentMessage","text":"hello from fake codex"}}}'
             echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"usage":{"input_tokens":3,"output_tokens":4}}}}'
             # The turn is done — exit so the script (and the pipe) closes
-            # rather than blocking on another `read`.
-            exit 0
+            # rather than blocking on another `read`, unless the test wants
+            # the session to outlive the turn.
+            if [ -z "$AM_FAKE_CODEX_STAY" ]; then
+                exit 0
+            fi
+            ;;
+        *'"method":"turn/interrupt"'*)
+            extract_id "$line"
+            echo "{\"id\":$id,\"jsonrpc\":\"2.0\",\"result\":{}}"
+            echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{}}}'
             ;;
     esac
 done

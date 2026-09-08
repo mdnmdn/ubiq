@@ -11,7 +11,7 @@
 //!
 //! Every mutator ends in `cx.notify()`. One that forgets is a panel that stops updating.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
@@ -26,7 +26,7 @@ use crate::state::agents::{
 };
 use crate::state::board::{BoardState, Field};
 use crate::state::chat::{ChatPick, ChatPicks, attach_choices, chat_picks, free_chat_slot};
-use crate::state::conversation::{Conversation, Run};
+use crate::state::conversation::{Conversation, Run, TranscriptScroll};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
 use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
@@ -535,14 +535,14 @@ pub struct AppState {
     /// first frame, and a column borrows the slot it is given. `AgentsView::drafts` is the other
     /// half, indexed the same way.
     pub column_inputs: Vec<Entity<TextareaState>>,
-    /// One transcript scroll handle per composer slot, indexed exactly as `column_inputs` is, each
-    /// paired with the last transcript signature it followed to the bottom for.
+    /// One transcript scroll state per composer slot, indexed exactly as `column_inputs` is.
     ///
-    /// The signature is what keeps the follow from fighting the reader: the transcript scrolls
-    /// only when the conversation's tail actually moved, so scrolling up in a quiet conversation
-    /// stays where it was put. A [`Cell`] because `render` holds `&AppState` and there is no
-    /// mutable path to it from inside an element.
-    pub transcript_scrolls: Vec<(ScrollHandle, Cell<u64>)>,
+    /// [`TranscriptScroll`] owns every between-frames decision the transcript makes — where the
+    /// reader was in each transcript this slot has shown, whether they are reading the tail, and
+    /// which block the "needs you" strip asked to be taken to — so the view stays a drawing of
+    /// what it is handed. Per slot because the handle belongs to the element the pool built; per
+    /// transcript within it because switching to a delegate is arriving somewhere else.
+    pub transcript_scrolls: Vec<TranscriptScroll>,
     /// How tall each composer slot has been dragged to, in text rows, indexed exactly as
     /// `column_inputs` is. `None` is the pool's own behaviour — one row, growing to
     /// [`COMPOSER_ROWS_MAX_DEFAULT`] as what is typed needs it. `Some(rows)` is a field the user

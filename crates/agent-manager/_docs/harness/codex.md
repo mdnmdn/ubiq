@@ -753,8 +753,19 @@ The app-server issues server→client approval requests; auto-accept all of them
 ### Process lifecycle
 
 - **Framing:** newline-delimited JSON-RPC in both directions over stdio.
-- **Cancellation:** close stdin to signal the app-server to stop → wait ~10 s for the reader to drain → `Wait` up to ~10 s more → if still alive, `SIGKILL` the entire process group (negative PID on Unix).
-- **Minimum versions:** `app-server --listen stdio://` requires Codex ≥ 0.100.0; per-model reasoning discovery requires ≥ 0.131.0.
+- **Interrupting a turn:** the `turn/interrupt` request, which aborts the running turn and leaves
+  the thread — and the process — alive for the next `turn/start`. Params are
+  `{"threadId": "<id>", "turnId": "<id>"}`, both required; the response is an empty object, and the
+  turn's end arrives as the usual `turn/completed` (legacy dialect: `turn_aborted`). The turn id is
+  stated in exactly one place, `turn/start`'s own ack (`result.turn.id`), so a client that does not
+  keep it has nothing to interrupt with — `io/codex.rs` records it there and takes it on a cancel.
+  Interrupting with no turn running answers the error `no active turn to interrupt`, which is a
+  race rather than a fault and is logged rather than raised. *(Verified against codex-cli 0.152.1:
+  `codex app-server generate-json-schema` emits `TurnInterruptParams` — `threadId` + `turnId`, both
+  in `required` — and `turn/interrupt` is one of `ClientRequest`'s three `turn/*` methods beside
+  `turn/start` and `turn/steer`.)*
+- **Ending the session:** close stdin to signal the app-server to stop → wait ~10 s for the reader to drain → `Wait` up to ~10 s more → if still alive, `SIGKILL` the entire process group (negative PID on Unix). `io/codex.rs` splits the two: `AgentInput::Cancel` sends `turn/interrupt`, `AgentInput::Shutdown` (and `Drop`) closes stdin.
+- **Minimum versions:** `app-server --listen stdio://` requires Codex ≥ 0.100.0; per-model reasoning discovery requires ≥ 0.131.0. `turn/interrupt` is part of the same v2 `turn/*` family as `turn/start`, so a build that has one has the other.
 
 ### Model discovery & selection (agent-manager)
 

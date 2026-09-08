@@ -7,6 +7,14 @@
 //! behind it. The left edge takes the active agent's activity colour, so a row of columns reads as
 //! a row of states from across the window.
 //!
+//! **The state dot is on the title, and on every tab.** Four readings and only four — yellow wants
+//! you, blue is working, green is idle, grey has stopped — from
+//! [`conversation::lifecycle_colour`], so the dot a column wears and the dot the chat panel wears
+//! are the same answer. It used to sit in the lifecycle strip under the title, which is a line
+//! below where a reader scanning a row of columns for the one that wants them actually looks. An
+//! agent the host is not streaming has no lifecycle to read and keeps its activity colour: a
+//! record is not idle, it is a record.
+//!
 //! **A tab is dragged, not reordered.** Dropped on another column it groups; dropped past the last
 //! one it splits off. Both are the same gesture from the user's side, and neither sends anything —
 //! the arrangement is this window's own.
@@ -20,6 +28,7 @@
 //! agent that is a record and nothing more keeps the thread and the composer below. The chrome
 //! above is the same either way, because a column is a column whichever it holds.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, AppContext as _, Context, ElementId, Focusable, InteractiveElement,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
@@ -104,9 +113,13 @@ pub fn render(
         .child(div().flex_1().min_w(px(0.)))
         .child(add_tab(app, column, window, cx));
 
+    // What the dot says, where there is a conversation to say it about.
+    let state = app
+        .conversation(agent.id, cx)
+        .map(|live| conversation::lifecycle_colour(conversation::lifecycle(live)));
     let root = root
         .child(strip)
-        .child(header(agent, held.tabs.len(), work, colour));
+        .child(header(agent, held.tabs.len(), work, colour, state));
 
     // A live agent is drawn by the one conversation view every surface shares; a mock keeps the
     // thread and the composer it has always had. Both are on screen at once, and which it is comes
@@ -150,7 +163,11 @@ fn tab(
     };
     let name: SharedString = agent.name.clone().into();
     let ghost = name.clone();
-    let colour = activity_colour(agent.activity);
+    // The same reading the title carries, so a grouped column's tabs and its title agree.
+    let colour = app
+        .conversation(id, cx)
+        .map(|live| conversation::lifecycle_colour(conversation::lifecycle(live)))
+        .unwrap_or_else(|| activity_colour(agent.activity));
 
     let mut row = div()
         .id(eid("agents-tab", id))
@@ -309,6 +326,7 @@ fn header(
     tabs: usize,
     work: &work::WorkProjection,
     colour: gpui::Rgba,
+    state: Option<gpui::Rgba>,
 ) -> AnyElement {
     let worktree = work
         .session(agent.session)
@@ -337,6 +355,11 @@ fn header(
                 .items_center()
                 .gap_2()
                 .child(role_mark(&agent.role, colour, 18.))
+                // Before the name, not after it: the dot is what the eye lands on first when it
+                // is scanning columns rather than reading one.
+                .when_some(state, |this, state| {
+                    this.child(status_dot(state, theme::pane_bg()))
+                })
                 .child(
                     div()
                         .text_size(px(14.))

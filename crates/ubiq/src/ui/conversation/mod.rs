@@ -35,7 +35,8 @@ use ubiq_proto::work::{Activity, AgentId};
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::conversation::{
-    Attachment, ConvBlock, Conversation, Pending, QueuedMessage, Run, short_model_label,
+    Attachment, ConvBlock, Conversation, Pending, QueuedMessage, Run, SubagentTab,
+    TranscriptScroll, short_model_label,
 };
 use crate::state::file_picker::{SizeReading, size_label, size_reading};
 use crate::theme;
@@ -45,7 +46,6 @@ use crate::ui::kit::{
     icon_button, mono, pill, primary_button, progress_ring, progress_ring_in, removable_tag,
     status_dot,
 };
-use crate::ui::work::activity_colour;
 use crate::ui::{handler, indexed};
 
 /// What differs between the surfaces that host a conversation.
@@ -58,10 +58,9 @@ pub struct ConversationView {
     pub slot: usize,
     pub footer: bool,
     pub composer: bool,
-    /// Whether this surface draws the lifecycle strip — the status glyph and the three-dots menu
-    /// — itself. The agents column keeps it; the chat panel draws the same two controls (via
-    /// [`lifecycle_controls`]) inline in its own toolbar row instead, so it sets this to `false`
-    /// rather than showing the strip twice.
+    /// Whether this surface draws the lifecycle strip — the three-dots menu — itself. The agents
+    /// column keeps it; the chat panel draws the same menu (via [`lifecycle_menu`]) inline in its
+    /// own toolbar row instead, so it sets this to `false` rather than showing the strip twice.
     pub header: bool,
 }
 
@@ -125,6 +124,7 @@ pub fn render(
             oldest,
             conversation.pending.len(),
             &view,
+            cx,
         ));
     }
     if let Some(error) = &conversation.error {
@@ -175,6 +175,7 @@ pub fn render(
         if view.footer {
             bottom = bottom.child(footer(
                 conversation,
+                &subagents,
                 app.workbench.settings.ui.show_cache_ring,
                 &view,
             ));
@@ -223,8 +224,13 @@ pub enum Lifecycle {
     Starting,
     /// Config is in hand and nothing blocks the next turn from launching one.
     Ready,
-    /// A turn is in flight. Carries which kind, so the glyph reads Thinking, Writing, Tools or
-    /// Needs you rather than flattening every turn to one look.
+    /// A turn is in flight and blocked on a human. Outranks [`Self::Working`] because it is the
+    /// one state that needs the reader to do something, and the one the title's dot exists to
+    /// carry across a window they are not looking at.
+    Waiting,
+    /// A turn is in flight. Carries which kind, so the tooltip reads Thinking, Writing or Tools
+    /// rather than flattening every turn to one word. Never `Activity::NeedsYou` — a blocked turn
+    /// is [`Self::Waiting`], which is tested before this.
     Working(Activity),
     /// Loaded, and waiting on the next turn.
     Idle,
@@ -241,6 +247,7 @@ impl Lifecycle {
         match self {
             Lifecycle::Starting => "Starting".to_string(),
             Lifecycle::Ready => "Ready".to_string(),
+            Lifecycle::Waiting => "Needs you".to_string(),
             Lifecycle::Working(activity) => format!("Working \u{b7} {}", activity.label()),
             Lifecycle::Idle => "Idle".to_string(),
             Lifecycle::Unloaded => "Unloaded".to_string(),
@@ -252,11 +259,15 @@ impl Lifecycle {
 /// Read the conversation's own fields into the one state the glyph draws.
 ///
 /// Order matters: ended outranks everything (a harness taking no more turns is not "working" just
-/// because a race left `run` behind), a turn in flight outranks idle, and only once neither applies
-/// does whether it has ever launched — and, if not, whether it has a transcript — decide the rest.
+/// because a race left `run` behind), a question outranks the turn it is blocking, a turn in flight
+/// outranks idle, and only once none of those applies does whether it has ever launched — and, if
+/// not, whether it has a transcript — decide the rest.
 pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
     if conversation.run == Run::Ended || !conversation.accepts_input {
         return Lifecycle::Ended;
+    }
+    if !conversation.pending.is_empty() {
+        return Lifecycle::Waiting;
     }
     if conversation.run == Run::Working {
         return Lifecycle::Working(conversation.activity());
@@ -274,23 +285,40 @@ pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
     }
 }
 
-/// Which of the four lifecycle-menu rows apply, in the order the menu draws them — Stop, Unload,
-/// Resume, Delete. A pure reading of the conversation's own state, pulled out of [`lifecycle_header`]
-/// so the enable/disable rule is testable on its own: Stop only while a turn is running, Unload
-/// only while launched, Resume only while not, Delete always (ending applies whatever the state).
-pub fn lifecycle_menu_enabled(conversation: &Conversation) -> [bool; 4] {
+/// Which of the five lifecycle-menu rows apply, in the order the menu draws them — Stop, Abort,
+/// Unload, Resume, Delete. A pure reading of the conversation's own state, pulled out of
+/// [`lifecycle_header`] so the enable/disable rule is testable on its own: Stop only while a turn
+/// is running, Abort and Unload only while launched, Resume only while not, Delete always (ending
+/// applies whatever the state).
+///
+/// **Stop and Abort are different verbs.** Stop interrupts the *turn* and leaves the harness to
+/// take the next one; Abort kills the *process*, which is what is left when a harness has stopped
+/// answering and Stop has nothing to interrupt it with. Abort keeps the conversation, so Resume
+/// brings it back — it is Delete that is irreversible, and only Delete is confirmed.
+/// The rows the lifecycle menu draws, in order. One list, because there were two and they were a
+/// row apart from disagreeing: [`lifecycle_menu_enabled`] answers by position, so a label added to
+/// one copy and not the other is a menu whose rows do the wrong thing.
+const LIFECYCLE_ROWS: [&str; 5] = ["Stop", "Abort", "Unload", "Resume", "Delete"];
+
+pub fn lifecycle_menu_enabled(conversation: &Conversation) -> [bool; 5] {
     [
         conversation.run != Run::Idle,
+        conversation.launched,
         conversation.launched,
         !conversation.launched,
         true,
     ]
 }
 
-/// The bordered strip the agents column draws above its transcript: [`lifecycle_controls`] inside
-/// a header row of its own. The chat panel draws the same controls (see
+/// The bordered strip the agents column draws above its transcript: [`lifecycle_menu`] inside a
+/// header row of its own. The chat panel draws the same menu (see
 /// [`crate::ui::chat::sidebar::header`]) inline in its own toolbar instead of this strip, which is
 /// why `view.header` gates whether [`render`] calls this at all.
+///
+/// **The state dot is not here.** It is on the column's title, beside the agent's name, where a
+/// reader scanning a row of columns for the one that wants them is already looking — see
+/// [`crate::ui::agents::column`]. A dot in this strip as well would be the same fact twice, a
+/// line apart.
 fn lifecycle_header(
     app: &AppState,
     conversation: &Conversation,
@@ -307,94 +335,22 @@ fn lifecycle_header(
         .border_b_1()
         .border_color(theme::border())
         .debug_selector(|| "lifecycle-strip".into())
-        .child(lifecycle_controls(app, conversation, view, cx))
+        .child(lifecycle_menu(app, conversation, view, cx))
         .into_any_element()
-}
-
-/// The status glyph and the three-dots lifecycle menu — Stop, Unload, Resume, Delete — together,
-/// as a fragment with no strip of its own around them. [`lifecycle_header`] wraps this in the
-/// agents column's bordered row; the chat panel's toolbar drops it straight into its one row of
-/// controls instead, beside New chat and New tab. One function either way, so the two surfaces can
-/// never disagree about which lifecycle state is shown or which menu row is enabled.
-///
-/// Each menu item disables rather than hides, so the menu's shape never changes under the cursor.
-pub fn lifecycle_controls(
-    app: &AppState,
-    conversation: &Conversation,
-    view: &ConversationView,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let id = conversation.id;
-    let entity = cx.entity();
-
-    let enabled = lifecycle_menu_enabled(conversation);
-    let labels = ["Stop", "Unload", "Resume", "Delete"];
-    let items: Vec<ContextItem> = labels
-        .into_iter()
-        .zip(enabled)
-        .map(|(label, enabled)| {
-            let item = ContextItem::new(label);
-            if enabled { item } else { item.disabled() }
-        })
-        .collect();
-
-    let button = div()
-        .id(view.eid("lifecycle"))
-        .h(px(20.))
-        .w(px(20.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
-        .child(
-            Icon::new(IconName::EllipsisVertical)
-                .with_size(Size::XSmall)
-                .text_color(theme::text_muted()),
-        )
-        .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-            let at = event.position();
-            this.open_conversation_menu(id, (at.x.into(), at.y.into()), cx);
-        }))
-        .tooltip(|window, cx| {
-            gpui_component::tooltip::Tooltip::new("Conversation actions").build(window, cx)
-        });
-
-    let mut row = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_1p5()
-        .child(lifecycle_glyph(conversation, view))
-        .child(button);
-
-    if app.workbench.open_menu == Some(MenuId::ConversationLifecycle(id)) {
-        let at = app.workbench.conversation_menu.unwrap_or_default();
-        row = row.child(context_menu(
-            view.eid("lifecycle-menu"),
-            point(px(at.0), px(at.1)),
-            items,
-            indexed(&entity, move |this, index, _window, cx| {
-                this.pick_conversation_menu(id, index, cx);
-            }),
-            handler(&entity, |this, _, cx| this.dismiss_conversation_menu(cx)),
-        ));
-    }
-
-    row.into_any_element()
 }
 
 /// The state mark on its own, for a surface that puts it somewhere other than beside the menu.
 ///
 /// The chat tab's head reads left to right — what the conversation *is*, then what it is *on*,
-/// then what can be *done to it* — so it wants the two halves of [`lifecycle_controls`] at
-/// opposite ends of one row rather than as a pair. Same glyph, same tooltip, same colours: this
-/// is the shared fragment, not a second one.
+/// then what can be *done to it* — so it wants the mark and [`lifecycle_menu`] at opposite ends
+/// of one row rather than as a pair. Same glyph, same tooltip, same colours as the dot the agents
+/// column draws on its title: this is the shared fragment, not a second one.
 pub fn lifecycle_mark(conversation: &Conversation, view: &ConversationView) -> AnyElement {
     lifecycle_glyph(conversation, view)
 }
 
-/// The three-dots menu on its own, the other half of [`lifecycle_controls`].
+/// The three-dots menu on its own, the other half of [`lifecycle_mark`]. The whole of the
+/// lifecycle strip the agents column draws, and the far end of the chat panel's toolbar row.
 pub fn lifecycle_menu(
     app: &AppState,
     conversation: &Conversation,
@@ -405,7 +361,7 @@ pub fn lifecycle_menu(
     let entity = cx.entity();
 
     let enabled = lifecycle_menu_enabled(conversation);
-    let labels = ["Stop", "Unload", "Resume", "Delete"];
+    let labels = LIFECYCLE_ROWS;
     let items: Vec<ContextItem> = labels
         .into_iter()
         .zip(enabled)
@@ -474,15 +430,23 @@ fn lifecycle_glyph(conversation: &Conversation, view: &ConversationView) -> AnyE
         .into_any_element()
 }
 
-/// The colour a lifecycle glyph draws. `Working` carries `Activity`'s own reading rather than
-/// flattening every turn to one colour; the rest borrow the same tokens the bucket colours already
-/// use, so a glyph never invents a fourth meaning for a colour the window already assigns one.
-fn lifecycle_colour(state: Lifecycle) -> Rgba {
+/// The colour a lifecycle dot draws — four readings, and only four.
+///
+/// **Yellow needs you, blue is working, green is idle, grey is stopped.** The dot is read at a
+/// glance from across a window full of columns, so what it has to answer is "does this one want
+/// me", and four colours is as many as that glance can hold. `Working` is one blue rather than
+/// `Activity`'s own palette for the same reason: which *kind* of work is a question the reader is
+/// already looking at the transcript to answer, and spending the dot on it costs the one reading
+/// nothing else carries.
+///
+/// Every value is a status token the window already assigns this meaning, so a dot never invents
+/// a colour.
+pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
     match state {
-        Lifecycle::Starting | Lifecycle::Ended => theme::text_faint(),
-        Lifecycle::Ready | Lifecycle::Idle => theme::info(),
-        Lifecycle::Working(activity) => activity_colour(activity),
-        Lifecycle::Unloaded => theme::warning(),
+        Lifecycle::Waiting => theme::warning(),
+        Lifecycle::Working(_) => theme::info(),
+        Lifecycle::Ready | Lifecycle::Idle => theme::success(),
+        Lifecycle::Starting | Lifecycle::Unloaded | Lifecycle::Ended => theme::text_faint(),
     }
 }
 
@@ -492,8 +456,12 @@ fn lifecycle_colour(state: Lifecycle) -> Rgba {
 /// A streaming chunk lengthens the last block, so this moves on every token without hashing the
 /// whole transcript once a frame — and it does *not* move when nothing was said, which is what
 /// lets [`transcript`] follow the tail without dragging a reader who scrolled up back down.
-fn tail_signature(conversation: &Conversation) -> u64 {
-    let tail = match conversation.blocks.last() {
+/// Read over the blocks *on screen* rather than over all of them, because that is the tail being
+/// followed: while a delegate's transcript is up, the main agent writing below it is not the tail
+/// of anything the reader can see, and following it would scroll a transcript nothing was added
+/// to.
+fn tail_signature(conversation: &Conversation, visible: &[(usize, &ConvBlock)]) -> u64 {
+    let tail = match visible.last().map(|(_, block)| block) {
         Some(
             ConvBlock::User(text)
             | ConvBlock::Agent { body: text, .. }
@@ -507,7 +475,83 @@ fn tail_signature(conversation: &Conversation) -> u64 {
     // The run is part of it: the writing indicator appears and disappears without a block being
     // added, and a tail that did not notice would leave it under the fold.
     let run = conversation.run as u64;
-    (conversation.blocks.len() as u64).wrapping_mul(1_000_003) ^ tail as u64 ^ run.wrapping_mul(31)
+    (visible.len() as u64).wrapping_mul(1_000_003) ^ tail as u64 ^ run.wrapping_mul(31)
+}
+
+/// The children the transcript is building, each paired with the block it stands for.
+///
+/// Two jobs, both of which need the child's *position* and so cannot be done by the caller. It
+/// records which block each child is, so a request to be taken to a block can be resolved to a
+/// child to scroll to; and above [`TranscriptScroll::windows`] blocks it leaves a child that the
+/// last frame painted well outside the viewport unbuilt, standing in the exact height it had.
+///
+/// **The stand-in is measured, never guessed.** A placeholder of the height the child actually
+/// had keeps the content above and below it exactly where it was, so nothing about the scroll
+/// position changes — which is the whole reason the reader can be spared the markdown, the diffs
+/// and the syntax highlighting of a hundred blocks they are not looking at.
+struct Built<'a> {
+    children: Vec<AnyElement>,
+    /// Which block each child stands for, `None` for a child that is not one — the writing mark,
+    /// an unattached prompt, the empty note.
+    anchors: Vec<Option<usize>>,
+    scroll: Option<&'a TranscriptScroll>,
+    windowing: bool,
+}
+
+impl<'a> Built<'a> {
+    fn new(scroll: Option<&'a TranscriptScroll>, blocks: usize) -> Self {
+        Self {
+            children: Vec::new(),
+            anchors: Vec::new(),
+            windowing: scroll.is_some_and(|scroll| scroll.windows(blocks)),
+            scroll,
+        }
+    }
+
+    /// The space this child stood in last frame, where it is far enough off screen to be left
+    /// unbuilt. `None` means build it.
+    fn gap(&self) -> Option<AnyElement> {
+        if !self.windowing {
+            return None;
+        }
+        let scroll = self.scroll?;
+        let bounds = scroll.child_bounds(self.children.len())?;
+        if scroll.near_viewport(bounds) {
+            return None;
+        }
+        Some(div().flex_none().h(bounds.size.height).into_any_element())
+    }
+
+    /// Add the child standing for `block`, building it only if it is worth building.
+    fn push(&mut self, block: usize, build: impl FnOnce() -> AnyElement) {
+        let child = self.gap().unwrap_or_else(build);
+        self.children.push(child);
+        self.anchors.push(Some(block));
+    }
+
+    /// Add a child that is not a block, and is always built.
+    fn extra(&mut self, child: AnyElement) {
+        self.children.push(child);
+        self.anchors.push(None);
+    }
+
+    /// Which child to scroll to, to bring a block into view. The block's own child where it has
+    /// one; otherwise the last child before it, which is where a folded-away block is drawn.
+    fn child_for(&self, block: usize) -> Option<usize> {
+        if let Some(exact) = self
+            .anchors
+            .iter()
+            .position(|anchor| *anchor == Some(block))
+        {
+            return Some(exact);
+        }
+        self.anchors
+            .iter()
+            .enumerate()
+            .filter(|(_, anchor)| anchor.is_some_and(|anchor| anchor <= block))
+            .map(|(ix, _)| ix)
+            .next_back()
+    }
 }
 
 /// How many same-kind tool cards in a row it takes before the run is folded. Below this the fold
@@ -664,7 +708,16 @@ fn transcript(
     // part a reader is following; once it finishes the row is the entire run. Either way the row
     // says how many it stands for and opens to show them.
     let visible = conversation.visible_blocks();
-    let mut blocks: Vec<AnyElement> = Vec::new();
+    let scroll = app.transcript_scrolls.get(view.slot);
+    // Where the reader is put before anything is drawn: a transcript switched to is restored to
+    // where it was left, and one whose tail moved is followed only for a reader already on it.
+    if let Some(scroll) = scroll {
+        scroll.sync(
+            (id, conversation.viewing_subagent().map(str::to_string)),
+            tail_signature(conversation, &visible),
+        );
+    }
+    let mut blocks = Built::new(scroll, visible.len());
     let mut at = 0usize;
     while at < visible.len() {
         let (ix, block) = visible[at];
@@ -704,62 +757,49 @@ fn transcript(
                         if matches!(call.status, ToolStatus::Pending | ToolStatus::InProgress)
                 );
                 let hidden = if running { end - at - 1 } else { end - at };
-                blocks.push(tool_group(id, &key, kind, hidden, running, open, view, cx));
+                blocks.push(ix, || {
+                    tool_group(id, &key, kind, hidden, running, open, view, cx)
+                });
                 if open {
                     for &(hidden_ix, block) in &visible[at..at + hidden] {
-                        blocks.push(one_block(
-                            conversation,
-                            id,
-                            hidden_ix,
-                            block,
-                            &attached,
-                            view,
-                            &root,
-                            cx,
-                        ));
+                        blocks.push(hidden_ix, || {
+                            one_block(
+                                conversation,
+                                id,
+                                hidden_ix,
+                                block,
+                                &attached,
+                                view,
+                                &root,
+                                cx,
+                            )
+                        });
                     }
                 }
                 if running {
-                    blocks.push(one_block(
-                        conversation,
-                        id,
-                        last_ix,
-                        last,
-                        &attached,
-                        view,
-                        &root,
-                        cx,
-                    ));
+                    blocks.push(last_ix, || {
+                        one_block(conversation, id, last_ix, last, &attached, view, &root, cx)
+                    });
                 }
                 at = end;
                 continue;
             }
         }
-        blocks.push(one_block(
-            conversation,
-            id,
-            ix,
-            block,
-            &attached,
-            view,
-            &root,
-            cx,
-        ));
+        blocks.push(ix, || {
+            one_block(conversation, id, ix, block, &attached, view, &root, cx)
+        });
         at += 1;
     }
 
     // A request whose call the transcript does not hold — the patch carried nothing but an id, or
     // the request outran the call announcing it. Self-contained, and still answerable.
-    blocks.extend(
-        adrift
-            .into_iter()
-            .map(|request| permission(id, request, None, view, cx))
-            .collect::<Vec<_>>(),
-    );
+    for request in adrift {
+        blocks.extra(permission(id, request, None, view, cx));
+    }
 
     // Last, so a transcript holding only an unattached prompt reads as the question it is.
-    if blocks.is_empty() {
-        blocks.push(
+    if blocks.children.is_empty() {
+        blocks.extra(
             mono("nothing said yet", theme::text_faint())
                 .text_size(px(11.5))
                 .into_any_element(),
@@ -770,14 +810,14 @@ fn transcript(
     // reader waits, so that is where the waiting is drawn. Not while a prompt is up — the question
     // on screen is what is happening, and two marks would compete to say so.
     if conversation.run == Run::Working && conversation.pending.is_empty() {
-        blocks.push(writing_mark(
+        blocks.extra(writing_mark(
             conversation.activity(),
             mark_variant(conversation),
             view,
         ));
     }
 
-    let mut root = div()
+    let mut body = div()
         .id(view.eid("transcript"))
         .flex()
         .flex_col()
@@ -790,19 +830,74 @@ fn transcript(
         .text_color(theme::text())
         .overflow_y_scroll();
 
-    // Follow the tail, and only the tail: the handle is scrolled down when the signature it last
-    // followed has changed, so a quiet conversation the reader has scrolled up in stays where they
-    // put it.
-    if let Some((handle, followed)) = app.transcript_scrolls.get(view.slot) {
-        let signature = tail_signature(conversation);
-        if followed.get() != signature {
-            followed.set(signature);
-            handle.scroll_to_bottom();
+    if let Some(scroll) = scroll {
+        // Somewhere to be taken to, asked for by the strip that named the prompt. Resolved here
+        // rather than where it was asked for, because only the frame that built the children
+        // knows which child a block ended up as.
+        match scroll
+            .take_request()
+            .and_then(|block| blocks.child_for(block))
+        {
+            Some(child) => scroll.handle.scroll_to_top_of_item(child),
+            // The frame that switched transcripts is measuring the one it left, so it cannot
+            // answer a jump — it asks for the frame that can. Self-terminating: the next frame
+            // is settled, answers, and clears the request.
+            None if scroll.request_held() => cx.notify(),
+            None => {}
         }
-        root = root.track_scroll(handle);
+        body = body.track_scroll(&scroll.handle);
     }
+    body = body.children(blocks.children);
 
-    root.children(blocks).into_any_element()
+    // The jump sits over the transcript rather than in the column, so nothing moves when it
+    // appears and the last line stays readable under it.
+    let mut framed = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .relative()
+        .child(body);
+    if scroll.is_some_and(TranscriptScroll::away) {
+        framed = framed.child(to_tail_button(view, cx));
+    }
+    framed.into_any_element()
+}
+
+/// The overlay that puts a reader who has scrolled up back on the tail.
+///
+/// Drawn only while there is something below the viewport, because a button that is always there
+/// is a button that says nothing. It scrolls; it does not mark anything read and does not resume
+/// following on its own — the next thing said does that, which is what the reader asked for by
+/// coming back down.
+fn to_tail_button(view: &ConversationView, cx: &mut Context<AppState>) -> AnyElement {
+    let slot = view.slot;
+    div()
+        .id(view.eid("to-tail"))
+        .absolute()
+        .bottom_2()
+        .right_3()
+        .h(px(26.))
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .rounded_md()
+        .bg(theme::surface())
+        .border_1()
+        .border_color(theme::border())
+        .shadow_sm()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(IconName::ArrowDown)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_muted()),
+        )
+        .child(mono("Go to last message", theme::text_muted()).text_size(px(10.5)))
+        .on_click(cx.listener(move |this, _, _, cx| this.scroll_transcript_to_tail(slot, cx)))
+        .into_any_element()
 }
 
 /// The hit area of the strip that resizes the composer. Wide enough to grab, and drawn as nothing
@@ -1393,13 +1488,24 @@ fn permission(
 /// the transcript.
 ///
 /// Answering is blocking, so a prompt scrolled out of sight would read as an agent that had
-/// stopped for no reason. Compact on purpose: the answers live on the prompt, beside the operation
-/// they authorise, and duplicating them here would put the same question on screen twice.
+/// stopped for no reason.
+///
+/// **The strip is answerable, and it is the way to the prompt.** It carries yes / no / all for the
+/// oldest request, because the one control on screen when a turn is blocked should be the one that
+/// unblocks it — a strip that only reported the question made a reader hunt for the prompt to
+/// answer a question they had already read. Clicking anywhere else on it does that hunt for them:
+/// it switches to whoever raised the request and scrolls to the call it authorises, so the two
+/// ways of answering lead to the same place rather than competing.
+///
+/// **It counts, it does not list.** With several up it names the oldest and says how many are
+/// behind it; the rest are answered by working through them, one strip at a time, because each
+/// one's options are its own.
 fn needs_you_strip(
     conversation: &Conversation,
     oldest: &Pending,
     waiting: usize,
     view: &ConversationView,
+    cx: &mut Context<AppState>,
 ) -> AnyElement {
     // The same join the prompt itself does: the patch names the operation only sometimes, and the
     // call in the transcript names it always.
@@ -1417,13 +1523,60 @@ fn needs_you_strip(
             }
         })
         .unwrap_or_else(|| "an operation".to_string());
-    let label = if waiting > 1 {
-        format!("{what} — and {} more waiting", waiting - 1)
-    } else {
-        what
-    };
+    // Whose question it is, named where it is not this transcript's own: with a delegate blocked
+    // and the main agent on screen, "an operation" is not enough to go on.
+    let whose = conversation
+        .pending_subagent(oldest)
+        .map(|id| conversation.subagent_name(id));
 
-    div()
+    let agent = conversation.id;
+    let slot = view.slot;
+    let request = oldest.request_id.clone();
+
+    // One button per reading the request actually offered, and none for a reading it did not.
+    let answers = [
+        (
+            "yes",
+            "Yes",
+            true,
+            oldest
+                .option_for(true)
+                .map(|option| option.option_id.clone()),
+        ),
+        (
+            "all",
+            "All",
+            true,
+            oldest
+                .always_option()
+                .map(|option| option.option_id.clone()),
+        ),
+        (
+            "no",
+            "No",
+            false,
+            oldest
+                .option_for(false)
+                .map(|option| option.option_id.clone()),
+        ),
+    ];
+    let buttons: Vec<AnyElement> = answers
+        .into_iter()
+        .filter_map(|(part, label, allows, option)| {
+            let option = option?;
+            let answer_for = request.clone();
+            let click = cx.listener(move |this, _, _, cx| {
+                this.answer_permission(agent, answer_for.clone(), option.clone(), cx)
+            });
+            Some(if allows {
+                primary_button(view.eid(part), None, label, click).into_any_element()
+            } else {
+                ghost_button(view.eid(part), None, label, click).into_any_element()
+            })
+        })
+        .collect();
+
+    let mut strip = div()
         .id(view.eid("needs-you"))
         .px_3()
         .py_1p5()
@@ -1439,14 +1592,65 @@ fn needs_you_strip(
                 .with_size(Size::XSmall)
                 .text_color(theme::warning()),
         )
-        .child(mono("NEEDS YOU", theme::warning()).text_size(px(10.5)))
+        .child(mono("NEEDS YOU", theme::warning()).text_size(px(10.5)));
+
+    // The count is a mark rather than a clause: "and 3 more waiting" read as part of what the
+    // operation was, and the number is the part a reader is counting down.
+    if waiting > 1 {
+        strip = strip.child(waiting_count(waiting, view));
+    }
+
+    strip
         .child(
-            mono(label, theme::text_muted())
+            div()
+                .id(view.eid("needs-you-go"))
+                .flex()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(11.5)),
+                .items_center()
+                .gap_1p5()
+                .cursor_pointer()
+                .when_some(whose, |this, whose| {
+                    this.child(mono(whose, theme::warning()).text_size(px(11.)))
+                })
+                .child(
+                    mono(what, theme::text_muted())
+                        .flex_1()
+                        .min_w(px(0.))
+                        .text_size(px(11.5)),
+                )
+                .tooltip(|window, cx| {
+                    gpui_component::tooltip::Tooltip::new("Go to what is waiting").build(window, cx)
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.reveal_permission(agent, slot, request.clone(), cx)
+                })),
         )
+        .children(buttons)
         .child(mono("⌘⌥Y / ⌘⌥N", theme::text_faint()).text_size(px(10.5)))
+        .into_any_element()
+}
+
+/// How many requests are outstanding, drawn as a count and only above one.
+fn waiting_count(waiting: usize, view: &ConversationView) -> AnyElement {
+    div()
+        .id(view.eid("needs-you-count"))
+        .h(px(16.))
+        .min_w(px(16.))
+        .px_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(theme::warning())
+        .child(mono(waiting.to_string(), theme::pane_bg()).text_size(px(10.)))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(format!(
+                "{waiting} requests waiting — the oldest is named here"
+            ))
+            .build(window, cx)
+        })
         .into_any_element()
 }
 
@@ -1463,6 +1667,46 @@ fn tipped(id: ElementId, label: String, tip: String, colour: Rgba) -> AnyElement
             gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
         })
         .into_any_element()
+}
+
+/// What the `tot` readout stands for while a delegate's transcript is up.
+///
+/// Says the two things a reader has to know to trust the number: it is this delegate's spend
+/// rather than the conversation's, and it is banked per delegate *type*, so where several of a
+/// type ran it is their sum. The wire has no finer grain — `UsageRecord::subagent` is a type on
+/// purpose — and a footer that quietly presented a shared bucket as one instance's would be
+/// drawing a guess as a count.
+fn delegate_spend_tip(
+    conversation: &Conversation,
+    subagents: &[SubagentTab],
+    tab: &SubagentTab,
+) -> String {
+    let Some(kind) = tab.kind.as_deref() else {
+        return format!("{} \u{2014} nothing counted for it yet", tab.name);
+    };
+    let Some((total, cached)) = conversation.subagent_tokens(kind) else {
+        return format!("{} \u{2014} nothing counted for it yet", tab.name);
+    };
+    let mut tip = format!(
+        "{total} tokens billed by {kind} delegates \u{b7} {cached} read back from cache \
+         \u{b7} a flow, only ever growing"
+    );
+    // Counted per type, so a reader comparing two rows of the same type is looking at one number
+    // twice. Said only where that is actually the case.
+    let same = subagents
+        .iter()
+        .filter(|other| other.kind.as_deref() == Some(kind))
+        .count();
+    if same > 1 {
+        tip.push_str(&format!(
+            " \u{b7} shared by all {same} {kind} delegates: the harness banks spend by type, \
+             not by instance"
+        ));
+    }
+    tip.push_str(
+        " \u{b7} no context level is reported for a delegate, so no ring is drawn beside it",
+    );
+    tip
 }
 
 /// The whole of what the `tot` readout stands for: what the three letters mean, then the five ways
@@ -1508,7 +1752,26 @@ fn spend_tip(conversation: &Conversation) -> String {
 ///
 /// The ring is drawn only where a window was reported. A percentage of a size nobody named is a
 /// wrong ring, and a wrong ring is worse than none.
-fn footer(conversation: &Conversation, cache_ring: bool, view: &ConversationView) -> AnyElement {
+///
+/// **The row reports whoever is being read.** With a delegate's transcript up it says what that
+/// delegate spent, not what the conversation spent — a reader looking at one agent's turns wants
+/// that agent's numbers, and the conversation's total is the one thing that is on screen either
+/// way from the switcher's count. Two limits of the wire show through here, and neither is papered
+/// over:
+///
+/// - **A delegate's spend is per *type*, not per instance.** `UsageRecord::subagent` is
+///   deliberately a type, so two `general-purpose` delegates share one bucket. The tooltip says
+///   so; nothing here divides a shared total between instances to make it look exact.
+/// - **A delegate has no context level at all.** A subagent's usage report repeats the *parent's*
+///   occupancy, so there is no per-delegate window to draw — and the parent's ring beside a
+///   delegate's transcript would be a number about somebody else. So the ring is dropped rather
+///   than borrowed, on the same rule as the paragraph above it.
+fn footer(
+    conversation: &Conversation,
+    subagents: &[SubagentTab],
+    cache_ring: bool,
+    view: &ConversationView,
+) -> AnyElement {
     // Which harness, and which identity answered — one chip, because they are one answer: this
     // conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
     // once, in the New agent menu, because a turn already taken was taken as somebody.
@@ -1565,14 +1828,34 @@ fn footer(conversation: &Conversation, cache_ring: bool, view: &ConversationView
         )
         .child(div().flex_1().min_w(px(0.)));
 
-    // Everything the conversation has spent, which is not what is in the window: a compacted
+    // Whose numbers the rest of the row is about. A delegate's transcript reports the delegate;
+    // the conversation's own reports the conversation, subagents folded in.
+    let delegate = conversation
+        .viewing_subagent()
+        .and_then(|id| subagents.iter().find(|tab| tab.id == id));
+    let (spend, spend_tip) = match delegate {
+        Some(tab) => (
+            tab.kind
+                .as_deref()
+                .and_then(|kind| conversation.subagent_tokens(kind)),
+            delegate_spend_tip(conversation, subagents, tab),
+        ),
+        None => (
+            conversation
+                .total_tokens()
+                .map(|total| (total, conversation.cached_tokens().unwrap_or(0))),
+            spend_tip(conversation),
+        ),
+    };
+
+    // Everything that has been spent, which is not what is in the window: a compacted
     // conversation has spent millions and holds thousands. Drawn only where the harness counts it
     // — a pill with nothing behind it is not drawn.
-    if let Some(total) = conversation.total_tokens() {
+    if let Some((total, _)) = spend {
         row = row.child(tipped(
             view.eid("total-tokens"),
             format!("{:.1}K tot", total as f32 / 1000.0),
-            spend_tip(conversation),
+            spend_tip,
             theme::text_muted(),
         ));
     }
@@ -1582,12 +1865,14 @@ fn footer(conversation: &Conversation, cache_ring: bool, view: &ConversationView
     // how-is-this-turn-going one, and the row is glanced at. Its own colour, because a second
     // accent ring beside the context one would read as the same fact twice.
     if cache_ring
-        && let (Some(total), Some(cached)) =
-            (conversation.total_tokens(), conversation.cached_tokens())
+        && let Some((total, cached)) = spend
         && total > 0
     {
         let pct = ((cached as f64 / total as f64) * 100.0).round() as u8;
-        let tip = format!("cached {cached} / {total} {pct}%");
+        let tip = match delegate {
+            Some(tab) => format!("cached {cached} / {total} {pct}% \u{2014} {}", tab.name),
+            None => format!("cached {cached} / {total} {pct}%"),
+        };
         row = row.child(
             div()
                 .id(view.eid("cache-ring"))
@@ -1601,7 +1886,9 @@ fn footer(conversation: &Conversation, cache_ring: bool, view: &ConversationView
         );
     }
 
-    if let Some(pct) = conversation.context_pct() {
+    // Only for the conversation's own transcript: no harness reports a delegate's own occupancy,
+    // and the parent's would be a reading about somebody else.
+    if let Some(pct) = conversation.context_pct().filter(|_| delegate.is_none()) {
         let used = conversation.tokens();
         let size = conversation.usage.as_ref().map_or(0, |usage| usage.size);
         // The ring and the count are one fact drawn twice — how full the window is right now — so
@@ -2083,15 +2370,23 @@ fn agent_switcher(
     let open = conversation.subagents_open;
 
     let state = lifecycle(conversation);
+    let main_waiting = conversation.pending_count(None);
+    let (main_status, main_colour) = if main_waiting > 0 {
+        (needs_you_label(main_waiting), theme::warning())
+    } else {
+        (state.label(), lifecycle_colour(state))
+    };
     let mut rows: Vec<AnyElement> = vec![agent_row(
         view.eid("agent-tag-main"),
         "agent-row-main".to_string(),
         "Main agent".to_string(),
-        state.label(),
         // What the main agent runs as is the footer's chip, right below: saying it twice would be
-        // the same fact drawn twice.
+        // the same fact drawn twice. A delegate has no chip of its own, which is why its row
+        // carries one.
         None,
-        lifecycle_colour(state),
+        main_status,
+        None,
+        main_colour,
         viewing.is_none(),
         cx.listener(move |this, _, _, cx| {
             this.view_conversation_agent(id, None, cx);
@@ -2101,14 +2396,22 @@ fn agent_switcher(
 
     rows.extend(subagents.iter().map(|tab| {
         let target = tab.id.clone();
-        let (status, colour) = match tab.status {
-            Some(status) => (status_label(status).to_string(), status_colour(status)),
-            None => ("unknown".to_string(), theme::text_faint()),
+        // A delegate waiting on a human says so in place of what it was doing.
+        let (status, colour) = if tab.waiting > 0 {
+            (needs_you_label(tab.waiting), theme::warning())
+        } else {
+            match tab.status {
+                Some(status) => (status_label(status).to_string(), status_colour(status)),
+                None => ("unknown".to_string(), theme::text_faint()),
+            }
         };
         agent_row(
             view.eid(&format!("agent-tag-{}", tab.id)),
             format!("agent-row-{}", tab.id),
             tab.name.clone(),
+            tab.model
+                .as_deref()
+                .map(|model| short_model_label(&conversation.harness, model)),
             status,
             Some(subagent_tip(conversation, tab)),
             colour,
@@ -2201,6 +2504,16 @@ fn subagent_count_label(active: usize, total: usize) -> String {
     format!("{active} active subagent{} of {total}", plural(active))
 }
 
+/// What a row says instead of its status while it is blocked on a human. The count only where
+/// there is more than one to answer, because `need you 1` is a number nobody needed.
+fn needs_you_label(waiting: usize) -> String {
+    if waiting > 1 {
+        format!("need you \u{d7}{waiting}")
+    } else {
+        "need you".to_string()
+    }
+}
+
 /// What a delegate *is*, for the row's hover: the type the harness named, what it is answering
 /// with, and what effort it runs at.
 ///
@@ -2235,7 +2548,15 @@ pub fn subagent_tip(
 /// fact as. Selected takes the accent edge and the full-strength text; the rest stay muted, so the
 /// list reads as one selected agent rather than as several equal buttons. The status sits at the
 /// far end, so a column of rows reads down either side.
-// Eight, each a distinct thing the row draws or answers, and every one of them built inline by
+///
+/// **The model sits beside the name, faint.** A delegate is chiefly identified by what it is
+/// answering with, and a row that only had it on hover made the reader hover every row to compare
+/// three. Faint rather than muted because it is a qualifier of the name, not a second fact.
+///
+/// **`need you` takes the status's place rather than sitting beside it.** A delegate blocked on a
+/// human is not doing anything, so `running` and `need you` together would be one of them wrong —
+/// and the question is the useful reading of the two.
+// Nine, each a distinct thing the row draws or answers, and every one of them built inline by
 // the one caller — a struct to carry them would be ceremony around a private helper, the same
 // reading `kit::menu::menu_panel` makes.
 #[allow(clippy::too_many_arguments)]
@@ -2243,6 +2564,7 @@ fn agent_row(
     id: ElementId,
     selector: String,
     name: String,
+    model: Option<String>,
     status: String,
     tip: Option<String>,
     status_colour: Rgba,
@@ -2263,18 +2585,34 @@ fn agent_row(
     .cursor_pointer()
     .when(selected, |this| this.bg(theme::surface_raised()))
     .hover(|this| this.bg(theme::hover()))
+    // Name and model are one reading of who this is, so they share one flexible box: the model
+    // gives way before the name does when the row is narrow.
     .child(
-        mono(
-            name,
-            if selected {
-                theme::text()
-            } else {
-                theme::text_muted()
-            },
-        )
-        .text_size(px(11.))
-        .flex_1()
-        .min_w(px(0.)),
+        div()
+            .flex()
+            .flex_1()
+            .min_w(px(0.))
+            .items_center()
+            .gap_1p5()
+            .child(
+                mono(
+                    name,
+                    if selected {
+                        theme::text()
+                    } else {
+                        theme::text_muted()
+                    },
+                )
+                .text_size(px(11.))
+                .flex_none(),
+            )
+            .when_some(model, |this, model| {
+                this.child(
+                    mono(model, theme::text_faint())
+                        .text_size(px(10.))
+                        .min_w(px(0.)),
+                )
+            }),
     )
     .child(mono(status, status_colour).text_size(px(10.5)))
     .on_click(on_click)

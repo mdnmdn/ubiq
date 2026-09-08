@@ -868,9 +868,21 @@ pub enum AgentInput {
         /// The content blocks making up the prompt.
         content: Vec<Content>,
     },
-    /// Interrupt the turn in flight. Every pending permission request must
-    /// then be answered [`PermissionOutcome::Cancelled`].
+    /// Interrupt the turn in flight, and nothing more: the session survives
+    /// and the next [`AgentInput::Prompt`] reaches the same agent. Every
+    /// pending permission request must then be answered
+    /// [`PermissionOutcome::Cancelled`].
+    ///
+    /// A harness that takes no second turn (opencode, Copilot) has nothing
+    /// to interrupt short of ending the run, so its bridge treats this as
+    /// [`AgentInput::Shutdown`].
     Cancel,
+    /// End the session: close the harness's input so the process exits.
+    ///
+    /// This is teardown, not cancellation — nothing reaches the agent
+    /// afterwards. A caller that wants the turn to stop but the
+    /// conversation to live sends [`AgentInput::Cancel`].
+    Shutdown,
     /// Answer a [`AgentEvent::PermissionRequest`]. `updated_input` may rewrite
     /// the tool's input before it runs, which is how a caller forces (say) a
     /// background command into the foreground.
@@ -935,6 +947,27 @@ pub trait AgentInputSink: Send + Sync {
     fn send(&self, input: AgentInput) -> crate::Result<()>;
 }
 
+/// A detached handle that ends this harness's process **now**, from any
+/// thread — the forceful counterpart to [`AgentInputSink`].
+///
+/// It exists for the same reason that trait does: the bridge is owned by the
+/// thread blocked reading it, so nothing else can reach the child through it.
+/// Asking it to shut down is the graceful way out and a harness that does not
+/// act on the ask keeps that thread waiting; this is the way out that does
+/// not depend on the harness cooperating. It is not a *stop*: whoever kills still has to
+/// reap, which is what dropping the bridge does.
+///
+/// A bridge whose process it can name answers [`IoBridge::killer`] with one
+/// of these; `None` means there is no process to kill (a passthrough tty, a
+/// bridge over something already dead).
+pub trait AgentKill: Send + Sync {
+    /// Terminate the agent's process without asking it to stop.
+    ///
+    /// Idempotent as far as callers are concerned: killing a process that has
+    /// already exited is not an error.
+    fn kill(&self) -> crate::Result<()>;
+}
+
 /// A live, harness-specific bridge between `am` and one running agent
 /// process, translating [`AgentInput`]/[`AgentEvent`] to and from that
 /// harness's actual wire protocol (NDJSON, JSON-RPC, ...).
@@ -960,6 +993,16 @@ pub trait IoBridge: Send {
     /// A handle that can feed this agent from another thread, if the bridge
     /// has one. See [`AgentInputSink`].
     fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
+        None
+    }
+
+    /// A handle that kills this agent's process from another thread, if the
+    /// bridge has a process to name. See [`AgentKill`].
+    ///
+    /// Every structured bridge answers with the [`crate::io::ProcessKill`]
+    /// over the child [`crate::io::spawn_piped`] started for it; the default
+    /// is `None` for a bridge that owns no process of its own.
+    fn killer(&self) -> Option<Arc<dyn AgentKill>> {
         None
     }
 }
@@ -1114,6 +1157,18 @@ mod tests {
         assert_eq!(json, "{\"type\":\"cancel\"}");
         let back: AgentInput = serde_json::from_str(&json).unwrap();
         assert_eq!(back, input);
+    }
+
+    /// Teardown is its own input, not a flavour of cancel: a cancel interrupts the turn and keeps
+    /// the session, and only this one closes the harness's input.
+    #[test]
+    fn agent_input_shutdown_round_trips_tagged_json() {
+        let input = AgentInput::Shutdown;
+        let json = serde_json::to_string(&input).unwrap();
+        assert_eq!(json, "{\"type\":\"shutdown\"}");
+        let back: AgentInput = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, input);
+        assert_ne!(back, AgentInput::Cancel);
     }
 
     #[test]

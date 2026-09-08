@@ -27,8 +27,15 @@
 //! stdin is shared as `Arc<Mutex<Option<ChildStdin>>>` because two producers
 //! write to it: [`JsonlBridge::send`] and any [`JsonlInput`] handed out
 //! through [`IoBridge::input`]. Wrapping it in `Option` (rather than just
-//! `Mutex<ChildStdin>`) gives [`AgentInput::Cancel`] and [`Drop`] a way to
+//! `Mutex<ChildStdin>`) gives [`AgentInput::Shutdown`] and [`Drop`] a way to
 //! *close* stdin while it is shared.
+//!
+//! ## Cancelling a turn is not ending the session
+//!
+//! [`AgentInput::Cancel`] writes an `interrupt` `control_request` and leaves stdin open, so the
+//! turn aborts and the conversation takes the next prompt on the same process. Closing stdin is
+//! [`AgentInput::Shutdown`]'s job, and [`Drop`]'s — a cancel that closed it would end the harness
+//! for good, which is not what a stop button means.
 //!
 //! ## A permission ask is the caller's to answer
 //!
@@ -39,7 +46,7 @@
 //! an unanswered request stalls the turn indefinitely, and closing stdin
 //! first makes Claude fail the tool with "Tool permission stream closed
 //! before response received", so [`AgentInput::Cancel`] denies every
-//! outstanding request *before* it closes stdin.
+//! outstanding request *before* it interrupts the turn.
 //!
 //! Any *other* `control_request` subtype is one this bridge does not implement, and no caller will
 //! ever answer it, so the reader answers it an error itself rather than letting it stall the turn.
@@ -195,6 +202,11 @@ impl IoBridge for JsonlBridge {
             pending: Arc::clone(&self.pending),
         }))
     }
+
+    /// Kill-by-pid over the child this bridge owns; see [`crate::io::ProcessKill`].
+    fn killer(&self) -> Option<Arc<dyn crate::io::AgentKill>> {
+        Some(Arc::new(crate::io::ProcessKill::new(&self.child)))
+    }
 }
 
 impl Drop for JsonlBridge {
@@ -298,23 +310,24 @@ fn write_input(
             write_line(stdin, &line)
         }
         AgentInput::Cancel => {
-            // Answer first, close after. Every outstanding ask is denied
+            // Answer first, interrupt after. Every outstanding ask is denied
             // (`PermissionOutcome::Cancelled` — the contract in
-            // `_docs/io-modes.md` §"Permissions"); closing stdin on an unanswered one instead
-            // makes Claude fail the tool with "Tool permission stream closed before response
-            // received".
-            let outstanding: Vec<String> = pending
-                .lock()
-                .map(|mut p| p.drain().map(|(id, _)| id).collect())
-                .unwrap_or_default();
-            for request_id in outstanding {
-                let line = control_response(&request_id, "deny", json!({}), None);
-                let _ = write_line(stdin, &line);
-            }
-            // Close stdin so Claude Code sees EOF and stops; the reader
-            // thread keeps draining stdout until the process actually
-            // exits (see `_docs/harness/claude-code.md`
-            // §"Process lifecycle").
+            // `_docs/io-modes.md` §"Permissions and cancellation"); interrupting with one still
+            // unanswered makes Claude fail the tool with "Tool permission stream closed before
+            // response received".
+            deny_outstanding(stdin, pending);
+            // Then the turn — and only the turn. `{"subtype":"interrupt"}` aborts what is running
+            // and leaves the session open for the next prompt
+            // (`_docs/harness/claude-code.md` §"Process lifecycle"). Claude answers it with a
+            // `control_response`, which this bridge ignores: the abort itself shows up as the
+            // turn's `result`, and the response carries nothing a consumer draws.
+            write_line(stdin, &interrupt_request())
+        }
+        AgentInput::Shutdown => {
+            // Teardown. Deny first for the same reason a cancel does, then close stdin so Claude
+            // Code sees EOF and exits; the reader thread keeps draining stdout until the process
+            // actually goes (`_docs/harness/claude-code.md` §"Process lifecycle").
+            deny_outstanding(stdin, pending);
             if let Ok(mut guard) = stdin.lock() {
                 *guard = None;
             }
@@ -476,6 +489,38 @@ fn control_response(
             "request_id": request_id,
             "response": response,
         },
+    })
+}
+
+/// Deny every permission ask still outstanding, and forget them — an ask answered once must not
+/// be answered twice. Shared by [`AgentInput::Cancel`] and [`AgentInput::Shutdown`]: both leave
+/// the turn, and a harness holding an unanswered ask has no timeout to fall back on.
+fn deny_outstanding(stdin: &Arc<Mutex<Option<ChildStdin>>>, pending: &Pending) {
+    let outstanding: Vec<String> = pending
+        .lock()
+        .map(|mut p| p.drain().map(|(id, _)| id).collect())
+        .unwrap_or_default();
+    for request_id in outstanding {
+        let line = control_response(&request_id, "deny", json!({}), None);
+        let _ = write_line(stdin, &line);
+    }
+}
+
+/// Build the client→CLI `interrupt` `control_request` line — Claude Code's own
+/// turn abort, which ends the turn and leaves the session open
+/// (`_docs/harness/claude-code.md` §"Process lifecycle").
+///
+/// `reason` is an open set Claude forwards to the turn's `AbortSignal.reason`; tools branch on it,
+/// and `interrupt` is the value that means "the human pressed stop", which suppresses the error
+/// output a generic abort would print. `request_id` only has to be unique within the session, so a
+/// process-wide counter is enough — no uuid dependency for a string nothing outside reads.
+fn interrupt_request() -> Value {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    json!({
+        "type": "control_request",
+        "request_id": format!("am-interrupt-{n}"),
+        "request": { "subtype": "interrupt", "reason": "interrupt" },
     })
 }
 

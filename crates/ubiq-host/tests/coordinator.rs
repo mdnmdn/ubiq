@@ -1434,7 +1434,15 @@ fn a_conversation_is_registered_and_its_models_discovered_before_any_harness_lau
 
     let agent_id = start_conversation(&ui, project_id, "opencode", None);
     let accepts_input = expect_conversation_started(&ui, agent_id);
-    assert!(!accepts_input, "opencode takes no second turn");
+    // `accepts_input` asks whether the harness converses at all, not whether one process
+    // survives a second turn: opencode is one-shot but still converses, and the coordinator
+    // relaunches it transparently on the next prompt (`Coordinator::launch_pending`). Saying
+    // `false` here for a one-shot harness would draw a conversation that has not even started
+    // as `Lifecycle::Ended` (see `crates/ubiq-host/src/coordinator.rs`'s `start_conversation`).
+    assert!(
+        accepts_input,
+        "opencode converses, even though it is one-shot"
+    );
     expect_model_config_options(&ui, agent_id);
 
     // Registered at once: the project's own listing already carries it, with nothing spawned to
@@ -1623,12 +1631,18 @@ fn a_launch_that_fails_retracts_the_agent_it_registered() {
 /// `ResumeConversation` on a conversation that has never launched takes the same launch path a
 /// first `PromptAgent` does — `launch_pending`'s own `launch` is what both go through, per
 /// `Coordinator::launch_pending`'s doc comment — so a bad account fails it exactly the same way.
+///
+/// Multi-turn harness, deliberately: `Coordinator::resume_conversation` is a documented no-op for
+/// a one-shot harness (opencode, copilot) — it has nothing to resume *into*, since its next
+/// prompt is what relaunches it — so this needs a harness resume actually reaches `launch` for.
+/// The account resolves (and fails) before anything checks the binary is on `PATH`, which is why
+/// this needs no harness actually installed, exactly as its `PromptAgent` sibling above does.
 #[test]
 fn resume_conversation_launches_a_still_pending_agent_the_same_way_prompt_agent_does() {
     let (_hub, ui) = coordinator();
     let (project_id, _path) = a_project(&ui);
 
-    let agent_id = start_conversation(&ui, project_id, "opencode", Some("no-such-account"));
+    let agent_id = start_conversation(&ui, project_id, "codex", Some("no-such-account"));
     expect_conversation_started(&ui, agent_id);
     expect_model_config_options(&ui, agent_id);
 
@@ -1663,6 +1677,34 @@ fn unload_conversation_on_a_still_pending_agent_is_a_no_op() {
             .recv_timeout(Duration::from_millis(300))
             .is_err(),
         "unloading an agent that never launched must say nothing"
+    );
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    assert!(
+        agents.iter().any(|a| a.id == agent_id),
+        "the agent is still pending, exactly as it was"
+    );
+}
+
+/// `AbortConversation` is the same unload for a harness that ignores end-of-input, so it is the
+/// same no-op on a conversation that has never launched: nothing to kill, nothing to say, and the
+/// agent stays as pending as it was.
+#[test]
+fn abort_conversation_on_a_still_pending_agent_is_a_no_op() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let agent_id = start_conversation(&ui, project_id, "opencode", None);
+    expect_conversation_started(&ui, agent_id);
+    expect_model_config_options(&ui, agent_id);
+
+    ui.send(Message::AbortConversation { agent_id });
+
+    assert!(
+        ui.from_host()
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "aborting an agent that never launched must say nothing"
     );
     ui.send(Message::ListWork { project_id });
     let (_, agents, _) = expect_work_list(&ui, project_id);

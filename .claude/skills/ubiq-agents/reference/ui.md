@@ -22,11 +22,12 @@ taken was taken as somebody.
 | The transcript | `ConvBlock` — `User(String)`, `Agent { body, subagent }`, `Thought { body, subagent }`, `Tool { call, open }`. `subagent()` / `subagent_id()`; `visible_blocks()` filters to what is being viewed |
 | Applying the wire | `is_next(seq)` then `apply(seq, update)`; `ended(stop_reason)`, `unloaded()` |
 | Run state | `Run::{Idle, Working, Ended}`, `activity()` |
-| Spend | `context_pct()` (the ring), `tokens()`, `total_tokens()`, `cached_tokens()`, `cost_usd()`, `subagent_spend()`, `rate_limit_five_hour_pct()` |
-| Permission asks | `Pending { request_id, tool_call, options }`, `oldest_pending()`, `answered(request_id)`, `Pending::option_for(allow)`, `tool_block_index(id)` for the join |
+| Spend | `context_pct()` (the ring), `tokens()`, `total_tokens()`, `cached_tokens()`, `cost_usd()`, `subagent_spend()`, `subagent_tokens(kind)` (a delegate's total and cached part, keyed by subagent **type**), `rate_limit_five_hour_pct()` |
+| Permission asks | `Pending { request_id, tool_call, options }`, `oldest_pending()`, `answered(request_id)`, `Pending::option_for(allow)`, `Pending::always_option()` (the allow the harness remembers), `tool_block_index(id)` for the join, `pending_subagent(p)` / `pending_route(p)` (whose transcript, which block), `pending_count(subagent)` |
 | The queue | `enqueue(text) -> u64`, `dequeue_front()`, `remove_queued(id)` |
 | Attachments | `Attachment`, `attach(path, size)` (dedupes by path, refreshing the size), `detach(id)`, `clear_attached()`, `compose_prompt(typed)` — **the one place `@path` mentions are written** |
-| Subagents | `SubagentTab`, `subagents()`, `subagent_name(id)`, `has_subagent(id)`, `viewing_subagent()` |
+| Subagents | `SubagentTab` (with `model` and `waiting`), `subagents()`, `subagent_name(id)`, `has_subagent(id)`, `viewing_subagent()` |
+| Scroll | `TranscriptScroll` — one per composer slot on `AppState::transcript_scrolls`, keyed by `TranscriptKey = (AgentId, Option<String>)`: `sync(key, signature)`, `away()`, `request(block)` / `take_request()` / `request_held()`, `to_tail()`, `windows(children)`, `child_bounds(ix)`, `near_viewport(bounds)` |
 | Folding | `toggle_tool(id)`, `toggle_group(id)`, `open_groups` |
 | Labels | `short_model_label(harness, model)` — one shortener, so a conversation never spells a model two ways |
 
@@ -43,27 +44,49 @@ into — an index and nothing else.
 | `one_block()` | The arm reused for an unfolded card and for the ones a fold opens |
 | `tool_group()` | The `N earlier calls` row |
 | `writing_mark()` | The running mark at the tail |
-| `tail_signature()` | What the follow-the-tail scroll compares |
-| `permission()` | The block-attached prompt, its self-contained fallback, and the counting strip |
-| `footer()` | The run pill, the context ring, `ctx`, `tot`, and the cache ring |
+| `tail_signature()` | What the follow-the-tail scroll compares, over the **visible** blocks it is handed |
+| `Built` (private) | The children the walk produces: which block each stands for, and the off-screen ones left unbuilt behind a measured stand-in |
+| `to_tail_button()` | The `Go to last message` overlay, drawn only while the transcript is away from its tail |
+| `permission()` | The block-attached prompt and its self-contained fallback |
+| `needs_you_strip()`, `waiting_count()` | The answerable strip, and its count badge above one request |
+| `footer()`, `delegate_spend_tip()` | The run pill, the context ring, `ctx`, `tot`, the cache ring — and what those readouts mean on a delegate's transcript |
 | `stop_button()`, `action_button()` | The square Stop, and the Send/Enqueue pair |
 | `attachment_tags()` | The wrapping tag row, on `kit::removable_tag` |
 | `config_choices()`, `ConfigRow` | The launch-time model / thinking / mode pickers |
-| `lifecycle()`, `lifecycle_menu_enabled()`, `lifecycle_controls()`, `lifecycle_mark()`, `lifecycle_menu()` | The state glyph and the three-dots menu — **read in this one module regardless of caller** |
+| `lifecycle()`, `lifecycle_colour()`, `lifecycle_menu_enabled()`, `lifecycle_mark()`, `lifecycle_menu()`, `LIFECYCLE_ROWS` | The state dot and the three-dots menu — **read in this one module regardless of caller**, `lifecycle_colour` `pub` because the agents column draws the dot on its own title and tabs |
 | `subagent_tip()` | A delegate row's hover |
 
 ### `Lifecycle`
 
-`lifecycle()` derives one of `Starting`, `Ready`, `Working(Activity)`, `Idle`, `Unloaded`, `Ended`
-from `launched`, `run`, `blocks`, `accepts_input` and `config` — derived rather than stored, so
-nothing new sits on `Conversation`. `Unloaded` and `Starting` are both `launched == false`; the
-**transcript** tells them apart, because a harness that is gone still leaves what it said and one
-never started leaves nothing. The glyph is a `kit::status_dot`, no new primitive; the tooltip is
-one or two words (`Unloaded`, `Working · Tools`), never a sentence.
+`lifecycle()` derives one of `Starting`, `Ready`, `Waiting`, `Working(Activity)`, `Idle`,
+`Unloaded`, `Ended` from `launched`, `run`, `pending`, `blocks`, `accepts_input` and `config` —
+derived rather than stored, so nothing new sits on `Conversation`. **`Waiting` outranks
+`Working`**: a request outstanding is the one state that needs the reader, so it is tested before
+`run`, and `Working` therefore never carries `Activity::NeedsYou`. `Unloaded` and `Starting` are
+both `launched == false`; the **transcript** tells them apart, because a harness that is gone still
+leaves what it said and one never started leaves nothing. The dot is a `kit::status_dot`, no new
+primitive; the tooltip is one or two words (`Unloaded`, `Working · Tools`), never a sentence.
 
-`ConversationView::header` decides whether the shared view draws its own bordered lifecycle strip.
-The agents column keeps it `true`; the chat panel sets `false` and draws `lifecycle_mark` and
-`lifecycle_menu` inline in its own toolbar row, at opposite ends — one set of functions either way.
+**Four readings and only four:** `warning` wants you, `info` is working, `success` is idle,
+`text_faint` has stopped — `lifecycle_colour`, the one place the mapping is written. Every working
+turn is one `info` rather than `Activity`'s own palette, because what a dot glanced at across a
+row of columns has to answer is whether that conversation wants the reader. The agents column
+draws it on its header title (before the name — that is where the eye lands when it is scanning
+columns) and on every tab, falling back to `activity_colour` for an agent with no live conversation
+behind it: a record is not idle, it is a record.
+
+**The menu has five rows, `LIFECYCLE_ROWS`:** Stop, Abort, Unload, Resume, Delete, and
+`lifecycle_menu_enabled` returns `[bool; 5]` matched by position — Stop only while a turn runs,
+Abort and Unload only while launched, Resume only while not, Delete always. **Stop and Abort are
+different verbs**: Stop interrupts the *turn*, Abort kills the *process*, which is what is left
+when a harness has stopped answering. Abort keeps the conversation, so Resume brings it back; only
+Delete is irreversible and only Delete is confirmed. One list of labels, because two copies drifted
+a row apart.
+
+`ConversationView::header` decides whether the shared view draws its own bordered lifecycle strip —
+the menu alone, the state being the dot on the column's title. The agents column keeps it `true`;
+the chat panel sets `false` and draws `lifecycle_mark` and `lifecycle_menu` inline in its own
+toolbar row, at opposite ends — one set of functions either way.
 
 ## The transcript's rules
 
@@ -84,9 +107,32 @@ The agents column keeps it `true`; the chat panel sets `false` and draws `lifecy
   variant marked as lasting. A request naming a call this transcript never saw degrades to a
   self-contained prompt at the end.
 - **Several asks may be up at once and every one blocks.** Ordered by arrival, keyed by
-  `request_id`; there are no timeouts, so an unanswered request stalls the turn. A compact "needs
-  you" strip above the footer counts what is outstanding, because a prompt attached partway up can
-  be scrolled out of view. Cancelling the turn discharges all of them.
+  `request_id`; there are no timeouts, so an unanswered request stalls the turn. A "needs you"
+  strip above the footer carries what is outstanding, because a prompt attached partway up can be
+  scrolled out of view. Cancelling the turn discharges all of them.
+- **The strip is answerable, and it is the way to the prompt.** Yes / All / No for the oldest
+  request, each button drawn only where that request offered an option of that reading
+  (`option_for` for allow and reject, `always_option` for the allow that lasts) — a button that
+  answered a lasting allow with the plain one would lie about lasting. Clicking the label instead
+  runs `AppState::reveal_permission`: it switches to whoever raised the request and scrolls to the
+  call it authorises, both from the one `pending_route`, so the two ways of answering land in the
+  same place. A request whose call the transcript never saw routes to the tail, where its
+  self-contained prompt is. Above one outstanding, a count **badge** beside `NEEDS YOU` rather than
+  a clause in the label; a delegate's request carries the delegate's name.
+- **Scroll is per transcript, and the tail is followed only for a reader on it.**
+  `TranscriptScroll` is keyed by `(AgentId, Option<subagent>)`, because switching to a delegate is
+  arriving at a *different* transcript — a slot moved to a delegate and back restores both
+  positions, and one never shown opens on its tail. `tail_signature` reads the **visible** blocks,
+  so the main agent writing under a delegate's transcript scrolls nothing.
+- **`Go to last message` is an overlay, not a column control.** Over the transcript's lower right,
+  drawn only while it is away from the tail, so nothing moves when it appears. It scrolls and does
+  nothing else; the next thing said resumes the follow.
+- **Above 40 blocks the transcript windows.** A child the last frame painted clear of the viewport
+  (plus a 2000px margin) is replaced by a box of its exact measured height, so the scroll position
+  cannot move — measured, never guessed. Below the floor every block is built every frame: the
+  bookkeeping outweighs the drawing, and the first frame has nothing measured to read. The same
+  pass (`Built`) records which block each child is, which is how a jump resolves a block to a
+  child.
 - **⌘⌥Y allows and ⌘⌥N rejects the oldest ask**, with the first allow-kind or reject-kind option
   that request offered — and does nothing where it offered none of that reading, rather than
   answering with the other. Bound in **both** `Workbench` and `Input`, so a composer holding focus
@@ -105,10 +151,17 @@ moves under the cursor. Clicking a row switches the transcript; the main agent i
 because it is the way back. A subagent whose spawning call is not in the transcript reads
 `unknown` rather than being claimed to be running.
 
-A delegate says what it is answering with: its own model beside its name in the reading strip, and
-its kind / model / thinking on its row's hover — both from the one `SubagentTab`. Nothing is
-borrowed from the parent, and `thinking` is `None` on every harness today. The `AGENT` block that
-spawned an agent is the same door, inert until that agent has said something.
+A delegate says what it is answering with: its own model beside its name in the reading strip,
+**the same model faint beside the name on its row** (a reading only on hover made the reader hover
+three rows to compare three), and its kind / model / thinking on its row's hover — all from the one
+`SubagentTab`. Nothing is borrowed from the parent, and `thinking` is `None` on every harness
+today. The `AGENT` block that spawned an agent is the same door, inert until that agent has said
+something.
+
+**A blocked delegate reads `need you` in place of its status**, `need you ×N` above one request, in
+the warning tokens — `SubagentTab::waiting` off `Conversation::pending_count`. In place of rather
+than beside: a delegate waiting on a human is not doing anything, so `running` and the question
+together would be one of them wrong. The main agent's row is read the same way.
 
 ## Attachments
 
@@ -140,6 +193,13 @@ A **second ring beside `tot`** is `cached_tokens` over `total_tokens`, in the `i
 than the accent ones (a second accent ring would read as the same fact twice), saying
 `cached X / Y Z%` on hover. Off unless asked for — it is a cost-of-running reading rather than a
 how-is-this-turn-going one, and the footer row is glanced at.
+
+**The row reports whoever is being read.** On a delegate's transcript `tot` and the cache ring are
+that delegate's spend (`subagent_tokens`, `delegate_spend_tip`). Two wire limits show through, and
+neither is smoothed over: `UsageRecord::subagent` is a subagent **type**, so two `general-purpose`
+delegates share one bucket and the tooltip says so rather than dividing it to look exact (`G194`);
+and a subagent's usage report repeats the **parent's** occupancy, so there is no per-delegate
+context level to draw and **the context ring is dropped** rather than borrowed (`G195`).
 
 **Stop is there for the whole of a running turn, and it is a filled square.** The moment a message
 is sent is the moment a reader most wants it back, so a control that appears only while the field
@@ -245,9 +305,13 @@ Composer: `start_composer_resize`, `drag_composer_resize`, `end_composer_resize`
 
 Permissions: `allow_permission`, `reject_permission`, `answer_permission` (sends one answer and
 forgets that one request), `answer_oldest_permission` (what the keyboard resolves through
-`read_conversation`).
+`read_conversation`), `reveal_permission` (the strip's label — takes the asking surface's `slot`,
+because the scroll belongs to the surface and only the one clicked moves).
 
-Lifecycle: `end_conversation`, `unload_agent`, `resume_agent`, `close_all_conversations`,
+Transcript scroll: `scroll_transcript_to_tail`.
+
+Lifecycle: `end_conversation`, `abort_agent`, `unload_agent`, `resume_agent`,
+`close_all_conversations`,
 `confirm_end_conversation`, `open_conversation_menu` / `pick_conversation_menu` /
 `dismiss_conversation_menu`.
 

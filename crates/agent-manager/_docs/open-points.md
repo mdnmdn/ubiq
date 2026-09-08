@@ -184,13 +184,15 @@ catalog, sessions, runs), each with its own env override
 
 ---
 
-## 9. OAuth token refresh in the copy-on-use approach ⚠️
+## 9. OAuth token refresh in the copy-on-use approach ✅
 
-**What exists today.** At launch a captured login is **copied** from the persistent account/profile base into the ephemeral run dir (`harness::seed_login` in `src/harness/mod.rs`; the non-credential profile config overlay is symlinked-else-copied by `overlay::materialize`, but credential files are always copied because the harness rewrites them in place). The run dir is deleted on exit (`run::cleanup` in `src/run.rs`), unless retained for a recorded session.
+**What exists today.** At launch a captured login is **copied** from the persistent account/profile base into the ephemeral run dir (`harness::seed_login` in `src/harness/mod.rs`; the non-credential profile config overlay is symlinked-else-copied by `overlay::materialize`, but credential files are always copied because the harness rewrites them in place). At teardown a credential the run **changed** is copied back: `harness::harvest_login` is the mirror of `seed_login`, called from `run::cleanup` before the run dir goes (and from `Agents::archive` in `crates/ubiq-host/src/agent.rs`, which is where Ubiq's per-pane run dirs go).
 
-**Why it's open.** Harnesses refresh OAuth tokens **in place** during a run. Because credentials are copied *in* but never copied *back*, a token the harness refreshes lives only in the throwaway run dir and is **discarded at cleanup** — the next run re-seeds the older token from the base and forces another refresh (and, once the refresh token itself rotates or expires, may force a re-login).
+Only files marked `SeedFile::credential` are written back — the identity/onboarding companions a login also seeds (Claude's `.claude.json`) are not, because a run rewrites those with its own project history. The origin is whatever `Source` the login was seeded from, recorded on `provision::Provisioned::login_origin`: a `Source::Dir` is written in place (`0600` on unix), and anything else goes to `Harness::adopt_login`, whose only implementation today is Claude Code writing the macOS Keychain back through `account::write_claude_keychain_credentials`. A write-back that fails is a `tracing::warn!`, never an error — a run must not break at teardown.
 
-**What to check / do next.** Persist refreshes back through the store write seam: after a run, `AccountStore::capture_login` / `ProfileStore::put_base` can copy the changed credential files from the run dir back into the base (copy-back-on-exit), or the base credential file can be symlinked with care (harnesses that replace the file via rename break a symlink). Because the persistence path is now a store-trait method, a database-backed store persists the refreshed token the same way the filesystem one does. Cross-reference `_docs/profiles.md` §9 and §12 (decision B-2, "copy for now").
+**Why it mattered.** An OAuth refresh **rotates** the refresh token, so the copy the run left behind was the only live credential and the original it came from was already revoked: discarding the run dir logged the user out everywhere.
+
+**What is still open.** The harvest happens at teardown, so a token rotated mid-run is lost if the process is killed. A watcher on the credential file, writing back as it changes, is the upgrade path (both call sites carry a `ponytail:` note saying so).
 
 ---
 
@@ -225,8 +227,11 @@ loud rather than inferred from a `None`.
 **What exists today.** `io/jsonl.rs` speaks the handshake verified against claude 2.1.258:
 `harness/claude.rs` passes `--permission-prompt-tool stdio` on structured runs, a `can_use_tool`
 `control_request` becomes an outstanding `AgentEvent::PermissionRequest`, nothing answers it but the
-caller, and `AgentInput::Cancel` denies whatever is outstanding before closing stdin. See
-[`harness/claude-code.md`](./harness/claude-code.md) §"Tool approval in headless mode".
+caller, and `AgentInput::Cancel` denies whatever is outstanding before it interrupts the turn (a
+`{"subtype":"interrupt"}` `control_request`, which leaves the session open — closing stdin is
+`AgentInput::Shutdown`'s separate job). See
+[`harness/claude-code.md`](./harness/claude-code.md) §"Tool approval in headless mode" and
+§"Process lifecycle".
 
 **Why it's open.** Two things in it are not verified to the same standard as the rest:
 
@@ -242,6 +247,17 @@ caller, and `AgentInput::Cancel` denies whatever is outstanding before closing s
    (`hook_callback` and `mcp_message` belong to SDK-hosted hooks/MCPs, which this crate does not
    use).
 
+3. **The interrupt is verified from the binary, not from a live turn.** The request's shape, the
+   `subtype:"success"` answer and the "Interrupts the currently running conversation turn"
+   description all come out of the installed 2.1.258 bundle's own schema and dispatch (recorded in
+   [`harness/claude-code.md`](./harness/claude-code.md) §"Process lifecycle"); the bridge test
+   drives a fixture, not `claude`. What is unconfirmed live is *how promptly* a turn with a
+   long-running tool in flight actually stops, and what the aborted turn's `result` carries. The
+   codex side is the same: `turn/interrupt`'s params come from
+   `codex app-server generate-json-schema`, not from an interrupted run.
+
 **What to check / do next.** Run one live turn with an `allow_always` answer and read the second
 edit's ask (or absence of one) plus the `result`'s `permission_denials`. If `updatedPermissions`
 turns out to be ignored, stop offering `AllowAlways` rather than offer one that only allows once.
+For the interrupt, run one live turn that starts a long tool call, write the interrupt, and record
+the latency and the `result` line.

@@ -61,7 +61,7 @@ Your change updates the documents it touched, in the same commit. `just docs-tou
 9. **Ubiq writes nothing inside a project's folder** except the workarea it reserves and never
    reads (`D30`, architecture rule 6).
 10. **The host names no harness config path and hard-codes no launch.** `agent-manager` answers
-    all of it; `agent.rs` overrides exactly three fields of what `resolve` returns.
+    all of it; `agent.rs` overrides exactly four fields of what `resolve` returns.
 
 ## The run loop
 

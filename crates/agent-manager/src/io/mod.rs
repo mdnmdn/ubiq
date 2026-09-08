@@ -17,7 +17,7 @@
 
 mod model;
 pub use model::{
-    AgentEvent, AgentInput, AgentInputSink, CommandInfo, ConfigCategory, ConfigChoice,
+    AgentEvent, AgentInput, AgentInputSink, AgentKill, CommandInfo, ConfigCategory, ConfigChoice,
     ConfigOption, ConfigSetting, ConfigValue, Content, Cost, IoBridge, Origin, PermissionKind,
     PermissionOption, PermissionOutcome, PlanEntry, PlanPriority, PlanStatus, RateLimitWindow,
     ResourceContents, Spend, StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind,
@@ -31,7 +31,7 @@ pub mod agui;
 pub use agui::to_agui;
 
 mod structured;
-pub use structured::{run_structured, spawn_piped};
+pub use structured::{ProcessKill, run_structured, spawn_piped};
 
 mod jsonl;
 pub use jsonl::JsonlBridge;

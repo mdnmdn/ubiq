@@ -527,6 +527,17 @@ impl AppState {
         cx.notify();
     }
 
+    /// Kill the harness's process now, keeping the conversation, its transcript and its run
+    /// directory — so [`Self::resume_agent`] brings it back.
+    ///
+    /// What is left when Stop has nothing to interrupt with. [`Self::cancel_turn`] asks the
+    /// harness to end the turn and [`Self::unload_agent`] asks it to shut down; a harness that has
+    /// stopped answering answers neither, and this is the verb that does not ask.
+    pub fn abort_agent(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        self.bus.send(Message::AbortConversation { agent_id });
+        cx.notify();
+    }
+
     /// Start an unloaded conversation's harness again, under the same `agent_id`, with no prompt.
     pub fn resume_agent(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         self.bus.send(Message::ResumeConversation { agent_id });
@@ -551,9 +562,9 @@ impl AppState {
         cx.notify();
     }
 
-    /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Unload, 2 Resume,
-    /// 3 Delete. Delete does not act here — it raises a confirm instead, being the one
-    /// destructive, irreversible verb of the four.
+    /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Abort, 2 Unload,
+    /// 3 Resume, 4 Delete. Delete does not act here — it raises a confirm instead, being the one
+    /// destructive, irreversible verb of the five.
     pub fn pick_conversation_menu(
         &mut self,
         agent_id: AgentId,
@@ -563,9 +574,10 @@ impl AppState {
         self.dismiss_conversation_menu(cx);
         match index {
             0 => self.cancel_turn(agent_id, cx),
-            1 => self.unload_agent(agent_id, cx),
-            2 => self.resume_agent(agent_id, cx),
-            3 => {
+            1 => self.abort_agent(agent_id, cx),
+            2 => self.unload_agent(agent_id, cx),
+            3 => self.resume_agent(agent_id, cx),
+            4 => {
                 self.workbench.confirm_end_conversation = Some(agent_id);
                 cx.notify();
             }
@@ -747,6 +759,56 @@ impl AppState {
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
             conversation.viewing = subagent;
+        }
+        cx.notify();
+    }
+
+    /// Go to the prompt a "needs you" strip named: switch to whoever raised it, and bring the
+    /// call it authorises into view.
+    ///
+    /// **One reading, two answers.** Which delegate and which block both come from
+    /// `Conversation::pending_route`, so the transcript the reader lands in is the transcript the
+    /// prompt is drawn in. A request whose call this transcript never saw is drawn as the
+    /// self-contained prompt at the end, and that is where this sends them — the tail.
+    ///
+    /// `slot` is the surface asking, because the scroll belongs to the surface: the same
+    /// conversation may be open in a column and a chat tab, and only the one that was clicked
+    /// moves.
+    pub fn reveal_permission(
+        &mut self,
+        agent_id: AgentId,
+        slot: usize,
+        request_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let route = self
+            .project(cx)
+            .and_then(|id| self.projects.get(&id))
+            .and_then(|open| open.conversations.get(&agent_id))
+            .and_then(|conversation| {
+                let pending = conversation
+                    .pending
+                    .iter()
+                    .find(|held| held.request_id == request_id)?;
+                Some(conversation.pending_route(pending))
+            });
+        let Some((who, block)) = route else {
+            return;
+        };
+        if let Some(scroll) = self.transcript_scrolls.get(slot) {
+            match block {
+                Some(block) => scroll.request(block),
+                None => scroll.to_tail(),
+            }
+        }
+        self.view_conversation_agent(agent_id, who, cx);
+    }
+
+    /// Put one surface's transcript back on its tail — the jump button over a transcript the
+    /// reader has scrolled up in.
+    pub fn scroll_transcript_to_tail(&mut self, slot: usize, cx: &mut Context<Self>) {
+        if let Some(scroll) = self.transcript_scrolls.get(slot) {
+            scroll.to_tail();
         }
         cx.notify();
     }

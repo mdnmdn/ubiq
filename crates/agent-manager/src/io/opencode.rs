@@ -114,8 +114,12 @@ impl IoBridge for OpencodeBridge {
                 // wrong with the caller's intent, just nothing waiting.
                 Ok(())
             }
-            AgentInput::Cancel => {
-                // Best-effort signal: kill the process so the run stops.
+            AgentInput::Cancel | AgentInput::Shutdown => {
+                // opencode is one-shot: the run *is* the turn, so there is no
+                // turn to interrupt short of ending it. Cancel and shutdown are
+                // therefore the same act — kill the process — and no in-band
+                // interrupt exists to make them differ
+                // (`_docs/io-modes.md` §"Permissions and cancellation").
                 let _ = self.child.kill();
                 Ok(())
             }
@@ -135,6 +139,13 @@ impl IoBridge for OpencodeBridge {
 
     // `input()` keeps the default `None`: opencode takes no input after
     // launch (the prompt is argv-only), so there is no sink to hand a caller.
+
+    /// Kill-by-pid over the child this bridge owns; see [`crate::io::ProcessKill`].
+    fn killer(&self) -> Option<std::sync::Arc<dyn crate::io::AgentKill>> {
+        Some(std::sync::Arc::new(crate::io::ProcessKill::new(
+            &self.child,
+        )))
+    }
 }
 
 impl Drop for OpencodeBridge {

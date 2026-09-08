@@ -40,6 +40,37 @@ fn launch() -> Launch {
     }
 }
 
+/// The same fixture, told to outlive its turns and to log every stdin line it reads — how the
+/// cancellation test sees what the bridge wrote and that the session was still there afterwards.
+fn staying_launch(stdin_log: &std::path::Path) -> Launch {
+    Launch {
+        program: fake_appserver_path().to_string_lossy().to_string(),
+        args: Vec::new(),
+        env: vec![
+            ("AM_FAKE_CODEX_STAY".to_string(), "1".to_string()),
+            (
+                "AM_FAKE_STDIN".to_string(),
+                stdin_log.to_string_lossy().to_string(),
+            ),
+        ],
+        env_remove: Vec::new(),
+        env_clear: false,
+    }
+}
+
+/// Pump events up to and including the next `TurnEnded`, returning everything seen on the way.
+fn drain_to_turn_end(bridge: &mut CodexBridge) -> Vec<AgentEvent> {
+    let mut events = Vec::new();
+    while let Some(ev) = bridge.next_event().expect("next_event") {
+        let ended = matches!(ev, AgentEvent::TurnEnded { .. });
+        events.push(ev);
+        if ended {
+            return events;
+        }
+    }
+    panic!("stream ended before the turn did: {events:?}");
+}
+
 #[test]
 fn codex_bridge_round_trips_events_and_terminates() {
     let cwd = std::env::current_dir().unwrap();
@@ -97,5 +128,56 @@ fn codex_bridge_round_trips_events_and_terminates() {
             .any(|e| matches!(e, AgentEvent::UsageUpdate { .. })),
         "the fake script's usage block carries no context window, so no \
          UsageUpdate should be emitted, got: {events:?}"
+    );
+}
+
+/// A cancel is `turn/interrupt`, naming both the thread and the turn `turn/start` acked — not a
+/// closed stdin. The thread survives it and takes the next `turn/start`
+/// (`_docs/harness/codex.md` §"Process lifecycle").
+#[test]
+fn cancel_interrupts_the_turn_and_keeps_the_session() {
+    let cwd = std::env::current_dir().unwrap();
+    let seen = tempfile::TempDir::new().unwrap();
+    let stdin_log = seen.path().join("stdin.ndjson");
+    let child = spawn_piped(&staying_launch(&stdin_log), &cwd).expect("spawn fake app-server");
+    let mut bridge = CodexBridge::new(child, &cwd).expect("handshake + build bridge");
+
+    bridge
+        .send(AgentInput::prompt("say hi"))
+        .expect("send prompt (turn/start)");
+    let _ = drain_to_turn_end(&mut bridge);
+
+    bridge.send(AgentInput::Cancel).expect("cancel");
+    let cancelled = drain_to_turn_end(&mut bridge);
+    assert!(
+        cancelled
+            .iter()
+            .any(|e| matches!(e, AgentEvent::TurnEnded { .. })),
+        "the interrupt must end the turn, got: {cancelled:?}"
+    );
+
+    // Still there: a second prompt reaches the same app-server, which it could not if the cancel
+    // had closed stdin.
+    bridge
+        .send(AgentInput::prompt("again"))
+        .expect("the thread must still take a turn after a cancel");
+    let _ = drain_to_turn_end(&mut bridge);
+
+    let written = std::fs::read_to_string(&stdin_log).expect("the app-server read our stdin");
+    let interrupt = written
+        .lines()
+        .find(|line| line.contains(r#""method":"turn/interrupt""#))
+        .unwrap_or_else(|| panic!("cancel sent no turn/interrupt: {written}"));
+    assert!(
+        interrupt.contains(r#""threadId":"t-1""#) && interrupt.contains(r#""turnId":"turn-1""#),
+        "turn/interrupt must name both ids: {interrupt}"
+    );
+    assert_eq!(
+        written
+            .lines()
+            .filter(|line| line.contains(r#""method":"turn/start""#))
+            .count(),
+        2,
+        "both turns must have reached the same process: {written}"
     );
 }

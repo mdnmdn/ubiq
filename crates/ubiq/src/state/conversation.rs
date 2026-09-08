@@ -11,8 +11,10 @@
 //! the context ring. Those are read off the stream rather than asked for,
 //! because a second round trip per token would be a round trip per token.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use gpui::{Pixels, ScrollHandle, px};
 use ubiq_proto::conversation::{
     ConfigOption, ConfigValue, ConvContent, ConvUpdate, PermissionOption, PlanEntry,
     RateLimitRecord, StopReason, Subagent, TokenSpend, ToolCallPatch, ToolCallRecord, ToolStatus,
@@ -83,6 +85,10 @@ pub struct SubagentTab {
     /// a stream states a per-delegate level — and drawn as nothing rather than borrowed from the
     /// parent conversation, which would be a guess wearing a fact's clothes.
     pub thinking: Option<String>,
+    /// How many permission requests this delegate is blocked on. Non-zero is what puts `need you`
+    /// on its row, in place of what it would otherwise say it was doing: a delegate waiting on a
+    /// human is not doing anything, and the question is the more useful of the two readings.
+    pub waiting: usize,
 }
 
 /// Fold one report's spend into a running total. Field by field, because a flow is summed and
@@ -117,6 +123,17 @@ impl Pending {
         self.options
             .iter()
             .find(|option| option.kind.allows() == allow)
+    }
+
+    /// The option that goes ahead *and* is remembered — the "all" of yes / no / all.
+    ///
+    /// `None` where the harness offered no such reading, and then nothing is drawn: a third
+    /// button that answered with the plain allow would be a control that lies about lasting.
+    /// **The harness remembers it, not Ubiq** — this is one more opaque `option_id` echoed back.
+    pub fn always_option(&self) -> Option<&PermissionOption> {
+        self.options
+            .iter()
+            .find(|option| option.kind.allows() && option.kind.remembers())
     }
 }
 
@@ -348,6 +365,7 @@ impl Conversation {
                 thinking: self
                     .subagent_stamps(id)
                     .find_map(|who| who.thinking.clone()),
+                waiting: self.pending_count(Some(id)),
             });
         }
         tabs
@@ -654,6 +672,56 @@ impl Conversation {
         self.tools.get(id).copied()
     }
 
+    /// Whose transcript a request is asking about — the subagent that raised it, or `None` for
+    /// the conversation's own turn.
+    ///
+    /// Read off the block the call is drawn as, which is the same join
+    /// [`Self::tool_block_index`] answers: a request names a call id, and the call's block is the
+    /// only thing that knows who was speaking. A request naming a call this transcript has never
+    /// seen belongs to nobody, and reads as the main agent's rather than being filed under a
+    /// guess.
+    pub fn pending_subagent(&self, pending: &Pending) -> Option<&str> {
+        let ix = self.tool_block_index(&pending.tool_call.id)?;
+        self.blocks.get(ix)?.subagent_id()
+    }
+
+    /// Where a request is drawn: whose transcript, and which block of it. `None` for the block
+    /// where the transcript does not hold the call — the prompt degrades to the self-contained
+    /// one at the end, which is where a reader is sent instead.
+    ///
+    /// The one place the routing behind the "needs you" strip is resolved. Clicking the strip
+    /// switches to this subagent and scrolls to this block, and both answers have to be the same
+    /// reading or the strip sends the reader somewhere the prompt is not.
+    pub fn pending_route(&self, pending: &Pending) -> (Option<String>, Option<usize>) {
+        let ix = self.tool_block_index(&pending.tool_call.id);
+        let who = ix
+            .and_then(|ix| self.blocks.get(ix))
+            .and_then(ConvBlock::subagent_id)
+            .map(str::to_string);
+        (who, ix)
+    }
+
+    /// How many requests whoever is being read is waiting on — `None` being the main agent's own
+    /// turn. What a delegate's row in the switcher marks itself with.
+    pub fn pending_count(&self, subagent: Option<&str>) -> usize {
+        self.pending
+            .iter()
+            .filter(|held| self.pending_subagent(held) == subagent)
+            .count()
+    }
+
+    /// What one subagent **type** has spent — its total and the cached part of it — for the
+    /// footer of a delegate's transcript.
+    ///
+    /// Keyed by type and not by instance because that is the only grain the wire carries:
+    /// `UsageRecord::subagent` is deliberately a type, so two `general-purpose` delegates share
+    /// one bucket. The footer says so on hover rather than drawing a type's total as one
+    /// instance's.
+    pub fn subagent_tokens(&self, kind: &str) -> Option<(u64, u64)> {
+        let spend = self.spend_by_subagent.get(kind)?;
+        (spend.total() > 0).then(|| (spend.total(), spend.cached()))
+    }
+
     /// Hold a prompt for later, typed while a turn was already running. Returns the id it was
     /// given, so a caller can find this entry again to edit or delete it.
     pub fn enqueue(&mut self, text: String) -> u64 {
@@ -837,6 +905,182 @@ pub fn short_model_label(harness: &str, model: &str) -> String {
         return model.to_string();
     }
     model.split('-').nth(1).unwrap_or(model).to_string()
+}
+
+// ── where a reader was left, per transcript ────────────────────────────
+
+/// Which transcript a scroll position belongs to: the conversation, and which of its delegates.
+///
+/// The delegate is part of the key because switching to a subagent is arriving at a *different*
+/// transcript, not moving within one — a reader sent to a delegate's tail and back must find the
+/// main agent where they left it.
+pub type TranscriptKey = (AgentId, Option<String>);
+
+/// How close to the tail still counts as reading the tail. A few pixels of slack, because a
+/// wheel notch that lands one pixel short is not a reader who has scrolled away.
+const TAIL_SLACK: Pixels = px(24.);
+
+/// Above this many blocks the transcript stops building what is off screen. Below it every block
+/// is built every frame, which is both cheaper than the bookkeeping and exact on the first frame.
+const WINDOW_MIN: usize = 40;
+
+/// How far beyond the viewport a block is still built, so a wheel notch lands on drawn content
+/// rather than on a placeholder waiting for the next frame.
+const WINDOW_MARGIN: Pixels = px(2_000.);
+
+/// What one composer slot's transcript remembers between frames.
+///
+/// A slot, not a conversation: the handle belongs to the element the pool built, and a slot shows
+/// one transcript at a time. What is per *transcript* is the position, and that is what
+/// [`Self::saved`] holds — so a slot moved from an agent to its delegate and back restores both.
+///
+/// Every field is interior-mutable because `render` holds `&AppState`: there is no mutable path
+/// to this from inside an element, and these are readings of the last frame rather than state the
+/// application owns.
+#[derive(Default)]
+pub struct TranscriptScroll {
+    pub handle: ScrollHandle,
+    /// The tail signature the handle was last followed to the bottom for. What keeps the follow
+    /// from fighting the reader: the transcript follows only when the tail actually moved.
+    followed: Cell<u64>,
+    /// Which transcript the handle currently holds a position for.
+    showing: RefCell<Option<TranscriptKey>>,
+    /// Where the reader was in each transcript this slot has shown.
+    saved: RefCell<HashMap<TranscriptKey, Pixels>>,
+    /// A block this slot has been asked to bring into view. Taken once and cleared: a request to
+    /// go somewhere is answered, not re-answered every frame afterwards.
+    target: Cell<Option<usize>>,
+    /// Whether the last frame was painted away from the tail. Read from the handle before
+    /// anything moves it, and what both the follow and the jump button ask.
+    away: Cell<bool>,
+    /// Whether this frame is drawing the same transcript the last one did.
+    ///
+    /// A frame that has just switched transcripts is measuring the *previous* one: the scroll
+    /// handle's record of where each child was painted still describes the transcript that has
+    /// gone. So a request to be taken to a block waits for the frame after the switch, which is
+    /// the first frame whose measurements are of the transcript the block is in.
+    settled: Cell<bool>,
+}
+
+impl TranscriptScroll {
+    /// Read the last frame's position, then put the handle where this frame's transcript wants
+    /// it. Called once per frame, before the children are built.
+    ///
+    /// Three cases, in this order. A **different transcript** than the last frame's saves where
+    /// the outgoing one was and restores where this one was, and follows the tail only for one
+    /// never seen before. The **same transcript with a moved tail** follows it, but only for a
+    /// reader already at the tail — which is the whole of "preserve the scroll": a delegate three
+    /// screens up stays three screens up while the agent below it keeps writing. Anything else
+    /// leaves the handle alone.
+    pub fn sync(&self, key: TranscriptKey, signature: u64) {
+        self.away.set(self.away_from_tail());
+        let mut showing = self.showing.borrow_mut();
+        if showing.as_ref() != Some(&key) {
+            if let Some(previous) = showing.take() {
+                self.saved
+                    .borrow_mut()
+                    .insert(previous, self.handle.offset().y);
+            }
+            *showing = Some(key.clone());
+            self.settled.set(false);
+            // The incoming transcript's tail is not news, whoever put it there.
+            self.followed.set(signature);
+            let saved = self.saved.borrow().get(&key).copied();
+            match saved {
+                Some(y) => {
+                    self.handle
+                        .set_offset(gpui::point(self.handle.offset().x, y));
+                    self.away.set(true);
+                }
+                // Somewhere to be taken to outranks the tail: gpui applies `scroll_to_bottom`
+                // *after* a scroll-to-item, so asking for both in one frame is asking for the
+                // bottom.
+                None if self.target.get().is_none() => {
+                    self.handle.scroll_to_bottom();
+                    self.away.set(false);
+                }
+                None => {}
+            }
+            return;
+        }
+        self.settled.set(true);
+        if self.followed.get() != signature {
+            self.followed.set(signature);
+            if !self.away.get() && self.target.get().is_none() {
+                self.handle.scroll_to_bottom();
+            }
+        }
+    }
+
+    /// Whether the reader is reading something other than the tail — what draws the jump button,
+    /// and what stops an arriving chunk from dragging them back down.
+    ///
+    /// Measured from the last frame the handle painted: the offset is zero or negative and sits
+    /// at `-max_offset` at the bottom, so the two summed are the distance still to go. A slot
+    /// that has never painted has no maximum and is not away from anything.
+    pub fn away_from_tail(&self) -> bool {
+        let max = self.handle.max_offset().y;
+        max > px(0.) && self.handle.offset().y + max > TAIL_SLACK
+    }
+
+    /// What the last frame decided, for whoever is drawing this frame's overlay.
+    pub fn away(&self) -> bool {
+        self.away.get()
+    }
+
+    /// Ask for a block to be brought into view on the next frame — how the "needs you" strip
+    /// arrives at the prompt it named.
+    pub fn request(&self, block: usize) {
+        self.target.set(Some(block));
+    }
+
+    /// Take the block asked for, if one was and this frame can answer it. Answered once.
+    ///
+    /// Held back on the frame that switched transcripts — see [`Self::settled`] — so a jump to a
+    /// delegate's prompt lands on the delegate's block rather than wherever that child index
+    /// happened to be in the transcript the reader just left.
+    pub fn take_request(&self) -> Option<usize> {
+        self.settled.get().then(|| self.target.take()).flatten()
+    }
+
+    /// Whether a block is still waiting to be scrolled to. The frame that switched transcripts
+    /// cannot answer one, so it has to ask for the frame that can.
+    pub fn request_held(&self) -> bool {
+        self.target.get().is_some()
+    }
+
+    /// Put the reader back on the tail, and follow it again from here.
+    pub fn to_tail(&self) {
+        self.handle.scroll_to_bottom();
+        self.away.set(false);
+    }
+
+    /// Whether a transcript of this many children is long enough to be worth windowing.
+    pub fn windows(&self, children: usize) -> bool {
+        children > WINDOW_MIN && self.handle.bounds().size.height > px(0.)
+    }
+
+    /// Where a child of the last frame was painted, for deciding whether to build it again.
+    /// `None` for a child that frame did not have.
+    pub fn child_bounds(&self, ix: usize) -> Option<gpui::Bounds<Pixels>> {
+        self.handle.bounds_for_item(ix)
+    }
+
+    /// Whether a child painted at these bounds is close enough to the viewport to build.
+    ///
+    /// **The two are in different spaces, and that is the whole of this function.** A scroll
+    /// handle records each child where it was *laid out*, with the container's own scroll not yet
+    /// applied, while the viewport is where the container sits on screen. So the visible window in
+    /// the children's space is the viewport shifted by the offset — the same arithmetic
+    /// `ScrollHandle::top_item` does, deliberately, because a second reading of it that drifted
+    /// would window the wrong blocks and blank the ones being read.
+    pub fn near_viewport(&self, bounds: gpui::Bounds<Pixels>) -> bool {
+        let viewport = self.handle.bounds();
+        let offset = self.handle.offset().y;
+        let top = viewport.top() - offset - WINDOW_MARGIN;
+        let bottom = viewport.bottom() - offset + WINDOW_MARGIN;
+        bounds.bottom() >= top && bounds.top() <= bottom
+    }
 }
 
 fn text_of(content: &ConvContent) -> Option<String> {
@@ -1295,6 +1539,74 @@ mod tests {
             c.spend_by_subagent[""].total(),
             4_400,
             "the conversation's own spend is kept apart under its own key"
+        );
+    }
+
+    /// The footer of a delegate's transcript, and the one thing about it worth stating twice: the
+    /// wire keys spend by subagent **type**, so two `general-purpose` instances share one bucket.
+    /// Drawing a type's total as one instance's would over-report it by however many siblings it
+    /// had, which is why the footer says so on hover rather than pretending otherwise.
+    #[test]
+    fn subagent_tokens_are_a_types_bucket_rather_than_an_instances() {
+        let mut c = conversation();
+        c.apply(1, usage(50_000, 200_000, spend(4_000, 400), None));
+        // Two instances of one type, reporting separately.
+        c.apply(
+            2,
+            usage(50_000, 200_000, spend(9_000, 900), Some("general-purpose")),
+        );
+        c.apply(
+            3,
+            usage(50_000, 200_000, spend(1_000, 100), Some("general-purpose")),
+        );
+
+        assert_eq!(
+            c.subagent_tokens("general-purpose"),
+            Some((11_000, 0)),
+            "both instances summed into the one bucket their type has"
+        );
+        assert_eq!(
+            c.subagent_tokens("Explore"),
+            None,
+            "a type that never reported has nothing to draw — not a zero it made up"
+        );
+    }
+
+    /// The cached half of the reading is cache *read* alone: context re-used is saved, context
+    /// newly written is paid for once. And a bucket that exists but counted nothing reads `None`,
+    /// so the footer draws nothing rather than a row of zeroes.
+    #[test]
+    fn subagent_tokens_count_cache_read_as_the_cached_part() {
+        let mut c = conversation();
+        c.apply(
+            1,
+            usage(
+                50_000,
+                200_000,
+                TokenSpend {
+                    input: 1_000,
+                    output: 100,
+                    cache_read: 9_000,
+                    cache_creation: 500,
+                    ..TokenSpend::default()
+                },
+                Some("Explore"),
+            ),
+        );
+        c.apply(
+            2,
+            usage(50_000, 200_000, TokenSpend::default(), Some("Plan")),
+        );
+
+        assert_eq!(
+            c.subagent_tokens("Explore"),
+            Some((10_600, 9_000)),
+            "every token billed, and the cache-read part of it"
+        );
+        assert_eq!(
+            c.subagent_tokens("Plan"),
+            None,
+            "a bucket that was opened and counted nothing draws nothing"
         );
     }
 

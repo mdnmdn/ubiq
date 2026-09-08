@@ -52,7 +52,7 @@ Plus the standing architecture rule: `crates/ubiq` does not depend on `crates/ub
 |---|---|
 | Where a harness stores config, in what format; how to launch it | the library |
 | What a run is composed of — skills, MCPs, account, instructions, hooks | the library |
-| A harness's permission modes (`Harness::modes`), and how `Profile.mode` reaches a policy | the library |
+| A harness's permission modes (`Harness::modes`), which one means "ask nothing" (`Harness::unattended_mode`), and how `Profile.mode` reaches a policy | the library |
 | Which accounts exist; how credentials are referenced | the library |
 | Which files are a harness's own record, and its on-disk shape | the library |
 | How harness I/O becomes structured events, and what they are called | the library |
@@ -68,8 +68,10 @@ Plus the standing architecture rule: `crates/ubiq` does not depend on `crates/ub
 
 **`crates/ubiq-host/src/agent.rs` is the whole of the consumption, and is deliberately thin.**
 It calls `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and folder,
-and overrides exactly **three** fields of what comes back — the configuration directory, the I/O
-mode, and the isolation. Everything else (account, model, skills, MCP servers, config overlays) is
+and overrides exactly **four** fields of what comes back — the configuration directory, the I/O
+mode, the isolation, and, when a run is isolated, the permission mode: the sandbox contains it, so
+it asks nothing, and `Harness::unattended_mode` is the library's word for which mode that is (an
+explicit mode picked for the run outranks it; a profile's does not). Everything else (account, model, skills, MCP servers, config overlays) is
 the library's answer read from the profile. So an account reaches a pane without `agent.rs`
 learning what an account is.
 
@@ -100,17 +102,18 @@ The shape to remember: `StartConversation` (UI mints the `AgentId` client-side, 
 attaches with no round trip) → `ConversationStarted` → many `ConversationUpdate { seq, update }` →
 `ConversationEnded`. Turns go out as `PromptAgent`, are stopped by `CancelTurn`, and a
 `ConvUpdate::PermissionRequest` is answered by exactly one `AnswerPermission { request_id,
-option_id }`. **`UnloadConversation` kills the harness and keeps the conversation**; only
-`EndConversation` takes everything.
+option_id }`. **`UnloadConversation` kills the harness and keeps the conversation**, and
+`AbortConversation` does the same by killing the process outright rather than asking it to shut
+down and waiting; only `EndConversation` takes everything.
 
 ## The UI side
 
 Two surfaces host a live agent — the **chat panel** (`ui/chat/`) and an **agents column**
 (`ui/agents/column.rs`) — and both draw the *same* shared view, `ui/conversation/mod.rs`, over the
 same state, `state/conversation.rs`. A rule read in two places is a rule that drifts: every
-lifecycle question (`lifecycle`, `lifecycle_menu_enabled`, `lifecycle_controls`) is answered in
-that one module, and a surface that wants the controls elsewhere flips
-`ConversationView::header` rather than forking them.
+lifecycle question (`lifecycle`, `lifecycle_colour`, `lifecycle_menu_enabled`, and the
+`lifecycle_mark` / `lifecycle_menu` fragments) is answered in that one module, and a surface that
+wants the controls elsewhere flips `ConversationView::header` rather than forking them.
 
 See [`reference/ui.md`](reference/ui.md) for the transcript, tool folding, permission prompts,
 subagents, attachments, the footer's readings, the composer pool, and the chat tab / column

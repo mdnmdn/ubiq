@@ -254,7 +254,7 @@ per-message usage. Codex, opencode, and Copilot never report a context
 window at all, so their bridges emit no `UsageUpdate` ever — not a
 best-effort one with `size: 0`.
 
-### Permissions
+### Permissions and cancellation
 
 ```rust
 pub enum PermissionKind { AllowOnce, AllowAlways, RejectOnce, RejectAlways }
@@ -274,11 +274,38 @@ before it runs — how a caller forces, say, a background command into the
 foreground. Every pending permission request must be answered
 `PermissionOutcome::Cancelled` when a turn is cancelled.
 
+**Cancelling a turn is not ending the session, and `AgentInput` names the two
+separately.** `Cancel` interrupts the turn in flight and stops there: the
+harness keeps running and the next `Prompt` reaches the same agent. `Shutdown`
+is the teardown — it closes the harness's input, which is what makes the
+process exit, and nothing reaches the agent afterwards. A caller that sends
+`Cancel` where it meant `Shutdown` leaves a process running; one that sends
+`Shutdown` where it meant `Cancel` throws the conversation away.
+
+Every bridge denies whatever is outstanding on either of them, and then:
+
+| Harness | `Cancel` | `Shutdown` |
+|---|---|---|
+| **Claude Code** | writes `{"type":"control_request","request":{"subtype":"interrupt","reason":"interrupt"}}` and leaves stdin open | closes stdin |
+| **codex** | sends `turn/interrupt` with the thread id and the `turn.id` the last `turn/start` acked | closes stdin |
+| **opencode**, **GitHub Copilot** | kills the child | kills the child |
+
+The two one-shot harnesses collapse the distinction because the run *is* the
+turn: the prompt arrives via argv at launch, so there is no turn to interrupt
+short of ending the process, and neither offers an in-band interrupt that
+would make the two differ. This is the same fact `IoBridge::input`'s `None`
+already states about them.
+
+Both interrupts are the harness's own documented turn abort, not a signal or a
+closed pipe — see [`./harness/claude-code.md`](./harness/claude-code.md) and
+[`./harness/codex.md`](./harness/codex.md), both §"Process lifecycle", for the
+wire shapes and what was verified against which build.
+
 **Only the caller answers.** `JsonlBridge` (Claude Code) is the one bridge
 that really asks — it needs `--permission-prompt-tool stdio` to be asked at
 all, and an unanswered ask stalls the turn, so it holds each request
 outstanding until an `AnswerPermission` arrives and denies whatever is
-outstanding on a `Cancel` (see
+outstanding on a `Cancel` or a `Shutdown` (see
 [`./harness/claude-code.md`](./harness/claude-code.md) §"Tool approval in
 headless mode"). Its `option_id`s are `allow`, `deny`, and one
 `allow_always:<n>` per `permission_suggestions` entry the request offered —
@@ -324,6 +351,7 @@ in `to_acp` a rename rather than a reshape.
 pub enum AgentInput {
     Prompt { content: Vec<Content> },
     Cancel,
+    Shutdown,
     AnswerPermission { request_id: String, outcome: PermissionOutcome, updated_input: Option<serde_json::Value> },
     SetConfigOption { config_id: String, value: ConfigSetting },
 }
@@ -332,8 +360,10 @@ pub enum AgentInput {
 `Prompt` carries a `Vec<Content>` rather than a bare string so a caller can
 send images/resources alongside text, wherever the harness's bridge
 understands them; `AgentInput::prompt(text)` is the plain-text convenience
-constructor. `Cancel` interrupts the turn in flight — every pending
-permission request must then be answered `PermissionOutcome::Cancelled`.
+constructor. `Cancel` interrupts the turn in flight and leaves the session
+alive; `Shutdown` closes the harness's input and ends it. Both answer every
+pending permission request `PermissionOutcome::Cancelled` first — see
+§"Permissions and cancellation".
 `ConfigSetting` is `Text(String) | Flag(bool)`, matching `ConfigValue`'s two
 shapes.
 

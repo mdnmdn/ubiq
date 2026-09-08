@@ -1110,6 +1110,19 @@ pub enum Message {
     UnloadConversation {
         agent_id: AgentId,
     },
+    /// Unload, without asking the harness first.
+    ///
+    /// [`Message::UnloadConversation`] asks the harness to shut down and waits for it to; a
+    /// harness that does not act on the ask is what makes that wait long. This kills its process
+    /// outright and reaps it, so the answer does not depend on the harness cooperating. Nothing
+    /// else differs: the transcript, the run directory and the `WorkAgent` all stay, the same
+    /// `agent_id` resumes exactly as after an unload, and the reply is the same
+    /// [`Message::ConversationUnloaded`] — so an interface has nothing new to handle. A turn in
+    /// flight is not stopped, it is lost; [`Message::CancelTurn`] is what interrupts one and
+    /// leaves the harness running.
+    AbortConversation {
+        agent_id: AgentId,
+    },
     /// Start an unloaded conversation's harness again, under the same `agent_id`, with no prompt.
     /// The launch recipe is the `PendingConversation` the agent has carried since it was created,
     /// so this is the same launch a first [`Message::PromptAgent`] performs — only with no turn to

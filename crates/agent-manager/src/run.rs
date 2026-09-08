@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::Result;
-use crate::harness::Launch;
+use crate::harness::{Harness, Launch};
 use crate::provision::Provisioned;
 
 /// Spawn `launch` in a fresh PTY with working dir `cwd` and initial size
@@ -84,6 +84,7 @@ fn apply_env(cmd: &mut CommandBuilder, launch: &Launch) {
 /// after the spawn — the pump, the resize watcher, the exit code, the cleanup
 /// — is the same, because confinement replaces the argv and nothing else.
 pub fn run(
+    harness: &dyn Harness,
     provisioned: &Provisioned,
     cwd: &Path,
     keep_config: bool,
@@ -96,7 +97,7 @@ pub fn run(
     let (child, master) = spawn_in_pty(&launch, cwd, terminal_size())?;
     let code = run_with(child, master, cwd)?;
 
-    cleanup(provisioned, keep_config);
+    cleanup(harness, provisioned, keep_config);
 
     Ok(code)
 }
@@ -180,11 +181,22 @@ fn spawn_resize_watcher(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
 #[cfg(not(unix))]
 fn spawn_resize_watcher(_master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {}
 
-/// Best-effort removal of the ephemeral config dir, unless it was pinned
-/// (`!ephemeral`) or the caller asked to keep it (`keep_config`). Errors are
-/// swallowed: cleanup is a courtesy, not something worth failing the run
-/// over after the child has already produced its result.
-fn cleanup(provisioned: &Provisioned, keep_config: bool) {
+/// Harvest a refreshed login back to where it was seeded from, then best-effort
+/// removal of the ephemeral config dir, unless it was pinned (`!ephemeral`) or
+/// the caller asked to keep it (`keep_config`). Errors are swallowed: cleanup is
+/// a courtesy, not something worth failing the run over after the child has
+/// already produced its result.
+///
+/// The harvest runs whether or not the dir is ephemeral — a pinned dir diverges
+/// from its origin just the same.
+///
+/// ponytail: harvesting at teardown means a token the harness rotated mid-run is
+/// lost if this process is killed. Upgrade path is a watcher on the credential
+/// file, writing back as it changes.
+fn cleanup(harness: &dyn Harness, provisioned: &Provisioned, keep_config: bool) {
+    if let Some(origin) = &provisioned.login_origin {
+        let _ = crate::harness::harvest_login(harness, &provisioned.dir, origin);
+    }
     if provisioned.ephemeral && !keep_config {
         let _ = std::fs::remove_dir_all(&provisioned.dir);
     }

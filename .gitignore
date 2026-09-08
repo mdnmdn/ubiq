@@ -39,3 +39,5 @@ yarn-error.log*
 .obsidian/
 
 graphify-out/
+# Local reference copies (working home dirs, vendored sources) — never committed
+/refs/

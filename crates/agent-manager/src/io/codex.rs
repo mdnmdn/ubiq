@@ -115,6 +115,11 @@ pub struct CodexBridge {
     /// every subsequent `turn/start`. Set exactly once, at the end of the
     /// handshake.
     thread_id: Arc<OnceLock<String>>,
+    /// The `turn.id` the last `turn/start` came back with — what
+    /// `turn/interrupt` needs alongside the thread id, and the only place it
+    /// is stated. `None` between turns; taken (not read) by a cancel, so a
+    /// second cancel has no stale id to interrupt with.
+    turn_id: TurnSlot,
 }
 
 /// The detached input side of a [`CodexBridge`], for a caller pumping events
@@ -124,12 +129,25 @@ pub struct CodexInputSink {
     pending: PendingMap,
     next_id: Arc<AtomicI64>,
     thread_id: Arc<OnceLock<String>>,
+    turn_id: TurnSlot,
 }
+
+/// The live turn's id, shared between [`CodexBridge::send`] and every
+/// [`CodexInputSink`] — a prompt sent from one thread has to be interruptible
+/// from another. See [`CodexBridge::turn_id`].
+type TurnSlot = Arc<Mutex<Option<String>>>;
 
 impl AgentInputSink for CodexInputSink {
     fn send(&self, input: AgentInput) -> crate::Result<()> {
         let thread_id = self.thread_id.get().cloned().unwrap_or_default();
-        write_input(&self.stdin, &self.pending, &self.next_id, &thread_id, input)
+        write_input(
+            &self.stdin,
+            &self.pending,
+            &self.next_id,
+            &thread_id,
+            &self.turn_id,
+            input,
+        )
     }
 }
 
@@ -179,6 +197,7 @@ impl CodexBridge {
             pending,
             next_id: Arc::new(AtomicI64::new(1)),
             thread_id: Arc::new(OnceLock::new()),
+            turn_id: Arc::new(Mutex::new(None)),
         };
 
         bridge.handshake(cwd, &tx)?;
@@ -249,7 +268,14 @@ impl CodexBridge {
 impl IoBridge for CodexBridge {
     fn send(&mut self, input: AgentInput) -> crate::Result<()> {
         let thread_id = self.thread_id.get().cloned().unwrap_or_default();
-        write_input(&self.stdin, &self.pending, &self.next_id, &thread_id, input)
+        write_input(
+            &self.stdin,
+            &self.pending,
+            &self.next_id,
+            &thread_id,
+            &self.turn_id,
+            input,
+        )
     }
 
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>> {
@@ -267,7 +293,13 @@ impl IoBridge for CodexBridge {
             pending: Arc::clone(&self.pending),
             next_id: Arc::clone(&self.next_id),
             thread_id: Arc::clone(&self.thread_id),
+            turn_id: Arc::clone(&self.turn_id),
         }))
+    }
+
+    /// Kill-by-pid over the child this bridge owns; see [`crate::io::ProcessKill`].
+    fn killer(&self) -> Option<Arc<dyn crate::io::AgentKill>> {
+        Some(Arc::new(crate::io::ProcessKill::new(&self.child)))
     }
 }
 
@@ -391,6 +423,7 @@ fn write_input(
     pending: &PendingMap,
     next_id: &AtomicI64,
     thread_id: &str,
+    turn_id: &TurnSlot,
     input: AgentInput,
 ) -> crate::Result<()> {
     match input {
@@ -400,7 +433,7 @@ fn write_input(
             // `turn/completed` / `thread/status/changed` notifications,
             // read back via `next_event`.
             let text = input.prompt_text().unwrap_or_default();
-            rpc_request(
+            let started = rpc_request(
                 stdin,
                 pending,
                 next_id,
@@ -410,6 +443,16 @@ fn write_input(
                     "input": [{"type": "text", "text": text}],
                 }),
             )?;
+            // The ack's `turn.id` is the only place the live turn is named, and
+            // `turn/interrupt` needs it — so remember it here or a cancel has nothing to send.
+            if let Some(id) = started
+                .get("turn")
+                .and_then(|t| t.get("id"))
+                .and_then(Value::as_str)
+                && let Ok(mut slot) = turn_id.lock()
+            {
+                *slot = Some(id.to_string());
+            }
             Ok(())
         }
         AgentInput::AnswerPermission { .. } => {
@@ -426,12 +469,34 @@ fn write_input(
             Ok(())
         }
         AgentInput::Cancel => {
-            // Best-effort, matching `_docs/harness/codex.md`
-            // §"Process lifecycle": "close stdin to signal the app-server
-            // to stop". Codex's JSON-RPC surface has no documented
-            // `turn/cancel`-style request, so closing stdin (same mechanism
-            // [`Drop`] uses) is the only signal we send; the reader thread
-            // keeps draining stdout until the process actually exits.
+            // `turn/interrupt` aborts the running turn and leaves the thread — and the process —
+            // alive for the next `turn/start` (`_docs/harness/codex.md` §"Process lifecycle").
+            // It needs both ids, and the turn id is only ever stated on `turn/start`'s ack, so a
+            // cancel with no turn on record has nothing to interrupt and says so rather than
+            // guessing.
+            let live = turn_id.lock().ok().and_then(|mut slot| slot.take());
+            let Some(live) = live else {
+                tracing::debug!("codex cancel with no turn on record; nothing to interrupt");
+                return Ok(());
+            };
+            // Codex answers `no active turn to interrupt` when the turn ended between the
+            // caller's decision and this write — a race, not a fault, so it is logged rather
+            // than returned: the caller asked for the turn to be over and it is.
+            if let Err(error) = rpc_request(
+                stdin,
+                pending,
+                next_id,
+                "turn/interrupt",
+                json!({"threadId": thread_id, "turnId": live}),
+            ) {
+                tracing::debug!(%error, "codex refused turn/interrupt");
+            }
+            Ok(())
+        }
+        AgentInput::Shutdown => {
+            // Teardown, matching `_docs/harness/codex.md` §"Process lifecycle": "close stdin to
+            // signal the app-server to stop" — the same mechanism [`Drop`] uses. The reader
+            // thread keeps draining stdout until the process actually exits.
             if let Ok(mut guard) = stdin.lock() {
                 *guard = None;
             }

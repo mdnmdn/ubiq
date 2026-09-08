@@ -64,7 +64,7 @@ impl Harness for Codex {
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CODEX_HOME".to_string(), Relocate::All)],
-            login_seed: vec![SeedFile::new("auth.json", "auth.json")],
+            login_seed: vec![SeedFile::credential("auth.json", "auth.json")],
             requires_home_relocation: false,
         }
     }
@@ -125,6 +125,12 @@ impl Harness for Codex {
             description: None,
         })
         .collect()
+    }
+
+    /// `danger-full-access` is Codex's own name for asking nothing — see
+    /// [`super::Harness::unattended_mode`].
+    fn unattended_mode(&self) -> Option<&'static str> {
+        Some("danger-full-access")
     }
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
