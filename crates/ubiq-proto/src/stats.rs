@@ -28,6 +28,23 @@ pub struct HostStats {
     /// Every conversation started since this run began, including those that have since ended.
     /// A count rather than a length, because the ones it counts are gone.
     pub agents_this_run: usize,
+    /// Distinct Ubiq sessions (named pane groupings) with at least one live workspace.
+    /// Derived from live `WorkspaceInfo.session_id`s until a real session table lands.
+    #[serde(default)]
+    pub sessions_count: usize,
+    /// Machine-wide load, percent of one CPU's capacity scaled 0-100 over all CPUs.
+    /// `None` where the platform would not say or no sampler has run yet.
+    /// Periodically sampled, never realtime — see `ubiq_host::host_meta`.
+    #[serde(default)]
+    pub cpu_load_pct: Option<f32>,
+    /// Machine-wide free/total RAM in bytes. `None` where unavailable.
+    #[serde(default)]
+    pub mem_free_bytes: Option<u64>,
+    #[serde(default)]
+    pub mem_total_bytes: Option<u64>,
+    /// Free disk on the config-root volume, in bytes. `None` where unavailable.
+    #[serde(default)]
+    pub disk_free_bytes: Option<u64>,
     /// This run, minute by minute.
     pub this_run: Vec<UsageRow>,
     /// The durable aggregate, hour by hour, across every run.

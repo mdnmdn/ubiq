@@ -217,3 +217,11 @@ ulid_id! {
     /// swallowed still gets one, since the badge counts it and a click has to name it.
     NotificationId
 }
+
+ulid_id! {
+    /// One saved remote-host entry in the interface's settings. Minted UI-side when a
+    /// connection is first saved, stable across renames and address edits — the name and the
+    /// address are the user's, this is what the secret store and the live-connection table
+    /// reference.
+    HostSaveId
+}

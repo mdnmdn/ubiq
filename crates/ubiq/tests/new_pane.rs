@@ -76,6 +76,12 @@ impl Fixture {
             Message::HostInfo {
                 config_root: "/tmp/ubiq-config".to_string(),
                 is_default: true,
+                hostname: None,
+                os: None,
+                arch: None,
+                triplet: None,
+                cpu_count: None,
+                mem_total_bytes: None,
             },
         );
         cx.run_until_parked();

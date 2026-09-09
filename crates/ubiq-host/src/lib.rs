@@ -43,6 +43,7 @@ pub mod files;
 pub mod gc;
 pub mod git;
 pub mod health;
+pub mod host_meta;
 pub mod host_path;
 pub mod index;
 pub mod links;

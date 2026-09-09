@@ -83,6 +83,9 @@ x509-parser = "0.18"
 sha2 = "0.10"
 # The PKCE verifier and the `state` nonce. A CSPRNG and nothing else.
 rand = "0.8"
+# PEM parsing for `--tls-cert`/`--tls-key`: the two files a served host reads its
+# server identity from. A parser, no I/O, no UI.
+rustls-pemfile = "2"
 # The loopback listener an OAuth redirect lands on: one bound port, one request, then dropped. A
 # blocking HTTP server small enough to have no runtime and no view layer.
 tiny_http = "0.12"
@@ -96,6 +99,11 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # The host's own resident set, for the stats screen. One call per sample, no sampling thread, and
 # a `None` on a platform that will not say. Draws nothing.
 memory-stats = "1"
+# Machine facts for the remote-hosts panel — hostname, RAM, CPU load, disk free. Read on the
+# metadata sampler thread only, never the coordinator's; every failure becomes `None`.
+# Draws nothing; `just host` stays green.
+sysinfo = "0.31"
+hostname = "0.4"
 
 [features]
 # The on-device assist backend. Off, `assist::select` answers with the stub backend, which reports

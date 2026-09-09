@@ -26,7 +26,9 @@ use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
-use crate::state::file_picker::{FilePickerState, PickerCount, PickerKey, PickerRow, PickerView};
+use crate::state::file_picker::{
+    FilePickerState, PickerCount, PickerKey, PickerOwner, PickerRow, PickerView,
+};
 use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
@@ -173,7 +175,7 @@ pub fn render(
                     .children(nothing.then(|| empty_panel("Nothing matches")))
                     .children(rows),
             )
-            .child(footer(picker, cx))
+            .child(footer(app, picker, cx))
             .child(grip(cx))
             // A picker that does not hold the window goes away when attention leaves it. A modal one
             // stays up until it is answered or cancelled, which is what modal means.
@@ -507,9 +509,19 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
 /// The confirming button is absent when a click on a row is already the answer: a dialog that
 /// closes on the click has nothing left for a button to do, and one drawn there would look like a
 /// step the user is skipping.
-fn footer(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
+///
+/// A host-project pick — opening a folder as a project on a remote host — also carries the
+/// persistent checkbox: checked, the project joins that host's catalogue and is still there to
+/// reconnect to later; unchecked, the host keeps it in memory only and it is gone at its next
+/// launch.
+fn footer(app: &AppState, picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
     let ready = picker.can_commit();
     let label = picker.confirm_label();
+    let persistent = app
+        .host_browse
+        .as_ref()
+        .map(|browse| browse.persistent)
+        .unwrap_or(true);
 
     div()
         .px_3()
@@ -533,6 +545,27 @@ fn footer(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::font(theme::Family::Chrome, theme::Role::Label),
                 )),
         )
+        .children((picker.request.owner == PickerOwner::HostProject).then(|| {
+            div()
+                .id("file-picker-persistent")
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(check_box(
+                    "file-picker-persistent",
+                    persistent,
+                    cx.listener(|this, _, _, cx| this.toggle_host_project_persistent(cx)),
+                ))
+                .child(mono("Keep project", theme::text_muted()).text_size(px(11.)))
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(
+                        "Keep this project on the remote host, so a later reconnect finds it \
+                         still working. Unchecked, it lasts only until that host restarts.",
+                    )
+                    .build(window, cx)
+                })
+        }))
         .child(hint(picker))
         .child(ghost_button(
             "file-picker-cancel",

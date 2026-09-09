@@ -95,7 +95,8 @@ use ubiq_proto::notifications::{
 };
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{
-    AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, SavedRemoteHost, SettingsLayer,
+    AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteScheme, SavedRemoteHost,
+    SettingsLayer,
 };
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
@@ -750,6 +751,9 @@ pub struct AppState {
     /// rather than mirrored, for the same reason `connect_instance_input` is.
     pub remote_address_input: Entity<InputState>,
     pub remote_token_input: Entity<InputState>,
+    /// The remote-hosts manager's rename prompt. Read at confirm time, like the connect modal's
+    /// fields, rather than mirrored into state.
+    pub remote_rename_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -834,11 +838,12 @@ pub use projects::Holds;
 mod git;
 mod graph;
 mod host_browse;
+pub mod host_secrets;
 mod hosts;
 pub use host_browse::HostBrowseState;
 pub use hosts::{
-    Bus, HostEntry, HostId, HostRef, HostStatus, RemoteConn, host_menu_rows, host_row_label,
-    preferred_remote,
+    Bus, ConnStatus, HostEntry, HostId, HostRef, HostStatus, LiveRemote, RemoteConn, RemoteHostMeta,
+    host_menu_rows, host_row_label, preferred_remote,
 };
 mod image_edit;
 mod nav;
@@ -848,6 +853,7 @@ mod panels;
 mod picker;
 mod projects;
 mod remote_connect;
+mod remote_hosts;
 mod settings;
 mod shell;
 mod sink;

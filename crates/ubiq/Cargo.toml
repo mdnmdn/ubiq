@@ -91,6 +91,17 @@ flume = "0.12"
 parking_lot = "0.12"
 # Small error type for the capture path, which spells one failure rather than an enum.
 anyhow = "1"
+# Remote-host dialer: TLS for `https://` saved hosts. Same rustls the host already
+# uses, so there is one TLS stack in the workspace. `ring` pinned as the provider
+# for the same reason it is on the host's side.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Trust roots for https dials: the platform's store first, the bundled Mozilla set
+# when it cannot be read. Neither draws.
+rustls-native-certs = "0.8"
+webpki-roots = "0.26"
+# Remote-host bearer tokens, one entry per saved host. The settings file carries the
+# address and never the secret; this is where the secret lives.
+keyring = "3"
 
 # Local read-only doc/source viewer server (web_export module)
 tiny_http = "0.12"

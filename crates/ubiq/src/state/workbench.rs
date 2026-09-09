@@ -20,6 +20,7 @@ use ubiq_proto::work::AgentId;
 use crate::state::PanelKind;
 use crate::state::clone::CloneState;
 use crate::state::remote::RemoteConnectState;
+use crate::state::remote_hosts::RemoteManagerState;
 use crate::state::settings::SettingsState;
 use crate::state::sink::ColourField;
 use crate::theme::ThemeId;
@@ -335,6 +336,9 @@ pub struct WorkbenchState {
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
     pub remote_connect: Option<RemoteConnectState>,
+    /// The "Remote hosts" manager panel, while it is up. The connections it lists live on the
+    /// bus and in the settings record — this is only the panel's own test outcomes.
+    pub remote_manager: RemoteManagerState,
     /// Application settings, raised from the titlebar's gear. Interface-wide, so it opens with
     /// no project.
     pub settings: SettingsState,
@@ -432,6 +436,7 @@ impl Default for WorkbenchState {
             new_agent: None,
             agent_preambles: Default::default(),
             remote_connect: None,
+            remote_manager: RemoteManagerState::default(),
             settings: SettingsState::default(),
             project_error: None,
             work_error: None,

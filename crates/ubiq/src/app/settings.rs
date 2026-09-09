@@ -59,38 +59,111 @@ impl AppState {
         });
     }
 
-    /// Save or update one remote host's name and address, keyed by address. Called the moment a
-    /// dial to that address succeeds — whether it was typed fresh into the titlebar modal or
-    /// started as a reconnect from the Hosts section — so a host is durable the first time it is
-    /// ever reached, with no separate "save" step for the user to remember. See
+    /// Save or update one remote host's name, address, scheme and trust flag, keyed by its
+    /// stable id — minted here when the dial that proved it reachable was the entry's first.
+    /// Called the moment a dial succeeds, so a host is durable the first time it is ever reached,
+    /// with no separate "save" step for the user to remember. Answers with the id, which is what
+    /// the keychain token and the reconnect loop reference. See
     /// [`ubiq_proto::settings::HostSettings::remote_hosts`] for why this never carries the token,
     /// and why this rides `SetSettings` whole rather than a dedicated message the way
     /// `oauth_apps` does.
     pub(super) fn save_remote_host(
         &mut self,
+        save_id: String,
         name: String,
         address: String,
+        scheme: RemoteScheme,
+        trust_insecure: bool,
         cx: &mut Context<Self>,
-    ) {
+    ) -> String {
         let hosts = &mut self.workbench.settings.host.remote_hosts;
-        match hosts.iter_mut().find(|host| host.address == address) {
-            Some(existing) => existing.name = name,
-            None => hosts.push(SavedRemoteHost { name, address }),
-        }
+        // The id is stable; the address is not — an edit moves the entry, and a legacy entry
+        // with no id yet is matched by the address it was first reached at, then given one.
+        let id = if save_id.is_empty() {
+            if let Some(existing) = hosts.iter_mut().find(|host| host.address == address) {
+                existing.name = name;
+                existing.scheme = scheme;
+                existing.trust_insecure = trust_insecure;
+                if existing.id.is_empty() {
+                    existing.id = ubiq_proto::ids::HostSaveId::generate().to_string();
+                }
+                existing.id.clone()
+            } else {
+                let id = ubiq_proto::ids::HostSaveId::generate().to_string();
+                hosts.push(SavedRemoteHost {
+                    id: id.clone(),
+                    name,
+                    address,
+                    scheme,
+                    trust_insecure,
+                });
+                id
+            }
+        } else if let Some(existing) = hosts.iter_mut().find(|host| host.id == save_id) {
+            existing.name = name;
+            existing.address = address;
+            existing.scheme = scheme;
+            existing.trust_insecure = trust_insecure;
+            existing.id.clone()
+        } else {
+            hosts.push(SavedRemoteHost {
+                id: save_id.clone(),
+                name,
+                address,
+                scheme,
+                trust_insecure,
+            });
+            save_id
+        };
         self.remember_host_settings();
+        cx.notify();
+        id
+    }
+
+    /// Rename a saved host. The id, address, scheme and keychain token are untouched — a name is
+    /// a label, and live connections keep the one they were dialled under regardless.
+    pub fn rename_remote_host(&mut self, save_id: String, name: String, cx: &mut Context<Self>) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        if let Some(host) = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter_mut()
+            .find(|host| host.id == save_id)
+        {
+            host.name = name;
+            self.remember_host_settings();
+        }
         cx.notify();
     }
 
-    /// Drop a saved host record. Only ever the record — a live connection under that address, if
-    /// this window still has one, is untouched; forgetting is about what the *next* window sees
-    /// on open, not about the one open right now.
-    pub fn forget_remote_host(&mut self, address: String, cx: &mut Context<Self>) {
+    /// Drop a saved host record, its keychain token and its reconnect loop. A live connection
+    /// under that entry, if this window still has one, is untouched; forgetting is about what
+    /// the *next* window sees on open, not about the one open right now.
+    pub fn forget_remote_host(&mut self, save_id: String, cx: &mut Context<Self>) {
+        let mut forgotten: Vec<SavedRemoteHost> = Vec::new();
         self.workbench
             .settings
             .host
             .remote_hosts
-            .retain(|host| host.address != address);
-        self.workbench.settings.failed_hosts.remove(&address);
+            .retain(|host| {
+                let keep = host.id != save_id && !(save_id.is_empty() && host.address == save_id);
+                if !keep {
+                    forgotten.push(host.clone());
+                }
+                keep
+            });
+        for host in &forgotten {
+            let key = host_secrets::key_for(&host.id, &host.address);
+            host_secrets::delete_token(&key);
+            self.workbench.settings.failed_hosts.remove(&host.address);
+            self.workbench.settings.reconnects.remove(&key);
+            self.workbench.remote_manager.tests.remove(&key);
+        }
         self.remember_host_settings();
         cx.notify();
     }
@@ -119,8 +192,26 @@ impl AppState {
         match entry {
             HostEntry::Local => self.bus.set_active(HostRef::Local),
             HostEntry::Remote { host, .. } => self.bus.set_active(HostRef::Remote(host)),
-            HostEntry::Saved { name, address } => {
-                self.reconnect_saved_host(name, address, window, cx);
+            HostEntry::Saved { id, .. } => {
+                let saved = self
+                    .workbench
+                    .settings
+                    .host
+                    .remote_hosts
+                    .iter()
+                    .find(|host| host.id == id)
+                    .cloned();
+                if let Some(saved) = saved {
+                    self.reconnect_saved_host(
+                        saved.id,
+                        saved.name,
+                        saved.address,
+                        saved.scheme,
+                        saved.trust_insecure,
+                        window,
+                        cx,
+                    );
+                }
                 return;
             }
         }

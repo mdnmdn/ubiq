@@ -9,6 +9,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use ubiq_proto::settings::RemoteScheme;
+
 /// The port a remote host listens on when nothing else is said. Matches
 /// `ubiq_host::remote::serve`'s own default bind port — kept as a constant here rather than
 /// imported, since `ubiq-host` is not a dependency of this crate and the number is a fact about
@@ -63,6 +65,16 @@ pub struct RemoteConnectState {
     /// under, the same way `saved` marks this as a reconnect worth reflecting in
     /// `SettingsState::failed_hosts` rather than an ordinary first dial.
     pub saved_name: Option<String>,
+    /// The saved entry this dial belongs to, when it belongs to one. Links the landing to its
+    /// keychain token and its scheme/trust settings.
+    pub save_id: String,
+    /// Which protocol to dial with. Follows the saved entry for a reconnect, the pasted scheme
+    /// for a fresh paste, and the picker's own toggle otherwise.
+    pub scheme: RemoteScheme,
+    /// Only meaningful for `https`: skip chain validation. Never silent — the modal says the
+    /// certificate is not verified, and the saved entry keeps the flag so the manager panel
+    /// shows it too.
+    pub trust_insecure: bool,
 }
 
 impl Default for RemoteConnectState {
@@ -70,6 +82,9 @@ impl Default for RemoteConnectState {
         Self {
             step: RemoteConnectStep::Editing,
             saved_name: None,
+            save_id: String::new(),
+            scheme: RemoteScheme::Http,
+            trust_insecure: false,
         }
     }
 }
@@ -87,6 +102,9 @@ pub struct ParsedPaste {
     pub address: String,
     /// The token, when the paste carried a `token=` query parameter.
     pub token: Option<String>,
+    /// The scheme the paste carried, when it carried one. `None` is "no scheme typed", which
+    /// leaves the picker's own toggle alone rather than resetting it.
+    pub scheme: Option<RemoteScheme>,
 }
 
 /// Parse whatever was pasted or typed into the address field.
@@ -98,6 +116,7 @@ pub struct ParsedPaste {
 /// alternative is a paste that visibly does nothing, which reads as broken.
 pub fn parse_connection_string(input: &str) -> ParsedPaste {
     let trimmed = input.trim();
+    let scheme = scheme_of(trimmed);
     let without_scheme = strip_scheme(trimmed);
     let (address, query) = match without_scheme.split_once('?') {
         Some((address, query)) => (address, Some(query)),
@@ -114,12 +133,26 @@ pub fn parse_connection_string(input: &str) -> ParsedPaste {
     ParsedPaste {
         address: address.trim().trim_end_matches('/').to_string(),
         token,
+        scheme,
     }
 }
 
-/// Strip a leading `http://` or `https://`, case-insensitively. The host only ever prints `http`,
-/// but a user typing from memory is as likely to type `https` — both are the same thing to this
-/// parser, since neither survives past the handshake's own upgrade anyway.
+/// The scheme a typed or pasted string carries, if any. `https` survives as a choice the dial
+/// honours; `http` is stated explicitly rather than assumed.
+fn scheme_of(input: &str) -> Option<RemoteScheme> {
+    let lower = input.to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        Some(RemoteScheme::Https)
+    } else if lower.starts_with("http://") {
+        Some(RemoteScheme::Http)
+    } else {
+        None
+    }
+}
+
+/// Strip a leading `http://` or `https://`, case-insensitively. The host prints whichever
+/// scheme it serves, and the dial honours it — see `RemoteConnectState::scheme` — rather than
+/// treating both as the same thing.
 fn strip_scheme(input: &str) -> &str {
     for scheme in ["http://", "https://"] {
         if input.len() >= scheme.len()

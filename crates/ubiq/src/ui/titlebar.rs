@@ -180,6 +180,18 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     .h_full(),
                 )
                 .child(bell(app, cx))
+                .child(
+                    icon_button(
+                        "remote-hosts",
+                        IconName::Network,
+                        app.workbench.remote_manager.open,
+                        cx.listener(|this, _, _, cx| this.open_remote_manager(cx)),
+                    )
+                    .h_full()
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Remote hosts").build(window, cx)
+                    }),
+                )
                 // Remote connect, web export, window capture and settings: reached occasionally
                 // rather than every session, so they live behind a chevron instead of standing on
                 // the strip permanently. See `ui::overflow_menu`.

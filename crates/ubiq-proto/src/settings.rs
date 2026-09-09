@@ -204,16 +204,40 @@ pub struct Grant {
 
 /// One remembered remote host: enough to offer a reconnect, never enough to perform one alone.
 ///
-/// See [`HostSettings::remote_hosts`] for why the token is not here. Reconnecting from this record
-/// means the interface still has to ask for one.
+/// The bearer token lives in the OS keychain under the entry's `id`, never in this file.
+/// Reconnecting from this record means the interface still has to unlock one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedRemoteHost {
-    /// What the user called it when they saved it. Freely renamable, and shown instead of the
+    /// Stable id, minted UI-side on first save. The name and address are the user's and change;
+    /// this is what the secret store and the live-connection table reference.
+    #[serde(default)]
+    pub id: String,
+    /// What the user called it. Freely renamable, and shown instead of the
     /// address wherever there is room for only one string.
     pub name: String,
     /// `host:port`, exactly as typed or pasted — the same shape
     /// `state::remote::with_default_port` already normalises for a live dial.
     pub address: String,
+    /// `http` (plaintext upgrade) or `https` (TLS). Defaults to `http` for records
+    /// written before the scheme was captured.
+    #[serde(default)]
+    pub scheme: RemoteScheme,
+    /// Only meaningful for `https`: skip chain validation and pin the leaf's
+    /// SHA-256 fingerprint on first connect instead. Never silent — the panel
+    /// shows it as untrusted until confirmed.
+    #[serde(default)]
+    pub trust_insecure: bool,
+}
+
+/// Which protocol a saved remote host dials with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteScheme {
+    /// Plaintext TCP + HTTP upgrade. What the host has always spoken.
+    #[default]
+    Http,
+    /// TLS first, then the same HTTP upgrade inside it. Needs a server cert on the host.
+    Https,
 }
 
 /// The shape this host writes and understands.
@@ -261,7 +285,11 @@ pub struct SavedRemoteHost {
 /// records they had said to keep. Every other field on this record reverts a *setting*; this one
 /// reverts and then deletes the user's own data, which is why the guard matters here even though
 /// the field is additive and defaulted.
-pub const HOST_SETTINGS_SCHEMA: u32 = 13;
+///
+/// Fourteen widens [`SavedRemoteHost`] with `id`, `scheme` and `trust_insecure`. An older build
+/// drops all three on its next write — saved hosts lose their keychain linkage, scheme and
+/// trust flag — so the bump refuses rather than silently downgrading them.
+pub const HOST_SETTINGS_SCHEMA: u32 = 14;
 
 fn isolate_agents_default() -> bool {
     true

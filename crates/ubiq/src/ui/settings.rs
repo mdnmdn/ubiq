@@ -2430,8 +2430,8 @@ fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     column(vec![
         heading(
             "Hosts",
-            "The local machine, always attached, plus any host reached over \u{201c}Connect to a \
-             remote host\u{201d} in the titlebar. Picking one here only changes where a new pane \
+            "The local machine, always attached, plus any host reached over \u{201c}Remote \
+             hosts\u{201d} in the titlebar. Picking one here only changes where a new pane \
              or a new project lands by default \u{2014} it never moves one that already exists.",
         ),
         div()
@@ -2493,9 +2493,18 @@ fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .iter()
                     .find(|(_, label)| *label == host.name || *label == host.address)
                     .map(|(id, _)| *id);
-                host_row(host, attached, &app.workbench.settings.failed_hosts, cx)
+                let key = crate::app::host_secrets::key_for(&host.id, &host.address);
+                let reconnecting = app.workbench.settings.reconnects.contains_key(&key);
+                host_row(
+                    host,
+                    attached,
+                    reconnecting,
+                    &app.workbench.settings.failed_hosts,
+                    cx,
+                )
             }))
             .into_any_element(),
+        crate::ui::remote_hosts::manager_link(cx),
     ])
 }
 
@@ -2509,12 +2518,16 @@ fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 fn host_row(
     host: &ubiq_proto::settings::SavedRemoteHost,
     attached: Option<HostId>,
+    reconnecting: bool,
     failed: &std::collections::HashSet<String>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let address = host.address.clone();
+    let save_id = host.id.clone();
     let (chip, colour) = if attached.is_some() {
         ("attached", theme::text_faint())
+    } else if reconnecting {
+        ("reconnecting", theme::warning())
     } else if failed.contains(&host.address) {
         ("last attempt failed", theme::danger())
     } else {
@@ -2543,7 +2556,9 @@ fn host_row(
                 ElementId::Name(format!("app-settings-host-{address}-forget").into()),
                 None,
                 "Forget",
-                cx.listener(move |this, _, _, cx| this.forget_remote_host(address.clone(), cx)),
+                cx.listener(move |this, _, _, cx| {
+                    this.forget_remote_host(save_id.clone(), cx)
+                }),
             ))
             .into_any_element(),
     )
