@@ -24,6 +24,7 @@ use crate::app::AppState;
 use crate::state::work;
 use crate::state::{InspectorTab, Selection};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::indexed;
 use crate::ui::kit::{
     Tab, UbiqIcon, field, ghost_button, icon_button, mono, panel, pill, progress_ring,
@@ -49,7 +50,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     .justify_center()
                     .child(
                         div()
-                            .text_size(px(12.5))
+                            .text_size(theme::font(Family::Chrome, Role::Body))
                             .text_color(theme::text_faint())
                             .child("Pick a session in the toolbar, or a card in the graph."),
                     ),
@@ -71,7 +72,7 @@ fn header_bar(
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
     div()
-        .h(px(theme::TITLEBAR_HEIGHT))
+        .h(px(theme::titlebar_height()))
         .px_3()
         .flex()
         .flex_none()
@@ -83,11 +84,11 @@ fn header_bar(
         .child(div().size(px(8.)).flex_none().rounded_full().bg(colour))
         .child(
             div()
-                .text_size(px(14.))
+                .text_size(theme::font(Family::Chrome, Role::Title))
                 .text_color(theme::text())
                 .child(SharedString::from(name.to_string())),
         )
-        .child(mono(kind.to_string(), theme::text_muted()).text_size(px(11.5)))
+        .child(mono(kind.to_string(), theme::text_muted()))
         .child(div().flex_1().min_w(px(0.)))
         .child(icon_button(
             "orch-inspector-close",
@@ -117,8 +118,11 @@ fn session_view(app: &AppState, id: SessionId, cx: &mut Context<AppState>) -> gp
             pill(bucket_colour(bucket))
                 .h(px(24.))
                 .px_2()
-                .child(mono(format!("{n}"), theme::text()).text_size(px(11.5)))
-                .child(mono(bucket.label(), theme::text_muted()).text_size(px(11.)))
+                .child(mono(format!("{n}"), theme::text()))
+                .child(
+                    mono(bucket.label(), theme::text_muted())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                )
                 .into_any_element()
         })
         .collect();
@@ -145,7 +149,7 @@ fn session_view(app: &AppState, id: SessionId, cx: &mut Context<AppState>) -> gp
                                 .with_size(Size::XSmall)
                                 .text_color(theme::text_faint()),
                         )
-                        .child(mono(session.branch.clone(), theme::text()).text_size(px(11.5))),
+                        .child(mono(session.branch.clone(), theme::text())),
                 )
                 .children(counts),
         )
@@ -215,18 +219,18 @@ fn agent_view(
                         .h(px(24.))
                         .px_2()
                         .child(role_mark(&agent.role, theme::accent(), 16.))
-                        .child(mono(agent.harness.clone(), theme::text()).text_size(px(11.5))),
+                        .child(mono(agent.harness.clone(), theme::text())),
                 )
                 .child(
                     pill(theme::border())
                         .h(px(24.))
                         .px_2()
-                        .child(mono(agent.model.clone(), theme::text()).text_size(px(11.5))),
+                        .child(mono(agent.model.clone(), theme::text())),
                 )
                 .child(div().flex_1().min_w(px(0.)))
                 .child(progress_ring(agent.context_pct, 13.))
-                .child(mono(format!("{}%", agent.context_pct), theme::text()).text_size(px(11.5)))
-                .child(mono(work::tokens_label(agent), theme::text_muted()).text_size(px(11.5))),
+                .child(mono(format!("{}%", agent.context_pct), theme::text()))
+                .child(mono(work::tokens_label(agent), theme::text_muted())),
         )
         .child(tab_strip(
             "orch-inspector-tabs",
@@ -263,15 +267,15 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
                     div()
                         .p_2()
                         .bg(theme::accent_soft())
-                        .border_l(px(theme::ACCENT_EDGE))
+                        .border_l(px(theme::accent_edge()))
                         .border_color(theme::accent())
-                        .text_size(px(13.))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text())
                         .child(SharedString::from(turn.text.clone())),
                 )
                 .into_any_element(),
             Speaker::Agent => div()
-                .text_size(px(13.))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(turn.text.clone()))
                 .into_any_element(),
@@ -292,7 +296,7 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
         .child(
             div()
                 .pt_1()
-                .text_size(px(11.5))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text_faint())
                 .child(
                     "Nothing is listening yet \u{2014} what you send reaches the host and no agent \
@@ -330,7 +334,7 @@ fn composer(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl
                         .appearance(false)
                         .bordered(false)
                         .w_full()
-                        .text_size(px(13.5)),
+                        .text_size(theme::font(Family::Chrome, Role::Body)),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
                     let input = this.agent_input.clone();
@@ -346,7 +350,7 @@ fn composer(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl
                 .items_center()
                 .gap_2()
                 .child(section_label("to"))
-                .child(mono(target, theme::text_muted()).text_size(px(11.5)))
+                .child(mono(target, theme::text_muted()))
                 .child(div().flex_1().min_w(px(0.)))
                 .child(
                     ghost_button(

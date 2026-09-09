@@ -609,6 +609,8 @@ is what multiplexes several of them down one channel.
 | `UnloadConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
 | `AbortConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
 | `ResumeConversation` | UI → host | `agent_id` | `ConvUpdate::Started`, or nothing if already live |
+| `SetConversationPersistent` | UI → host | `agent_id`, `persistent` | `AgentChanged` |
+| `ReviveConversation` | UI → host | `source`, `agent_id`, `project_id`, `session_id` | `ConversationStarted` or `ConversationError` |
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
 | `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
@@ -629,6 +631,24 @@ second. An absent or empty field says nothing, which is what leaves the profile 
 that, the harness's own default — in charge. Empty rather than `None` alone because the interface
 sends the form's answer whatever it is, and "the user did not choose" and "the field is not on
 this message" have to read the same.
+
+**`ReviveConversation` is one message for two paths, and the run directory is why.** That directory
+*is* the conversation: it holds the harness's own session store, so resuming a session id inside a
+given directory is the whole of what continuing a conversation means. When `source == agent_id` the
+message is a re-attach — the harness resumes its own session in its own kept run directory, which is
+what a conversation marked persistent does after a restart. When `source != agent_id` it is a fork:
+the source's run directory is copied and a new agent launched in the copy under the same harness
+session id, so the two share every turn up to that point and diverge from the next one on. The
+source is untouched — not stopped, not unloaded, not modified. Nothing about the fork is
+harness-specific, because copying a directory is something the filesystem does; that is what one
+message rather than two buys.
+
+**`SetConversationPersistent` is not a `SetAgentConfig`.** That message carries the harness's own
+config options under ids the harness advertised, and the host forwards them without knowing what
+they mean. Persistence is Ubiq's own property of the conversation — whether its record and run
+directory outlive the window and survive a restart. The harness has never heard of it, and nothing
+about it reaches the child process. It lands on the record as `WorkAgent.persistent`, so every
+surface that draws an agent draws the mark from what it already holds.
 
 **There is deliberately no `max_subagents` here.** No harness has a flag for it, so there is
 nothing for the host to pass; the interface says it to the agent instead, as a directive folded in
@@ -690,6 +710,18 @@ minted. The sidebar row, the column header and the chat panel row all draw that 
 naming it from the opening exchange; both write the same field, and whichever spoke last is the
 name. Neither of them is the user — no rename message exists on the wire, so a name nothing else
 writes is the name for the conversation's life (`G119`).
+
+**`ConvUpdate::Compacted` marks where the harness's memory begins, and carries nothing else.** A
+harness that compacts its context has forgotten what came before, while the transcript above still
+shows it — true about what was said, wrong about what is remembered. The divider is what keeps a
+reader from inferring the second from the first, and it matters most on a conversation restored
+after a restart, where hundreds of blocks arrive at once. It has no fields because a hairline needs
+none: the trigger and a pre-compaction token count would be facts nothing draws. **Only Claude Code
+reports one** — it is a `system` event with `subtype: "compact_boundary"` on the native
+`stream-json` bridge. ACP has no compaction notification, no capability and no stop reason for a
+context that ran out, so an ACP harness emits nothing here and a divider is never inferred from a
+falling `UsageRecord.used`: a fresh turn lowers that too, and a guessed boundary is worse than
+none — the same rule that keeps a context ring off a harness that names no window (`G96`).
 
 **`ConversationNamed` is Ubiq's own reading, which is why it is not a `ConvUpdate`.** It carries no
 `seq` and takes no place in the sequence an interface checks for gaps: the naming is not something
@@ -819,7 +851,7 @@ Forty-three records travel inside payloads.
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?` |
+| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?`, `keeps_sessions` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
@@ -835,7 +867,7 @@ Forty-three records travel inside payloads.
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
 | `Turn` | `from`, `text` |
 
-| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded` |
+| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
 | `ToolCallRecord` | `id`, `title`, `kind`, `status`, `content[]`, `locations[]` |
 | `ToolCallPatch` | `id`, and `title?`, `kind?`, `status?`, `content?`, `locations?` — absent is unchanged |
 | `ToolLocation` | `path`, `line?` |
@@ -912,7 +944,12 @@ project that does not say otherwise, and is `light` when nothing says. `assist` 
 `AssistProvider`, the one setting the assist family reads, and `auto_name_conversations` is whether
 a conversation names itself once its agent has answered its opening prompt — **on by default, and
 that default changes nothing on its own**, because a naming runs through `assist`, which is `Off`
-until a user picks a provider. Both pass through `Settings::set`
+until a user picks a provider. `retain_conversations_days` is how many days a conversation nobody
+marked persistent is kept before its record is collected — thirty when nothing says, and `0` never
+collects, which is a real answer rather than a degenerate one. A conversation marked persistent is
+exempt whatever it reads: marking one is the user saying keep it, and a timer must not overrule
+that, so such a conversation goes only by an explicit unmark or delete. All three pass through
+`Settings::set`
 unchanged like the interface's own fields above — unlike `ai_providers`, the records it may point
 at, which the host overwrites from disk for the reason the connector fields are overwritten and one
 more of its own: a record names a key filed under its id. A record written by

@@ -147,6 +147,7 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
         chat: true,
         modes: Vec::new(),
         unattended_mode: None,
+        keeps_sessions: true,
     }
 }
 

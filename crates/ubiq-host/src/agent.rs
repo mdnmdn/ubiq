@@ -293,6 +293,10 @@ impl Agents {
                         })
                         .collect(),
                     unattended_mode: harness.unattended_mode().map(str::to_string),
+                    // The same question `Self::forkable` answers, asked of the harness rather
+                    // than of a running agent: does its own session store land in the run
+                    // directory Ubiq owns, so keeping or copying that directory means anything.
+                    keeps_sessions: !harness.config_anchor().levers.is_empty(),
                 }
             })
             .collect()
@@ -964,7 +968,7 @@ impl Agents {
 
     /// Copy the harness's own record of the conversation out of a run
     /// directory, and put a login the run refreshed back where it came from,
-    /// before that directory is deleted.
+    /// when that run ends — whether or not the directory is then deleted.
     ///
     /// Which files those are is the harness's answer, not Ubiq's — a path
     /// literal here would be the boundary this module's header names. Entirely
@@ -972,13 +976,20 @@ impl Agents {
     /// archived is a reason to fail a close. A run with no meta is a plain
     /// shell pane, which is the common case rather than an error.
     ///
-    /// The harvest belongs here rather than in [`retire`](Self::retire) and
-    /// [`sweep`](Self::sweep) separately because this is the one thing both do
-    /// before the directory goes, and the session record is where the origin
-    /// was written down — neither of them holds the run's `Provisioned` any
-    /// more. A run whose login was not seeded from a directory records no
-    /// origin, and the harness's own account of its live login (a keychain) is
-    /// what finds it again.
+    /// The harvest belongs here rather than in [`retire`](Self::retire),
+    /// [`sweep`](Self::sweep) and [`park_agent`](Self::park_agent) separately
+    /// because it is the one thing all three do when a run ends, and the
+    /// session record is where the origin was written down — none of them
+    /// holds the run's `Provisioned` any more. A run whose login was not
+    /// seeded from a directory records no origin, and the harness's own
+    /// account of its live login (a keychain) is what finds it again.
+    ///
+    /// It has to run on the *parking* path too, where the directory is kept.
+    /// An OAuth refresh rotates the token and **revokes** the one it was
+    /// seeded from, so a run that harvested nothing leaves the account home
+    /// holding a dead credential — and every other agent on that account
+    /// starts logged out. Keeping the directory does not keep the origin
+    /// valid; only the write-back does.
     ///
     /// ponytail: harvesting at teardown means a token the harness rotated
     /// mid-run is lost if Ubiq is killed. Upgrade path is a watcher on the
@@ -1031,6 +1042,133 @@ impl Agents {
         seed.is_empty() || seed.iter().any(|file| dir.join(&file.dst).exists())
     }
 
+    /// Write down the harness's own id for a conversation, while it is still
+    /// running.
+    ///
+    /// Nothing else writes this field before teardown, and a `kill -9` is
+    /// exactly the case that has to survive: a resume needs the harness's id,
+    /// and a process that never got to tear down never recorded one. So this
+    /// is called as soon as the harness names its session, not at the end.
+    ///
+    /// Best effort like the rest of this module — a sessions root that cannot
+    /// be written must never fail anything the user asked for.
+    pub fn remember_session(&self, agent: AgentId, id: &str) {
+        let sessions = self.sessions_dir();
+        let key = agent.to_string();
+        let Ok(mut meta) = session::load(&sessions, &key) else {
+            return;
+        };
+        meta.harness_session_id = Some(id.to_string());
+        let _ = session::save(&sessions, &meta);
+    }
+
+    /// Delete every login file the library seeded into a run directory that is
+    /// being kept.
+    ///
+    /// All of them, not only the ones marked credential:
+    /// `provision::seed_zero_config_login` early-returns the moment *any*
+    /// `login_seed` destination already exists, on the reasoning that a login
+    /// already materialized (an account home, a profile overlay) wins over the
+    /// zero-config fallback. So one leftover file — for Claude Code that is
+    /// the non-credential `.claude.json` — is enough to make the next launch
+    /// skip seeding entirely: the credential is never refreshed, and the
+    /// `login_origin` it would have returned comes back `None`, which also
+    /// disables the next [`archive`](Self::archive) harvest.
+    ///
+    /// Which files those are stays the harness's answer, read through the same
+    /// access path as [`has_login`](Self::has_login).
+    pub fn scrub_login(&self, key: &str) {
+        let Ok(meta) = session::load(&self.sessions_dir(), key) else {
+            return;
+        };
+        let Some(harness) = harness::resolve(&meta.harness) else {
+            return;
+        };
+        let dir = self.run_dir_for(key);
+        for file in harness.config_anchor().login_seed {
+            let _ = std::fs::remove_file(dir.join(&file.dst));
+        }
+    }
+
+    /// End an agent's run but keep its directory: the process is gone, the
+    /// conversation may come back.
+    ///
+    /// The run directory *is* the harness's session store — Claude's
+    /// `projects/<slug>/*.jsonl`, Codex's rollouts, opencode's data dir — so
+    /// keeping it is the whole of what lets a resume find the conversation
+    /// again. What must not be kept is the login: it is seeded fresh at every
+    /// launch, and a stale copy left here would suppress that seeding (see
+    /// [`scrub_login`](Self::scrub_login)).
+    pub fn park_agent(&self, agent: AgentId) {
+        let key = agent.to_string();
+        self.archive(&key);
+        self.scrub_login(&key);
+    }
+
+    /// Copy one agent's run directory onto another's, so the second resumes
+    /// from the first's conversation instead of starting empty.
+    ///
+    /// The login files are excluded — they are seeded again at launch, and a
+    /// copy of them would be the stale login `scrub_login` exists to avoid.
+    /// So is `sessions/`: [`compose_run`](Self::compose_run) writes the fork's
+    /// own meta, and the source's would name the wrong run.
+    ///
+    /// Refused for a harness with no config lever. That is grok, which writes
+    /// its sessions to the real `~/.grok/sessions/` whatever `HOME` says (its
+    /// own module header records the observation), so the copy would isolate
+    /// nothing and the two agents would append to one store.
+    ///
+    /// ponytail: a synchronous copy on the caller's thread. The caller only
+    /// offers a fork on an idle conversation, because copying a store
+    /// mid-append tears the last record — move this to a thread if a large
+    /// directory is ever seen stalling the loop.
+    pub fn fork_run(&self, from: AgentId, to: AgentId) -> Result<()> {
+        let key = from.to_string();
+        let meta = session::load(&self.sessions_dir(), &key)
+            .with_context(|| format!("no session record for the agent being forked ({key})"))?;
+        let harness = harness::resolve(&meta.harness)
+            .ok_or_else(|| anyhow!("unknown harness '{}'", meta.harness))?;
+        let anchor = harness.config_anchor();
+        if anchor.levers.is_empty() {
+            bail!(
+                "{} keeps its conversations outside the run directory, so a fork would share one store",
+                meta.harness
+            );
+        }
+        let skip: Vec<PathBuf> = anchor.login_seed.iter().map(|f| f.dst.clone()).collect();
+        copy_tree(
+            &self.run_dir_for(&key),
+            &self.run_dir_for(&to.to_string()),
+            Path::new(""),
+            &skip,
+        )
+    }
+
+    /// Whether a harness keeps its conversation somewhere a fork can copy —
+    /// that is, whether it declares a relocating config lever at all. The UI
+    /// asks so it can disable the control with a reason rather than offer a
+    /// fork that would not isolate anything.
+    pub fn forkable(&self, agent_type: &str) -> bool {
+        harness::resolve(agent_type).is_some_and(|h| !h.config_anchor().levers.is_empty())
+    }
+
+    /// Whether the conversation that owns a run directory is meant to outlive
+    /// its process, read from Ubiq's own row rather than the library's meta:
+    /// persistence is Ubiq's vocabulary, and `SessionMeta` belongs to
+    /// `agent-manager`.
+    ///
+    /// False on any error, including the common one — a pane has no row at
+    /// all, so a terminal's directory is swept exactly as it always was.
+    ///
+    /// Read through [`crate::conversation_record`] rather than by parsing the
+    /// file here: the flag decides three separate things — whether a close
+    /// parks or deletes, whether the boot sweep passes a directory over, and
+    /// whether the collector may take a record — and three readers of one
+    /// field is how they drift apart.
+    fn is_persistent(&self, key: &str) -> bool {
+        crate::conversation_record::is_persistent_at(&self.sessions_dir(), key)
+    }
+
     /// Remove what a pane's run left behind. Best effort: a directory that
     /// cannot be deleted is a stale directory, not a reason to fail a close the
     /// user already saw happen.
@@ -1039,12 +1177,19 @@ impl Agents {
         let _ = std::fs::remove_dir_all(self.run_dir(pane));
     }
 
-    /// Delete every run directory left by a previous process.
+    /// Delete every run directory left by a previous process, except the ones
+    /// a persistent conversation still needs.
     ///
     /// A run directory outlives its pane only when Ubiq did not get to close
     /// it — a crash, a kill. Sweeping at startup is what keeps that from
     /// accumulating, and it is safe because no pane from a previous process is
     /// still running.
+    ///
+    /// A persistent conversation's directory is parked instead of deleted: it
+    /// holds the harness's session store, which is the only reason the
+    /// conversation can be resumed at all. It is still parked rather than
+    /// simply left alone — the crash is precisely the case where the account
+    /// home is holding a token the run already rotated away.
     pub fn sweep(&self) {
         let runs = self.root.join("runs");
         let Ok(entries) = std::fs::read_dir(&runs) else {
@@ -1053,7 +1198,12 @@ impl Agents {
         for entry in entries.flatten() {
             // A crashed run is where the record matters most, and its meta was
             // written when the run was composed, so this works verbatim here.
-            self.archive(&entry.file_name().to_string_lossy());
+            let key = entry.file_name().to_string_lossy().into_owned();
+            self.archive(&key);
+            if self.is_persistent(&key) {
+                self.scrub_login(&key);
+                continue;
+            }
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
@@ -1079,6 +1229,32 @@ impl Agents {
     fn run_dir_for(&self, key: &str) -> PathBuf {
         self.root.join("runs").join(key)
     }
+}
+
+/// Copy `src` onto `dst`, recursively, skipping the run-dir-relative paths in
+/// `skip` and anything under `sessions/`. `rel` is where in the tree the
+/// recursion currently is, which is what makes a nested skip entry (grok's
+/// `.grok/auth.json`) match.
+///
+/// Here rather than from a crate because std has no recursive copy and this is
+/// the only caller — [`Agents::fork_run`].
+fn copy_tree(src: &Path, dst: &Path, rel: &Path, skip: &[PathBuf]) -> Result<()> {
+    std::fs::create_dir_all(dst).with_context(|| format!("creating {}", dst.display()))?;
+    for entry in std::fs::read_dir(src).with_context(|| format!("reading {}", src.display()))? {
+        let entry = entry?;
+        let here = rel.join(entry.file_name());
+        if here == Path::new("sessions") || skip.contains(&here) {
+            continue;
+        }
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &to, &here, skip)?;
+        } else {
+            std::fs::copy(entry.path(), &to)
+                .with_context(|| format!("copying to {}", to.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// The library's home mode for a setting.
@@ -1695,5 +1871,166 @@ mod tests {
         agents.sweep();
 
         assert!(!stale.exists());
+    }
+
+    /// A run directory as a crashed or parked process leaves one: the session
+    /// record the storage paths read, every login file the library would have
+    /// seeded, and one file standing in for the harness's own session store.
+    ///
+    /// `login_home` is always set to a directory of its own, so `archive`'s
+    /// harvest writes back there rather than reaching for the machine's real
+    /// ambient login (Claude Code's keychain) from a test.
+    fn given_a_run(agents: &Agents, key: &str, harness_id: &str) -> PathBuf {
+        let dir = agents.run_dir_for(key);
+        std::fs::create_dir_all(dir.join("projects")).unwrap();
+        std::fs::write(dir.join("projects").join("store.jsonl"), "a turn").unwrap();
+
+        let harness = harness::resolve(harness_id).unwrap();
+        for file in harness.config_anchor().login_seed {
+            let dst = dir.join(&file.dst);
+            std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+            std::fs::write(&dst, "a login").unwrap();
+        }
+
+        let origin = agents.root.join("origins").join(key);
+        std::fs::create_dir_all(&origin).unwrap();
+        let mut meta = session::SessionMeta::new(
+            harness_id.to_string(),
+            PathBuf::from("/tmp"),
+            vec!["true".to_string()],
+            None,
+            "structured".to_string(),
+            dir.clone(),
+        );
+        meta.id = key.to_string();
+        meta.login_home = Some(origin);
+        session::save(&agents.sessions_dir(), &meta).unwrap();
+        dir
+    }
+
+    /// Whether a Claude Code run directory still holds anything that makes it
+    /// logged in, asked the same way the composer asks.
+    fn logged_in(dir: &Path) -> bool {
+        Agents::has_login(harness::resolve("claude-code").unwrap().as_ref(), dir)
+    }
+
+    /// Every seed destination goes, not only the credential: leaving Claude's
+    /// non-credential `.claude.json` behind would make the next launch's
+    /// `seed_zero_config_login` decide a login was already there.
+    #[test]
+    fn scrubbing_a_login_removes_every_seed_destination() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let dir = given_a_run(&agents, "agent-1", "claude-code");
+
+        let seed = harness::resolve("claude-code")
+            .unwrap()
+            .config_anchor()
+            .login_seed;
+        assert!(
+            seed.iter().any(|f| f.credential) && seed.iter().any(|f| !f.credential),
+            "this test is only meaningful with both kinds present"
+        );
+
+        agents.scrub_login("agent-1");
+
+        for file in seed {
+            assert!(
+                !dir.join(&file.dst).exists(),
+                "{} survived",
+                file.dst.display()
+            );
+        }
+        assert!(dir.join("projects").join("store.jsonl").exists());
+    }
+
+    /// Parking keeps the harness's session store — that is the whole point —
+    /// and takes the login with it.
+    #[test]
+    fn parking_keeps_the_store_and_drops_the_login() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let agent = AgentId::generate();
+        let dir = given_a_run(&agents, &agent.to_string(), "claude-code");
+
+        agents.park_agent(agent);
+
+        assert!(dir.join("projects").join("store.jsonl").exists());
+        assert!(!logged_in(&dir));
+    }
+
+    /// Retiring is unchanged: the directory goes.
+    #[test]
+    fn retiring_an_agent_still_removes_the_directory() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let agent = AgentId::generate();
+        let dir = given_a_run(&agents, &agent.to_string(), "claude-code");
+
+        agents.retire_agent(agent);
+
+        assert!(!dir.exists());
+    }
+
+    /// A fork copies the store, so the second agent resumes the first's
+    /// conversation, and leaves the login behind to be seeded fresh.
+    #[test]
+    fn forking_copies_the_store_and_not_the_login() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let from = AgentId::generate();
+        let to = AgentId::generate();
+        given_a_run(&agents, &from.to_string(), "claude-code");
+
+        agents
+            .fork_run(from, to)
+            .expect("forking a claude-code run");
+
+        let forked = agents.agent_dir(to);
+        assert_eq!(
+            std::fs::read_to_string(forked.join("projects").join("store.jsonl")).unwrap(),
+            "a turn"
+        );
+        assert!(!logged_in(&forked));
+    }
+
+    /// grok has no config lever, so its sessions land in the real home
+    /// whatever the run directory holds — a fork there would share one store,
+    /// and is refused rather than quietly doing nothing.
+    #[test]
+    fn forking_a_harness_with_no_lever_is_refused() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let from = AgentId::generate();
+        given_a_run(&agents, &from.to_string(), "grok");
+
+        assert!(!agents.forkable("grok"));
+        assert!(agents.forkable("claude-code"));
+        assert!(agents.fork_run(from, AgentId::generate()).is_err());
+    }
+
+    /// The sweep spares a persistent conversation's directory — that is where
+    /// its harness's session store lives — but still parks it, because a crash
+    /// is exactly when the origin is left holding a rotated-away token.
+    #[test]
+    fn the_sweep_parks_a_persistent_run_and_deletes_the_rest() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let kept = given_a_run(&agents, "agent-kept", "claude-code");
+        let gone = given_a_run(&agents, "agent-gone", "claude-code");
+        std::fs::write(
+            agents
+                .sessions_dir()
+                .join("agent-kept")
+                .join("conversation.json"),
+            r#"{"persistent": true}"#,
+        )
+        .unwrap();
+
+        agents.sweep();
+
+        assert!(kept.join("projects").join("store.jsonl").exists());
+        assert!(!logged_in(&kept));
+        assert!(!gone.exists());
     }
 }

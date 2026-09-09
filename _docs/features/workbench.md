@@ -183,8 +183,11 @@ The preamble is taken rather than read — it belongs to exactly one turn — an
 or not it matched, so a harness that reformats its echo cannot leave it armed to cut the front off
 a message the user really did write.
 
-**The persistence checkbox is disabled and always false.** An agent that survives a restart is not
-built (`G97`), and a checkbox that lied about it would be worse than one that says so plainly.
+**The persistence checkbox is disabled and always false.** A conversation that survives a restart is
+built (`D97`), but it is marked from the conversation's own three-dots menu rather than at the start
+form: the flag lives on a row keyed by the conversation, which does not exist until the start has
+been answered. Wiring the checkbox means carrying the intent through the start and setting the flag
+once the row is written, which is `G223`.
 
 **The opening prompt is the form's keyboard rest.** The form opens with the keyboard in it, which
 is also what puts the modal on the focus path — `⌘⏎` confirms the form from inside a field, and
@@ -231,12 +234,18 @@ pickers return, exactly as a conversation that has not launched yet reads.
 Resume (`ResumeConversation`) starts the harness again under the same agent, with no prompt. Delete
 (`EndConversation`) ends the conversation outright, taking the run directory and the transcript with
 it, and is the one item confirmed before it fires rather than acted on the click — it is the only
-irreversible one of the five. Each item disables
+irreversible one of the seven.
+Fork (`ReviveConversation` with a fresh `agent_id`) copies the run directory and launches a second
+agent in the copy from this point on, leaving the source untouched; the persistence row
+(`SetConversationPersistent`) marks the conversation as one that outlives the window, its label
+reading *Make persistent* or *Stop persisting* by which way the toggle goes. Both sit before Delete,
+because neither is destructive and the irreversible verb stays last. Each item disables
 rather than disappears when it does not apply — Stop only while a turn runs, Abort and Unload only
-while launched, Resume only while it is not, Delete always — so the menu's shape never changes under
-the cursor. The labels are one list, `LIFECYCLE_ROWS`, because
-`ui::conversation::lifecycle_menu_enabled` answers by position and a label in one copy of the list
-and not another is a menu whose rows do the wrong thing. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
+while launched, Resume only while it is not, Fork only while nothing is in flight (copying a session
+store mid-append tears the last record), Delete always — so the menu's shape never changes under
+the cursor. The labels and their enablement are one list of pairs,
+`ui::conversation::lifecycle_menu_rows`, because `AppState::pick_conversation_menu` dispatches by
+position and a row in one copy of the list and not another is a menu whose rows do the wrong thing. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
 delete does not.
 
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
@@ -590,11 +599,19 @@ An unstaged row is compared against the index and a staged or conflicted row aga
 the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
 shrinking, and switches between unified and side by side.
 
+**A diff's rows are one height, so a long line is scrolled to rather than wrapped.** The body is a
+virtual list over the hunks flattened into one row per header, line or side-by-side pair, which is
+what makes a ten-thousand-row comparison cost a viewport; a uniform row cannot grow, so the list is
+as wide as its widest line and a line past the pane's edge is reached by scrolling sideways. A
+minified file reads as one very long row rather than as a wall of wrapped text.
+
 **The history and the refs are real.** The branch list, the tags and the stashes come from one
 `ProjectGitRefs` reply; the remotes and the submodules ride with the overview. The commit log pages
-in from `ProjectGitLog`, oldest page first and newest commit within it, but only one page — the view
-stores `log_cursor` and `log_done` (`state/git.rs`) and nothing in `ui/git/history.rs` ever sends a
-second request with that cursor, so reaching the bottom asks for nothing (`G129`). The search over the history and its
+in from `ProjectGitLog`, oldest page first and newest commit within it, and pages as far as it is
+read: the view stores `log_cursor` and `log_done` (`state/git.rs`), and while there is a cursor the
+foot of the list carries a `Load more commits` row that sends the next request through
+`AppState::load_more_git_log` and reads `Loading more…` until the page lands. An asked-for row
+rather than a scroll-to-bottom trigger: paging is a thing the reader does. The search over the history and its
 `my commits` filter are real controls over real rows, and both clear together. A commit's lane is
 real: the host allocates it from actual parent ids, and a merge's extra parents claim their own
 lanes for the lines drawn behind it, rather than the one hollow dot a parent count could offer.
@@ -1058,7 +1075,14 @@ a screenshot. Nothing crosses the bus.
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Ten sections ship: **Appearance** (whether the rail carries the open-project badges, and whether
+it dismisses project settings, and the reverse. Ten sections ship: **Appearance** (the four theme
+axes, then three switches: the palette family as one pill per family — labelled by the member whose
+ground is in use, so picking one keeps the ground; the ground itself, the same flip the titlebar
+offers, within the family; the accent as a row of swatches, the palette's own first and then the six
+the build ships, each named on its hover; the chrome and conversation base sizes as a ladder of
+pills, with the content family's shown read-only beside a note saying it belongs to the project and
+is set from the status bar's font-size dropdown; and density as its three choices — followed by
+whether the rail carries the open-project badges, whether
 the titlebar's capture control and its keystroke are offered at all, and whether a conversation
 footer draws a second ring comparing cached tokens to the total — off by default), **File
 explorer** (whether a
@@ -1653,7 +1677,8 @@ menu, painted at the window root because the dock's skin cannot name `AppState`,
 by a click outside it or by escape.
 
 **A project's text size is one knob, and the status bar holds it.** A dropdown at the status bar's
-right scales the file editor, the terminal panes and the explorer tree together — `FONT_SIZES`, a
+right scales the file editor, the viewer, the terminal panes, the search results and the explorer
+tree together — the theme's content family, whose base is the project's — `FONT_SIZES`, a
 hand-picked ladder of point sizes rather than every integer, because a size is chosen by eye. The
 size is remembered with the project, so a zoom survives a restart. `cmd-=` and `cmd-shift-=` zoom in
 and `cmd--` zoom out by whole points, within the range the chrome admits; the dropdown shows the
@@ -1664,7 +1689,7 @@ per-level indent are both derived from the size the row draws at — `kit::row_h
 `kit::row_indent()`, floored so the twisty and the kind icon never touch the edges and capped so the
 tree does not become a column of buttons at the top of the range. A zoom therefore makes the tree
 taller as well as larger, and a small size gives a genuinely denser list rather than small text in
-the old box. The file picker and the ref list draw the same chrome at `kit::ROW_FONT`, because they
+the old box. The file picker and the ref list draw the same chrome at `kit::row_font()`, because they
 are dialogs rather than a project's workspace and no project's zoom reaches them.
 
 **The status bar reports facts, not intentions, and an absent fact is drawn as absent.** It reports
@@ -1766,7 +1791,14 @@ below it. A remembered folder that no longer exists is dropped rather than waite
 
 **The theme toggle switches both palettes at once.** Ubiq's tokens and the component library's own
 theme move together, so the editor and the chat's markdown never sit in a different mode from the
-chrome around them.
+chrome around them. The toggle flips ground **inside the palette family the window is in** — a warm
+dark reaches the warm light — because a family's two grounds are a pair the registry names, not an
+inverse computed from a mode. Which family, which accent and how tight the grid is belong to the
+interface rather than to any one project: all three are written into `InterfacePrefs` as they change
+and are what a second window opens in, and so are the chrome and conversation text bases
+(`chrome_font_size`, `conversation_font_size`). The project keeps one size of its own, the content
+family's, which is the status bar's ladder. The token set, the palette registry and the four axes
+belong to the UI and design document, linked below.
 
 **The kitchen sink is the application's own test bench, and the one screen with nothing behind it.**
 It is under `APP` because it is about Ubiq rather than about a folder: it opens on a first run with an
@@ -1790,7 +1822,10 @@ site gets one.** Each specimen carries the name a call site reaches it by, so a 
 wrong in one palette, a control whose off state reads as absent, or a surface whose coloured edge
 floats inside its container shows up here before it shows up on a screen. Its controls are wired to
 real state, because a control that cannot hold a value is not being tested — one value drives the
-stepper, the meter and the ring — and nothing they hold means anything.
+stepper, the meter and the ring — and nothing they hold means anything. The typography specimen is
+the same idea one axis over: five roles down, the three surface families across, each run at what
+`theme::font` answers for it, so a base moved in the interface prefs is looked at rather than
+computed.
 
 **Its modals are the window's only ones, and nothing behind them happens.** Three shapes — a
 question, a form, and something irreversible — told apart by what their edge says and by the colour
@@ -1949,7 +1984,7 @@ The panels, each one a `PanelKind` in `state/dock.rs`:
 | Panel | Module | Class | Opens in | State |
 |---|---|---|---|---|
 | Explorer | `ui/explorer.rs` | Edge | Left, at `EXPLORER_WIDTH` | `ExplorerState`, one per project the window holds |
-| Outline | `ui/outline.rs` | Free | Left, beside the explorer | One `Vec<Def>` cache on `AppState` (`outline`, `outline_key`, `outline_gen`), rebuilt from the buffer on screen |
+| Outline | `ui/outline.rs` | Free | Left, beside the explorer | One `Vec<Def>` cache on `AppState` (`outline`, `outline_key`, `outline_gen`), rebuilt from the buffer on screen and drawn as a `uniform_list` |
 | Chat | `ui/chat/` | Free | Right, at `CHAT_WIDTH`, or wherever it is dragged | One `ChatTab` per open instance, in `OpenProject::chats` — see [`chat.md`](./chat.md) |
 | Centre | `ui/dock/mod.rs`, `centre()` | Centre | The centre | `WorkbenchState::rail_mode`, and whatever the screen it draws owns |
 | File | `ui/editor.rs` | Centre | The centre, one per open tab | The `OpenFile` its tab key names, and that file's own `Entity<EditorState>` |
@@ -2050,7 +2085,8 @@ persist), the console, the emulators, the component library's `TextareaState`
 and `InputState` entities and the subscriptions that keep them mirrored — and a map of `OpenProject`
 keyed by `ProjectId` holding everything that belongs to a project, chat tabs among them. Every
 mutator ends in
-`cx.notify()`.
+`cx.notify()`, with one gate on the way: a streamed conversation chunk asks for a frame only when
+some surface shows that conversation, and only once per frame — the rule *UI and design* owns.
 
 `sync_projects()` is the one place the map is reconciled against the registry, and it is idempotent:
 it drops the projects the window no longer holds through `drop_project()`, builds an `OpenProject` for
@@ -2068,8 +2104,9 @@ Accessors read through the active project and tolerate its absence: `open_projec
 `editor()`, `work()`, `agents()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
 for a window with no project without a caller having to check, and `work_mut()`, `agents_mut()`,
 `graph_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
-reopen in the same session, and kills its panes. `ui_font_size_or_default()` is the project's live
-text size (or `theme::EDITOR_FONT_SIZE`), and `set_ui_font_size()` and `nudge_ui_font_size()` are
+reopen in the same session, and kills its panes. `content_font_size_or_default()` is the project's
+live text size (or `theme::EDITOR_FONT_SIZE`), and `set_content_font_size()` and
+`nudge_content_font_size()` are
 the two ways it changes — the former reconfiguring every already-open emulator through
 `ui::terminal::config()` as well as writing the value down, so a zoom reaches panes that are on
 screen. `toggle_editor_wrap()` flips a project's wrap and brings every open buffer into line, and
@@ -2087,10 +2124,14 @@ never disagree about what row an index means.
 `state/git.rs` is the Git screen's view of one project's repository, held on `OpenProject` beside
 the graph's and the board's: which sidebar sections are shut, which ref and which commit are
 selected, what is typed in the search and the commit box, which changed path the diff is about and
-what it is compared against. It holds no working-tree records — `staged()`, `unstaged()` and
-`conflicted()` take the `GitEntry` pairs the host sent, which `OpenProject::git_entries` keeps whole
-beside the projection the explorer got — and `settle()` drops a selection whose path has gone
-clean.
+what it is compared against. It holds no working-tree records — `group_changes()` takes the
+`GitEntry` pairs the host sent, which `OpenProject::git_entries` keeps whole beside the projection
+the explorer got, and buckets them into `ChangeGroups`' conflicted, staged and unstaged in one pass
+— and `settle()` drops a selection whose path has gone clean. `grouped_refs()` does the same for
+the sidebar's five sections. **What a frame reads, a reply computes:** `set_commits()` and
+`extend_commits()` build each commit's search haystack and the lane count as they land, so
+`visible_commits()` and `lanes()` are reads rather than a scan over the page, and the count of
+staged paths is passed to the commit box rather than derived again there.
 `Side::base()` is where a list's comparison base is decided, and `RefRow` and `CommitRow` are
 built from the host's answers by `ref_rows()` and `commit_rows()` in `state/git.rs`. Its four
 widths and the graph's lane pitch are constants there, the way the board's and the columns' are
@@ -2100,7 +2141,11 @@ theirs.
 sections and their rows — the file list's own row chrome, so a ref reads the way a path does —
 `history.rs` the search, the lanes and the commits, `changes.rs` the three lists and the commit
 box, and `diff.rs` the pane under both, which hands the hunks to `ui/viewer/diff.rs` rather than
-drawing them again. The toolbar's branch wording is `ui/status_bar.rs`'s `operation_label()` and
+drawing them again. The history and the three change lists are `uniform_list`s over their row
+counts; the sidebar's refs are the one list still built whole (`G220`). `ui/viewer/diff.rs` flattens
+the hunks into one `Rows` of header, line and pair rows with the widest line's character count
+beside them, memoised per comparison rather than rebuilt per frame (`G222`), and hands
+`uniform_list` the length. The toolbar's branch wording is `ui/status_bar.rs`'s `operation_label()` and
 `capped()`, shared so the strip and the screen cannot say different things about one repository.
 
 `AppState` holds the screen's two text entities — `git_search` and `git_message` — mirroring them
@@ -2136,7 +2181,8 @@ way the host does.
 mode in the `ViewPrefs::modes` map, each carrying that mode's region flags and a dock blob of its
 own, beside the files and folders a project reopens with, its untitled buffers (`scratch:
 Vec<Scratch>`, a display name and the buffer's text) and pinned files (`pinned_files`), the point
-size its text is read at (`ui_font_size`), whether its editors wrap (`editor_wrap`) and the text in
+size its text is read at (`content_font_size`, carrying `alias = "ui_font_size"` so a blob written
+under the older name keeps its zoom), whether its editors wrap (`editor_wrap`) and the text in
 its explorer's filter (`file_filter`) — each new field `#[serde(default)]`, so a field costs the
 schema nothing, `scratch` and `pinned_files` included. `ModeLayout::default_for` is what a mode with
 no entry opens on: every region flag `false`, in every mode, because no region is furniture — `D94`.
@@ -2466,7 +2512,10 @@ drawn), and the held preambles as `agent_preambles`, one entry per conversation,
 
 `state/conversation.rs` is one live agent's transcript as the window holds it. `Conversation::apply`
 folds a delta in — a chunk extends the block its message id names, a change of id starts a new one, a
-patch reaches its call through an index rather than a scan — and `activity()`, `context_pct()`,
+patch reaches its call through an index rather than a scan — and a second index, keyed on the block
+count and which delegate is being viewed, is what `visible_blocks()` hands out as a shared `Arc` and
+what answers `has_subagent()` from a set rather than a walk. `markdown()` holds one slot, so the
+streaming tail is rendered once rather than copied per frame. `activity()`, `context_pct()`,
 `tokens()`, `cost_usd()` and `rate_limit_five_hour_pct()` are what the badge, the ring and the
 footer's pills are drawn from; `is_next()` is the gap check. `AppState` holds them per project as `conversations`, kept after the harness ends, and
 `refresh_agent_record()` writes the badge, the ring, the token count and the model onto the
@@ -2695,6 +2744,10 @@ mark on the no-file page.
 There is no tab strip here — the dock's groups draw those. A body that is not a buffer goes to
 `ui/viewer/`, whose `mod.rs` holds the layout toggle and the frame every viewer's body is drawn in
 and dispatches on `ViewerKind`: `diff.rs`, `markdown.rs`, `diagram.rs`, `scene.rs` and `image.rs`.
+The buffer's text is cloned out of its entity only in the branches that read it — the general case,
+`Editor`, draws off the entity — and `markdown.rs` keeps its fence scan and body beside the tab
+key, fingerprinted by the source's length and hash, so a frame that changed nothing rescans
+nothing.
 A diagram or a scene in a panel is wrapped by `viewer/viewport.rs`, which is the hits and the
 wheel; `state/viewport.rs` is the camera they share — fit, zoom about a point, pan, reset — and
 is what `tests/viewport.rs` asserts, because none of it needs a frame. A fence still draws

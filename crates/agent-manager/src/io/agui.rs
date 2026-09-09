@@ -76,6 +76,9 @@ pub fn to_agui(event: &AgentEvent) -> Option<Value> {
         | AgentEvent::UsageUpdate { .. }
         // Nor a rate-limit concept — Claude Code's own gauge, with no AG-UI equivalent.
         | AgentEvent::RateLimitUpdate { .. }
+        // Nor a compaction one: AG-UI's run stream has no notion of the agent's memory being
+        // rewritten under it.
+        | AgentEvent::Compacted
         | AgentEvent::Log { .. } => None,
     }
 }

@@ -26,6 +26,7 @@ use crate::state::sink::{
 use crate::state::workbench::ProjectSettingsMode;
 use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{
     choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item, primary_button,
     setting_row,
@@ -187,7 +188,7 @@ fn dialog(
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(colour)
         .shadow_lg()
         .child(header(app, form, colour, cx))
@@ -216,14 +217,19 @@ fn header(
             ElementId::Name(format!("{prefix}-path").into()),
             path,
             theme::text_faint(),
-            11.0,
+            theme::font(theme::Family::Chrome, theme::Role::Meta),
         )
         .flex_none(),
     );
     if form == Form::Sink {
         path_line = path_line
-            .child(mono("·", theme::text_faint()).text_size(px(11.)))
-            .child(mono(PROJECT_BRANCH, theme::text_faint()).text_size(px(11.)));
+            .child(
+                mono("·", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
+            .child(
+                mono(PROJECT_BRANCH, theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            );
     }
 
     let close = match form {
@@ -258,7 +264,7 @@ fn header(
                 .bg(colour)
                 .child(
                     mono(mark, theme::on_accent())
-                        .text_size(px(11.))
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
                         .font_weight(FontWeight::SEMIBOLD),
                 ),
         )
@@ -270,7 +276,7 @@ fn header(
                 .min_w(px(0.))
                 .child(
                     div()
-                        .text_size(px(15.))
+                        .text_size(theme::font(Family::Chrome, Role::Title))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::text())
                         .child("Project settings"),
@@ -458,7 +464,7 @@ fn search_excludes_row(
     let rows: Vec<AnyElement> = if excludes.is_empty() {
         vec![
             div()
-                .text_size(px(12.))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text_faint())
                 .child("Nothing excluded beyond the application's own list.")
                 .into_any_element(),
@@ -475,7 +481,10 @@ fn search_excludes_row(
                     .justify_between()
                     .gap_2()
                     .py_1()
-                    .child(mono(pattern.clone(), theme::text()).text_size(px(12.5)))
+                    .child(
+                        mono(pattern.clone(), theme::text())
+                            .text_size(theme::font(Family::Chrome, Role::Body)),
+                    )
                     .child(icon_button(
                         ElementId::Name(format!("project-exclude-remove-{index}").into()),
                         IconName::Close,
@@ -599,7 +608,10 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                         .border_1()
                         .border_color(theme::border()),
                 )
-                .child(mono(label, theme::text_muted()).text_size(px(11.))),
+                .child(
+                    mono(label, theme::text_muted())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                ),
         );
     if picked.picker_open {
         colour_block = colour_block.child(colour_picker(app, window, cx, form));
@@ -650,7 +662,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                         ))
                         .child(
                             mono(format!("{used}/{PROJECT_ABOUT_LIMIT}"), theme::text_faint())
-                                .text_size(px(11.)),
+                                .text_size(theme::font(Family::Chrome, Role::Meta)),
                         ),
                 )
                 .child(
@@ -661,7 +673,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                                 .appearance(false)
                                 .bordered(false)
                                 .w_full()
-                                .text_size(px(13.)),
+                                .text_size(theme::font(Family::Chrome, Role::Body)),
                         ),
                 ),
         )
@@ -679,7 +691,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 Input::new(&app.project_path_input)
                     .appearance(false)
                     .readonly(true)
-                    .text_size(px(12.5)),
+                    .text_size(theme::font(Family::Chrome, Role::Body)),
             )
             .into_any_element(),
         ))
@@ -726,7 +738,7 @@ fn modes_block(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 )
                 .child(
                     div()
-                        .text_size(px(10.5))
+                        .text_size(theme::font(Family::Chrome, Role::Micro))
                         .text_color(fg)
                         .child(SharedString::from(mode.label())),
                 )
@@ -911,7 +923,7 @@ fn documentation() -> AnyElement {
         ))
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child("Four documents in the fixture. A real project lists what it indexed."),
         )
@@ -929,7 +941,7 @@ fn integrations() -> AnyElement {
         ))
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child("One integration in the fixture. Wiring it is the host's."),
         )
@@ -1023,7 +1035,7 @@ fn footer(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement 
         .border_color(theme::border())
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_faint())
                 .child(SharedString::from(status)),
         )
@@ -1052,14 +1064,14 @@ fn label_line(label: &str, note: &str) -> AnyElement {
                 .gap_2()
                 .child(
                     div()
-                        .text_size(px(13.5))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text())
                         .child(SharedString::from(label.to_string())),
                 )
                 .when(label == "Description", |this| {
                     this.child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(theme::font(Family::Chrome, Role::Meta))
                             .text_color(theme::text_faint())
                             .child("optional"),
                     )
@@ -1067,7 +1079,7 @@ fn label_line(label: &str, note: &str) -> AnyElement {
         )
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(note.to_string())),
         )

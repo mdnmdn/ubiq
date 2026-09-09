@@ -61,11 +61,15 @@ host:
     @! cargo tree -p ubiq-host -e no-dev --prefix none | grep -q '^gpui' \
         || { echo "the host draws: a gpui crate is in its tree"; exit 1; }
 
-# The interface names the protocol and never the host
+# The interface names the protocol and never the host, and never a type size of its own
 ui:
     cargo build -p ubiq --all-targets
     @! cargo tree -p ubiq -e no-dev --prefix none | grep -q '^ubiq-host' \
         || { echo "the interface names the host"; exit 1; }
+    # `theme.rs` is the one file allowed to name a size. `text_size(px(font))`, where the size is
+    # computed from the project's zoom, is legitimate — hence the digit.
+    @! grep -rqE 'text_size\(px\([0-9]' crates/ubiq/src \
+        || { echo "a literal type size outside theme.rs — use theme::font(Family, Role)"; exit 1; }
 
 # ── checks ─────────────────────────────────────────────────────────
 

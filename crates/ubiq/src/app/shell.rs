@@ -321,20 +321,82 @@ impl AppState {
     }
 
     pub fn toggle_theme(&mut self, cx: &mut Context<Self>) {
-        let next = self.workbench.theme_id.toggled();
-        self.workbench.theme_id = next;
-        theme::set_mode(next, cx);
+        self.set_palette(self.workbench.theme_id.counterpart(), cx);
+    }
+
+    /// Wear another palette outright — the Appearance section picks a family, the titlebar's
+    /// toggle picks the counterpart, and both land here. The accent and the density are axes of
+    /// their own and do not move.
+    pub fn set_palette(&mut self, id: theme::ThemeId, cx: &mut Context<Self>) {
+        self.workbench.theme_id = id;
+        theme::set_mode(id, cx);
         // The palette belongs to the interface, not to any one project.
         self.remember_interface();
-        // The emulator holds its own copy of the palette, so the switch has to reach it.
-        let font = self.ui_font_size_or_default(cx);
-        for terminal in self.terminals.values() {
-            terminal.view.update(cx, |view, cx| {
+        self.redress_terminals(cx);
+        cx.notify();
+    }
+
+    /// Dress the palette in another accent, or in the palette's own seed with `None`. The accent
+    /// is an axis of its own: the ground does not move.
+    pub fn set_accent(&mut self, accent: Option<theme::AccentId>, cx: &mut Context<Self>) {
+        theme::set_theme(self.workbench.theme_id, accent, theme::density(), cx);
+        self.remember_interface();
+        self.redress_terminals(cx);
+        cx.notify();
+    }
+
+    /// Tighten or loosen the grid. Density is an axis of its own: the palette does not move.
+    ///
+    /// `TERMINAL_PADDING` follows the factor, so every open emulator has to be re-dressed with the
+    /// new inset — and that is also how the harness learns: the emulator re-measures its cell grid
+    /// from its bounds minus the padding on the next paint and fires the resize callback that
+    /// sends `TerminalResize`, the same path a window resize takes. A pane redrawn at a new inset
+    /// without that is the classic corruption bug.
+    pub fn set_density(&mut self, density: theme::Density, cx: &mut Context<Self>) {
+        if density == theme::density() {
+            return;
+        }
+        theme::set_density(density, cx);
+        self.remember_interface();
+        self.redress_terminals(cx);
+        cx.notify();
+    }
+
+    /// Set the base size the chrome is drawn at — titlebar, status bar, rail, tabs, menus, modals,
+    /// settings, pickers. Interface-scoped: growing it reflows the window, which the next paint
+    /// does on its own because every chrome size is read through `theme::font`.
+    pub fn set_chrome_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        theme::set_text_scale(theme::TextScale {
+            chrome: size,
+            ..theme::text_scale()
+        });
+        self.remember_interface();
+        cx.notify();
+    }
+
+    /// Set the base size a conversation is drawn at — the transcript, the tool blocks, the
+    /// composer, the agents columns. The transcript's row-height cache keys on the size it
+    /// measured at, so the rows re-measure themselves on the next frame.
+    pub fn set_conversation_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        theme::set_text_scale(theme::TextScale {
+            conversation: size,
+            ..theme::text_scale()
+        });
+        self.remember_interface();
+        cx.notify();
+    }
+
+    /// Every open emulator holds its own copy of the palette, so a colour switch has to reach it —
+    /// the same walk `set_content_font_size` does for type size.
+    fn redress_terminals(&mut self, cx: &mut Context<Self>) {
+        let font = self.content_font_size_or_default(cx);
+        let views: Vec<_> = self.terminals.values().map(|t| t.view.clone()).collect();
+        for view in views {
+            view.update(cx, |view, cx| {
                 let (cols, rows) = view.dimensions();
                 view.update_config(ui::terminal::config(cols as u16, rows as u16, font), cx);
             });
         }
-        cx.notify();
     }
 
     pub fn open_menu(&mut self, menu: MenuId, cx: &mut Context<Self>) {
@@ -535,31 +597,32 @@ impl AppState {
     /// The point size the active project's text is drawn at — editors, terminal panes and the
     /// explorer tree together — or `None` for the interface default. `None` stays `None`, so each
     /// surface falls back to its own default rather than a value coalesced upstream.
-    pub fn ui_font_size(&self, cx: &App) -> Option<f32> {
+    pub fn content_font_size(&self, cx: &App) -> Option<f32> {
         let id = self.project(cx)?;
         self.projects
             .get(&id)
-            .and_then(|open| open.prefs.ui_font_size)
+            .and_then(|open| open.prefs.content_font_size)
     }
 
     /// The active project's text size as a live value, or the interface default when the project
     /// has not chosen one. This is the value the chrome mutates, so `None` is not allowed through to
     /// it.
-    pub fn ui_font_size_or_default(&self, cx: &App) -> f32 {
-        self.ui_font_size(cx).unwrap_or(theme::EDITOR_FONT_SIZE)
+    pub fn content_font_size_or_default(&self, cx: &App) -> f32 {
+        self.content_font_size(cx)
+            .unwrap_or(theme::EDITOR_FONT_SIZE)
     }
 
     /// Set the active project's text size outright — the status bar's dropdown hands a choice in,
     /// rather than a nudge — within the range the chrome admits, and write it down as the
     /// project's own. Emulators already open are dressed to match, since a zoom has to reach a
     /// pane that is on screen, not wait for a restart.
-    pub fn set_ui_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+    pub fn set_content_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
         let Some(id) = self.project(cx) else {
             return;
         };
         let size = size.clamp(theme::EDITOR_FONT_MIN, theme::EDITOR_FONT_MAX);
         if let Some(open) = self.projects.get_mut(&id) {
-            open.prefs.ui_font_size = Some(size);
+            open.prefs.content_font_size = Some(size);
         }
         let panes: Vec<_> = self
             .projects
@@ -600,9 +663,9 @@ impl AppState {
     /// admits, and write the result down as the project's own. A zoom is a preference of the
     /// project, so it travels with a project and survives a restart, and it dresses the editor,
     /// the terminal panes and the explorer tree together.
-    pub fn nudge_ui_font_size(&mut self, direction: i8, cx: &mut Context<Self>) {
-        let current = self.ui_font_size_or_default(cx);
-        self.set_ui_font_size(
+    pub fn nudge_content_font_size(&mut self, direction: i8, cx: &mut Context<Self>) {
+        let current = self.content_font_size_or_default(cx);
+        self.set_content_font_size(
             (current + direction as f32).clamp(theme::EDITOR_FONT_MIN, theme::EDITOR_FONT_MAX),
             cx,
         );

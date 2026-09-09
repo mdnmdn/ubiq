@@ -569,12 +569,19 @@ Event shapes emitted on stdout:
 
 ```json
 {"type":"system","subtype":"init","session_id":"..."}
+{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":0}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"..."},{"type":"thinking","thinking":"..."},{"type":"tool_use","id":"...","name":"...","input":{}}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"...","content":[]}]}}
 {"type":"result","result":"success","is_error":false,"usage":{},"modelUsage":{"<model-id>":{"inputTokens":0,"contextWindow":200000}}}
 {"type":"log","log":{"level":"info","message":"..."}}
 {"type":"control_request","request_id":"...","request":{"subtype":"can_use_tool","tool_name":"...","display_name":"...","input":{},"description":"...","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"..."}}
 ```
+
+**`compact_boundary` is the only statement that the context was compacted**, and it becomes
+`AgentEvent::Compacted`. It is what explains a `used` figure that falls between two reports — the
+other cause being a fresh turn — and a consumer draws it as a divider: everything above it was said,
+and the harness no longer holds it. The `compact_metadata` is read and discarded; a boundary is a
+place, not a measurement. No other harness reports one, and ACP has no equivalent at all.
 
 Note: token usage is best read from the per-model `modelUsage` map in the `result` event, falling
 back to the top-level `usage`. **The two objects are cased differently, and a reader that assumes

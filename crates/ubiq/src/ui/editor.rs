@@ -19,7 +19,7 @@ use gpui_component::highlighter::{Language, LanguageConfig, LanguageRegistry};
 
 use crate::app::AppState;
 use crate::state::{FileBody, FileLanguage, OpenFile, SaveState};
-use crate::theme::{self, ThemeId};
+use crate::theme::{self, Mode};
 use crate::ui::kit::mono;
 
 /// The page's logo files, theme picked so it reads on the page's background: the blue mark for a
@@ -152,9 +152,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 fn welcome(app: &AppState) -> AnyElement {
     let logo = Arc::new(Image::from_bytes(
         ImageFormat::Png,
-        match app.workbench.theme_id {
-            ThemeId::Light => LOGO_BLUE,
-            ThemeId::Dark => LOGO_WHITE,
+        match app.workbench.theme_id.mode() {
+            Mode::Light => LOGO_BLUE,
+            Mode::Dark => LOGO_WHITE,
         }
         .to_vec(),
     ));

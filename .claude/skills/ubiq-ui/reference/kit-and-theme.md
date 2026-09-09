@@ -5,8 +5,9 @@ Everything here is `crates/ubiq/src/theme.rs` and `crates/ubiq/src/ui/kit/`.
 ## Theme tokens (`theme.rs`)
 
 A token names what a colour is *for*, so a palette swap changes every surface consistently.
-Two complete palettes, `dark()` and `light()`; a token in one exists in the other. The active
-theme is thread-local — a call site never learns which palette answered.
+`PALETTES` is the registry: ten palettes in five families (`dark`/`light`, `ember-*`,
+`contrast-*`, `navy-*`, `violet-*`). A token in one exists in every other. The active theme is
+thread-local — a call site never learns which palette answered.
 
 | Group | Accessors | For |
 |---|---|---|
@@ -20,7 +21,7 @@ theme is thread-local — a call site never learns which palette answered.
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(temporary, colour, custom)`, `mark_dark(colour)` | One project's identity wherever it appears |
 
 Helpers: `set_mode(id, cx)`, `palette_for(id)`, `fade(colour, alpha)`, `rgba_of(rgb)`,
-`ThemeId::toggled`.
+`ThemeId::counterpart`.
 
 - **`set_mode`, never `Theme::set`.** Two theme systems are live — Ubiq's tokens and the
   component library's own (which colours the editor, textarea, scrollbars, markdown view).

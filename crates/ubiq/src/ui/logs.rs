@@ -110,7 +110,10 @@ pub fn actions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 }))
                 .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx))),
         )
-        .child(mono(counted, theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(counted, theme::text_faint())
+                .text_size(theme::font(theme::Family::Content, theme::Role::Meta)),
+        )
         .child(icon_button(
             "log-follow",
             IconName::ArrowDown,
@@ -144,7 +147,7 @@ pub fn body(app: &AppState, _cx: &mut Context<AppState>) -> AnyElement {
         .min_h(px(0.))
         .bg(theme::pane_bg())
         // The console is a surface like a pane, and its edge carries the loudest thing it holds.
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(
             ubiq_proto::log::logs()
                 .loudest()
@@ -190,19 +193,19 @@ fn row(record: &Arc<LogRecord>) -> AnyElement {
         .child(
             mono(record.time(), theme::text_faint())
                 .flex_none()
-                .text_size(px(11.)),
+                .text_size(theme::font(theme::Family::Content, theme::Role::Meta)),
         )
         .child(
             mono(record.level.label(), colour)
                 .w(px(46.))
                 .flex_none()
-                .text_size(px(11.)),
+                .text_size(theme::font(theme::Family::Content, theme::Role::Meta)),
         )
         .child(
             mono(record.subsystem.label(), theme::text_muted())
                 .w(px(88.))
                 .flex_none()
-                .text_size(px(11.)),
+                .text_size(theme::font(theme::Family::Content, theme::Role::Meta)),
         )
         .child(
             mono(

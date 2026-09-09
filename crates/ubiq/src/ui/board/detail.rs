@@ -23,6 +23,7 @@ use crate::app::AppState;
 use crate::state::board::Field;
 use crate::state::work;
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::board::{form, status_colour};
 use crate::ui::eid2;
 use crate::ui::kit::{ghost_button, icon_button, meter, mono, panel, pill, section_label};
@@ -42,7 +43,7 @@ pub fn render(
     panel()
         .child(
             div()
-                .h(px(theme::TITLEBAR_HEIGHT))
+                .h(px(theme::titlebar_height()))
                 .px_3()
                 .flex()
                 .flex_none()
@@ -99,20 +100,18 @@ fn body(
                         .rounded_full()
                         .bg(agent_colour),
                 )
-                .child(mono(agent.name.clone(), agent_colour).text_size(px(12.)))
+                .child(mono(agent.name.clone(), agent_colour))
                 .child(
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(12.))
+                        .text_size(theme::font(Family::Chrome, Role::Label))
                         .text_color(theme::text_muted())
                         .child(SharedString::from(format!("\u{2014} {}", agent.note))),
                 )
                 .into_any_element()
         }
-        None => mono("nobody has started this", theme::text_faint())
-            .text_size(px(12.))
-            .into_any_element(),
+        None => mono("nobody has started this", theme::text_faint()).into_any_element(),
     };
 
     let steps: Vec<AnyElement> = task
@@ -167,7 +166,7 @@ fn body(
                         } else {
                             div()
                                 .id(eid2("board-step-title", task_id, step_id))
-                                .text_size(px(13.))
+                                .text_size(theme::font(Family::Chrome, Role::Body))
                                 .text_color(if done {
                                     theme::text_muted()
                                 } else {
@@ -190,13 +189,18 @@ fn body(
                                 .items_center()
                                 .gap_1p5()
                                 .children(owner.map(|owner| {
-                                    mono(owner.name.clone(), theme::text_muted()).text_size(px(11.))
+                                    mono(owner.name.clone(), theme::text_muted())
+                                        .text_size(theme::font(Family::Chrome, Role::Meta))
                                 }))
                                 .children(owner.map(|_| {
-                                    mono("\u{b7}", theme::text_faint()).text_size(px(11.))
+                                    mono("\u{b7}", theme::text_faint())
+                                        .text_size(theme::font(Family::Chrome, Role::Meta))
                                 }))
                                 .child(div().size(px(6.)).flex_none().rounded_full().bg(state))
-                                .child(mono(step.state.label(), state).text_size(px(11.))),
+                                .child(
+                                    mono(step.state.label(), state)
+                                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                                ),
                         ),
                 )
                 .child(form::step_controls(app, task, step_id, cx))
@@ -244,11 +248,10 @@ fn body(
                         .items_center()
                         .gap_1p5()
                         .child(form::session(app, task, cx))
-                        .children(
-                            worktree.then(|| {
-                                mono("(worktree)", theme::text_faint()).text_size(px(11.))
-                            }),
-                        )
+                        .children(worktree.then(|| {
+                            mono("(worktree)", theme::text_faint())
+                                .text_size(theme::font(Family::Chrome, Role::Meta))
+                        }))
                         .into_any_element(),
                 ))
                 .child(fact("Now", now)),
@@ -265,7 +268,7 @@ fn body(
                         .min_w(px(0.))
                         .child(meter(work::fraction(task), colour)),
                 )
-                .child(mono(format!("{done}/{total}"), theme::text_muted()).text_size(px(11.5)))
+                .child(mono(format!("{done}/{total}"), theme::text_muted()))
         }))
         .child(
             div()
@@ -275,12 +278,13 @@ fn body(
                 .child(section_label("Sub-tasks"))
                 .child(div().flex_1().min_w(px(0.)))
                 .children((total > 0).then(|| {
-                    mono(format!("{done}/{total}"), theme::text_faint()).text_size(px(11.))
+                    mono(format!("{done}/{total}"), theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
                 })),
         )
         .children((total == 0).then(|| {
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_faint())
                 .child("No sub-tasks yet.")
         }))
@@ -311,7 +315,7 @@ fn tag(label: impl Into<SharedString>, colour: gpui::Rgba) -> impl IntoElement {
     pill(colour)
         .h(px(22.))
         .px_2()
-        .child(mono(label, colour).text_size(px(10.5)))
+        .child(mono(label, colour).text_size(theme::font(Family::Chrome, Role::Micro)))
 }
 
 /// The two ways out of a task, one onto each screen over the agents: the graph pointed at whoever

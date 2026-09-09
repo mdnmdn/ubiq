@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
 read_when: you are extending version control, adding the write family, touching how a clone runs, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-05
-verified: 2026-09-07
+updated: 2026-09-09
+verified: 2026-09-09
 code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
@@ -154,7 +154,9 @@ the repository's configured identity. `rel_path` narrows a page to one path's hi
 `touches_path()` answers per commit by diffing against the first parent — git2's revwalk has no
 pathspec — bounded by `PATH_SCAN_CEILING` so a path with no history cannot walk to the root. An
 unborn `HEAD` answers with an empty page, not an error. A log with no `rel_path` walks the whole
-repository rather than the project's prefix (`G124`).
+repository rather than the project's prefix (`G124`). The cursor has a caller: the interface asks
+for the next page from the foot of its own history through `AppState::load_more_git_log`
+(`crates/ubiq/src/app/git.rs`), so the walk goes as far as the reader scrolls.
 
 **Refs** are one reply for four sections — local branches, remote-tracking branches, tags and
 stashes — because a sidebar with five sections has no use for five walks when the repository is
@@ -243,37 +245,33 @@ none is measured against a repository of the size Ubiq is opened on (`G133`).
 
 ## 9. Next steps
 
-Ordered. The first three are cheap and pay off inside this subsystem; the rest are load-bearing —
+Ordered. The first two are cheap and pay off inside this subsystem; the rest are load-bearing —
 they change a shape rather than fill a hole.
 
-1. **A paging call site for the log (`G129`).** The view stores the cursor and the end flag, and no
-   code sends the second request, so the history stops at one page. The smallest visible win in the
-   list, and the log family is otherwise complete.
-2. **A generation on refs (`G127`).** Two fields and one guard, matching what the overview and the
-   working tree do. Cheap, and it stops being cosmetic the moment writes land (item 6).
-3. **Cache the diff builder's repository handle (`G130`).** One cache, against a discovery walk paid
-   on every file the user opens. Cheap, and it removes one of the two handles item 6 has to reason
+1. **A generation on refs (`G127`).** Two fields and one guard, matching what the overview and the
+   working tree do. Cheap, and it stops being cosmetic the moment writes land (item 5).
+2. **Cache the diff builder's repository handle (`G130`).** One cache, against a discovery walk paid
+   on every file the user opens. Cheap, and it removes one of the two handles item 5 has to reason
    about.
-4. **Measure the four ceilings (`G133`).** Not code — one run against a large repository. Every
+3. **Measure the four ceilings (`G133`).** Not code — one run against a large repository. Every
    number in §7 is a guess until then, and each later item is easier to size once they are real.
-5. **The silent submodule default (`G132`), then `GitError::Interrupted` (`G126`).** The first is a
+4. **The silent submodule default (`G132`), then `GitError::Interrupted` (`G126`).** The first is a
    wrong answer and should become an absent one. The second is a wire variant with no producer:
    either a cancellable walk gives it one, or it leaves the contract. Both are small; neither
    blocks anything.
-6. **The write family (`G84`).** Load-bearing, and it forces a design change first: the shared,
+5. **The write family (`G84`).** Load-bearing, and it forces a design change first: the shared,
    un-mutexed repository cache is safe only because nothing mutates, and staging or committing needs
    a mutable repository — the same collision §4's stash reflog sidesteps. Two independent
-   handles (item 3) become a correctness hazard rather than a cost, and the missing staleness guard
-   (item 2) stops being a display glitch and becomes a write racing a read. **Change the cache
+   handles (item 2) become a correctness hazard rather than a cost, and the missing staleness guard
+   (item 1) stops being a display glitch and becomes a write racing a read. **Change the cache
    before the first write lands**, while nothing depends on its current shape.
-7. **Linked worktrees and nested repositories (`G125`).** Load-bearing in the same way discovery is:
+6. **Linked worktrees and nested repositories (`G125`).** Load-bearing in the same way discovery is:
    it changes what "the project's repository" means, and every answer above is downstream of that.
    Worth doing after the write family rather than before, because a write into the wrong worktree is
    worse than a read from it.
-8. **Joining an agent's turn to the commit it produced (`G134`).** The most interesting thing Ubiq
+7. **Joining an agent's turn to the commit it produced (`G134`).** The most interesting thing Ubiq
    could know: it is the one application in the category watching both the agent and the repository.
-   It needs the log family it has and a link the work family does not carry, and it is the reason to
-   keep the log family even while no screen pages it.
+   It needs the log family it has and a link the work family does not carry.
 
 ## Related docs
 

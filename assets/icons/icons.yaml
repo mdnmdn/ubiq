@@ -72,6 +72,13 @@ categories:
     pane-unloaded:
       goal: a conversation that exists but has no process behind it
       keywords: [detached, cold, resumable, suspended]
+    # Not a lifecycle state and not the dot's colour: the dot says what the conversation is
+    # doing, this says whether it outlives the window. An anchor rather than `tab-pin`'s pin,
+    # because the pin already means "this tab is protected from close" and one mark carrying
+    # both meanings is the collision the `workbench` category exists to break.
+    pane-persistent:
+      goal: the conversation is kept — its run directory survives a restart and it comes back
+      keywords: [persistent, keep, retain, restart, survive, anchor]
 
   # ACP's `ToolKind`, eleven of them, collapsed today into six colours and no shape at all
   # (`tool_colour`, `ui/conversation/mod.rs`). Most are already in Lucide; four are not.

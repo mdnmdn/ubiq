@@ -71,8 +71,24 @@ finished. So a conversation's full record survives the pane it was held in, and 
 leaves one too: its finish time is the sweep's, and its exit code is unknown rather than invented.
 Which files are a harness's record is the harness library's answer, not Ubiq's, and a harness that
 does not answer leaves metadata alone.
-The record is data, not a resume: nothing replays it into a harness, and nothing deletes it. Both
-are gaps in the backlog.
+**A conversation the user marks persistent survives a restart, and the run directory is how.** That
+directory is not scaffolding around the conversation — it holds the harness's own session store,
+because every harness's config lever is pinned to it — so keeping it is what lets `--resume`, or
+ACP's `session/load`, work after Ubiq has been quit and reopened. A marked conversation is therefore
+*parked* rather than retired when its window closes or its harness exits: the harness stops, the
+directory stays, and every credential seeded into it is scrubbed on the way out and re-seeded at the
+next launch. Ubiq's own row beside the metadata carries what a relaunch needs and the library's
+record does not — the profile, the picks, where the message sequence had reached, the title, and the
+flag itself. Copying that directory instead of keeping it is what forks a conversation onto a second
+agent. `D97` is the decision and its costs.
+
+Nothing is kept for a conversation nobody marked: it is retired exactly as before, which is what
+stops the run root growing without bound. The archived transcript beside the metadata is still data
+rather than a resume — the resume is the store in the run directory, not the copy of it — and the
+one thing it is still owed is a redraw for Claude Code's native bridge, which restores its memory
+and replays no transcript. Old records for unmarked conversations are collected after
+`HostSettings.retain_conversations_days`; a marked one is never collected on a timer, only by an
+explicit delete.
 
 **Unload is not delete.** A conversation's harness can be killed without ending the conversation —
 `UnloadConversation`, answered by `ConversationUnloaded` — and unlike a pane close or
@@ -163,9 +179,10 @@ directory the attempt created is removed.
 | The harness exits | `PaneExited` with its code. The pane's tab is closed |
 | The pseudo-terminal stream ends | Treated as an exit |
 
-Sessions and workspaces live in memory for the lifetime of the process. Persisting them across
-restarts, and what "reattach" means once the coordinator is a separate process, are open — see
-[`../backlog.md`](../backlog.md).
+Sessions and workspaces live in memory for the lifetime of the process. A **conversation** marked
+persistent is the exception and the only one: its recipe and its harness's store are on disk, so it
+comes back. What "reattach" means once the coordinator is a separate process — and how a window
+learns of a conversation it did not start — are still open; see [`../backlog.md`](../backlog.md).
 
 ## Related docs
 
@@ -176,6 +193,7 @@ restarts, and what "reattach" means once the coordinator is a separate process, 
 
 ## Next steps
 
-- Persist sessions across restarts, so reattaching survives a quit.
+- Persist *sessions* across restarts. A marked conversation already does; the named grouping of
+  panes around it does not.
 - Rename and delete a session from the UI.
 - Let the user choose which folder inside a project a workspace starts in.

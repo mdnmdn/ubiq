@@ -14,14 +14,15 @@
 //! this module draws.
 
 use gpui::{
-    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,
+    StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
 };
 use gpui_component::input::Input;
 
 use crate::app::AppState;
 use crate::state::git::{COMMIT_ROW, CommitRow, LANE_GUTTER, LANE_PITCH};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{elided, filter_bar, ghost_button, mono, panel, pill, toggle_pill};
 
@@ -30,25 +31,47 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         return div().into_any_element();
     };
     let visible = git.visible_commits();
+    let shown = visible.len();
     let focused = app.git_search.read(cx).focus_handle(cx).is_focused(window);
 
+    // Only the indices cross into the list's own closure, which reads the rows themselves back out
+    // of the view when it builds the handful that are on screen.
+    let rows: Vec<usize> = visible.iter().map(|(index, _)| *index).collect();
+    let lanes = git.lanes();
+    let view = cx.entity();
+
     let mut list = div()
-        .id("git-history")
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .overflow_scroll()
-        .child(uncommitted_row(app, git.lanes(), cx));
+        .child(uncommitted_row(app, lanes, cx))
+        .child(
+            uniform_list("git-history", shown, move |range, window, cx| {
+                let Some(git) = view.read(cx).git_view(cx) else {
+                    return Vec::new();
+                };
+                range
+                    .filter_map(|slot| {
+                        let index = *rows.get(slot)?;
+                        let commit = git.commits.get(index)?;
+                        Some(commit_row(
+                            index,
+                            commit,
+                            git.selected_commit == Some(index),
+                            lanes,
+                            &view,
+                            window,
+                        ))
+                    })
+                    .collect::<Vec<AnyElement>>()
+            })
+            .flex_1()
+            .min_h(px(0.)),
+        );
 
-    for (index, commit) in visible.iter() {
-        list = list.child(commit_row(
-            *index,
-            commit,
-            git.selected_commit == Some(*index),
-            git.lanes(),
-            cx,
-        ));
+    if !git.log_done {
+        list = list.child(load_more_row(git.log_inflight.is_some(), cx));
     }
 
     panel()
@@ -93,7 +116,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                                 format!("{} of {} commits", visible.len(), git.commits.len()),
                                 theme::text_faint(),
                             )
-                            .text_size(px(11.)),
+                            .text_size(theme::font(Family::Chrome, Role::Meta)),
                         ),
                 ),
         )
@@ -121,17 +144,17 @@ fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> 
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child("Uncommitted changes"),
         )
-        .child(mono(format!("{changed} paths"), theme::text_muted()).text_size(px(11.)))
         .child(
-            div()
-                .w(px(78.))
-                .flex_none()
-                .child(mono("now", theme::text_faint()).text_size(px(11.))),
+            mono(format!("{changed} paths"), theme::text_muted())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
         )
+        .child(div().w(px(78.)).flex_none().child(
+            mono("now", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
+        ))
         .child(div().w(px(70.)).flex_none())
         .on_click(cx.listener(|this, _, _, cx| this.select_git_commit(None, cx)))
         .into_any_element()
@@ -144,7 +167,8 @@ fn commit_row(
     commit: &CommitRow,
     selected: bool,
     lanes: usize,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     row_base(eid("git-commit", index), selected)
         .child(lane_gutter(commit, lanes))
@@ -155,40 +179,67 @@ fn commit_row(
                 .items_center()
                 .gap_1()
                 .children(commit.refs.iter().map(|name| {
-                    pill(theme::accent())
-                        .h(px(16.))
-                        .px_1()
-                        .child(mono(name.clone(), theme::text()).text_size(px(10.5)))
+                    pill(theme::accent()).h(px(16.)).px_1().child(
+                        mono(name.clone(), theme::text())
+                            .text_size(theme::font(Family::Chrome, Role::Micro)),
+                    )
                 })),
         )
         .child(elided(
             eid("git-commit-summary", index),
             commit.summary.clone(),
             theme::text(),
-            12.5,
+            theme::font(theme::Family::Chrome, theme::Role::Body),
         ))
         .child(
             div()
                 .w(px(150.))
                 .flex_none()
-                .text_size(px(11.5))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text_muted())
                 .truncate()
                 .child(commit.author.clone()),
         )
         .child(
-            div()
-                .w(px(78.))
-                .flex_none()
-                .child(mono(commit.when.clone(), theme::text_faint()).text_size(px(11.))),
+            div().w(px(78.)).flex_none().child(
+                mono(commit.when.clone(), theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            ),
         )
         .child(
-            div()
-                .w(px(70.))
-                .flex_none()
-                .child(mono(commit.short_id.clone(), theme::text_muted()).text_size(px(11.))),
+            div().w(px(70.)).flex_none().child(
+                mono(commit.short_id.clone(), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            ),
         )
-        .on_click(cx.listener(move |this, _, _, cx| this.select_git_commit(Some(index), cx)))
+        .on_click(window.listener_for(view, move |this, _, _, cx| {
+            this.select_git_commit(Some(index), cx)
+        }))
+        .into_any_element()
+}
+
+/// The trigger for the next page, at the bottom of the list — or its own loading state while that
+/// page is in flight. Absent once `GitView::log_done` says there is nothing more.
+fn load_more_row(loading: bool, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .h(px(COMMIT_ROW))
+        .pr_3()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .children((!loading).then(|| {
+            ghost_button(
+                "git-load-more",
+                None,
+                "Load more commits",
+                cx.listener(|this, _, _, cx| this.load_more_git_log(cx)),
+            )
+        }))
+        .children(loading.then(|| {
+            mono("Loading more\u{2026}", theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+        }))
         .into_any_element()
 }
 

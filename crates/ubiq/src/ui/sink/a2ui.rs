@@ -22,6 +22,7 @@ use crate::app::AppState;
 use crate::state::a2ui;
 use crate::state::workbench::MenuId;
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::menu::{Picker, PickerStyle};
 use crate::ui::kit::{mono, slab};
 use crate::ui::{handler, indexed};
@@ -134,7 +135,7 @@ fn source(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         // is written here, and whether the renderer handles real agent output turns on which.
         .children(current.map(|example| {
             mono(example.origin, theme::text_faint())
-                .text_size(px(10.))
+                .text_size(theme::font(Family::Chrome, Role::Micro))
                 .into_any_element()
         }));
 
@@ -167,7 +168,7 @@ fn note(text: &str, colour: gpui::Rgba) -> AnyElement {
     slab(colour)
         .p_3()
         .m_3()
-        .child(mono(text, colour).text_size(px(11.)))
+        .child(mono(text, colour).text_size(theme::font(Family::Chrome, Role::Meta)))
         .into_any_element()
 }
 

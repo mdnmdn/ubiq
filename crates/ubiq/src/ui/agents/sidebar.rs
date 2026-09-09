@@ -51,7 +51,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .flex()
                 .flex_none()
                 .flex_col()
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(worst_of(&members))
                 .child(session_row(session, members.len(), shut, cx));
 
@@ -187,10 +187,13 @@ fn session_row(
             eid("agents-session-name", id),
             session.name.clone(),
             theme::text(),
-            13.,
+            theme::font(theme::Family::Conversation, theme::Role::Body),
         ))
         .children(session.worktree.then(|| section_label("worktree")))
-        .child(mono(format!("{members}"), theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(format!("{members}"), theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+        )
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_agents_session(id, cx)))
         .into_any_element()
 }
@@ -219,7 +222,7 @@ fn note_row(work: &WorkProjection, session: &WorkSession) -> AnyElement {
             eid("agents-session-note", session.id),
             task.title.clone(),
             theme::text_muted(),
-            12.,
+            theme::font(theme::Family::Conversation, theme::Role::Label),
         ))
         .into_any_element()
 }
@@ -252,12 +255,15 @@ fn agent_row(agent: &WorkAgent, benched: bool, cx: &mut Context<AppState>) -> An
             } else {
                 theme::text()
             },
-            13.,
+            theme::font(theme::Family::Conversation, theme::Role::Body),
         ))
         // The one mark on the row that is about this window rather than about the agent: it is not
         // on screen, and clicking the row is what puts it back.
         .children(benched.then(|| badge("bench", theme::text_faint())))
-        .child(mono(agent.activity.label().to_lowercase(), colour).text_size(px(11.)))
+        .child(
+            mono(agent.activity.label().to_lowercase(), colour)
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+        )
         .on_click(cx.listener(move |this, _, _, cx| this.reveal_agent(id, cx)))
         .into_any_element()
 }

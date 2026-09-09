@@ -29,6 +29,7 @@ use crate::state::settings::{
     magnitude,
 };
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{
     UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
     ghost_button, heading, icon_button, label_block, menu::Picker, modal, modal_note, modal_sized,
@@ -76,7 +77,7 @@ fn dialog(
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::accent())
         .shadow_lg()
         .child(header(cx))
@@ -102,7 +103,7 @@ fn header(cx: &mut Context<AppState>) -> AnyElement {
         .gap_2()
         .child(
             div()
-                .text_size(px(15.))
+                .text_size(theme::font(Family::Chrome, Role::Title))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::text())
                 .child("Settings"),
@@ -195,9 +196,75 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
+/// The base sizes the chrome and the conversation families are offered, in points.
+///
+/// A hand-picked ladder rather than every half point, the same bargain the status bar's content
+/// ladder makes: a base size is chosen by eye. Both families' defaults are on it, so a window that
+/// has never been touched shows a lit pill rather than nothing.
+const BASE_SIZES: &[f32] = &[11.0, 11.5, 12.5, 13.5, 15.0, 17.0];
+
 fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let palette = app.workbench.theme_id;
+    let scale = theme::text_scale();
+
     column(vec![
-        heading("Appearance", "What the window's own chrome shows."),
+        heading(
+            "Appearance",
+            "The palette and the accent it is dressed in, how big each surface family's text is, \
+             how tight the grid is drawn, and what the window's own chrome shows.",
+        ),
+        setting_row(
+            "Palette",
+            "Which family of neutrals the window is built out of. Each family has both grounds; \
+             the ground below stays where it is.",
+            palette_choice(palette, cx),
+        ),
+        setting_row(
+            "Ground",
+            "Dark or light \u{2014} the same flip the titlebar offers, within the family above.",
+            ground_choice(palette, cx),
+        ),
+        setting_row(
+            "Accent",
+            "The one hue every accent-coloured token derives from. The first swatch is the \
+             palette's own; project swatches are identity, not accent, and do not follow this.",
+            accent_choice(palette, cx),
+        ),
+        setting_row(
+            "Chrome text size",
+            "The base size of the titlebar, the status bar, the rail, tabs, menus, modals, \
+             settings and pickers. Growing it reflows the window.",
+            size_choice("chrome", scale.chrome, cx, |this, size, cx| {
+                this.set_chrome_font_size(size, cx)
+            }),
+        ),
+        setting_row(
+            "Conversation text size",
+            "The base size of the transcript, the tool blocks, the composer and the agents \
+             columns \u{2014} read as prose, at a size that has nothing to do with the size code \
+             is read at.",
+            size_choice("conversation", scale.conversation, cx, |this, size, cx| {
+                this.set_conversation_font_size(size, cx)
+            }),
+        ),
+        setting_row(
+            "Content text size",
+            "The editor, the viewer, the explorer tree, search results and the terminal panes. \
+             This one belongs to the project rather than to the interface, so it is set from the \
+             font-size dropdown at the right of the status bar and travels with the project it was \
+             chosen for.",
+            mono(
+                format!("{:.0}\u{2009}px", app.content_font_size_or_default(cx)),
+                theme::text_faint(),
+            )
+            .into_any_element(),
+        ),
+        setting_row(
+            "Density",
+            "How tight the grid is drawn \u{2014} chrome rows, the rail, tree indents and the \
+             padding inside a pane. Regions you have dragged to a size keep it.",
+            density_choice(cx),
+        ),
         setting_row(
             "Open projects in the rail",
             "The projects this window holds, as coloured badges under the mode icons \u{2014} the \
@@ -233,6 +300,171 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .into_any_element(),
         ),
     ])
+}
+
+/// A row of pills, which is how every choice on this page is drawn.
+fn pill_row(children: Vec<AnyElement>) -> AnyElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .children(children)
+        .into_any_element()
+}
+
+/// The palette families, one pill each, labelled by the member with the ground in use.
+///
+/// A family is a palette and its counterpart, so listing only the palettes whose ground matches
+/// the current one names each family exactly once — and picking one keeps the ground where it is.
+fn palette_choice(current: theme::ThemeId, cx: &mut Context<AppState>) -> AnyElement {
+    let ground = current.mode();
+    pill_row(
+        theme::ThemeId::all()
+            .filter(|id| id.mode() == ground)
+            .map(|id| {
+                choice_pill(
+                    ElementId::Name(format!("app-settings-palette-{}", id.slug()).into()),
+                    id.name(),
+                    id == current,
+                    cx.listener(move |this, _, _, cx| this.set_palette(id, cx)),
+                )
+                .into_any_element()
+            })
+            .collect(),
+    )
+}
+
+/// The two grounds. Picking the one already lit is not a flip, so it does nothing.
+fn ground_choice(current: theme::ThemeId, cx: &mut Context<AppState>) -> AnyElement {
+    let counterpart = current.counterpart();
+    let dark = current.mode() == theme::Mode::Dark;
+    let pill = |id: &'static str, label: &'static str, active: bool| {
+        choice_pill(
+            id,
+            label,
+            active,
+            cx.listener(move |this, _, _, cx| {
+                if !active {
+                    this.set_palette(counterpart, cx);
+                }
+            }),
+        )
+        .into_any_element()
+    };
+
+    pill_row(vec![
+        pill("app-settings-ground-dark", "Dark", dark),
+        pill("app-settings-ground-light", "Light", !dark),
+    ])
+}
+
+/// The accents, as swatches: the palette's own first, then every accent the build ships.
+///
+/// A swatch rather than a pill because the choice *is* the colour, and the name is on its hover.
+/// Not a project swatch — `D19` keeps those out of this axis.
+fn accent_choice(palette: theme::ThemeId, cx: &mut Context<AppState>) -> AnyElement {
+    let current = theme::accent_id();
+    let own = theme::palette_for(palette).palette.accent.primary;
+
+    let mut swatches = vec![accent_swatch(
+        "app-settings-accent-default",
+        "The palette's own",
+        own,
+        current.is_none(),
+        None,
+        cx,
+    )];
+    swatches.extend(theme::AccentId::all().map(|id| {
+        accent_swatch(
+            ElementId::Name(format!("app-settings-accent-{}", id.slug()).into()),
+            id.name(),
+            id.seed(),
+            current == Some(id),
+            Some(id),
+            cx,
+        )
+    }));
+
+    pill_row(swatches)
+}
+
+fn accent_swatch(
+    id: impl Into<ElementId>,
+    name: &'static str,
+    colour: gpui::Rgba,
+    active: bool,
+    accent: Option<theme::AccentId>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let label: SharedString = name.into();
+    div()
+        .id(id)
+        .size(px(22.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .bg(colour)
+        .border_1()
+        .border_color(if active {
+            theme::text()
+        } else {
+            theme::border()
+        })
+        .when(active, |this| {
+            this.child(div().size(px(6.)).bg(theme::text()))
+        })
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+        })
+        .on_click(cx.listener(move |this, _, _, cx| this.set_accent(accent, cx)))
+        .into_any_element()
+}
+
+/// One family's base size, as the ladder in [`BASE_SIZES`]. The nearest half point counts as the
+/// entry, so a size written by another build still lights a pill.
+fn size_choice(
+    family: &'static str,
+    current: f32,
+    cx: &mut Context<AppState>,
+    set: impl Fn(&mut AppState, f32, &mut Context<AppState>) + Copy + 'static,
+) -> AnyElement {
+    pill_row(
+        BASE_SIZES
+            .iter()
+            .copied()
+            .map(|size| {
+                choice_pill(
+                    ElementId::Name(format!("app-settings-{family}-size-{size}").into()),
+                    format!("{size}"),
+                    (current - size).abs() < 0.25,
+                    cx.listener(move |this, _, _, cx| set(this, size, cx)),
+                )
+                .into_any_element()
+            })
+            .collect(),
+    )
+}
+
+/// The three densities, one lit.
+fn density_choice(cx: &mut Context<AppState>) -> AnyElement {
+    let current = theme::density();
+    pill_row(
+        theme::Density::ALL
+            .into_iter()
+            .map(|density| {
+                choice_pill(
+                    ElementId::Name(format!("app-settings-density-{}", density.name()).into()),
+                    density.name(),
+                    density == current,
+                    cx.listener(move |this, _, _, cx| this.set_density(density, cx)),
+                )
+                .into_any_element()
+            })
+            .collect(),
+    )
 }
 
 fn file_explorer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
@@ -304,7 +536,7 @@ fn folder_row(
                     ElementId::Name(format!("{id}-value").into()),
                     text,
                     colour,
-                    12.5,
+                    theme::font(theme::Family::Chrome, theme::Role::Body),
                 )
                 .max_w(px(220.)),
             )
@@ -623,7 +855,7 @@ fn ai_providers(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return section
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(
                         "No providers. Assistance runs on this platform\u{2019}s own model, or on \
@@ -1099,7 +1331,7 @@ fn candidate_list(cli: &CliShortcut) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap_2()
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .child(
                     div()
                         .w(px(220.))
@@ -1138,7 +1370,7 @@ fn candidate_list(cli: &CliShortcut) -> AnyElement {
 /// One line of status beside a control, in the weight the settings rows use for it.
 fn note(text: &str, colour: gpui::Rgba) -> AnyElement {
     div()
-        .text_size(px(11.))
+        .text_size(theme::font(Family::Chrome, Role::Meta))
         .text_color(colour)
         .child(SharedString::from(text.to_string()))
         .into_any_element()
@@ -1155,13 +1387,13 @@ fn error_banner(error: &str, cx: &mut Context<AppState>) -> AnyElement {
         .items_center()
         .gap_2()
         .bg(theme::warning_soft())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::warning())
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text())
                 .child(SharedString::from(error.to_string())),
         )
@@ -1190,13 +1422,13 @@ fn accounts(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .gap_1()
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .text_color(theme::text_muted())
                     .child(SharedString::from("No harnesses registered.")),
             )
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(
                         "Add one to sign in — the harness runs its own login.",
@@ -1276,7 +1508,7 @@ fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>
                 .min_w(px(0.))
                 .child(
                     div()
-                        .text_size(px(12.5))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(if available {
                             theme::text()
                         } else {
@@ -1286,7 +1518,7 @@ fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
                         .text_color(theme::text_muted())
                         .child(SharedString::from(format!(
                             "\u{2014} {}",
@@ -1350,7 +1582,7 @@ fn account_block(
             .border_color(theme::border())
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme::text())
                     .child(SharedString::from(id.clone())),
@@ -1383,7 +1615,7 @@ fn account_block(
         vec![
             div()
                 .py_1()
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_faint())
                 .child(SharedString::from("not signed in"))
                 .into_any_element(),
@@ -1429,7 +1661,7 @@ fn harness_row(
             theme::text_muted()
         };
         div()
-            .text_size(px(11.))
+            .text_size(theme::font(Family::Chrome, Role::Meta))
             .text_color(colour)
             .child(SharedString::from(describe_status(status, now_ms)))
             .into_any_element()
@@ -1455,7 +1687,7 @@ fn harness_row(
                 .min_w(px(0.))
                 .child(
                     div()
-                        .text_size(px(12.5))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text())
                         .child(SharedString::from(label)),
                 )
@@ -2066,7 +2298,7 @@ fn login_link_row(index: usize, url: String, cx: &mut Context<AppState>) -> AnyE
                 .flex()
                 .items_center()
                 .bg(theme::surface())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::accent())
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::hover()))
@@ -2074,7 +2306,7 @@ fn login_link_row(index: usize, url: String, cx: &mut Context<AppState>) -> AnyE
                     ElementId::Name(format!("app-settings-login-link-{index}-text").into()),
                     url,
                     theme::accent(),
-                    12.,
+                    theme::font(theme::Family::Chrome, theme::Role::Label),
                 ))
                 .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&open_url))),
         )
@@ -2137,13 +2369,13 @@ fn connectors(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .gap_1()
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text_muted())
                         .child(SharedString::from("No connections.")),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
                         .text_color(theme::text_faint())
                         .child(SharedString::from(
                             "Connect one to let agents reach its issues and pull requests.",
@@ -2242,7 +2474,7 @@ fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .children(if saved.is_empty() {
                 Some(
                     div()
-                        .text_size(px(11.))
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
                         .text_color(theme::text_faint())
                         .child(SharedString::from(
                             "None yet. Connecting to a host from the titlebar saves it here.",
@@ -2377,7 +2609,7 @@ fn connection_row(
             .child(state_chip(text, colour, 1.0))
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(describe_status(status, now_ms))),
             )
@@ -2407,13 +2639,13 @@ fn connection_row(
                 .child(badge(connection.provider.glyph(), theme::accent()))
                 .child(
                     div()
-                        .text_size(px(12.5))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text())
                         .child(SharedString::from(label.clone())),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
                         .text_color(theme::text_muted())
                         .child(SharedString::from(connection.account.clone())),
                 )
@@ -2423,7 +2655,7 @@ fn connection_row(
                     ElementId::Name(format!("app-settings-connection-{id}-instance").into()),
                     where_it_lives,
                     theme::text_faint(),
-                    11.,
+                    theme::font(theme::Family::Chrome, theme::Role::Meta),
                 ))
                 .children(chip)
                 .when(pinned, |row| row.child(badge("pinned", theme::warning()))),
@@ -2513,16 +2745,16 @@ fn cert_row(app: &AppState, cert: &TrustedCert, cx: &mut Context<AppState>) -> A
         .child(
             div()
                 .w(px(200.))
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text())
                 .child(SharedString::from(cert.origin.clone())),
         )
-        .child(mono(short, theme::text_muted()).text_size(px(11.)))
+        .child(mono(short, theme::text_muted()).text_size(theme::font(Family::Chrome, Role::Meta)))
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_faint())
                 .child(SharedString::from(format!(
                     "{} \u{b7} until {} \u{b7} {uses} connection{}",
@@ -2565,7 +2797,7 @@ fn oauth_apps(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return section
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(
                         "No registrations. Connections use whatever application this build ships, \
@@ -2632,7 +2864,10 @@ fn copyable(id: &'static str, value: &str, cx: &mut Context<AppState>) -> AnyEle
                 .bg(theme::surface())
                 .border_1()
                 .border_color(theme::border())
-                .child(mono(value.to_string(), theme::text()).text_size(px(11.))),
+                .child(
+                    mono(value.to_string(), theme::text())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                ),
         )
         .child(icon_button(
             ElementId::Name(format!("{id}-copy").into()),
@@ -3251,7 +3486,7 @@ pub fn ai_test(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
             .p_2()
             .child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .text_color(theme::text())
                     .child(SharedString::from(test.answer.clone())),
             )
@@ -3836,12 +4071,9 @@ fn device_code(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(
-                    slab(theme::accent())
-                        .px_3()
-                        .py_2()
-                        .child(mono(user_code.to_string(), theme::text()).text_size(px(22.))),
-                )
+                .child(slab(theme::accent()).px_3().py_2().child(
+                    mono(user_code.to_string(), theme::text()).text_size(theme::font_display()),
+                ))
                 .child(icon_button(
                     "app-settings-connect-code-copy",
                     IconName::Copy,
@@ -3919,7 +4151,7 @@ pub fn certificate(app: &AppState, window: &mut Window, cx: &mut Context<AppStat
                 div()
                     .w(px(120.))
                     .flex_none()
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(label.to_string())),
             )
@@ -3927,7 +4159,7 @@ pub fn certificate(app: &AppState, window: &mut Window, cx: &mut Context<AppStat
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text())
                     .child(SharedString::from(value)),
             )
@@ -3973,7 +4205,10 @@ pub fn certificate(app: &AppState, window: &mut Window, cx: &mut Context<AppStat
                         .min_w(px(0.))
                         .px_2()
                         .py_2()
-                        .child(mono(copy.clone(), theme::text()).text_size(px(11.))),
+                        .child(
+                            mono(copy.clone(), theme::text())
+                                .text_size(theme::font(Family::Chrome, Role::Meta)),
+                        ),
                 )
                 .child(icon_button(
                     "app-settings-cert-copy",

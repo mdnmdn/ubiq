@@ -15,6 +15,15 @@ use crate::ui::sink::project as project_settings;
 use crate::ui::{new_agent, rail, remote_connect, ribbon, settings, status_bar, titlebar};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
+    // The content family's base is the *project's*, and the theme is one thread-local shared by
+    // every window on the thread — so it is pushed in here, at the top of the window that is about
+    // to draw, rather than written once when a zoom changes. Two windows on two projects then each
+    // draw at their own size instead of at the last one set.
+    theme::set_text_scale(theme::TextScale {
+        content: app.content_font_size_or_default(cx),
+        ..theme::text_scale()
+    });
+
     div()
         .id("workbench-root")
         .flex()
@@ -61,12 +70,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // the explorer's Escape and every field's Enter are untouched.
         .on_action(cx.listener(AppState::confirm_dialog))
         .on_action(cx.listener(AppState::cancel_dialog))
-        .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_ui_font_size(1, cx)))
-        .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_ui_font_size(-1, cx)))
+        .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_content_font_size(1, cx)))
+        .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_content_font_size(-1, cx)))
         .bg(theme::app_bg())
         .text_color(theme::text())
         // The window wears its project's colour down its whole left edge.
-        .border_l(px(theme::ACCENT_EDGE * 2.0))
+        .border_l(px(theme::accent_edge() * 2.0))
         .border_color(app.project_tint(cx))
         .child(
             div()

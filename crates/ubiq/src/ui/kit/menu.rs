@@ -15,6 +15,7 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{Action, IndexedAction, field};
 
 /// Where a dropdown is painted: above the shell, below a modal.
@@ -217,7 +218,7 @@ impl RenderOnce for Picker {
             .flex_none()
             .items_center()
             .gap_2()
-            .text_size(px(13.))
+            .text_size(theme::font(Family::Chrome, Role::Body))
             .text_color(theme::text())
             .cursor_pointer()
             .hover(|this| this.bg(theme::hover()));
@@ -227,9 +228,9 @@ impl RenderOnce for Picker {
                 trigger = trigger
                     .px_2()
                     .bg(theme::surface())
-                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_l(px(theme::accent_edge()))
                     .border_color(theme::border())
-                    .text_size(px(12.5));
+                    .text_size(theme::font(Family::Chrome, Role::Body));
             }
             PickerStyle::Field => {
                 trigger = trigger
@@ -238,9 +239,9 @@ impl RenderOnce for Picker {
                     .px_2()
                     .justify_between()
                     .bg(theme::surface())
-                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_l(px(theme::accent_edge()))
                     .border_color(theme::border())
-                    .text_size(px(12.5));
+                    .text_size(theme::font(Family::Chrome, Role::Body));
             }
             PickerStyle::Plain => trigger = trigger.px_2(),
         }
@@ -313,7 +314,7 @@ fn menu_panel(
                 .px_2()
                 .flex()
                 .items_center()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_faint())
                 .child("No matches")
                 .into_any_element(),
@@ -345,7 +346,7 @@ fn menu_panel(
                     .flex()
                     .items_center()
                     .gap_2()
-                    .text_size(px(12.5))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .text_color(if is_disabled {
                         theme::text_faint()
                     } else if is_selected {
@@ -396,7 +397,7 @@ fn menu_panel(
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(12.5))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .child(Input::new(&state).appearance(false)),
             )
     });
@@ -413,7 +414,7 @@ fn menu_panel(
                     .flex()
                     .flex_col()
                     .bg(theme::surface_raised())
-                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_l(px(theme::accent_edge()))
                     .border_color(theme::accent())
                     .shadow_lg()
                     .font_weight(FontWeight::NORMAL)
@@ -532,7 +533,7 @@ pub fn context_panel(
                 .px_2()
                 .flex()
                 .items_center()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(if enabled {
                     theme::text()
                 } else {
@@ -569,7 +570,7 @@ pub fn context_panel(
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::accent())
         .shadow_lg()
         .font_weight(FontWeight::NORMAL)

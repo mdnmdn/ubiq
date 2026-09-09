@@ -73,6 +73,18 @@ impl RefSection {
             RefSection::Submodules => "Submodules",
         }
     }
+
+    /// Index into the fixed 5-slot grouping `GitView::grouped_refs` builds, in `all()`'s own
+    /// order.
+    pub(crate) fn slot(self) -> usize {
+        match self {
+            RefSection::Local => 0,
+            RefSection::Remotes => 1,
+            RefSection::Tags => 2,
+            RefSection::Stashes => 3,
+            RefSection::Submodules => 4,
+        }
+    }
 }
 
 /// One row in the sidebar: a branch, a remote-tracking branch, a tag, a stash or a submodule.
@@ -190,6 +202,19 @@ pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
         .collect()
 }
 
+/// One commit's search haystack — its summary, author and short id, lowercased and joined behind
+/// a separator no field or typed query realistically contains, so `visible_commits`'s one
+/// `.contains` check does what three separate `.to_lowercase()`-then-`.contains` calls did.
+/// See `GitView::search_cache`, which builds this once per commit rather than once per frame.
+fn commit_haystack(commit: &CommitRow) -> String {
+    format!(
+        "{}\u{0}{}\u{0}{}",
+        commit.summary.to_lowercase(),
+        commit.author.to_lowercase(),
+        commit.short_id.to_lowercase()
+    )
+}
+
 /// Which of the three change lists a row is in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Side {
@@ -256,6 +281,39 @@ pub fn conflicted(entries: &[GitEntry]) -> Vec<&GitEntry> {
     entries.iter().filter(|entry| entry.conflicted).collect()
 }
 
+/// [`conflicted`], [`staged`] and [`unstaged`] together, in one pass over `entries` instead of
+/// three — plus the staged count a caller would otherwise take a fourth pass for, which is just
+/// `staged.len()` here.
+///
+/// Indices rather than references, because the list that draws them is virtual: it holds the
+/// grouping across frames and looks each row's entry up when it builds the rows on screen.
+pub struct ChangeGroups {
+    pub conflicted: Vec<usize>,
+    pub staged: Vec<usize>,
+    pub unstaged: Vec<usize>,
+}
+
+pub fn group_changes(entries: &[GitEntry]) -> ChangeGroups {
+    let mut groups = ChangeGroups {
+        conflicted: Vec::new(),
+        staged: Vec::new(),
+        unstaged: Vec::new(),
+    };
+    for (index, entry) in entries.iter().enumerate() {
+        if entry.conflicted {
+            groups.conflicted.push(index);
+            continue;
+        }
+        if entry.index.is_some() {
+            groups.staged.push(index);
+        }
+        if entry.worktree.is_some() {
+            groups.unstaged.push(index);
+        }
+    }
+    groups
+}
+
 /// The Git screen's view of one project's repository.
 pub struct GitView {
     /// The sections the user has shut. Absent means open, so a screen that has never been touched
@@ -295,8 +353,18 @@ pub struct GitView {
 
     /// The sidebar's rows, from the host's refs and the overview's submodules.
     pub refs: Vec<RefRow>,
-    /// The history, oldest page first, newest commit first within it.
+    /// The history, oldest page first, newest commit first within it. Only ever replaced or
+    /// extended through [`GitView::set_commits`]/[`GitView::extend_commits`], which keep
+    /// `search_haystacks` and `lane_count` beside it — see those for why.
     pub commits: Vec<CommitRow>,
+    /// Each commit's lowercased search haystack (see [`commit_haystack`]), in step with
+    /// `commits` — built once when a page lands rather than cached against `commits.len()`,
+    /// so a same-length in-place replacement (a rebase that does not change the commit count)
+    /// can never serve a stale haystack.
+    search_haystacks: Vec<String>,
+    /// How many lanes wide the graph is, kept beside `commits` the same way and for the same
+    /// reason as `search_haystacks`.
+    lane_count: usize,
     /// The commit after the last one in `commits` — what the next page's request would start
     /// from. `None` before the first page has landed.
     pub log_cursor: Option<String>,
@@ -318,7 +386,7 @@ impl GitView {
     /// The screen a project opens on: everything showing, the uncommitted row selected, the diff
     /// pane open and unified.
     pub fn new(refs: Vec<RefRow>, commits: Vec<CommitRow>) -> Self {
-        Self {
+        let mut view = Self {
             shut: HashSet::new(),
             selected_ref: refs.iter().position(|row| row.current),
             search: String::new(),
@@ -332,11 +400,15 @@ impl GitView {
             message: String::new(),
             amend: false,
             refs,
-            commits,
+            commits: Vec::new(),
+            search_haystacks: Vec::new(),
+            lane_count: 0,
             log_cursor: None,
             log_done: false,
             log_inflight: None,
-        }
+        };
+        view.set_commits(commits);
+        view
     }
 
     pub fn is_open(&self, section: RefSection) -> bool {
@@ -366,6 +438,18 @@ impl GitView {
             .count()
     }
 
+    /// Every ref grouped into its section, in one pass over `refs` — what `rows` and `count`
+    /// filtered the whole vector for separately, once per section, five passes a frame across the
+    /// sidebar's five sections.
+    pub fn grouped_refs(&self) -> [Vec<(usize, &RefRow)>; 5] {
+        let mut groups: [Vec<(usize, &RefRow)>; 5] =
+            [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        for (index, row) in self.refs.iter().enumerate() {
+            groups[row.section.slot()].push((index, row));
+        }
+        groups
+    }
+
     /// The commits the history is drawing, with the index each is selected by.
     ///
     /// The search matches the summary, the author and the abbreviated id, case-insensitively —
@@ -374,24 +458,39 @@ impl GitView {
         let needle = self.search.trim().to_lowercase();
         self.commits
             .iter()
+            .zip(self.search_haystacks.iter())
             .enumerate()
-            .filter(|(_, commit)| !self.mine_only || commit.mine)
-            .filter(|(_, commit)| {
-                needle.is_empty()
-                    || commit.summary.to_lowercase().contains(&needle)
-                    || commit.author.to_lowercase().contains(&needle)
-                    || commit.short_id.to_lowercase().contains(&needle)
-            })
+            .filter(|(_, (commit, _))| !self.mine_only || commit.mine)
+            .filter(|(_, (_, haystack))| needle.is_empty() || haystack.contains(&needle))
+            .map(|(index, (commit, _))| (index, commit))
             .collect()
     }
 
-    /// How many lanes wide the graph is. Zero commits is zero lanes, not one.
+    /// How many lanes wide the graph is. Zero commits is zero lanes, not one. Kept beside
+    /// `commits` by `set_commits`/`extend_commits` rather than maxed over every commit every
+    /// frame just to size the gutter.
     pub fn lanes(&self) -> usize {
-        self.commits
-            .iter()
-            .map(|commit| commit.lane + 1)
-            .max()
-            .unwrap_or(0)
+        self.lane_count
+    }
+
+    /// Replace the whole history — a `GitLogPage` reply for the first page, or a refresh
+    /// restarting it. Computes the search haystack and the lane count here, once, so a
+    /// same-length in-place replacement (a rebase, say) never serves either stale.
+    pub fn set_commits(&mut self, commits: Vec<CommitRow>) {
+        self.search_haystacks = commits.iter().map(commit_haystack).collect();
+        self.lane_count = commits.iter().map(|c| c.lane + 1).max().unwrap_or(0);
+        self.commits = commits;
+    }
+
+    /// Append the next page onto the history, extending the haystack and lane count with it —
+    /// a `GitLogPage` reply whose `cursor` is not the first page's.
+    pub fn extend_commits(&mut self, commits: Vec<CommitRow>) {
+        self.search_haystacks
+            .extend(commits.iter().map(commit_haystack));
+        self.lane_count = self
+            .lane_count
+            .max(commits.iter().map(|c| c.lane + 1).max().unwrap_or(0));
+        self.commits.extend(commits);
     }
 
     /// Whether the history is showing everything it has.

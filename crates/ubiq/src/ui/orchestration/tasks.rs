@@ -14,6 +14,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::app::AppState;
 use crate::state::Selection;
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::eid2;
 use crate::ui::kit::{disclosure, mono, slab};
 use crate::ui::work::activity_colour;
@@ -42,15 +43,14 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .flex()
         .items_center()
         .gap_1p5()
-        .child(mono(about, theme::text()).text_size(px(11.5)))
-        .child(mono("\u{b7}", theme::text_faint()).text_size(px(11.)))
+        .child(mono(about, theme::text()))
         .child(
-            mono(
-                format!("{} tasks \u{b7} {steps} steps", tasks.len()),
-                theme::text_muted(),
-            )
-            .text_size(px(11.5)),
+            mono("\u{b7}", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
         )
+        .child(mono(
+            format!("{} tasks \u{b7} {steps} steps", tasks.len()),
+            theme::text_muted(),
+        ))
         .into_any_element();
 
     let mut root = div().flex().flex_none().flex_col().child(disclosure(
@@ -92,7 +92,7 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .justify_center()
             .child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .text_color(theme::text_faint())
                     .child("No task for this selection."),
             )
@@ -136,7 +136,7 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                             div()
                                 .flex_1()
                                 .min_w(px(0.))
-                                .text_size(px(12.5))
+                                .text_size(theme::font(Family::Chrome, Role::Body))
                                 .text_color(if step.done() {
                                     theme::text_muted()
                                 } else {
@@ -161,7 +161,7 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                                 .child(div().size(px(6.)).flex_none().rounded_full().bg(colour))
                                 .child(
                                     mono(owner.name.clone(), theme::text_muted())
-                                        .text_size(px(11.)),
+                                        .text_size(theme::font(Family::Chrome, Role::Meta)),
                                 )
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.select_in_graph(Selection::Agent(id), cx)
@@ -185,16 +185,22 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(mono(task.shape.label(), theme::text_faint()).text_size(px(9.5)))
+                    .child(
+                        mono(task.shape.label(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro)),
+                    )
                     .child(
                         div()
                             .flex_1()
                             .min_w(px(0.))
-                            .text_size(px(13.))
+                            .text_size(theme::font(Family::Chrome, Role::Body))
                             .text_color(theme::text())
                             .child(SharedString::from(task.title.clone())),
                     )
-                    .child(mono(format!("{done}/{total}"), theme::text_muted()).text_size(px(11.))),
+                    .child(
+                        mono(format!("{done}/{total}"), theme::text_muted())
+                            .text_size(theme::font(Family::Chrome, Role::Meta)),
+                    ),
             )
             .children(steps)
             .into_any_element()

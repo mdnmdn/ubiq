@@ -389,6 +389,14 @@ pub struct WorkAgent {
     pub account: String,
     pub model: String,
     pub context_pct: u8,
+    /// Whether the user marked this conversation as one to keep — it outlives the window, comes
+    /// back after a restart, and no retention timer collects it.
+    ///
+    /// On the record rather than in a store of its own because every surface that draws an agent
+    /// draws this glyph: the sidebar row, the card, the chat tab. A separate lookup would mean
+    /// each of them holding a second thing and keeping it in step with the first.
+    #[serde(default)]
+    pub persistent: bool,
     /// What has been said to and by this agent. Nothing answers it, which is what the thread says
     /// in as many words: a fabricated reply is the one thing a screen with no live agent must not
     /// draw.

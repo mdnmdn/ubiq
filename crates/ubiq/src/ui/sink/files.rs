@@ -188,13 +188,13 @@ fn answer(app: &AppState) -> AnyElement {
                     .gap_2()
                     .bg(theme::surface())
                     .px_2()
-                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_l(px(theme::accent_edge()))
                     .border_color(theme::accent())
                     .child(elided(
                         ("sink-pick-result", index),
                         SharedString::from(path.clone()),
                         theme::text(),
-                        12.0,
+                        theme::font(theme::Family::Chrome, theme::Role::Label),
                     ))
                     .into_any_element()
             })
@@ -218,9 +218,7 @@ fn answer(app: &AppState) -> AnyElement {
 }
 
 fn note(text: &str) -> AnyElement {
-    mono(SharedString::from(text.to_string()), theme::text_faint())
-        .text_size(px(11.5))
-        .into_any_element()
+    mono(SharedString::from(text.to_string()), theme::text_faint()).into_any_element()
 }
 
 /// One row of pills over one field of the request: the values, and which of them is set.

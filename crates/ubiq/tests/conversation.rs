@@ -17,7 +17,7 @@ use std::time::Duration;
 use chrono::Utc;
 use gpui::{
     AppContext as _, Context, Entity, IntoElement, Render, SharedString, TestAppContext,
-    VisualTestContext, Window, WindowHandle,
+    VisualTestContext, Window, WindowHandle, px,
 };
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
@@ -169,6 +169,7 @@ fn an_agent(id: AgentId) -> WorkAgent {
         account: "work".to_string(),
         model: String::new(),
         context_pct: 0,
+        persistent: false,
         thread: Vec::new(),
     }
 }
@@ -483,6 +484,7 @@ fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
                 chat: true,
                 modes: Vec::new(),
                 unattended_mode: None,
+                keeps_sessions: true,
             }],
         },
     );
@@ -987,11 +989,11 @@ fn a_thought_level_missing_from_the_new_options_is_forgotten(cx: &mut TestAppCon
 }
 
 /// The three-dots menu's own rule, pulled out where it can be checked without rendering it: Stop
-/// only while a turn runs, Abort and Unload only while launched, Resume only while it is not,
-/// Delete always.
+/// only while a turn runs, Abort and Unload only while launched, Resume only while it is not, Fork
+/// only while nothing is in flight, Delete always — and Delete last, whatever else is added.
 #[test]
 fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not() {
-    use ubiq::ui::conversation::lifecycle_menu_enabled;
+    use ubiq::ui::conversation::lifecycle_menu_rows;
 
     let mut conversation = Conversation::new(
         AgentId::generate(),
@@ -999,25 +1001,43 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
         String::new(),
     );
 
-    // Freshly launched: running a turn, Unload applies, Resume does not.
+    // Freshly launched: running a turn, Unload applies, Resume does not, and a fork would copy a
+    // session store the harness is appending to.
     conversation.launched = true;
     conversation.run = Run::Working;
-    let [stop, abort, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
-    assert!(stop, "a turn is running");
-    assert!(abort, "there is a process to kill");
-    assert!(unload, "the harness is up");
-    assert!(!resume, "already launched");
-    assert!(delete, "always enabled");
+    let [stop, abort, unload, resume, fork, persist, delete] =
+        lifecycle_menu_rows(&conversation, false, true);
+    assert!(stop.1, "a turn is running");
+    assert!(abort.1, "there is a process to kill");
+    assert!(unload.1, "the harness is up");
+    assert!(!resume.1, "already launched");
+    assert!(!fork.1, "a turn is in flight");
+    assert_eq!(persist.0, "Make persistent", "not kept yet");
+    assert_eq!(delete.0, "Delete", "the destructive verb stays last");
+    assert!(delete.1, "always enabled");
 
     // Unloaded: no turn to stop, nothing to unload, Resume is what applies now.
     conversation.launched = false;
     conversation.run = Run::Idle;
-    let [stop, abort, unload, resume, delete] = lifecycle_menu_enabled(&conversation);
-    assert!(!stop, "nothing is running");
-    assert!(!abort, "there is no process left to kill");
-    assert!(!unload, "there is no harness to unload");
-    assert!(resume, "not launched");
-    assert!(delete, "always enabled");
+    let [stop, abort, unload, resume, fork, persist, delete] =
+        lifecycle_menu_rows(&conversation, true, true);
+    assert!(!stop.1, "nothing is running");
+    assert!(!abort.1, "there is no process left to kill");
+    assert!(!unload.1, "there is no harness to unload");
+    assert!(resume.1, "not launched");
+    assert!(fork.1, "nothing is in flight to tear");
+    assert_eq!(
+        persist.0, "Stop persisting",
+        "the label says which way it goes"
+    );
+    assert!(delete.1, "always enabled");
+
+    // A harness that keeps its sessions outside the run directory — grok — can be neither kept
+    // nor forked, because Ubiq would be keeping and copying a directory that holds none of it.
+    let [_, _, _, _, fork, persist, delete] = lifecycle_menu_rows(&conversation, false, false);
+    assert!(!fork.1, "a copy would share one store rather than diverge");
+    assert!(!persist.1, "keeping the directory would preserve nothing");
+    assert!(delete.1, "delete is still the user's to press");
 }
 
 /// The lifecycle glyph's own rule, pulled out the same way the menu's is: derived from
@@ -1443,10 +1463,10 @@ fn the_lifecycle_dot_has_four_readings_and_working_is_one_of_them() {
 /// is in — answers it. Then it is gone: a jump answered every frame afterwards would pin the
 /// reader to that block for good.
 ///
-/// Only the bookkeeping is reachable here. `away_from_tail`, `near_viewport` and where `sync`
-/// actually leaves the handle are readings of the last frame's layout, and a `ScrollHandle` that
-/// has never been painted has no bounds and no maximum offset — a test asserting against those
-/// would be asserting against zeroes, which is why there is none.
+/// Only the bookkeeping is reachable here. `away_from_tail` and where `sync` actually leaves the
+/// handle are readings of the last frame's layout, and a handle that has never been painted has no
+/// bounds and no maximum offset — a test asserting against those would be asserting against
+/// zeroes, which is why there is none.
 #[test]
 fn a_scroll_request_is_held_until_the_transcript_has_settled_and_then_answered_once() {
     let scroll = TranscriptScroll::default();
@@ -1483,27 +1503,49 @@ fn a_scroll_request_is_held_until_the_transcript_has_settled_and_then_answered_o
     );
 }
 
-/// Windowing is an optimisation with a floor: below it every block is built every frame, which is
-/// both cheaper than the bookkeeping and exact on the first frame. And it needs a painted
-/// viewport to measure against, so a slot that has never drawn windows nothing whatever its
-/// length — the first frame builds the lot and the second one narrows it.
+/// The virtual list is told every row's height before it lays one out, so the transcript
+/// remembers what each row measured. A row never measured is the caller's estimate and asks to be
+/// measured; a row whose content has moved keeps its last height as the estimate — a block that
+/// grew by a line is a line taller than it was, and nothing closer exists until it is laid out
+/// again — and asks to be measured again. A row that has not changed is neither.
 #[test]
-fn a_transcript_windows_only_when_it_is_long_and_the_slot_has_painted() {
+fn a_row_is_its_measurement_until_its_content_moves_and_then_its_last_one() {
     let scroll = TranscriptScroll::default();
 
-    assert!(!scroll.windows(0), "nothing to window");
-    assert!(
-        !scroll.windows(40),
-        "at the floor, not above it — every block is built"
-    );
-    assert!(
-        !scroll.windows(41),
-        "long enough, but a slot that has never painted has no viewport to measure against"
-    );
     assert_eq!(
-        scroll.child_bounds(0),
-        None,
-        "and no child was painted to measure either"
+        scroll.row_height(7, px(40.)),
+        px(40.),
+        "never measured, so the estimate stands"
+    );
+    assert!(scroll.needs_measure(7, 1), "and it asks to be measured");
+
+    assert!(
+        scroll.measured(7, 1, px(93.)),
+        "the first measurement is news: the row was drawn at the estimate"
+    );
+    assert_eq!(scroll.row_height(7, px(40.)), px(93.), "and now it holds");
+    assert!(!scroll.needs_measure(7, 1), "nothing left to measure");
+    assert!(
+        !scroll.measured(7, 1, px(93.)),
+        "measuring the same row to the same height is not a reason to draw again"
+    );
+
+    // A token lands: same row, different content.
+    assert_eq!(
+        scroll.row_height(7, px(40.)),
+        px(93.),
+        "the last measurement is the estimate, not the caller's guess"
+    );
+    assert!(scroll.needs_measure(7, 2), "and it is measured again");
+    assert!(
+        scroll.measured(7, 2, px(110.)),
+        "a row that grew has to be drawn again at the height it grew to"
+    );
+
+    assert_eq!(
+        scroll.row_height(8, px(40.)),
+        px(40.),
+        "a height belongs to the row that was measured, not to its neighbours"
     );
 }
 
@@ -1801,6 +1843,51 @@ fn a_read(id: &str, status: ToolStatus) -> ConvUpdate {
         locations: Vec::new(),
         subagent: None,
     })
+}
+
+/// The transcript is virtualized: it builds the rows the reader can see and no others, whatever
+/// its length, and a transcript arrived at is at its tail.
+///
+/// Sixty calls of alternating kinds, so nothing is folded and every one of them is a row of its
+/// own. The last is drawn and the first is not — which is both halves of the claim, because a
+/// transcript that built the lot would have painted the first one too.
+#[gpui::test]
+fn a_long_transcript_draws_its_tail_and_not_its_head(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    for at in 0..60u64 {
+        let mut call = a_read(&format!("t{at}"), ToolStatus::Completed);
+        // Alternating kinds: three same-kind calls in a row would be folded into one.
+        if let ConvUpdate::ToolCall(record) = &mut call
+            && at % 2 == 1
+        {
+            record.kind = ToolKind::Edit;
+        }
+        fixture.update(id, at + 1, call, cx);
+    }
+
+    let window = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: false,
+        footer: false,
+        composer: false,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    // The first frame lays every row out at an estimate and measures what it drew; the second is
+    // the measurements.
+    vcx.run_until_parked();
+
+    assert!(
+        vcx.debug_bounds("tool-card-59").is_some(),
+        "a transcript arrived at is at its tail"
+    );
+    assert!(
+        vcx.debug_bounds("tool-card-0").is_none(),
+        "and the sixty rows above the viewport were never built"
+    );
 }
 
 /// A run of same-kind calls is folded, and the fold holds the last card out only while that call

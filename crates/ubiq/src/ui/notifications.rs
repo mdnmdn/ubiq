@@ -132,13 +132,13 @@ fn rule_row(index: usize, rule: &MuteRule, cx: &mut Context<AppState>) -> AnyEle
                 .gap_0p5()
                 .child(
                     div()
-                        .text_size(px(12.5))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                         .text_color(theme::text())
                         .child(rule.scope.label()),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                         .text_color(theme::text_faint())
                         .child(format!(
                             "at or below {} · {}",
@@ -210,13 +210,13 @@ fn row(item: &Notification, cx: &mut Context<AppState>) -> AnyElement {
                 .child(
                     mono(when_text(item.at), theme::text_faint())
                         .flex_none()
-                        .text_size(px(10.5)),
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro)),
                 ),
         )
         .child(
             div()
                 .w(relative(1.))
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(if item.read {
                     theme::text_muted()
                 } else {
@@ -372,7 +372,7 @@ fn picker(scope: String, level: Level, cx: &mut Context<AppState>) -> AnyElement
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(12.5))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                         .text_color(theme::text())
                         .child(scope),
                 )
@@ -385,7 +385,7 @@ fn picker(scope: String, level: Level, cx: &mut Context<AppState>) -> AnyElement
         )
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                 .text_color(theme::text_faint())
                 .child("silence at or below…"),
         )
@@ -409,7 +409,7 @@ fn empty() -> AnyElement {
         )
         .child(
             div()
-                .text_size(px(12.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
                 .text_color(theme::text_faint())
                 .child("Nothing has come up."),
         )
@@ -422,7 +422,10 @@ fn chip(label: impl Into<gpui::SharedString>, edge: Rgba) -> AnyElement {
         .h(px(18.))
         .px_1p5()
         .gap_1()
-        .child(mono(label, theme::text_muted()).text_size(px(10.5)))
+        .child(
+            mono(label, theme::text_muted())
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro)),
+        )
         .into_any_element()
 }
 

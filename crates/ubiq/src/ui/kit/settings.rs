@@ -11,6 +11,7 @@ use gpui::{
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::mono;
 
 pub fn heading(title: &str, note: &str) -> AnyElement {
@@ -21,7 +22,7 @@ pub fn heading(title: &str, note: &str) -> AnyElement {
         .pb_2()
         .child(
             div()
-                .text_size(px(15.))
+                .text_size(theme::font(Family::Chrome, Role::Title))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::text())
                 .child(SharedString::from(title.to_string())),
@@ -29,7 +30,7 @@ pub fn heading(title: &str, note: &str) -> AnyElement {
         .child(
             div()
                 .max_w(px(560.))
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(note.to_string())),
         )
@@ -68,7 +69,7 @@ pub fn label_hint(id: impl Into<ElementId>, label: &str, hint: &str) -> AnyEleme
         .gap_1p5()
         .child(
             div()
-                .text_size(px(13.))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(label.to_string())),
         )
@@ -122,13 +123,13 @@ pub fn label_block(label: &str, note: &str) -> AnyElement {
         .min_w(px(0.))
         .child(
             div()
-                .text_size(px(13.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(label.to_string())),
         )
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(note.to_string())),
         )
@@ -172,18 +173,21 @@ pub fn nav_item(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(fg)
                 .child(SharedString::from(label.to_string())),
         );
 
     if let Some(count) = count {
-        row = row.child(mono(format!("{count}"), theme::text_faint()).text_size(px(11.)));
+        row = row.child(
+            mono(format!("{count}"), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
+        );
     }
     if selected && enabled {
         row = row
             .bg(theme::accent_soft())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::accent());
     }
 

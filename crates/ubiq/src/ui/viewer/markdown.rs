@@ -9,9 +9,12 @@
 //! sites for it. The hook is the text view's own — a block parser runs before the built-in
 //! code-block conversion, and a block renderer draws what it produced.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
-use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, px};
+use gpui::{AnyElement, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::text::{MarkdownExtensions, MarkdownNode, TextView, markdown_ast};
 
 use crate::app::AppState;
@@ -49,6 +52,67 @@ struct Fence {
     source: String,
 }
 
+/// What one document's fence scan and frontmatter split produced, kept until its source changes.
+///
+/// Both are a full pass over the document plus an allocation, and `TextView` already skips its own
+/// work when the string it is handed is unchanged — so redoing this every frame regardless was pure
+/// waste ahead of a guard that was going to short-circuit anyway. The body is a `SharedString`
+/// rather than a `String`: an unchanged frame hands `TextView` the same reference-counted buffer, a
+/// clone that costs nothing rather than a fresh copy of the whole document.
+struct Scanned {
+    len: usize,
+    hash: u64,
+    fences: Vec<Fence>,
+    frontmatter: Option<String>,
+    body: SharedString,
+}
+
+thread_local! {
+    /// One entry per open document. Never evicted, like the diagram resolution cache beside it —
+    /// a tab's worth of Markdown text is small, and a session opens few enough documents that this
+    /// never grows into a problem worth a lifecycle to solve.
+    static SCAN_CACHE: RefCell<HashMap<String, Scanned>> = RefCell::new(HashMap::new());
+}
+
+/// A cheap stand-in for the document's identity: exact equality would cost as much as the scan it
+/// is meant to avoid paying for, so length plus a hash is the fingerprint instead.
+fn fingerprint(source: &str) -> (usize, u64) {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    (source.len(), hasher.finish())
+}
+
+/// Re-scan the document only when it changed since the last frame, and resolve every Mermaid fence
+/// found against the window's cache either way — that half is a hashmap lookup, not a scan, and has
+/// to run every frame so a diagram still in `Pending` catches up once it lands.
+fn scan_and_publish(app: &AppState, key: &str, source: &str) -> (Option<String>, SharedString) {
+    let (len, hash) = fingerprint(source);
+    SCAN_CACHE.with_borrow_mut(|cache| {
+        let stale =
+            !matches!(cache.get(key), Some(cached) if cached.len == len && cached.hash == hash);
+        if stale {
+            let (fm, body) = split_frontmatter(source);
+            cache.insert(
+                key.to_string(),
+                Scanned {
+                    len,
+                    hash,
+                    fences: fences(source),
+                    frontmatter: fm.map(str::to_string),
+                    body: SharedString::from(body.to_string()),
+                },
+            );
+        }
+        let cached = cache.get(key).expect("just inserted, or already fresh");
+        for fence in &cached.fences {
+            if fence.format == Format::Mermaid {
+                super::diagram::publish(app, &fence.source);
+            }
+        }
+        (cached.frontmatter.clone(), cached.body.clone())
+    })
+}
+
 /// The document.
 ///
 /// Every Mermaid fence in it is resolved against the window's cache first, because the block
@@ -62,20 +126,15 @@ pub fn render(
     frontmatter_open: bool,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
-    for fence in fences(source) {
-        if fence.format == Format::Mermaid {
-            super::diagram::publish(app, &fence.source);
-        }
-    }
+    let (frontmatter, body) = scan_and_publish(app, key, source);
 
     let size = font_size.unwrap_or(theme::EDITOR_FONT_SIZE);
-    let (fm, body) = split_frontmatter(source);
 
     // Keyed on the settled point size as well as the file: the text view keeps the height it
     // measured each block at and only reconsiders when its width changes, so a zoom needs a new
     // state to reflow at all. `md_reflow` moves half a second after the last zoom, which is what
     // keeps a held key from rebuilding the document once per point.
-    let document = TextView::markdown(eid2("md", key, app.md_reflow), body.to_string())
+    let document = TextView::markdown(eid2("md", key, app.md_reflow), body)
         .markdown_extensions(extensions().clone())
         .on_link_click(on_link(
             cx.entity(),
@@ -86,7 +145,7 @@ pub fn render(
         .scrollable(true)
         .selectable(true);
 
-    let Some(raw_yaml) = fm else {
+    let Some(raw_yaml) = frontmatter else {
         return document.into_any_element();
     };
 
@@ -99,7 +158,7 @@ pub fn render(
         .min_w(px(0.))
         .min_h(px(0.))
         .overflow_hidden()
-        .child(frontmatter_bar(key, raw_yaml, frontmatter_open, size, cx))
+        .child(frontmatter_bar(key, &raw_yaml, frontmatter_open, size, cx))
         .child(
             div()
                 .flex()

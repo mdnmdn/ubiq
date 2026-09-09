@@ -856,9 +856,9 @@ impl AppState {
                 open.git_view.log_inflight = None;
                 let rows = commit_rows(&commits);
                 if cursor.is_none() {
-                    open.git_view.commits = rows;
+                    open.git_view.set_commits(rows);
                 } else {
-                    open.git_view.commits.extend(rows);
+                    open.git_view.extend_commits(rows);
                 }
                 open.git_view.log_done = next_cursor.is_none();
                 open.git_view.log_cursor = next_cursor;
@@ -1087,6 +1087,19 @@ impl AppState {
                 update,
                 ..
             } => {
+                // The per-token deltas, which are the ones that arrive at the harness's own rate.
+                // Everything else — a title, a usage report, a permission ask, a turn ending —
+                // changes what the sidebar and the lifecycle glyph say and always draws.
+                let streaming = matches!(
+                    update.as_ref(),
+                    ubiq_proto::conversation::ConvUpdate::AgentChunk { .. }
+                        | ubiq_proto::conversation::ConvUpdate::ThoughtChunk { .. }
+                );
+                // Anything that is not a chunk draws whatever is on screen; a chunk draws where
+                // the style reference's bench is reading this conversation. That is the third
+                // surface hosting one, and it picks across every project — so it is asked before
+                // the project holding this one is borrowed.
+                let elsewhere = !streaming || self.sink_agent() == Some(agent_id);
                 let open = self
                     .projects
                     .values_mut()
@@ -1106,7 +1119,16 @@ impl AppState {
                     .then(|| conversation.dequeue_front())
                     .flatten();
                 refresh_agent_record(open, agent_id);
-                cx.notify();
+                // Whether anything on screen is drawing this conversation: the tab a column has
+                // up, or a chat tab attached to it. A delegate nobody is looking at still folds
+                // its stream into the record — it just stops driving frames while it does.
+                let on_screen = elsewhere
+                    || (0..open.agents.columns.len())
+                        .any(|column| open.agents.active_agent(column) == Some(agent_id))
+                    || open.chats.iter().any(|tab| tab.attached == Some(agent_id));
+                if on_screen {
+                    self.draw_conversation(agent_id, streaming, cx);
+                }
                 if let Some(queued) = next_prompt {
                     self.send_prompt(agent_id, queued.text);
                 }
@@ -1179,6 +1201,26 @@ impl AppState {
             other => return Some(other),
         }
         None
+    }
+
+    /// Draw the delta just folded into a conversation — at most once a frame while it is
+    /// streaming.
+    ///
+    /// The frame itself is the coalescing window: the first delta of a burst asks for one, and
+    /// every delta after it is already in the record that frame draws, so it asks for nothing.
+    /// `ui::conversation`'s transcript clears the flag as it draws, which is what starts the next
+    /// cycle — see [`Conversation::notify_due`]. Anything that is not a chunk draws immediately:
+    /// those are the updates the sidebar, the lifecycle glyph and the permission strip read.
+    fn draw_conversation(&mut self, agent_id: AgentId, streaming: bool, cx: &mut Context<Self>) {
+        let due = !streaming
+            || self
+                .projects
+                .values()
+                .find_map(|open| open.conversations.get(&agent_id))
+                .is_some_and(Conversation::notify_due);
+        if due {
+            cx.notify();
+        }
     }
 
     /// The notification family: the bell's whole state, and each arrival as it is filed.
@@ -2033,7 +2075,7 @@ impl AppState {
         let term_font = self
             .projects
             .get(&project)
-            .and_then(|open| open.prefs.ui_font_size)
+            .and_then(|open| open.prefs.content_font_size)
             .unwrap_or(theme::TERMINAL_FONT_SIZE);
         self.open_terminal(pane_id, workspace.cols, workspace.rows, term_font, cx);
 

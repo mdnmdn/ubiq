@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-09
 verified: 2026-09-09
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -36,6 +36,16 @@ a `match` that delegates to the same free functions every screen area is.
 **Mutation ends in a redraw request.** Nothing repaints because a field changed; it repaints because
 the code that changed it said so through its context. Every state-mutating method on `AppState` ends
 that way, and one that forgets is a pane that stops updating.
+
+**A redraw the window has no use for is the one thing that may be skipped, and only for a stream.**
+The root is one entity, so any notify costs a whole window's frame — which a token arriving in a
+conversation nothing on screen is showing does not earn. `Message::ConversationUpdate` in
+`crates/ubiq/src/app/wire.rs` records the delta either way and asks for the frame only for a
+conversation some surface shows, and only once per frame: `Conversation::notify_due()` is true for
+the first delta of a burst and the frame that draws it opens the next window, so a stream is
+coalesced by the drawing rather than by a timer, and nothing can be dropped. The test is the
+message, not the state: every other update draws unconditionally, because a state change nobody
+counted is a screen that stops agreeing with the host.
 
 **Layout is flexbox.** Elements are composed with the same direction, grow, gap and alignment
 vocabulary as CSS flexbox, in Rust builder form.
@@ -73,7 +83,7 @@ a palette swap changes every surface consistently.
 |---|---|---|
 | Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `selected_focus`, `scrim` | The stack of backgrounds, from the window down to a selected row, deepening once the list holding that row has the keyboard — and what a modal lays over the window it took the keyboard from |
 | Text | `text`, `text_muted`, `text_faint`, `on_accent` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — and copy sitting on a filled surface |
-| Accent | `accent`, `accent_muted`, `accent_soft` | The interactive colour, its subdued form, and the fill behind a selected row |
+| Accent | `accent`, `accent_muted`, `accent_soft`, `accent_id` | The interactive colour, its subdued form, the fill behind a selected row, and which accent the window is dressed in — all three colours derived from one seed, below |
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
@@ -82,7 +92,9 @@ a palette swap changes every surface consistently.
 
 The `_soft` variants are declared with their own alpha in `theme.rs` rather than computed at a call
 site with `.alpha(...)`. A shade that only exists at one call site is a shade a palette swap cannot
-reach.
+reach. `accent_soft` is the one whose alpha is declared once for every palette — `ACCENT_SOFT_ALPHA`,
+because the accent is derived rather than written out per palette — and it is in the same file, which
+is what the rule asks.
 
 `scrim` is the newest member of the surface group and the clearest case for the rule above. A modal
 has to dim what is behind it, and how much a palette dims by is not the same in both — a dark ground
@@ -105,21 +117,91 @@ one function answers for all three and for the border a window with no project f
 place rather than four call sites each falling back to swatch zero. A swatch index is stored, so the
 swatches are only ever **appended to**: reordering them recolours every project the catalogue holds.
 
-Two palettes are built in, dark and light, both defined in the same file and both complete — a token
-that exists in one exists in the other. The active theme is thread-local and read through the
-accessor, so a token call site never learns which palette answered it.
+**A palette is a registry row, keyed by a slug.** `PALETTES` in `theme.rs` holds one `PaletteDef`
+per palette — its slug, its display name, its `Mode { Dark, Light }`, the slug of its counterpart,
+and the tokens as one complete `Palette` value rather than a builder, so a palette cannot ship
+missing one. `ThemeId` is a slug newtype over that registry rather than a closed enum, so a family
+is an entry rather than a variant and a match arm in every file that reads one. Ten palettes in
+five families ship: `dark`/`light`; `ember-dark`/`ember-light` — warm, low contrast;
+`contrast-dark`/`contrast-light`, the accessibility case a faint tier at the built-in value does not
+serve; `navy-dark`/`navy-light` — cool blue grounds; and `violet-dark`/`violet-light` — aubergine
+grounds. A token that exists in one exists in all ten. The active theme is thread-local and read
+through the accessor, so a token call site never learns which palette answered it.
 
-**Switching a palette goes through `theme::set_mode`, never through `Theme::set`.** Two theme
-systems are live at once: Ubiq's tokens, and the component library's own theme, which is what
-colours the editor, the textarea, the scrollbars and the markdown view. `set_mode` moves both, so
-they cannot drift into different modes. `ThemeId::toggled` gives the other palette, which is all the
-titlebar's toggle needs. The palette is process-wide, so a second window opens in the mode the first
-one is in, and switching in either switches both.
+`Mode` is the one thing a palette says about itself that is not a colour: it is what the component
+library and the syntax highlighter are told, since those know only two grounds.
+`ThemeId::counterpart` is what the titlebar's toggle follows, so one click flips ground **inside the
+family the user chose** — a warm dark reaches the warm light, not the built-in one.
+`InterfacePrefs.theme` stores the slug, and its `Deserialize` is case-insensitive, which is how a
+blob holding `"Dark"` or `"Light"` reads as `dark` and `light`; an unknown slug falls back to the
+default rather than discarding the blob.
+
+**An accent is one seed, and the six hued tokens derive from it.** `ACCENTS` holds one `AccentDef`
+— slug, name, one `Rgba` — per accent, and `theme::with_accent` resolves it against the palette in
+hand: `accent` is the seed pushed away from `surface.base` until it clears WCAG's contrast floor for
+a non-text mark, `accent_muted` is the seed mixed toward `surface.base`, `accent_soft` is the seed at
+the `_soft` alpha, `border.focus` is the seed unmodified, `link_underline` and its hover are the seed
+and the seed lifted, and `text.on_accent` follows `mark_dark`. So N palettes and M accents cost
+N + M declarations, and every ratio and alpha behind them is a const in `theme.rs` rather than a
+value repeated per palette. `InterfacePrefs.accent` is an `Option<AccentId>` where `None` is the
+palette's own seed. **The project swatches stay outside this axis**: `D19` makes a swatch identity
+rather than role, and recolouring sixteen of them with one accent would make two projects look the
+same, so they keep their per-palette literals.
+
+**A type size is a family and a role, never a number.** `theme::font(Family, Role)` is the one place
+a size in the interface comes from: a size is owned the way a colour is, which is `D10`'s rule on a
+second axis. Three families each carry a base of their own, because the three are read
+differently and resize for different reasons: `Family::Chrome` is the furniture — titlebar, status
+bar, rail, tabs, menus, modals, settings, pickers, notifications, dialogs; `Family::Content` is what
+code is read at — editor, viewer, explorer tree, search results, terminal panes; `Family::Conversation`
+is prose — the transcript, tool blocks, the composer, the agents columns and their sidebar. Five
+roles are ratios over the base — `Role::Title` 1.15, `Body` 1.00, `Label` 0.92, `Meta` 0.85, `Micro`
+0.80 — and the product is rounded to the nearest half point, the grid the hand-picked sizes it
+replaced sat on. A fourth family would be arguing about where a boundary falls; these three fall on
+boundaries the code draws for other reasons. **The function is `font`, not `text`**, because `theme::text()` is
+the primary text *colour* — the one name collision in the file worth knowing before reading it.
+
+**The rule is held mechanically, the way the crate boundary is.** `just ui` rejects
+`text_size(px(<digit>` anywhere under `crates/ubiq/src`, beside the check that the interface never
+names the host. The digit is load-bearing: `text_size(px(font))`, where the size is computed from
+the project's zoom, is what `ui/explorer.rs`, `ui/search.rs` and `ui/outline.rs` legitimately do,
+and a bare `text_size(px(` would reject those.
+
+**Two of the three bases belong to the interface, the third to the project.**
+`InterfacePrefs.chrome_font_size` and `InterfacePrefs.conversation_font_size` are `Option<f32>`
+(`serde(default)`, so no schema bump), written by `AppState::remember_interface` and read back by
+`apply_preferences` through `theme::set_text_scale`, defaulting to `CHROME_FONT_SIZE` and
+`CONVERSATION_FONT_SIZE`. The content base is `ViewPrefs.content_font_size`, per project
+(`serde(default, alias = "ui_font_size")`, so a blob written under the older name keeps its zoom),
+reached through `AppState::content_font_size`, `content_font_size_or_default`, `set_content_font_size`
+and `nudge_content_font_size` — the status bar's eleven-entry ladder and the `EDITOR_FONT_MIN` /
+`EDITOR_FONT_MAX` clamp are that family and only that family. Because the theme is one process-wide
+thread-local while that base is a *project's*, `ui::shell::render` pushes the showing project's size
+into the scale at the top of every window's render, so two windows on two projects each draw at
+their own size instead of at the last one set.
+
+**Switching goes through `theme::set_theme`, never through `Theme::set`.** It takes three of the four
+axes — palette, accent, density — resolves them into the one `Theme` every accessor reads, and dresses
+the component library; `theme::set_mode` and `theme::set_density` are that call with the other axes
+left as they stand. The text scale is the fourth and is deliberately not an argument, and not a
+field on `Theme` either: it is the one axis with nothing to resolve, because a base size is a
+number the user set rather than something derived from the palette in hand. So it lives in a
+thread-local cell of its own beside the theme's, read through `theme::text_scale` and set through
+`theme::set_text_scale`, which is what makes a palette, accent or density switch structurally
+unable to undo a size the user chose — there is no resolution for it to be dropped by. Two theme systems are live at once: Ubiq's tokens, and the component library's
+own theme, which is what colours the editor, the textarea, the scrollbars and the markdown view.
+`set_theme` moves both — `Theme::change` first, from the palette's `Mode`, then
+`theme::dress_component_library` writes Ubiq's tokens into the library's `ThemeColor` through
+`DerefMut` and `sync_base` pushes the result down to the layer that paints scrollbars and resize
+handles. Only the fields that plainly correspond are written, and the two easy to mistake are the
+library's `accent`, which is its hover ground, and `primary`, which is the brand colour Ubiq's
+`accent` maps to. The theme is process-wide, so a second window opens in the palette, accent and
+density the first is in, and switching in either switches both.
 
 A pane's emulator is the one surface that does not read a token when it draws: it is built with a
-copy of the palette, so `toggle_theme()` pushes a rebuilt configuration into every emulator as well
-as calling `set_mode`. Any component given a palette rather than reading one has to be walked the
-same way.
+copy of the palette, so `AppState`'s `toggle_theme`, `set_accent` and `set_density` each push a
+rebuilt configuration into every open emulator through `redress_terminals` as well as switching the
+theme. Any component given a palette rather than reading one has to be walked the same way.
 
 `theme.rs` also owns the constants that are not colours, for the same reason it owns the colours:
 restyling the shell should be one file to visit.
@@ -129,8 +211,10 @@ restyling the shell should be one file to visit.
 | `MONO_FONT` | The family for code, paths, counts and every mono label — the mono that ships with the OS (`Menlo`, `Cascadia Mono`, `DejaVu Sans Mono`), so the text system resolves it instead of falling back to a proportional face |
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
 | `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
-| `EDITOR_FONT_SIZE`, `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | The editor's base point size and the range a project's zoom is allowed to live in — the same project font size the editor, the terminal panes and the explorer tree follow |
-| `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The fixed chrome, which does not resize |
+| `CHROME_FONT_SIZE`, `CONVERSATION_FONT_SIZE` | What the chrome and conversation families draw `Role::Body` at when the interface prefs name no base of their own. Both are interface-scoped, which is why they are a pair and the content family's base is not with them |
+| `EDITOR_FONT_SIZE`, `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | The content family's base point size and the range a project's zoom is allowed to live in — the one size the editor, the viewer, the terminal panes, the search results and the explorer tree are all read at |
+| `DISPLAY_FONT_SIZE` | The one size off the scale, private and read through `theme::font_display()`: the device-login user code, a number to be read off a screen and typed into a phone rather than a heading |
+| `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The chrome the user cannot drag: read at the current density, and sized by nothing else |
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
 | `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
@@ -138,6 +222,21 @@ restyling the shell should be one file to visit.
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
 | `LOGIN_MODAL_WIDTH`, `LOGIN_MODAL_HEIGHT` | The one modal that is not one question: a running harness login, sized through `kit::modal_sized`'s fill mode so a full-screen TUI (`opencode`, `grok`) gets a real terminal instead of the ~50×16 a one-question modal would give it |
 | `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
+
+The table splits in two. **The grid half follows the density factor** — `ACCENT_EDGE`,
+`TERMINAL_PADDING`, `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` and `kit::row_height` /
+`kit::row_indent`. Those five are private consts read through `theme::accent_edge()`,
+`theme::terminal_padding()`, `theme::titlebar_height()`, `theme::status_bar_height()` and
+`theme::rail_width()`, because a factor cannot apply to a const; `Density { Compact 0.9, Regular
+1.0, Comfortable 1.15 }` is resolved into the `Theme` alongside the palette and the accent, so a
+call site reads a scaled size exactly the way it reads a colour. `AppState::set_density` flips it,
+persists it in `InterfacePrefs.density` (`serde(default)`, so no schema bump) and re-dresses every
+open emulator — the new `TERMINAL_PADDING` changes the cell grid, and the emulator's own
+re-measurement fires the resize that tells the harness.
+
+**Everything from `EXPLORER_WIDTH` down does not scale.** Those are what a *fresh* window opens at;
+the drag is remembered per project inside the arrangement blob, so scaling them would fight a value
+the user already set.
 
 The Git screen's own four — `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT` and the graph's
 `LANE_PITCH` — are in `state::git` rather than here, on the same reasoning `COLUMN_MIN_WIDTH` is in
@@ -150,12 +249,15 @@ shape for a different reason: its inspector and its drawer are shown and hidden 
 and so is the agents screen's sidebar.
 
 Syntax colours are the one thing not tokenised here. They come from the component library's own
-highlighter theme, which `theme::set_mode` keeps in step with Ubiq's palette, so the editor and the
+highlighter theme, which `theme::set_theme` keeps in step with Ubiq's palette through the `Mode` the
+registry row carries, so the editor and the
 chat's markdown never sit in a different mode from the chrome. That is the same posture as the
 library's buttons and scrollbars: not a literal, and so not an exception to the rule.
 
-Adding a colour means adding a token to its group, giving it a value in **both** palettes, and using
-the accessor. Adding a group means a role none of the seven covers, which is rare enough to be worth
+Adding a colour means adding a token to its group, giving it a value in **every** palette in the
+registry, and using the accessor — unless it is an accent-hued one, which is a derivation in
+`with_accent` instead, since a hue written out per palette is the thing the accent axis removed.
+Adding a group means a role none of the seven covers, which is rare enough to be worth
 arguing about in [`decisions.md`](./decisions.md) — `Project` carries `D19`, and `Terminal` is the
 selection and link colours a pane's emulator paints.
 
@@ -166,6 +268,10 @@ list left its cursor on while the keyboard is elsewhere, and
 across split panes, is still designed ahead of the code. That is listed as a gap in
 [`../backlog.md`](../backlog.md) rather than quietly resolved by the drawing, because a specimen is
 evidence a token has a value, not evidence anything uses it.
+
+The type scale is looked at the same way: `typography()` on the style reference draws the five roles
+across the three families, one column each, so a base moved in the interface prefs is read off the
+page rather than reasoned about.
 
 ## Conventions for a screen
 
@@ -367,7 +473,8 @@ query landed on without leaving the field. `tab` and `shift-tab` step back off t
 field. Clicking a row puts the keyboard on the list.
 
 **A row is one line, and a value that does not fit is elided.** `kit::elided` truncates with the
-system ellipsis and carries the whole string as its tooltip, which is why it takes an element id.
+system ellipsis and carries the whole string as its tooltip, which is why it takes an element id;
+it takes the size as `Pixels`, so a call site hands it a `theme::font` rather than a number.
 `kit::elided_with` is the same control with the hover said separately, for a row that has more to
 add than the string it is cutting — the agents sidebar's, whose hover is what the conversation is
 about and falls back to the name in full when nothing has said. A
@@ -377,7 +484,9 @@ line.
 
 **A file row is sized from its text.** `kit::file_row` derives its height (`kit::row_height`) and
 the tree indent (`kit::row_indent`) from the size it draws at — so the explorer's zoom changes the
-tree's density. A surface no project zoom reaches passes `kit::ROW_FONT`.
+tree's density. A surface no project zoom reaches — the file picker, the ref list — passes
+`kit::row_font()`, which is the chrome family's `Body`: a dialog's rows are furniture, and the
+project's zoom is not theirs to follow.
 
 ## How a screen is put together
 
@@ -449,9 +558,17 @@ column keeps it `true` and gets a bordered strip holding the menu; the chat pane
 and draws the identical fragments, `ui::conversation::lifecycle_mark` and `lifecycle_menu`, at
 opposite ends of its own toolbar row instead, with the chevron that changes what the tab is looking
 at between them. The state's
-reading and the menu's enable rule — `lifecycle`, `lifecycle_colour` and `lifecycle_menu_enabled` —
+reading and the menu's enable rule — `lifecycle`, `lifecycle_colour` and `lifecycle_menu_rows` —
 are read in exactly one place regardless of which surface calls them, so a second surface adopting
 the shared view is a `ConversationView` field, never a forked copy of any of the three.
+
+**The persistence mark is a second glyph, never a fifth dot colour.** A conversation the user marked
+to keep draws `ui::conversation::persistence_mark` — the `pane-persistent` anchor — beside the
+lifecycle dot, on the agents column's title and at the head of a chat tab, and nothing at all when
+it is not kept. The two answer different questions: the dot says what the conversation is doing, the
+anchor says whether it will still be here after a restart, and folding the second into the first
+would cost the dot the one reading it is scanned for. `persistent` lives on the `WorkAgent` record
+rather than on `Conversation`, so both surfaces read it off the work projection they already hold.
 
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
 icon set.** The chat panel's toolbar is icon-only: the lifecycle menu and the change-agent chevron
@@ -511,14 +628,27 @@ for the same reason and one more: nothing in the scrolled content moves when the
 so the line under it stays where the reader put it. The transcript's `Go to last message` overlay
 is the pattern.
 
-**A list long enough to window replaces an off-screen child with its own measured height, never a
-guess.** The scroll handle records where every child of the last frame was painted, so a child well
-clear of the viewport can be left unbuilt behind an empty box of exactly that height — the content
-above and below stays put and the scroll position cannot move. A guessed height moves it, which is
-the whole cost the windowing was buying off. Two things make it safe: a margin beyond the viewport,
-so a wheel notch lands on drawn content rather than on a stand-in waiting for the next frame, and a
-floor below which every child is built every frame, because the bookkeeping outweighs the drawing
-and the first frame has nothing measured to read.
+**A list whose length is data, not layout, is virtualized — and there is no floor.** `gpui::uniform_list`
+where every row is one height, the `ui/logs.rs` precedent; `gpui_component::v_virtual_list` where
+they are not, which takes an `Rc<Vec<Size<Pixels>>>` of per-row heights and an `Entity<V>` and
+builds only the range it can see. Both are in the tree, and hand-rolling a third — building every
+child and standing the off-screen ones in an empty box of their last painted height — costs O(n) a
+frame below whatever floor the bookkeeping needs, which is the length most lists actually are.
+
+**A uniform row cannot grow, so its content is reached by scrolling rather than by wrapping.** The
+width has to be known before the first row is laid out, which is a computed content width and
+`ListHorizontalSizingBehavior::Unconstrained` over it — not a measurement of item zero, which in a
+diff is a short `@@` header. That is a design choice about the list and not only about the element:
+a row of code that runs off the pane is one line the reader scrolls to, rather than a row that is
+suddenly six lines tall in the middle of a comparison. `ui/viewer/diff.rs` is the pattern, and
+`char_advance()` there is where an assumed glyph width buys it (`G221`).
+
+**A virtual list of variable rows is told every height before it lays one out, so whoever feeds it
+remembers what each row measured** — keyed by the row's identity rather than its position, and
+against the content and the width it was measured at, because a height is only a height at one
+width. A row it has no measurement for is laid out at an estimate, measured by the frame that draws
+it, and asks for one more frame; so an estimate is on screen for the frame that discovers it and no
+longer. `state::conversation::TranscriptScroll` is that shape.
 
 **A scroll position belongs to the element, and what it is a position *in* belongs beside it.** A
 surface that shows several documents through one scroll handle keys the offsets it saves by which

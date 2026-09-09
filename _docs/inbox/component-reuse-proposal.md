@@ -47,7 +47,7 @@ Two facts make the cost of adoption much lower than it looks:
 | 2 | `ui/project_menu.rs:121-660` — a popover with its own rows, hover states and outside-click dismiss, built from `deferred` + `anchored` | `ContextMenu` / `PopupMenu` inside `Root`'s popup layer | Keyboard navigation, submenus, and the library's layering instead of Ubiq's hand-numbered `MENU_LAYER` / `MODAL_MENU_LAYER` priorities | ~350 lines |
 | 3 | `ui/navigator.rs:89-203` + `app/nav.rs:226-470` — a filterable list with its own cursor, filter and popover positioning, parallel to the picker's | `command::{Command, CommandState}`, or a `Combobox` over the same delegate as #1 | Fuzzy match, keyboard model, and one filtering mechanism in the interface rather than two | ~230 lines |
 | 4 | `ui/stats.rs:219-328` — a fixed-column grid with a `COLUMNS` array, a header row and a cell builder | `Table` + `TableState` | Sorting, column resize and **virtualized rows** for free; the interface's only from-scratch grid stops being a pattern others copy | ~110 lines |
-| 5 | The long lists — the diff body, commit history, refs, the working tree, the transcript | `List` + `ListDelegate` (virtualized, with selection and keyboard navigation) or the `v_virtual_list` under it | This is the same work [`render-velocity-proposal.md`](./render-velocity-proposal.md) phase 1 asks for. Doing it through `List` rather than raw `uniform_list` also brings the selection and key handling those lists hand-roll per screen | see that proposal |
+| 5 | The long lists — the diff body, commit history, refs, the working tree, the transcript | `List` + `ListDelegate` (virtualized, with selection and keyboard navigation) or the `v_virtual_list` under it | [`render-velocity-proposal.md`](./render-velocity-proposal.md)'s phase 1 virtualized four of the five with raw `uniform_list` and the transcript with `v_virtual_list`; what `List` would add on top is the selection and key handling those lists hand-roll per screen, and refs are the one still built whole (`G220`) | see that proposal |
 | 6 | `kit::menu::{context_menu, context_panel}` (`ui/kit/menu.rs:473,497`, 86 lines, a duplicate of `menu_panel`'s logic) | `ContextMenu` | Deletes the duplication #2 also removes | 86 lines |
 | 7 | `ui/explorer.rs` rows over `kit::files::{file_row, twisty}` | `Tree` + `TreeState` | Expansion state, stable ids and keyboard traversal as library concerns. **Evaluate, do not schedule:** `file_row`'s four-state selection-and-cursor matrix is real behaviour, and it must survive as the row renderer or this is a loss | — |
 
@@ -94,7 +94,7 @@ Not replacements — capabilities the interface would have to write, and does no
 - **`Toast` / `ToastStack`** — Ubiq has no transient notification at all; the bell opens a modal
   list. A toast is what a finished background run wants.
 - **`Skeleton` / `Shimmer` / `Spinner`** — every panel that waits on the host draws muted text.
-- **`Pagination`** — the git history's dead cursor (`G210`) has a widget waiting for it.
+- **`Pagination`** — the git history's `Load more commits` row is a hand-rolled one.
 - **`Breadcrumb`**, **`Sheet`**, **`HoverCard`**, **`form::Form`** with validation (the prompt
   modal has none), **`description_list`**, and the **chart** family, which the stats screen draws
   by hand today.
@@ -107,8 +107,8 @@ Not replacements — capabilities the interface would have to write, and does no
 - Then #1 and #2, in that order: the dropdown body behind its own signature, then `project_menu`.
   Between them they retire every hand-rolled `deferred` + `anchored` popup and the layer-priority
   scheme with it.
-- Fold #4 and #5 into the phase-1 work in [`render-velocity-proposal.md`](./render-velocity-proposal.md)
-  rather than doing list virtualization twice.
+- #5 is done with raw list elements, so what is left of it is `List`'s selection and keyboard
+  handling over lists that virtualize; #4 is untouched.
 - Add the rule to [`tech/ui-and-design.md`](../tech/ui-and-design.md): a widget goes in `ui/kit`
   when it carries the house style over library behaviour; a *new* interaction — a popup, a list, a
   table, a dialog — starts from gpui-kit and is skinned, not written.

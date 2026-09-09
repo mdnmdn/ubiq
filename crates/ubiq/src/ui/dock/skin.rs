@@ -117,10 +117,10 @@ impl gpui::Render for DragLabel {
         div()
             .px_2()
             .py_1()
-            .text_size(px(12.5))
+            .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
             .bg(theme::surface())
             .text_color(theme::text())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::accent())
             .child(self.title.clone())
     }
@@ -400,7 +400,7 @@ impl TabGroupRenderer for Skin {
                     } else {
                         theme::border()
                     })
-                    .text_size(px(12.5))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                     .text_color(info.title_colour)
                     .when(info.temporary, |tab| tab.italic())
                     .when(info.temporary, |tab| tab.bg(theme::surface().opacity(0.3)))
@@ -434,7 +434,7 @@ impl TabGroupRenderer for Skin {
                             theme::accent(),
                         )
                         .flex_none()
-                        .text_size(px(10.5))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                         .px_1()
                         .bg(theme::accent_soft()),
                     );
@@ -799,7 +799,7 @@ impl TabGroupRenderer for Skin {
                 .w(to.size().width)
                 .h(to.size().height)
                 .bg(theme::accent_soft())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::accent())
                 .into_any_element(),
         )

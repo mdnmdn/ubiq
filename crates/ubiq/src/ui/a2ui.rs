@@ -91,7 +91,14 @@ fn node(surface: &Surface, id: &str, depth: u32, ctx: &Ctx) -> AnyElement {
                 theme::text()
             };
             div()
-                .text_size(px(if caption { 11.5 } else { 13. }))
+                .text_size(theme::font(
+                    theme::Family::Chrome,
+                    if caption {
+                        theme::Role::Label
+                    } else {
+                        theme::Role::Body
+                    },
+                ))
                 .text_color(colour)
                 .child(body)
                 .into_any_element()
@@ -212,7 +219,12 @@ fn node(surface: &Surface, id: &str, depth: u32, ctx: &Ctx) -> AnyElement {
                 field(theme::border(), false)
                     .h(px(26.))
                     .px_2()
-                    .child(div().text_size(px(12.5)).text_color(colour).child(shown))
+                    .child(
+                        div()
+                            .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
+                            .text_color(colour)
+                            .child(shown),
+                    )
                     .into_any_element(),
             )
         }
@@ -229,7 +241,7 @@ fn node(surface: &Surface, id: &str, depth: u32, ctx: &Ctx) -> AnyElement {
                 .child(check_box(eid("a2ui-check", id), checked, |_, _, _| {}))
                 .child(
                     div()
-                        .text_size(px(12.5))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                         .text_color(theme::text())
                         .child(SharedString::from(label.clone().unwrap_or_default())),
                 )
@@ -292,16 +304,13 @@ fn node(surface: &Surface, id: &str, depth: u32, ctx: &Ctx) -> AnyElement {
                 if on {
                     chip = chip.bg(theme::accent_soft());
                 }
-                chip.child(
-                    mono(
-                        option.label.clone(),
-                        match on {
-                            true => theme::text(),
-                            false => theme::text_muted(),
-                        },
-                    )
-                    .text_size(px(11.5)),
-                )
+                chip.child(mono(
+                    option.label.clone(),
+                    match on {
+                        true => theme::text(),
+                        false => theme::text_muted(),
+                    },
+                ))
                 .into_any_element()
             });
             labelled(
@@ -357,7 +366,14 @@ fn node(surface: &Surface, id: &str, depth: u32, ctx: &Ctx) -> AnyElement {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(box_.child(div().text_size(px(12.5)).text_color(colour).child(value)))
+                    .child(
+                        box_.child(
+                            div()
+                                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
+                                .text_color(colour)
+                                .child(value),
+                        ),
+                    )
                     .when(!enable_date && !enable_time, |this| {
                         this.child(note("enableDate and enableTime are both false"))
                     })
@@ -386,7 +402,7 @@ fn node(surface: &Surface, id: &str, depth: u32, ctx: &Ctx) -> AnyElement {
                         true => theme::accent(),
                         false => theme::border(),
                     })
-                    .text_size(px(12.5))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                     .text_color(match active {
                         true => theme::text(),
                         false => theme::text_muted(),
@@ -517,7 +533,7 @@ fn labelled(label: Option<&str>, control: AnyElement) -> AnyElement {
         .gap_1()
         .children(label.filter(|label| !label.is_empty()).map(|label| {
             div()
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(label.to_string()))
         }))
@@ -528,14 +544,14 @@ fn labelled(label: Option<&str>, control: AnyElement) -> AnyElement {
 /// The pointer a bound property names, drawn as the pointer it is.
 fn binding(path: &str) -> AnyElement {
     mono(format!("↳ {path}"), theme::text_faint())
-        .text_size(px(11.))
+        .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
         .into_any_element()
 }
 
 /// A faint aside: what the renderer is not doing, said where it would have been done.
 fn note(text: impl Into<SharedString>) -> AnyElement {
     mono(text.into(), theme::text_faint())
-        .text_size(px(11.))
+        .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
         .into_any_element()
 }
 
@@ -561,12 +577,15 @@ fn framed(icon: IconName, title: &str, url: &str) -> AnyElement {
                 )
                 .child(
                     div()
-                        .text_size(px(12.5))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                         .text_color(theme::text_muted())
                         .child(SharedString::from(title.to_string())),
                 ),
         )
-        .child(mono(url.to_string(), theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(url.to_string(), theme::text_faint())
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta)),
+        )
         .into_any_element()
 }
 

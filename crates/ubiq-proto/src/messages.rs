@@ -1161,6 +1161,42 @@ pub enum Message {
     ResumeConversation {
         agent_id: AgentId,
     },
+    /// Mark a conversation as one that outlives the window: its record and its run directory are
+    /// kept, and it comes back after a restart rather than being collected.
+    ///
+    /// Not folded into [`Message::SetAgentConfig`] because the two say different kinds of thing.
+    /// That message carries the harness's own config options — model, thinking, mode — under ids
+    /// the harness itself advertised, and the host forwards them without knowing what they mean.
+    /// This is Ubiq's own property of the conversation: the harness has never heard of it, has no
+    /// option id for it, and nothing about it reaches the child process.
+    SetConversationPersistent {
+        agent_id: AgentId,
+        persistent: bool,
+    },
+    /// Bring a conversation back from its run directory — either the one it left behind, or a copy
+    /// of somebody else's.
+    ///
+    /// **The run directory *is* the conversation.** It holds the harness's own session store, so
+    /// resuming a session id inside a given directory is the whole of what "continue this
+    /// conversation" means. That is why one message covers both paths, and why the fork needs no
+    /// harness-specific support at all — copying a directory is something the filesystem does.
+    ///
+    /// - `source == agent_id` — **re-attach**. The harness resumes its own session in its own kept
+    ///   run directory, and the agent carries on where the last restart left it.
+    /// - `source != agent_id` — **fork**. The source's run directory is copied, and a new agent is
+    ///   launched in the copy with the same harness session id, so the two share every turn up to
+    ///   this point and diverge from the next one on. The source is untouched: it is not stopped,
+    ///   not unloaded and not modified.
+    ReviveConversation {
+        /// The conversation whose run directory is the starting point. Equal to `agent_id` for a
+        /// re-attach, different for a fork.
+        source: AgentId,
+        /// The agent the revived conversation runs as. Minted by the window, the way
+        /// [`Message::StartConversation`] mints one.
+        agent_id: AgentId,
+        project_id: ProjectId,
+        session_id: SessionId,
+    },
 
     // ── Conversation family: host → UI ──────────────────────────────
     /// The agent exists. Its record joins the project's work, so the sidebar and the graph find it
@@ -1491,6 +1527,7 @@ impl Message {
             | Message::AgentChanged { project_id, .. }
             | Message::WorkError { project_id, .. }
             | Message::StartConversation { project_id, .. }
+            | Message::ReviveConversation { project_id, .. }
             | Message::ConversationStarted { project_id, .. }
             | Message::SearchProject { project_id, .. }
             | Message::CancelSearch { project_id, .. }
@@ -1567,6 +1604,19 @@ pub struct AgentTypeInfo {
     /// already asks nothing. It is what a start form defaults its mode picker to, so the
     /// interface never has to guess which id means "all permissions".
     pub unattended_mode: Option<String>,
+    /// Whether this harness keeps its own session store inside the run directory Ubiq provisions
+    /// for it — that is, whether its `config_anchor` declares a lever that relocates it there.
+    ///
+    /// **It is what makes a conversation keepable.** Ubiq resumes a conversation across a restart
+    /// by keeping that directory, and forks one by copying it (`D97`), so a harness that writes its
+    /// sessions somewhere else can be offered neither: keeping would preserve nothing and copying
+    /// would leave two agents sharing one store. Grok is the one that answers `false` — it declares
+    /// no lever and writes under the user's real home whatever Ubiq relocates.
+    ///
+    /// The interface reads it to draw those two controls disabled, with the reason, rather than
+    /// offering an action the host will refuse. The host refuses it regardless; this is so the
+    /// refusal is not the first the user hears of it.
+    pub keeps_sessions: bool,
 }
 
 /// One model a harness will answer for, with the reasoning-effort levels it accepts folded in.

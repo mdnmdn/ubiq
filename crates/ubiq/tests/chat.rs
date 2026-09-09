@@ -158,6 +158,7 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
         account: "work".to_string(),
         model: String::new(),
         context_pct: 0,
+        persistent: false,
         thread: Vec::new(),
     }
 }

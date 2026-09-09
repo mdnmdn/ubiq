@@ -35,14 +35,14 @@ pub fn empty_page(
         )
         .child(
             div()
-                .text_size(px(15.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Title))
                 .text_color(theme::text())
                 .child(SharedString::from(title.to_string())),
         )
         .child(
             div()
                 .max_w(px(320.))
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(note.to_string())),
         )
@@ -52,7 +52,7 @@ pub fn empty_page(
 /// The footer a rail mode with no screen behind it carries.
 pub fn not_built() -> AnyElement {
     mono("not built yet", theme::text_faint())
-        .text_size(px(11.))
+        .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
         .into_any_element()
 }
 
@@ -67,7 +67,7 @@ pub fn empty_panel(note: &str) -> impl IntoElement {
         .justify_center()
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(theme::text_faint())
                 .child(SharedString::from(note.to_string())),
         )

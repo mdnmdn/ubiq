@@ -224,6 +224,7 @@ mod tests {
             chat: true,
             modes: vec![choice("plan"), choice("bypass")],
             unattended_mode: unattended.map(str::to_string),
+            keeps_sessions: true,
         }
     }
 

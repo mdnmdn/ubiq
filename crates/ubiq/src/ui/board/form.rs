@@ -32,6 +32,7 @@ use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::board::Field;
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{
     Picker, PickerStyle, choice_pill, field, ghost_button, icon_button, mono, primary_button,
     section_label, toggle_pill,
@@ -52,7 +53,7 @@ pub fn title(
     if !editing {
         return div()
             .id("board-title")
-            .text_size(px(17.))
+            .text_size(theme::font(Family::Chrome, Role::Title))
             .text_color(theme::text())
             .cursor_text()
             .hover(|this| this.text_color(theme::accent()))
@@ -78,7 +79,7 @@ pub fn title(
                 .min_w(px(0.))
                 .px_2()
                 .py_1()
-                .text_size(px(15.))
+                .text_size(theme::font(Family::Chrome, Role::Title))
                 .child(Input::new(&app.task_title_input).appearance(false)),
         )
         .child(icon_button(
@@ -147,7 +148,7 @@ pub fn pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
         )
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child(task.shape.note()),
         )
@@ -258,7 +259,7 @@ pub fn description(
                     .appearance(false)
                     .bordered(false)
                     .w_full()
-                    .text_size(px(13.)),
+                    .text_size(theme::font(Family::Chrome, Role::Body)),
             )
             .on_click(cx.listener(|this, _, window, cx| {
                 let input = this.task_description_input.clone();
@@ -311,7 +312,7 @@ fn rendered(task: &TaskRecord, source: String, cx: &mut Context<AppState>) -> An
     if source.trim().is_empty() {
         return div()
             .id("board-desc-empty")
-            .text_size(px(12.5))
+            .text_size(theme::font(Family::Chrome, Role::Body))
             .text_color(theme::text_faint())
             .cursor_text()
             .child("No description yet.")
@@ -327,7 +328,10 @@ fn rendered(task: &TaskRecord, source: String, cx: &mut Context<AppState>) -> An
         .child(
             TextView::markdown(eid("task-md", task.id), source)
                 .on_link_click(crate::ui::on_link(cx.entity(), None))
-                .text_size(px(theme::EDITOR_FONT_SIZE)),
+                // A task's description is prose in a chrome panel, so it is read at the content
+                // family's size rather than at the chrome around it — the same size the editor
+                // draws Markdown at, which is where this number came from.
+                .text_size(theme::font(Family::Content, Role::Body)),
         )
         .on_click(
             cx.listener(|this, _, window, cx| this.begin_task_edit(Field::Description, window, cx)),
@@ -403,7 +407,7 @@ pub fn step_field(app: &AppState, window: &Window, cx: &App) -> AnyElement {
         .min_w(px(0.))
         .px_2()
         .py(px(1.))
-        .text_size(px(13.))
+        .text_size(theme::font(Family::Chrome, Role::Body))
         .child(Input::new(&app.step_title_input).appearance(false))
         .into_any_element()
 }
@@ -430,7 +434,7 @@ pub fn new_step(app: &AppState, window: &Window, cx: &App) -> AnyElement {
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .child(Input::new(&app.new_step_input).appearance(false)),
         )
         .into_any_element()
@@ -455,7 +459,7 @@ pub fn delete(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .flex_none()
         .items_center()
         .gap_1p5()
-        .child(mono("Delete this task?", theme::danger()).text_size(px(11.5)))
+        .child(mono("Delete this task?", theme::danger()))
         .child(ghost_button(
             "board-task-delete-yes",
             None,
@@ -485,7 +489,7 @@ pub fn refusal(app: &AppState) -> Option<AnyElement> {
             .items_center()
             .gap_1p5()
             .bg(theme::danger_soft())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::danger())
             .child(
                 Icon::new(IconName::TriangleAlert)
@@ -496,7 +500,7 @@ pub fn refusal(app: &AppState) -> Option<AnyElement> {
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(12.))
+                    .text_size(theme::font(Family::Chrome, Role::Label))
                     .text_color(theme::text())
                     .child(SharedString::from(message)),
             )

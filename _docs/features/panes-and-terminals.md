@@ -177,7 +177,7 @@ font metrics are known. Everything downstream speaks columns and rows.
 **A pane's text scales with its project.** The terminal font size is the active project's — the same
 value the file editor and the explorer tree are drawn at — and an emulator already open is dressed to
 match when it changes rather than waiting for a restart. A zoom that only reached the next pane to
-open would not be a zoom, so `AppState::set_ui_font_size()` reconfigures every emulator it holds.
+open would not be a zoom, so `AppState::set_content_font_size()` reconfigures every emulator it holds.
 
 **A pane starts at 80×24 and is told the truth a frame later.** The harness has to be started before
 the emulator has been given any bounds to measure, so it begins at the conventional size and is
@@ -248,7 +248,7 @@ harness. Which regions a terminal may sit in, and the tab, its dot and its close
 **The panel's body is the emulator.** `crates/ubiq/src/ui/terminal.rs` draws it: `pane()` takes a
 pane ID and draws that pane's `TerminalView`, or the line a panel whose emulator has gone shows, and
 `config()` is the `TerminalConfig` every emulator is built with — taking the font size alongside the
-geometry, so a pane's text follows its project's own (`AppState::set_ui_font_size()` rebuilds it
+geometry, so a pane's text follows its project's own (`AppState::set_content_font_size()` rebuilds it
 from a fresh `config()` when the size changes). The pane is named rather than found
 through focus, because every pane has a panel of its own and which of them the user is typing into
 is the dock's answer. The view comes from the

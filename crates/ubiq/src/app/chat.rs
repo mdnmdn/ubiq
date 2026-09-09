@@ -235,9 +235,9 @@ impl AppState {
     /// Which palette a diagram drawn now is drawn for. The renderer bakes its colours in, so this
     /// is part of what is asked for and part of what it is filed under.
     fn diagram_palette(&self) -> DiagramPalette {
-        match self.workbench.theme_id {
-            ThemeId::Dark => DiagramPalette::Dark,
-            ThemeId::Light => DiagramPalette::Light,
+        match self.workbench.theme_id.mode() {
+            Mode::Dark => DiagramPalette::Dark,
+            Mode::Light => DiagramPalette::Light,
         }
     }
 

@@ -6,12 +6,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    PathBuilder, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, canvas,
-    div, point, px, relative,
+    PathBuilder, Pixels, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    canvas, div, point, px, relative,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
+use crate::theme::{Family, Role};
 
 /// A surface, in the shape everything in Ubiq is drawn in: square, filled, and identified by a
 /// coloured left edge. Nothing here is rounded — the edge is what says what a thing is.
@@ -20,7 +21,7 @@ pub fn slab(edge: Rgba) -> Div {
         .flex()
         .flex_col()
         .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(edge)
 }
 
@@ -36,10 +37,10 @@ pub fn field(edge: Rgba, focused: bool) -> Div {
         .flex()
         .items_center()
         .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(colour);
     if focused {
-        root = root.border_b(px(theme::ACCENT_EDGE));
+        root = root.border_b(px(theme::accent_edge()));
     }
     root
 }
@@ -48,7 +49,7 @@ pub fn field(edge: Rgba, focused: bool) -> Div {
 pub fn mono(text: impl Into<SharedString>, color: Rgba) -> Div {
     div()
         .font_family(theme::MONO_FONT)
-        .text_size(px(12.))
+        .text_size(theme::font(Family::Chrome, Role::Label))
         .text_color(color)
         .child(text.into())
 }
@@ -56,7 +57,7 @@ pub fn mono(text: impl Into<SharedString>, color: Rgba) -> Div {
 /// The uppercase group heading used by the rail and the panel headers.
 pub fn section_label(text: &str) -> impl IntoElement {
     div()
-        .text_size(px(10.))
+        .text_size(theme::font(Family::Chrome, Role::Micro))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::text_faint())
         .child(SharedString::from(text.to_uppercase()))
@@ -86,7 +87,7 @@ pub fn pill(edge: Rgba) -> Div {
         .items_center()
         .gap_2()
         .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(edge)
 }
 
@@ -127,7 +128,7 @@ pub fn removable_tag(
                 .id(id)
                 .flex_shrink(1.0)
                 .min_w(px(0.))
-                .text_size(px(11.5))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(colour)
                 .truncate()
                 .cursor_pointer()
@@ -159,7 +160,7 @@ pub fn removable_tag(
 /// A single-letter git badge.
 pub fn badge(text: &str, color: Rgba) -> impl IntoElement {
     mono(SharedString::from(text.to_string()), color)
-        .text_size(px(11.))
+        .text_size(theme::font(Family::Chrome, Role::Meta))
         .font_weight(FontWeight::SEMIBOLD)
 }
 
@@ -212,7 +213,7 @@ pub fn ghost_button(
         .flex_none()
         .items_center()
         .gap_1()
-        .text_size(px(12.5))
+        .text_size(theme::font(Family::Chrome, Role::Body))
         .text_color(theme::text_muted())
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()).text_color(theme::text()));
@@ -308,7 +309,9 @@ pub fn state_chip(label: impl Into<SharedString>, colour: Rgba, scale: f32) -> i
                 .rounded_full()
                 .bg(colour),
         )
-        .child(mono(label, theme::text()).text_size(px(11. * scale)))
+        .child(
+            mono(label, theme::text()).text_size(theme::font(Family::Chrome, Role::Meta) * scale),
+        )
 }
 
 /// A flat meter: how far along something is, as a bar rather than a number.
@@ -348,7 +351,7 @@ pub fn choice_pill(
     }
 
     root.hover(|this| this.bg(theme::hover()))
-        .child(mono(label, text).text_size(px(11.5)))
+        .child(mono(label, text))
         .on_click(on_click)
 }
 
@@ -368,7 +371,7 @@ pub fn primary_button(
         .items_center()
         .gap_1()
         .bg(theme::accent())
-        .text_size(px(12.5))
+        .text_size(theme::font(Family::Chrome, Role::Body))
         .text_color(theme::on_accent())
         .cursor_pointer()
         .hover(|this| this.bg(theme::accent_muted()));
@@ -406,7 +409,7 @@ pub fn toggle_pill(
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
         .child(div().size(px(7.)).flex_none().rounded_full().bg(dot))
-        .child(mono(label, text).text_size(px(11.5)))
+        .child(mono(label, text))
         .on_click(on_click)
 }
 
@@ -455,7 +458,7 @@ pub fn elided(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
     colour: Rgba,
-    size: f32,
+    size: Pixels,
 ) -> Stateful<Div> {
     let text: SharedString = text.into();
     let full = text.clone();
@@ -469,7 +472,7 @@ pub fn elided_with(
     text: impl Into<SharedString>,
     tooltip: impl Into<SharedString>,
     colour: Rgba,
-    size: f32,
+    size: Pixels,
 ) -> Stateful<Div> {
     let text: SharedString = text.into();
     let full: SharedString = tooltip.into();
@@ -478,7 +481,7 @@ pub fn elided_with(
         .id(id)
         .flex_1()
         .min_w(px(0.))
-        .text_size(px(size))
+        .text_size(size)
         .text_color(colour)
         .truncate()
         .child(text)
@@ -507,7 +510,7 @@ pub fn stepper(
                 .w(px(46.))
                 .flex()
                 .justify_center()
-                .child(mono(label, theme::text_muted()).text_size(px(11.5))),
+                .child(mono(label, theme::text_muted())),
         )
         .child(icon_button((id, 1u32), IconName::Plus, false, on_up))
 }

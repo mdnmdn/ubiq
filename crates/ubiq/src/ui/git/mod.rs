@@ -31,6 +31,7 @@ use ubiq_proto::git::{GitCounts, GitHead, RepoOverview};
 use crate::app::AppState;
 use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{icon_button, mono, pill, section_label};
 use crate::ui::status_bar::{capped, operation_label};
 
@@ -102,7 +103,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let overview = app.open_project(cx).and_then(|open| open.git.as_ref());
 
     div()
-        .h(px(theme::TITLEBAR_HEIGHT))
+        .h(px(theme::titlebar_height()))
         .px_3()
         .flex()
         .flex_none()
@@ -111,7 +112,10 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .child(mono(SharedString::from(name), theme::text()).text_size(px(12.5)))
+        .child(
+            mono(SharedString::from(name), theme::text())
+                .text_size(theme::font(Family::Chrome, Role::Body)),
+        )
         .child(head_pill(overview))
         .child(div().w(px(12.)).flex_none())
         // What a write version does, drawn as the shape it will take. Inert on purpose: nothing
@@ -124,10 +128,10 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(inert("Stash"))
         .child(inert("Undo"))
         .child(
-            pill(theme::border())
-                .h(px(22.))
-                .px_2()
-                .child(mono("read-only", theme::text_faint()).text_size(px(11.))),
+            pill(theme::border()).h(px(22.)).px_2().child(
+                mono("read-only", theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            ),
         )
         .child(div().flex_1().min_w(px(0.)))
         .children(changed_label(overview).map(|label| mono(label, theme::text_muted())))
@@ -148,7 +152,7 @@ fn head_pill(overview: Option<&RepoOverview>) -> AnyElement {
         return pill(theme::border())
             .h(px(24.))
             .px_2()
-            .child(mono("not a repository", theme::text_faint()).text_size(px(11.5)))
+            .child(mono("not a repository", theme::text_faint()))
             .into_any_element();
     };
 
@@ -169,11 +173,13 @@ fn head_pill(overview: Option<&RepoOverview>) -> AnyElement {
     pill(theme::accent())
         .h(px(24.))
         .px_2()
-        .children(overview.operation.map(|operation| {
-            mono(operation_label(operation), theme::warning()).text_size(px(11.5))
-        }))
-        .child(mono(head, theme::text()).text_size(px(11.5)))
-        .children(tracking.map(|text| mono(text, theme::text_muted()).text_size(px(11.5))))
+        .children(
+            overview
+                .operation
+                .map(|operation| mono(operation_label(operation), theme::warning())),
+        )
+        .child(mono(head, theme::text()))
+        .children(tracking.map(|text| mono(text, theme::text_muted())))
         .into_any_element()
 }
 

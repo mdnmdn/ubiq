@@ -31,8 +31,8 @@ use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
 use crate::ui::kit::{
-    ROW_FONT, check_box, elided, elided_with, file_row, filter_bar, ghost_button, icon_button,
-    kind_icon, mono, primary_button, twisty, view_switch,
+    check_box, elided, elided_with, file_row, filter_bar, ghost_button, icon_button, kind_icon,
+    mono, primary_button, row_font, twisty, view_switch,
 };
 
 /// The key context the dialog is answered in, and the one the component library gives the field
@@ -155,7 +155,7 @@ pub fn render(
             .flex()
             .flex_col()
             .bg(theme::surface_raised())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::accent())
             .shadow_lg()
             .child(header(picker, cx))
@@ -240,7 +240,7 @@ fn header(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
             div()
                 .flex_shrink(1.0)
                 .min_w(px(0.))
-                .text_size(px(15.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Title))
                 .text_color(theme::text())
                 .truncate()
                 .child(SharedString::from(picker.request.title.clone())),
@@ -278,13 +278,13 @@ fn host_browse_banner(app: &AppState, _cx: &mut Context<AppState>) -> Option<Any
             .items_center()
             .gap_2()
             .bg(theme::danger_soft())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::danger())
             .child(
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(11.5))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
                     .text_color(theme::text())
                     .child(error),
             )
@@ -350,7 +350,7 @@ fn field(
                         .unwrap_or_else(|| "\u{2026}".to_string()),
                     theme::text_faint(),
                 )
-                .text_size(px(10.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                 .flex_none()
                 .max_w(px(220.))
                 .truncate(),
@@ -359,7 +359,7 @@ fn field(
             // truncation a row can never say for itself, since no row draws the root.
             .children(browse.root_truncated.then(|| {
                 mono("+", theme::text_faint())
-                    .text_size(px(11.))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                     .flex_none()
             }));
     }
@@ -373,14 +373,14 @@ fn field(
         ))
         .children(picker.request.pattern.clone().map(|pattern| {
             mono(pattern, theme::text_faint())
-                .text_size(px(10.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                 .flex_none()
                 .px_1()
                 .bg(theme::surface_raised())
         }))
         .child(
             mono(picker.view.label(), theme::text_faint())
-                .text_size(px(10.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                 .flex_none()
                 .px_1()
                 .bg(theme::surface_raised()),
@@ -415,7 +415,7 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
         // The picker's rows are walked from its own field, which never leaves it: there is no
         // second focus here to tell the cursor bar apart from.
         true,
-        ROW_FONT,
+        row_font(),
     );
 
     // An unreadable folder draws no twisty at all — there is nothing a click on it could open, and
@@ -459,7 +459,7 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
                 true => theme::text(),
                 false => theme::text_muted(),
             },
-            13.0,
+            theme::font(theme::Family::Chrome, theme::Role::Body),
         ));
 
     // A folder a host is still filling — see `PickerRow::loading` — says so with the same mark
@@ -468,14 +468,14 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
     if row.loading {
         line = line.child(
             mono("\u{2026}", theme::text_faint())
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                 .flex_none(),
         );
     }
     if row.truncated {
         line = line.child(
             mono("+", theme::text_faint())
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                 .flex_none(),
         );
     }
@@ -491,7 +491,7 @@ fn line(row: PickerRow, tree: bool, multiple: bool, cx: &mut Context<AppState>) 
                     eid("picker-trailing", &row.path),
                     row.trailing.clone(),
                     theme::text_faint(),
-                    11.5,
+                    theme::font(theme::Family::Chrome, theme::Role::Label),
                 )),
         );
     }
@@ -530,7 +530,7 @@ fn footer(picker: &FilePickerState, cx: &mut Context<AppState>) -> AnyElement {
                     "file-picker-tally",
                     picker.tally(),
                     theme::text_muted(),
-                    11.5,
+                    theme::font(theme::Family::Chrome, theme::Role::Label),
                 )),
         )
         .child(hint(picker))
@@ -582,7 +582,7 @@ fn hint(picker: &FilePickerState) -> impl IntoElement {
 
     mono(parts.join("  \u{00b7}  "), theme::text_faint())
         .flex_none()
-        .text_size(px(10.5))
+        .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
 }
 
 /// The corner the dialog is resized by.

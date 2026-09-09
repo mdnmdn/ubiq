@@ -356,6 +356,18 @@ impl Work {
             .unwrap_or_default()
     }
 
+    /// One running agent's record, to change a field on in place.
+    ///
+    /// [`add_live_agent`](Self::add_live_agent) is the way in for a caller that has a whole
+    /// `WorkAgent`; this is for one that has a single field and would otherwise have to rebuild the
+    /// rest of the record — and get it wrong.
+    pub fn live_agent_mut(&mut self, project: ProjectId, agent: AgentId) -> Option<&mut WorkAgent> {
+        self.live
+            .get_mut(&project)?
+            .iter_mut()
+            .find(|held| held.id == agent)
+    }
+
     /// Take a running agent out of the project's list, once its harness has
     /// gone and its transcript is all that is left.
     pub fn remove_live_agent(&mut self, project: ProjectId, agent: AgentId) {

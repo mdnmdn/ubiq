@@ -30,6 +30,7 @@ use gpui_component::input::Input;
 use crate::app::AppState;
 use crate::state::sink::{SinkModal, SinkSection};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::indexed;
 use crate::ui::kit::panel::tab_strip;
 use crate::ui::kit::{Tab, ghost_button, modal, modal_note, mono, primary_button};
@@ -68,7 +69,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             None,
             Some(
                 mono(section.note(), theme::text_faint())
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                     .into_any_element(),
             ),
         ))

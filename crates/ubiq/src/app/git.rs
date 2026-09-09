@@ -51,6 +51,33 @@ impl AppState {
         cx.notify();
     }
 
+    /// Ask for the next page of history — what a "load more" trigger at the bottom of the list
+    /// sends. A no-op with a page already in flight or nothing left to page in, on the same
+    /// `log_inflight`/`log_done` bookkeeping `refresh_git` and `receive_git` already keep.
+    pub fn load_more_git_log(&mut self, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(git) = self.git_view(cx) else {
+            return;
+        };
+        if git.log_done || git.log_inflight.is_some() {
+            return;
+        }
+        let cursor = git.log_cursor.clone();
+        self.bus.send(Message::ProjectGitLog {
+            project_id,
+            cursor: cursor.clone(),
+            count: 100,
+            rel_path: None,
+            first_parent: false,
+        });
+        if let Some(git) = self.git_view_mut(cx) {
+            git.log_inflight = Some(cursor);
+        }
+        cx.notify();
+    }
+
     pub fn toggle_git_section(&mut self, section: RefSection, cx: &mut Context<Self>) {
         if let Some(git) = self.git_view_mut(cx) {
             git.toggle_section(section);

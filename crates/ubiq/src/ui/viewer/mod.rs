@@ -109,24 +109,28 @@ fn drawn(
     // The editor is the general case rather than a fallback: an extension with no viewer of its
     // own lands here and gets the highlighted buffer.
     let key = file.key();
-    let source = state.read(cx).value().to_string();
 
     // The viewer needs the project's editor chrome — the point size its files draw at — which is
     // a preference of the project it sits in. `None` means the default.
-    let font_size = app.ui_font_size(cx);
+    let font_size = app.content_font_size(cx);
     let buf = || buffer(state, font_size);
 
     // A viewer with no source/preview toggle draws one thing only. The editor is the general
     // case; an Excalidraw scene is preview-only — its source is a serialised document nobody
     // edits by hand — so it draws the scene and never a JSON buffer; an image's bytes are its
-    // body.
+    // body. The buffer is only cloned out in the branches that actually read it — the general
+    // case (`Editor`) never does, and cloning the whole file for it every frame was pure waste.
     if !file.viewer.has_preview() {
         return match file.viewer {
-            ViewerKind::Excalidraw => scene::live(app, &key, &source, cx),
+            ViewerKind::Excalidraw => {
+                let source = state.read(cx).value().to_string();
+                scene::live(app, &key, &source, cx)
+            }
             ViewerKind::Editor => buf(),
             ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
             // Markdown and Mermaid do have the toggle, so these are unreachable here.
             ViewerKind::Markdown | ViewerKind::Mermaid => {
+                let source = state.read(cx).value().to_string();
                 markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
             }
         };
@@ -134,10 +138,17 @@ fn drawn(
 
     let mut preview = || match file.viewer {
         ViewerKind::Markdown => {
+            let source = state.read(cx).value().to_string();
             markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
         }
-        ViewerKind::Mermaid => diagram::render(app, &key, &source, cx),
-        ViewerKind::Excalidraw => scene::live(app, &key, &source, cx),
+        ViewerKind::Mermaid => {
+            let source = state.read(cx).value().to_string();
+            diagram::render(app, &key, &source, cx)
+        }
+        ViewerKind::Excalidraw => {
+            let source = state.read(cx).value().to_string();
+            scene::live(app, &key, &source, cx)
+        }
         // `has_preview` names Markdown and Mermaid and nothing else.
         ViewerKind::Editor | ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
     };

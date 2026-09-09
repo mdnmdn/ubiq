@@ -106,7 +106,9 @@ tab, attached to nothing, because that is the one place the window has to decide
 empty region opens onto. A *pinned* tab is the one exception: pinning is protection from close and
 nothing else, so the shared tab menu's Pin (or Rename) still work but its Close row is gone, the
 same as any other tab — `AppState::tab_names` and `AppState::pinned_tabs`, in memory only, because a
-`ChatId` is reminted every run and a saved name or pin would point at nothing.
+`ChatId` is reminted every run. **The attachment is what survives one**: `ViewPrefs.chats` remembers
+which agent each tab held, and a restore revives it where the conversation was marked persistent
+(`D97`) and draws the empty tab where it was not.
 
 **Every chat tab draws from the same shared conversation view.** What a tab shows for its attachment
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer
@@ -149,15 +151,19 @@ viewport — a button that is always there is a button that says nothing. It scr
 else: it marks nothing read, and the next thing said resumes the follow, which is what coming back
 down asked for.
 
-**A long transcript stops building what is off screen.** Above forty blocks, a child the last frame
-painted well clear of the viewport — plus a margin, so a wheel notch lands on drawn content rather
-than on a placeholder waiting for the next frame — is replaced by a stand-in of the exact height it
-was measured at. Measured, never guessed: the content above and below stays where it was, so
-nothing about the scroll position changes, and the markdown, the diffs and the highlighting of a
-hundred blocks nobody is looking at go unbuilt. Below forty every block is built every frame,
-because the bookkeeping costs more than the drawing and the first frame has no measurements to work
-from. The same pass records which block each child is, which is how the strip above resolves a
-block to a child to scroll to.
+**The transcript is a virtual list, whatever its length.** A frame builds a *plan* — one `Row` per
+thing on screen, arithmetic and no elements — and `gpui_component::v_virtual_list` builds only the
+rows it can see. Three blocks or three thousand, a frame costs what is in the viewport.
+
+**A variable-height list is told its heights before it lays one out, so the transcript remembers
+what every row measured.** `TranscriptScroll` keys them by the row's *identity* rather than its
+position — a fold opening moves every row below it — against the content, the width **and the
+conversation family's body size** they were measured at: raising that base restates every height
+the way a resize does. A row unchanged since it was drawn is its measurement; one whose content has
+moved is its *last*, because a block that grew by a line is a line taller than it was; one never
+drawn is an estimate of a line of prose per eighty characters. Either of the last two is measured by
+the frame that draws it, which asks for one more, so an estimate lasts a frame. The plan also records which block each row stands for, which is how the strip above
+resolves a block to a row to scroll to.
 
 **A run of the same kind of tool call is folded to its last card.** Three or more consecutive tool
 blocks of one kind — `GROUP_MIN` — are drawn as the last of them plus one `tool_group` row standing
@@ -345,14 +351,13 @@ clears its slot's draft before handing the slot to the next tab that opens.
 ## Contract
 
 A chat tab's own state — its id, its slot, its attachment, whether its picker is down — is local to
-the UI, the same as which column an agent's conversation is drawn in. No message names a `ChatId`
-and none carries a tab's arrangement; the host answers only about conversations, never about which
-surface is looking at one. Once a tab is attached, it speaks whatever
-[`../tech/transport-contract.md`](../tech/transport-contract.md)'s conversation family carries, the
-same as every other screen that hosts one. A permission ask arrives as
-`ConvUpdate::PermissionRequest` and leaves as one `AnswerPermission` naming the `request_id` and the
-`option_id` pressed; `CancelTurn` is what answers the rest. Which surface drew the buttons is not on
-the wire, so an ask answered here is answered for the conversation.
+the UI, the same as which column an agent's conversation is drawn in. No message names a `ChatId`;
+the host answers only about conversations, never about which surface looks at one, and what a
+restore remembers travels in the interface's own opaque view blob. Once attached, a tab speaks
+whatever [`../tech/transport-contract.md`](../tech/transport-contract.md)'s conversation family
+carries: a permission ask arrives as `ConvUpdate::PermissionRequest` and leaves as one
+`AnswerPermission` naming the `request_id` and the `option_id` pressed, `CancelTurn` answering the
+rest. Which surface drew the buttons is not on the wire, so an ask here is answered for them all.
 
 ## Implementation
 
@@ -414,10 +419,10 @@ holds the rest of the transcript's own furniture: `transcript()` walks the visib
 each run of same-kind calls into one `tool_group()` row plus the run's last card — `one_block()` is
 the arm it reuses for a card it does not fold and for the ones it unfolds — `writing_mark()` is the
 tail's running mark, and `tail_signature()` is what the follow-the-tail scroll compares, read over
-the visible blocks it is handed. The private `Built` helper in the same module is the children that
-walk produces: it records which block each child stands for, so a block can be resolved to a child
-to scroll to, and above `TranscriptScroll::windows` it leaves a child the last frame painted clear
-of the viewport unbuilt behind a stand-in of that child's measured height. `to_tail_button()` is
+the visible blocks it is handed. `build_row()` carries the gutter and
+`theme::font(Family::Conversation, Role::Body)` on the row itself, because the list lays items out
+in `prepaint` where a parent's style is off the stack; `row_signature()` is where the width and
+that size enter a row's signature. `to_tail_button()` is
 the overlay, on `AppState::scroll_transcript_to_tail`. `state::conversation::TranscriptScroll` is
 the rest: `sync()` is the once-a-frame decision — save the outgoing transcript's position, restore
 this one's, follow the tail only for a reader on it — with `away()` for the overlay, `request()`
@@ -487,8 +492,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 
 ## Next steps
 
-- Persist a chat tab's arrangement and attachment across a restart, rather than seeding one fresh
-  unattached tab per project every time a window takes it.
+- Persist a chat tab's *arrangement* across a restart, not only its attachment.
 - Let a tool block open the file it names in the editor.
 - Attachments that carry the file's *content* over the bus as a `ResourceLink` — which
   `agent-manager` already accepts — rather than an `@path` mention the harness has to resolve

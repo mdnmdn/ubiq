@@ -76,9 +76,9 @@ impl Render for Ghost {
             .px_2()
             .py_1()
             .bg(theme::surface_raised())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::accent())
-            .text_size(px(12.))
+            .text_size(theme::font(theme::Family::Content, theme::Role::Label))
             .text_color(theme::text())
             .child(self.0.clone())
     }
@@ -214,7 +214,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
             // The tree scales with the project's font size, the same knob as the editor and the
             // terminal, so a zoom dresses the whole project's workspace at once. The tree is the
             // densest surface, so it sits a half point under the editor's floor.
-            let font = app.ui_font_size_or_default(cx) - 0.5;
+            let font = app.content_font_size_or_default(cx) - 0.5;
             let lit = drop_onto.as_deref() == Some(row.path.as_str());
             line(row, tree, selected.as_deref(), font, lit, on_tree, cx)
         })
@@ -301,7 +301,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                 }),
             div().flex().flex_none().items_center().gap_1().child(
                 mono("\u{2318}P", theme::text_faint())
-                    .text_size(px(10.5))
+                    .text_size(theme::font(theme::Family::Content, theme::Role::Micro))
                     .px_1()
                     .bg(theme::surface_raised()),
             ),
@@ -445,7 +445,7 @@ fn line(
             false => row.path.clone(),
         },
         name_colour(row.git, readable),
-        font_size,
+        px(font_size),
     ));
 
     if let Some(text) = row.git.and_then(GitStatus::badge) {
@@ -455,7 +455,7 @@ fn line(
     if row.loading && row.expanded {
         line = line.child(
             mono("\u{2026}", theme::text_faint())
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Content, theme::Role::Meta))
                 .flex_none(),
         );
     }
@@ -463,7 +463,7 @@ fn line(
     if row.truncated {
         line = line.child(
             mono("+", theme::text_faint())
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Content, theme::Role::Meta))
                 .flex_none(),
         );
     }
@@ -479,7 +479,7 @@ fn line(
                     eid("explorer-trailing", &row.path),
                     row.trailing.clone(),
                     theme::text_faint(),
-                    11.5,
+                    theme::font(theme::Family::Content, theme::Role::Label),
                 )),
         );
     }
@@ -579,7 +579,7 @@ fn bookmarks_section(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyEl
     }
     let open = app.workbench.bookmarks_open;
     let count = marks.len().to_string();
-    let font = app.ui_font_size_or_default(cx) - 0.5;
+    let font = app.content_font_size_or_default(cx) - 0.5;
 
     let rows: Vec<AnyElement> = marks
         .into_iter()
@@ -600,7 +600,7 @@ fn bookmarks_section(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyEl
                 .py(px(2.))
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::hover()))
-                .child(elided(("bookmark-name", ix), name, colour, font))
+                .child(elided(("bookmark-name", ix), name, colour, px(font)))
                 .when(adrift, |this| this.child(badge("adrift", theme::warning())))
                 .on_click(cx.listener(move |this, _, _, cx| this.navigate(dest.clone(), cx)))
                 .into_any_element()

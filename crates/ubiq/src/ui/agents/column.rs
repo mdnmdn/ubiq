@@ -93,7 +93,7 @@ pub fn render(
         .min_w(px(COLUMN_MIN_WIDTH))
         .min_h(px(0.))
         .bg(theme::app_bg())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(if lit { theme::accent() } else { colour })
         .on_drop(cx.listener(move |this, _: &DraggedTab, _, cx| this.drop_tab_on(column, cx)));
 
@@ -186,7 +186,7 @@ fn tab(
         } else {
             theme::border()
         })
-        .text_size(px(12.5))
+        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
         .text_color(if active {
             theme::text()
         } else {
@@ -372,12 +372,21 @@ fn header(
                 .when_some(state, |this, state| {
                     this.child(status_dot(state, theme::pane_bg()))
                 })
+                // Beside the dot, not folded into it: the dot says what this agent is doing, and
+                // this says whether it will still be here after a restart. Only when it is kept —
+                // there is no mark for the ordinary case.
+                .when(agent.persistent, |this| {
+                    this.child(conversation::persistence_mark(eid(
+                        "agents-header-persistent",
+                        agent.id,
+                    )))
+                })
                 // The title says which conversation this is; the summary on hover says what it
                 // is about, and a conversation nothing has named has nothing to add.
                 .child(
                     div()
                         .id(eid("agents-header-name", agent.id))
-                        .text_size(px(14.))
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Title))
                         .text_color(theme::text())
                         .child(SharedString::from(agent.name.clone()))
                         .when_some(summary, |this, summary| {
@@ -401,7 +410,10 @@ fn header(
                         .with_size(Size::XSmall)
                         .text_color(theme::text_faint()),
                 )
-                .child(mono(place.join(" \u{b7} "), theme::text_muted()).text_size(px(11.5))),
+                .child(
+                    mono(place.join(" \u{b7} "), theme::text_muted())
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+                ),
         )
         .into_any_element()
 }
@@ -423,9 +435,9 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
                     div()
                         .p_2()
                         .bg(theme::accent_soft())
-                        .border_l(px(theme::ACCENT_EDGE))
+                        .border_l(px(theme::accent_edge()))
                         .border_color(theme::accent())
-                        .text_size(px(13.))
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
                         .text_color(theme::text())
                         .child(SharedString::from(turn.text.clone())),
                 )
@@ -433,7 +445,7 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
             Speaker::Agent => div()
                 .p_2()
                 .bg(theme::surface())
-                .text_size(px(13.))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(turn.text.clone()))
                 .into_any_element(),
@@ -454,7 +466,7 @@ fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement
         .child(
             div()
                 .pt_1()
-                .text_size(px(11.5))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
                 .text_color(theme::text_faint())
                 .child(
                     "Nothing is listening yet \u{2014} what you send reaches the host and no agent \
@@ -495,18 +507,18 @@ fn footer(agent: &WorkAgent) -> AnyElement {
     // Which identity it runs as, chosen when it started and not changeable after.
     if !agent.account.is_empty() {
         row = row.child(
-            pill(theme::border())
-                .h(px(22.))
-                .px_2()
-                .child(mono(agent.account.clone(), theme::text_muted()).text_size(px(11.))),
+            pill(theme::border()).h(px(22.)).px_2().child(
+                mono(agent.account.clone(), theme::text_muted())
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+            ),
         );
     }
     if !agent.model.is_empty() {
         row = row.child(
-            pill(theme::border())
-                .h(px(22.))
-                .px_2()
-                .child(mono(agent.model.clone(), theme::text()).text_size(px(11.))),
+            pill(theme::border()).h(px(22.)).px_2().child(
+                mono(agent.model.clone(), theme::text())
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+            ),
         );
     }
 
@@ -517,7 +529,7 @@ fn footer(agent: &WorkAgent) -> AnyElement {
                 format!("{} ctx", work::tokens_label(agent)),
                 theme::text_muted(),
             )
-            .text_size(px(11.)),
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
         )
         .into_any_element()
 }
@@ -557,7 +569,7 @@ fn composer(
                         .appearance(false)
                         .bordered(false)
                         .w_full()
-                        .text_size(px(13.)),
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body)),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let input = this.column_inputs[slot].clone();
@@ -577,7 +589,7 @@ fn composer(
                         "\u{23ce} send \u{b7} \u{21e7}\u{23ce} newline",
                         theme::text_faint(),
                     )
-                    .text_size(px(10.5)),
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
                 )
                 .child(div().flex_1().min_w(px(0.)))
                 .child(
@@ -609,9 +621,9 @@ impl Render for TabGhost {
             .flex()
             .items_center()
             .bg(theme::surface_raised())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::accent())
-            .text_size(px(12.5))
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
             .text_color(theme::text())
             .child(self.0.clone())
     }

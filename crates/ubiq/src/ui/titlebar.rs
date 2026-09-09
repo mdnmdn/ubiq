@@ -30,7 +30,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .is_some_and(|snapshot| snapshot.record.temporary);
 
     div()
-        .h(px(theme::TITLEBAR_HEIGHT))
+        .h(px(theme::titlebar_height()))
         .pr_1()
         .flex()
         .flex_none()
@@ -201,7 +201,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .child(
                     icon_button(
                         "theme",
-                        if app.workbench.theme_id == crate::theme::ThemeId::Dark {
+                        if app.workbench.theme_id.mode() == crate::theme::Mode::Dark {
                             UbiqIcon::TitlebarThemeLight
                         } else {
                             UbiqIcon::TitlebarThemeDark
@@ -236,10 +236,13 @@ fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .child(Input::new(&app.command_input).appearance(false)),
         )
-        .child(mono("\u{2318}K", theme::text_faint()).text_size(px(10.5)));
+        .child(
+            mono("\u{2318}K", theme::text_faint())
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro)),
+        );
     // The navigator hangs off the field it is typed into: its key context and its handlers go on
     // this div, because the keyboard is in the input inside it.
     navigator::attach(bar, app, cx)

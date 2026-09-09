@@ -42,6 +42,7 @@ use crate::app::AppState;
 use crate::state::orchestration::{Algo, ZOOM_STEP};
 use crate::state::{MenuId, Selection};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{
     Picker, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
 };
@@ -147,7 +148,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .collect();
 
     div()
-        .h(px(theme::TITLEBAR_HEIGHT))
+        .h(px(theme::titlebar_height()))
         .px_3()
         .flex()
         .flex_none()
@@ -231,7 +232,7 @@ fn session_pill(
         } else {
             theme::pane_bg()
         })
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(if active {
             theme::accent()
         } else {
@@ -241,7 +242,7 @@ fn session_pill(
         .hover(|this| this.bg(theme::hover()))
         .child(
             div()
-                .text_size(px(12.))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(if active {
                     theme::text()
                 } else {
@@ -249,7 +250,10 @@ fn session_pill(
                 })
                 .child(label.into()),
         )
-        .child(mono(format!("{count}"), theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(format!("{count}"), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
+        )
         .on_click(on_click)
         .into_any_element()
 }

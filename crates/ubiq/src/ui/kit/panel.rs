@@ -10,6 +10,7 @@ use gpui::{
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::IndexedAction;
 use crate::ui::kit::controls::section_label;
 
@@ -99,7 +100,7 @@ pub fn tab_strip(
                 } else {
                     theme::border()
                 })
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(if is_active {
                     theme::text()
                 } else {

@@ -4,9 +4,10 @@ use ubiq::state::RailMode;
 use ubiq::state::editor::{Subject, from_tab_key, tab_key};
 use ubiq::state::nav::{Bookmark, Destination, Locus, View};
 use ubiq::state::prefs::{self, InterfacePrefs, ModeLayout, ViewPrefs};
-use ubiq::theme::ThemeId;
+use ubiq::theme::{AccentId, Density, ThemeId};
 use ubiq_proto::files::DiffBase;
 use ubiq_proto::ids::ProjectId;
+use ubiq_proto::work::AgentId;
 
 #[test]
 fn a_blob_survives_the_round_trip() {
@@ -27,9 +28,12 @@ fn a_blob_survives_the_round_trip() {
         .into(),
         open_files: Vec::new(),
         // A tab key rather than a path, the same identity `open_files` uses: it is the one thing
-        // about a tab that survives a restart, which is why a pinned *file* is remembered and a
-        // pinned pane or chat tab is not.
+        // about a file tab that survives a restart, which is why a pinned *file* is remembered
+        // and a pinned pane is not.
         pinned_files: vec!["src/main.rs".to_string()],
+        // A chat tab is remembered by what it was attached to, never by its own id: a `ChatId` is
+        // a process-local counter, and the agent is what the host can bring back.
+        chats: vec![AgentId::generate().to_string()],
         // A buffer that was never written anywhere travels with the blob, because there is nowhere
         // else for it to come back from.
         scratch: vec![prefs::Scratch {
@@ -41,7 +45,7 @@ fn a_blob_survives_the_round_trip() {
         hidden_modes: Vec::new(),
         selected: None,
         file_filter: "main".to_string(),
-        ui_font_size: Some(16.0),
+        content_font_size: Some(16.0),
         editor_wrap: Some(false),
         bookmarks: Vec::new(),
         recents: Vec::new(),
@@ -143,12 +147,50 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
 fn the_interface_blob_carries_the_palette() {
     let prefs_in = InterfacePrefs {
         schema: prefs::SCHEMA,
-        theme: ThemeId::Light,
+        theme: ThemeId::LIGHT,
+        accent: Some(AccentId("green")),
+        density: Density::Comfortable,
+        chrome_font_size: None,
+        conversation_font_size: None,
         last_start: None,
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
-    assert_eq!(back.theme, ThemeId::Light);
+    assert_eq!(back.theme, ThemeId::LIGHT);
+    assert_eq!(back.accent, Some(AccentId("green")));
+    assert_eq!(back.density, Density::Comfortable);
+
+    // The accent is an axis added after the first release: a blob without it reads as the
+    // palette's own seed rather than being discarded.
+    let older = format!(r#"{{"schema":{},"theme":"Light"}}"#, prefs::SCHEMA);
+    let back: InterfacePrefs = prefs::decode(&older).expect("a blob without the field decodes");
+    assert_eq!(back.accent, None);
+    assert_eq!(back.density, Density::Regular);
+    // The two interface-scoped text bases arrived the same way and read the same way: absent is
+    // the family's own default, not a discarded blob.
+    assert_eq!(back.chrome_font_size, None);
+    assert_eq!(back.conversation_font_size, None);
+}
+
+/// The content family's base is the project's, and it was written as `ui_font_size` before the
+/// three families were named. A blob already on disk keeps its zoom rather than opening at the
+/// default, which is what the serde alias buys and why the schema did not move.
+#[test]
+fn a_projects_zoom_survives_the_content_font_rename() {
+    let older = format!(
+        r#"{{"schema":{},"rail_mode":"Ide","ui_font_size":18.0}}"#,
+        prefs::SCHEMA
+    );
+    let back: ViewPrefs = prefs::decode(&older).expect("a blob with the old key decodes");
+    assert_eq!(back.content_font_size, Some(18.0));
+
+    // And the name it is written under now round-trips on its own.
+    let prefs_out = ViewPrefs {
+        content_font_size: Some(11.0),
+        ..ViewPrefs::default()
+    };
+    let back: ViewPrefs = prefs::decode(&prefs::encode(&prefs_out)).expect("decodes");
+    assert_eq!(back.content_font_size, Some(11.0));
 }
 
 /// The last harness a conversation was started on rides the interface blob, so an empty chat tab
@@ -159,7 +201,11 @@ fn the_interface_blob_carries_the_palette() {
 fn the_interface_blob_carries_the_last_start() {
     let prefs_in = InterfacePrefs {
         schema: prefs::SCHEMA,
-        theme: ThemeId::Dark,
+        theme: ThemeId::DARK,
+        accent: None,
+        density: Density::Regular,
+        chrome_font_size: None,
+        conversation_font_size: None,
         last_start: Some(prefs::LastStart {
             agent_type: "claude-code".to_string(),
             account: Some("mdn".to_string()),
@@ -278,7 +324,7 @@ fn a_key_this_build_does_not_know_survives_a_read_and_a_write() {
     );
 
     let read: InterfacePrefs = prefs::decode(&blob).expect("decodes");
-    assert_eq!(read.theme, ThemeId::Light);
+    assert_eq!(read.theme, ThemeId::LIGHT);
     assert_eq!(
         read.rest.get("vendor.thing"),
         Some(&serde_json::json!({ "kept": true }))
@@ -352,6 +398,9 @@ fn the_schema_stays_where_it_was() {
     assert_eq!(back.open_files, vec!["README.md".to_string()]);
     assert!(back.bookmarks.is_empty());
     assert!(back.recents.is_empty());
+    // The chat tabs arrived the same way: a blob written before them opens with none, and the
+    // project seeds the one empty tab a fresh one gets.
+    assert!(back.chats.is_empty());
 }
 
 /// A destination this build can no longer read costs one bookmark, not the preferences blob. That

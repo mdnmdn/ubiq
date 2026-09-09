@@ -131,13 +131,26 @@ every token while the root is one entity. Two steps, in order:
 
 ## Next steps
 
-- Land phase 0 as one commit per area, then measure again before starting phase 1 — several of the
-  per-frame scans are small enough that the diff body may be the only list that is visibly slow.
-- Wire the dead history pagination while `history.rs` is open for virtualization: the fields exist,
-  a scroll-bottom trigger sending `ProjectGitLog { cursor: log_cursor, .. }` is what is missing.
-- File the phase-2 conversation entity split as a decision, and the phase-0 and phase-1 items as
-  backlog rows against [`features/chat.md`](../features/chat.md),
-  [`features/workbench.md`](../features/workbench.md) and [`tech/ui-and-design.md`](../tech/ui-and-design.md).
-- Add the rule this uncovers to [`tech/ui-and-design.md`](../tech/ui-and-design.md): a list whose
-  length is data, not layout, is virtualized — `uniform_list` when its rows are one height,
-  `v_virtual_list` when they are not.
+- Phase 0 is implemented, per area: the buffer is cloned only in the branches that read it, the
+  markdown fence scan is cached behind a length-and-hash fingerprint, `GitView` computes each
+  commit's search haystack and the lane count on the reply and groups refs and the working tree in
+  one pass, and `Conversation` holds a block index that makes `visible_blocks()` a shared `Arc` and
+  `has_subagent()` a set lookup, with the streaming tail rendered once rather than per frame.
+  `features/workbench.md` owns those facts.
+- The history's pagination has a caller: a `Load more commits` row at the foot of the list sends
+  `ProjectGitLog { cursor: log_cursor, .. }` through `AppState::load_more_git_log`, so history goes
+  as far as it is read. `G129` and `G210` are closed with it, and
+  [`tech/version-control.md`](../tech/version-control.md) states the paged walk end to end.
+- Phase 1 is implemented: `uniform_list` for the diff body, the commit history, the three change
+  lists and the outline; `gpui_component::v_virtual_list` for the transcript, whose `WINDOW_MIN`
+  floor, `Built` rows and placeholder machinery are deleted. Two shortcuts it left are `G221` (the
+  diff's assumed monospace advance) and `G222` (the flatten memoised where it is read).
+  Refs are deliberately not virtualized — `G220` says why, and it is a trap worth reading before
+  reaching for one `uniform_list` per section.
+- The rule is in [`tech/ui-and-design.md`](../tech/ui-and-design.md), with the consequence beside
+  it: a uniform row cannot grow, so a long diff line is scrolled to rather than wrapped.
+- Phase 2 step 1 is implemented, and the coalescing is the frame's rather than a timer's:
+  `Conversation::notify_due()` is true for the first delta of a burst and `drawn()` opens the next
+  window. Step 2 — one `Entity` per conversation — is not, and is `G219` rather than a decision
+  row: nothing has been chosen to record, and where the split stops is the open question.
+- Filing this document is `P14` in `_meta/feedback.md`.

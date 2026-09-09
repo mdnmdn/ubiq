@@ -17,8 +17,9 @@ use gpui::{
 use crate::app::AppState;
 use crate::state::git::{RefRow, RefSection};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::eid;
-use crate::ui::kit::{ROW_FONT, disclosure, elided, file_row, mono, panel, status_dot};
+use crate::ui::kit::{disclosure, elided, file_row, mono, panel, row_font, status_dot};
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
@@ -33,13 +34,17 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .min_h(px(0.))
         .overflow_scroll();
 
+    // Grouped once here rather than filtered once per section below — five passes over `refs`
+    // become one.
+    let groups = git.grouped_refs();
     for section in RefSection::all() {
         let open = git.is_open(section);
-        let count = git.count(section);
+        let rows = &groups[section.slot()];
         body = body.child(disclosure(
             eid("git-section", section_id(section)),
             section.label(),
-            mono(format!("{count}"), theme::text_faint()).text_size(px(11.)),
+            mono(format!("{}", rows.len()), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
             open,
             cx.listener(move |this, _, _, cx| this.toggle_git_section(section, cx)),
         ));
@@ -47,7 +52,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         if !open {
             continue;
         }
-        for (index, row) in git.rows(section) {
+        for &(index, row) in rows {
             body = body.child(ref_row(index, row, git.selected_ref == Some(index), cx));
         }
     }
@@ -64,7 +69,7 @@ fn ref_row(index: usize, row: &RefRow, selected: bool, cx: &mut Context<AppState
         theme::text_faint()
     };
 
-    file_row(eid("git-ref", index), 0, selected, false, false, ROW_FONT)
+    file_row(eid("git-ref", index), 0, selected, false, false, row_font())
         .child(status_dot(colour, theme::pane_bg()))
         .child(elided(
             eid("git-ref-name", index),
@@ -74,17 +79,16 @@ fn ref_row(index: usize, row: &RefRow, selected: bool, cx: &mut Context<AppState
             } else {
                 theme::text_muted()
             },
-            12.5,
+            theme::font(theme::Family::Chrome, theme::Role::Body),
         ))
-        .children(
-            row.ahead
-                .map(|ahead| mono(format!("\u{2191}{ahead}"), theme::success()).text_size(px(11.))),
-        )
-        .children(
-            row.behind.map(|behind| {
-                mono(format!("\u{2193}{behind}"), theme::warning()).text_size(px(11.))
-            }),
-        )
+        .children(row.ahead.map(|ahead| {
+            mono(format!("\u{2191}{ahead}"), theme::success())
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+        }))
+        .children(row.behind.map(|behind| {
+            mono(format!("\u{2193}{behind}"), theme::warning())
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+        }))
         .on_click(cx.listener(move |this, _, _, cx| this.select_git_ref(index, cx)))
         .into_any_element()
 }

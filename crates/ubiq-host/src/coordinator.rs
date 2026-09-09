@@ -29,6 +29,7 @@ use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::connectors::{Answer, Connectors};
 use crate::conversation::{Conversation, UsageMeter};
+use crate::conversation_record::{self, ConversationRecord};
 use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
@@ -659,6 +660,44 @@ impl Coordinator {
             .inspect_err(|error| tracing::warn!("the usage meter is not available: {error}"))
             .ok();
 
+        // The conversations the last process left behind, back as launch recipes.
+        //
+        // **Only the rows marked persistent.** An unmarked row is a leftover — the sweep above has
+        // just deleted its run directory, and the run directory *is* the harness's session store,
+        // so there is nothing left for a resume to find. Restoring it would offer the user a
+        // conversation that comes back empty.
+        //
+        // What comes back is the recipe and nothing else: no `WorkAgent`, no owner, no `resume`
+        // token. A restored row is what [`Self::revive_conversation`] reads its facts out of, not a
+        // live agent — `drives` answers false for one, so nothing can be driven into it by accident
+        // before a window has asked for it back.
+        let pending_conversations = conversation_record::all(&root.path.join("sessions"))
+            .into_iter()
+            .filter(|(_, row)| row.persistent)
+            .map(|(agent_id, row)| {
+                (
+                    agent_id,
+                    PendingConversation {
+                        project_id: row.project_id,
+                        agent_type: row.agent_type,
+                        account: row.account,
+                        profile: row.profile,
+                        cwd: row.cwd,
+                        chosen_model: row.model,
+                        chosen_thinking: row.thinking,
+                        chosen_mode: row.mode,
+                        catalogue: Vec::new(),
+                        next_seq: row.next_seq,
+                        opening_prompt: None,
+                        // A row that carries a title has already been through the naming pass, and
+                        // a conversation is named once however many processes it outlives.
+                        named: row.title.is_some(),
+                        resume: None,
+                    },
+                )
+            })
+            .collect();
+
         Self {
             host,
             root,
@@ -686,7 +725,7 @@ impl Coordinator {
             focused: HashMap::new(),
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
-            pending_conversations: HashMap::new(),
+            pending_conversations,
             logins: HashMap::new(),
             started: Instant::now(),
             agents_this_run: 0,
@@ -756,6 +795,7 @@ impl Coordinator {
                 Some(FromClient::Gone(client)) => self.client_gone(client),
                 None => {}
             }
+            self.remember_sessions();
             self.name_conversations();
             self.reap_conversations();
             self.register_clones();
@@ -1742,6 +1782,9 @@ impl Coordinator {
                             "no such config on an agent that has not launched yet"
                         );
                     }
+                    // A pick is part of the recipe, so the row has to hear about it — a relaunch
+                    // after a restart runs what the picker last said, not what it started with.
+                    self.remember_conversation(agent_id);
                 } else {
                     self.drive(client, agent_id, |conversation| {
                         conversation.set_config(config_id, value)
@@ -1750,6 +1793,15 @@ impl Coordinator {
             }
             Message::EndConversation { agent_id } => {
                 self.end_conversation(agent_id, StopReason::Cancelled);
+                // The one place the user really means *gone*. `end_conversation` only parks a
+                // persistent conversation, so the delete is spelled out here — and it is all three
+                // of the run directory, Ubiq's own row and the library's session record. Never one
+                // without the others: a row with no directory offers a resume that comes back
+                // empty, and a record with no row is a conversation nothing can name. The last two
+                // share one directory, so the second call takes both.
+                self.agents.retire_agent(agent_id);
+                conversation_record::forget(&self.sessions(), agent_id);
+                let _ = std::fs::remove_dir_all(self.sessions().join(agent_id.to_string()));
             }
             Message::UnloadConversation { agent_id } => {
                 self.unload_conversation(client, agent_id);
@@ -1759,6 +1811,20 @@ impl Coordinator {
             }
             Message::ResumeConversation { agent_id } => {
                 self.resume_conversation(client, agent_id);
+            }
+            Message::SetConversationPersistent {
+                agent_id,
+                persistent,
+            } => {
+                self.set_conversation_persistent(client, agent_id, persistent);
+            }
+            Message::ReviveConversation {
+                source,
+                agent_id,
+                project_id,
+                session_id,
+            } => {
+                self.revive_conversation(client, source, agent_id, project_id, session_id);
             }
 
             // ── the search family ───────────────────────────────────
@@ -1884,6 +1950,7 @@ impl Coordinator {
             // knows, and guessing would put a wrong name under a real conversation.
             model: String::new(),
             context_pct: 0,
+            persistent: false,
             thread: Vec::new(),
         };
         // The window's own session, named after the project it is open on: the work's sessions are
@@ -1962,6 +2029,7 @@ impl Coordinator {
                 resume: None,
             },
         );
+        self.remember_conversation(agent_id);
 
         let mailbox = self.host.mailbox(To::Client(client));
         mailbox.send(Message::ConversationStarted {
@@ -2080,6 +2148,9 @@ impl Coordinator {
                     "starting failed: {error:#}"
                 );
                 self.agents.retire_agent(agent_id);
+                // A run that would not compose has nothing to resume, so its row goes too —
+                // otherwise the next boot restores a recipe that is known not to launch.
+                conversation_record::forget(&self.sessions(), agent_id);
                 self.work.remove_live_agent(pending.project_id, agent_id);
                 self.conversation_owners.remove(&agent_id);
                 self.pending_conversations.remove(&agent_id);
@@ -2177,6 +2248,218 @@ impl Coordinator {
         self.launch(client, agent_id, pending, None);
     }
 
+    /// Mark a conversation as one to keep, or stop keeping it.
+    ///
+    /// The flag lives on the durable row and nowhere else, because what it decides happens after
+    /// this process has gone: whether closing a window parks the run directory or deletes it, and
+    /// whether the next boot's sweep passes it over. The live `WorkAgent` is updated too, but only
+    /// so the glyph redraws — nothing reads persistence off it.
+    ///
+    /// **Refused for a harness with no relocating config lever.** That is grok, which writes its
+    /// sessions to the real `~/.grok` whatever `HOME` says, so nothing Ubiq keeps would bring the
+    /// conversation back — marking it would promise a resume that cannot happen. The refusal is a
+    /// log line naming the reason rather than a silent no-op.
+    fn set_conversation_persistent(
+        &mut self,
+        client: ClientId,
+        agent_id: AgentId,
+        persistent: bool,
+    ) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let sessions = self.sessions();
+        let Some(mut row) = conversation_record::load(&sessions, agent_id) else {
+            tracing::warn!(agent = %agent_id, "no conversation row to mark as persistent");
+            return;
+        };
+        if persistent && !self.agents.forkable(&row.agent_type) {
+            tracing::warn!(
+                agent = %agent_id,
+                harness = %row.agent_type,
+                "cannot be kept: it writes its sessions outside the run directory, so nothing \
+                 Ubiq keeps would bring it back"
+            );
+            return;
+        }
+        row.persistent = persistent;
+        conversation_record::save(&sessions, agent_id, &row);
+
+        let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
+            return;
+        };
+        let changed = self.work.live_agent_mut(project_id, agent_id).map(|agent| {
+            agent.persistent = persistent;
+            Box::new(agent.clone())
+        });
+        if let Some(agent) = changed {
+            self.host
+                .send(To::Everyone, Message::AgentChanged { project_id, agent });
+        }
+    }
+
+    /// Bring a conversation back out of a run directory — its own, or a copy of somebody else's.
+    ///
+    /// `source == agent_id` is a **re-attach**: the same agent, the same kept directory, the same
+    /// harness session id. `source != agent_id` is a **fork**: the source's directory is copied and
+    /// a second agent resumes the same session inside the copy, so the two share every turn up to
+    /// now and diverge from the next one. The source is not touched either way.
+    ///
+    /// Three things have to be right or the resume silently comes back blank rather than failing:
+    ///
+    /// - **The directory.** It is the harness's session store, which is why a fork is a copy and
+    ///   why `fork_run` refuses a harness that keeps its sessions elsewhere.
+    /// - **The cwd.** Claude Code keys its own store by a slug of the working directory, so a
+    ///   resume from a different folder finds nothing and starts fresh without saying so. The
+    ///   source's `cwd` is turned back into a project-relative path here so it goes through the
+    ///   same [`Self::resolve_cwd`] validation a fresh start does.
+    /// - **The token.** The harness's own session id, read from the library's `SessionMeta` — the
+    ///   one thing [`ConversationRecord`] deliberately does not duplicate.
+    ///
+    /// A fork does not inherit `persistent`: keeping the original was a decision about the original.
+    fn revive_conversation(
+        &mut self,
+        client: ClientId,
+        source: AgentId,
+        agent_id: AgentId,
+        project_id: ProjectId,
+        session_id: SessionId,
+    ) {
+        // The live recipe first, the row second: a conversation still in this process has picks the
+        // row may not have caught up with, and a row is what is left after a restart.
+        let facts = self
+            .pending_conversations
+            .get(&source)
+            .map(|pending| {
+                (
+                    pending.agent_type.clone(),
+                    pending.cwd.clone(),
+                    pending.account.clone(),
+                    pending.profile.clone(),
+                    pending.chosen_model.clone(),
+                    pending.chosen_thinking.clone(),
+                    pending.chosen_mode.clone(),
+                )
+            })
+            .or_else(|| {
+                conversation_record::load(&self.sessions(), source).map(|row| {
+                    (
+                        row.agent_type,
+                        row.cwd,
+                        row.account,
+                        row.profile,
+                        row.model,
+                        row.thinking,
+                        row.mode,
+                    )
+                })
+            });
+        let Some((agent_type, cwd, account, profile, model, thinking, mode)) = facts else {
+            self.refuse_conversation(
+                client,
+                agent_id,
+                "there is no record of that conversation to bring back".to_string(),
+            );
+            return;
+        };
+
+        let forking = source != agent_id;
+        if forking {
+            if !self.agents.forkable(&agent_type) {
+                self.refuse_conversation(
+                    client,
+                    agent_id,
+                    format!(
+                        "{agent_type} keeps its conversations outside the run directory, so a \
+                         fork would share one store"
+                    ),
+                );
+                return;
+            }
+            // ponytail: "is its harness running" stands in for "is it mid-turn" — a `Conversation`
+            // exposes no turn state, and copying a store while the harness appends to it tears the
+            // last record. Conservative in the safe direction; narrow it to the turn if forking a
+            // live, idle conversation is ever asked for.
+            if self.conversations.contains_key(&source) {
+                self.refuse_conversation(
+                    client,
+                    agent_id,
+                    "that conversation's harness is still running — unload it before forking, or \
+                     the copy would catch its session store mid-write"
+                        .to_string(),
+                );
+                return;
+            }
+            if let Err(error) = self.agents.fork_run(source, agent_id) {
+                self.refuse_conversation(client, agent_id, format!("{error:#}"));
+                return;
+            }
+        }
+
+        // Back to a project-relative path, so the start below validates the folder exactly as a
+        // fresh one does rather than trusting what a row on disk says.
+        let rel_path = match self.projects.record(project_id) {
+            Some(record) => match cwd.strip_prefix(&record.path) {
+                Ok(rel) if rel.as_os_str().is_empty() => None,
+                Ok(rel) => Some(rel.to_string_lossy().into_owned()),
+                Err(_) => {
+                    self.refuse_conversation(
+                        client,
+                        agent_id,
+                        format!(
+                            "{} is not inside this project, and a resume from anywhere else \
+                             finds nothing",
+                            cwd.display()
+                        ),
+                    );
+                    return;
+                }
+            },
+            None => {
+                self.refuse_conversation(client, agent_id, "no such project".to_string());
+                return;
+            }
+        };
+
+        self.start_conversation(
+            client, agent_id, project_id, session_id, rel_path, agent_type, account, profile,
+            model, thinking, mode,
+        );
+        // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
+        // — and says so; there is nothing here to add if it did.
+        if !self.pending_conversations.contains_key(&agent_id) {
+            return;
+        }
+
+        // The token the library holds for the *source*, which is what both paths resume: a
+        // re-attach continues its own session, and a fork continues the same session inside its own
+        // copy of the store.
+        let resume = agent_manager::session::load(&self.sessions(), &source.to_string())
+            .ok()
+            .and_then(|meta| meta.harness_session_id);
+        if resume.is_none() {
+            tracing::warn!(
+                agent = %agent_id,
+                from = %source,
+                "no harness session id was recorded; this conversation comes back empty"
+            );
+        }
+        if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+            pending.resume = resume;
+        }
+        if forking {
+            let sessions = self.sessions();
+            if let Some(mut row) = conversation_record::load(&sessions, agent_id) {
+                row.forked_from = Some(source);
+                conversation_record::save(&sessions, agent_id, &row);
+            }
+        }
+
+        // Launch it with nothing to forward — already a no-op for a one-shot harness, whose next
+        // prompt is what starts its next process.
+        self.resume_conversation(client, agent_id);
+    }
+
     /// Kill the harness without ending the conversation. The transcript, the run directory and the
     /// `WorkAgent` all stay; only the pump and its `Conversation` go.
     fn unload_conversation(&mut self, client: ClientId, agent_id: AgentId) {
@@ -2194,6 +2477,7 @@ impl Coordinator {
         if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
             pending.next_seq = last_seq + 1;
         }
+        self.remember_conversation(agent_id);
         self.host.send(
             To::Client(client),
             Message::ConversationUnloaded { agent_id },
@@ -2220,6 +2504,7 @@ impl Coordinator {
         if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
             pending.next_seq = last_seq + 1;
         }
+        self.remember_conversation(agent_id);
         self.host.send(
             To::Client(client),
             Message::ConversationUnloaded { agent_id },
@@ -2267,6 +2552,86 @@ impl Coordinator {
             }
             // The agent has already gone; its last messages are in flight behind it.
             None => false,
+        }
+    }
+
+    /// Where the durable conversation rows live.
+    ///
+    /// Composed from the same config root [`Agents`] was built with, because it composes the same
+    /// path privately (`Agents::sessions_dir`). **The two must agree**: the row written here is the
+    /// one `Agents::is_persistent` reads when the boot sweep decides whether a run directory is
+    /// parked or deleted, and a row written somewhere else would have the sweep delete every
+    /// conversation the user asked to keep.
+    fn sessions(&self) -> PathBuf {
+        self.root.path.join("sessions")
+    }
+
+    /// Write down one conversation's launch recipe, as it stands now.
+    ///
+    /// Called from every site that changes what a relaunch would do — the start, a `SetAgentConfig`
+    /// pick, and each place `next_seq` moves on — rather than only at teardown, because a `kill -9`
+    /// is exactly the case the row exists to survive. One helper rather than a construction at each
+    /// site: a field added to [`ConversationRecord`] and filled in four places out of five is a row
+    /// that quietly disagrees with itself depending on what happened last.
+    ///
+    /// Three fields are *not* the coordinator's recipe and are carried over from the row already on
+    /// disk rather than rebuilt: `title`, written by the naming thread; `persistent`, written by the
+    /// user through [`Message::SetConversationPersistent`]; and `forked_from`, stamped once by a
+    /// revive. A sequence bump must not reset any of them.
+    fn remember_conversation(&self, agent_id: AgentId) {
+        let Some(pending) = self.pending_conversations.get(&agent_id) else {
+            return;
+        };
+        let sessions = self.sessions();
+        let held = conversation_record::load(&sessions, agent_id);
+        let record = ConversationRecord {
+            project_id: pending.project_id,
+            agent_type: pending.agent_type.clone(),
+            cwd: pending.cwd.clone(),
+            account: pending.account.clone(),
+            profile: pending.profile.clone(),
+            model: pending.chosen_model.clone(),
+            thinking: pending.chosen_thinking.clone(),
+            mode: pending.chosen_mode.clone(),
+            next_seq: pending.next_seq,
+            title: held.as_ref().and_then(|row| row.title.clone()),
+            persistent: held.as_ref().is_some_and(|row| row.persistent),
+            forked_from: held.and_then(|row| row.forked_from),
+            // What the run was composed under, read from the settings rather than from `Agents`.
+            // **The two must agree**: `Agents::set_policy` was handed this same field, and is given
+            // it again whenever a `SetSettings` changes it, so a row that named the other one would
+            // claim a run answered from a different machine's worth of state than it did.
+            agent_home: self.settings.host().agent_home.clone(),
+        };
+        conversation_record::save(&sessions, agent_id, &record);
+    }
+
+    /// Write down each live conversation's harness session id the moment it names one.
+    ///
+    /// The id is the whole of what a resume needs, and nothing else writes it before teardown —
+    /// which makes a `kill -9` the case that loses it, and a crash is precisely when a user wants
+    /// their conversation back. So it is recorded here, on the same poll as the naming pass, rather
+    /// than at the end.
+    ///
+    /// This makes [`Self::finish_one_shot_turn`]'s own assignment to `pending.resume` redundant: the
+    /// poll that reaps a finished one-shot turn runs this first. It is left in place because it
+    /// costs nothing and keeps that method readable on its own.
+    fn remember_sessions(&mut self) {
+        let learned: Vec<(AgentId, String)> = self
+            .conversations
+            .iter()
+            .filter_map(|(agent_id, conversation)| {
+                let id = conversation.session_id()?;
+                let pending = self.pending_conversations.get(agent_id)?;
+                (pending.resume.as_deref() != Some(id.as_str())).then_some((*agent_id, id))
+            })
+            .collect();
+        for (agent_id, id) in learned {
+            tracing::debug!(agent = %agent_id, session = %id, "the harness named its session");
+            self.agents.remember_session(agent_id, &id);
+            if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+                pending.resume = Some(id);
+            }
         }
     }
 
@@ -2336,6 +2701,11 @@ impl Coordinator {
             return;
         };
         let mailbox = self.host.mailbox(To::Client(client));
+        // The title lands on this thread and nowhere else — nothing sends it back to the
+        // coordinator — so this is where it reaches the durable row. Read-modify-write rather than
+        // a rebuild: everything else on the row is the coordinator's, and this thread has none of
+        // it. [`Self::remember_conversation`] carries the title over for the same reason.
+        let sessions = self.sessions();
 
         let spawned = thread::Builder::new()
             .name(format!("name-{agent_id}"))
@@ -2346,6 +2716,10 @@ impl Coordinator {
                     Ok(answer) => match assist::subject::naming(&answer) {
                         Some((title, summary)) => {
                             tracing::debug!(agent = %agent_id, %title, "named a conversation");
+                            if let Some(mut row) = conversation_record::load(&sessions, agent_id) {
+                                row.title = Some(title.clone());
+                                conversation_record::save(&sessions, agent_id, &row);
+                            }
                             mailbox.send(Message::ConversationNamed {
                                 agent_id,
                                 title,
@@ -2429,7 +2803,8 @@ impl Coordinator {
         // and the window draws it as one.
         pending.next_seq = last_seq + 1;
         // Only ever overwritten by a newer id: a run that reported none must not erase the one
-        // that lets the conversation continue.
+        // that lets the conversation continue. Redundant since `remember_sessions` — the same poll
+        // runs that first — and kept because it costs nothing and says here what a resume needs.
         if session_id.is_some() {
             pending.resume = session_id;
         }
@@ -2439,6 +2814,7 @@ impl Coordinator {
             resume = ?pending.resume,
             "a one-shot harness finished its turn; the conversation stays"
         );
+        self.remember_conversation(agent_id);
         if let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() {
             self.host.send(
                 To::Client(client),
@@ -2447,10 +2823,17 @@ impl Coordinator {
         }
     }
 
-    /// Stop an agent and take everything it owned with it.
+    /// Stop an agent and let go of everything the process owned.
     ///
     /// The pump answers its own `ConversationEnded` on the way out, so nothing is said here: two
     /// endings for one agent would leave a window unsure which it was.
+    ///
+    /// **This is not a delete.** Both ways in are a conversation that may come back —
+    /// [`Self::client_gone`] closing a window, and [`Self::reap_conversations`] seeing a harness
+    /// exit on its own — so a conversation the user marked persistent is *parked*: its run
+    /// directory stays, its login is scrubbed, and its row is left on disk for a
+    /// [`Message::ReviveConversation`] to read. Only [`Message::EndConversation`] means gone, and
+    /// that arm retires and forgets explicitly on top of this.
     fn end_conversation(&mut self, agent_id: AgentId, reason: StopReason) {
         if let Some(conversation) = self.conversations.remove(&agent_id) {
             tracing::info!("agent {agent_id} ending: {reason:?}");
@@ -2462,9 +2845,16 @@ impl Coordinator {
         if let Some((_, project_id)) = self.conversation_owners.remove(&agent_id) {
             self.work.remove_live_agent(project_id, agent_id);
         }
-        // The agent owned its run's configuration directory — credentials seeded into it included
-        // — so that goes when the agent does.
-        self.agents.retire_agent(agent_id);
+        // The run directory *is* the harness's session store — Claude's `projects/<slug>/*.jsonl`,
+        // Codex's rollouts, opencode's data dir — so keeping it is the whole of what lets this
+        // conversation be resumed later. A conversation the user marked persistent keeps it, minus
+        // the login it was seeded with; one nobody asked to keep is deleted as it always was, and
+        // the credentials seeded into it go with it.
+        if conversation_record::load(&self.sessions(), agent_id).is_some_and(|row| row.persistent) {
+            self.agents.park_agent(agent_id);
+        } else {
+            self.agents.retire_agent(agent_id);
+        }
     }
 
     /// Tell the window that asked that its agent never started.
@@ -3687,6 +4077,7 @@ mod tests {
             account: String::new(),
             model: String::new(),
             context_pct: 0,
+            persistent: false,
             thread: Vec::new(),
         };
         let session = WorkSession {
@@ -3956,6 +4347,223 @@ mod tests {
                 .contains(&"fake".to_string()),
             "a delete takes the WorkAgent with it"
         );
+    }
+
+    // ── persistence: park, delete, revive ────────────────────────────
+
+    /// Write the durable row a seeded conversation would have, and set its flag. `seed_live_conversation`
+    /// inserts the recipe straight into the map, so nothing has written a row for it yet.
+    fn mark_persistent(coordinator: &Coordinator, agent_id: AgentId, persistent: bool) {
+        coordinator.remember_conversation(agent_id);
+        let sessions = coordinator.sessions();
+        let mut row = conversation_record::load(&sessions, agent_id).expect("a row was written");
+        row.persistent = persistent;
+        conversation_record::save(&sessions, agent_id, &row);
+    }
+
+    /// A window closing, or a harness exiting on its own, must not take a conversation the user
+    /// asked to keep — the run directory *is* the harness's session store, so deleting it is
+    /// deleting the conversation. Both cases go through `end_conversation`, which is why one test
+    /// covers them.
+    #[test]
+    fn a_close_parks_a_kept_conversation_and_deletes_one_nobody_asked_to_keep() {
+        for persistent in [true, false] {
+            let (mut coordinator, client) = test_coordinator();
+            let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+            let run_dir = coordinator.agents.agent_dir(agent_id);
+            std::fs::create_dir_all(&run_dir).unwrap();
+            mark_persistent(&coordinator, agent_id, persistent);
+
+            coordinator.end_conversation(agent_id, StopReason::Cancelled);
+
+            assert_eq!(
+                run_dir.exists(),
+                persistent,
+                "persistent={persistent}: the run directory should have been \
+                 {}",
+                if persistent { "parked" } else { "deleted" }
+            );
+            assert!(
+                conversation_record::load(&coordinator.sessions(), agent_id).is_some(),
+                "a close never takes the row — only an explicit end does"
+            );
+        }
+    }
+
+    /// Deleting a conversation deletes all three of it: the run directory, Ubiq's row and the
+    /// library's session record. A row without a directory would offer a resume that comes back
+    /// empty, so none of the three may outlive the others — and this holds even for a conversation
+    /// marked persistent, because `EndConversation` is the one place the user means *gone*.
+    #[test]
+    fn ending_a_conversation_takes_the_directory_the_row_and_the_session_record() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        let run_dir = coordinator.agents.agent_dir(agent_id);
+        std::fs::create_dir_all(&run_dir).unwrap();
+        mark_persistent(&coordinator, agent_id, true);
+        let session_dir = coordinator.sessions().join(agent_id.to_string());
+        std::fs::write(session_dir.join("meta.json"), b"{}").unwrap();
+
+        coordinator.dispatch(client.id(), Message::EndConversation { agent_id });
+
+        assert!(!run_dir.exists(), "the run directory goes");
+        assert!(
+            !session_dir.exists(),
+            "so do the row and the library's record beside it"
+        );
+    }
+
+    /// A re-attach starts the same conversation again from its own kept directory: the recipe the
+    /// source was launched with comes back field for field, and the harness's own session id — the
+    /// one thing the row deliberately does not duplicate — is read out of the library's record.
+    #[test]
+    fn a_re_attach_restores_the_recipe_and_the_harness_session_id() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _seeded) = seed_live_conversation(&mut coordinator, &client, 0);
+        let held = tempfile::TempDir::new().unwrap();
+        // Canonical, because the catalogue stores what it resolved and the revive turns the
+        // source's `cwd` back into a path relative to it.
+        let folder = held.path().canonicalize().unwrap();
+        let project_id = add_test_project(&mut coordinator, &folder);
+
+        {
+            let pending = coordinator
+                .pending_conversations
+                .get_mut(&agent_id)
+                .unwrap();
+            pending.project_id = project_id;
+            pending.agent_type = "claude-code".to_string();
+            pending.cwd = folder.clone();
+            pending.account = Some("work".to_string());
+            pending.chosen_model = Some("opus".to_string());
+        }
+        let mut meta = agent_manager::session::SessionMeta::new(
+            "claude-code".to_string(),
+            folder.clone(),
+            Vec::new(),
+            None,
+            "jsonl".to_string(),
+            folder.clone(),
+        );
+        meta.id = agent_id.to_string();
+        meta.harness_session_id = Some("harness-session-1".to_string());
+        agent_manager::session::save(&coordinator.sessions(), &meta).unwrap();
+
+        // Source and target are the same agent: a re-attach. Its `Conversation` is still live, so
+        // the `resume_conversation` at the end is a no-op and nothing is spawned.
+        coordinator.revive_conversation(
+            client.id(),
+            agent_id,
+            agent_id,
+            project_id,
+            SessionId::generate(),
+        );
+
+        // The recipe below would read the same if the start had refused and left the seeded row in
+        // place, so the start itself is proved first.
+        let said = drain_all(&client);
+        assert!(
+            said.iter()
+                .any(|message| matches!(message, Message::ConversationStarted { .. })),
+            "the revived conversation was registered: {said:?}"
+        );
+
+        let pending = coordinator
+            .pending_conversations
+            .get(&agent_id)
+            .expect("the revived recipe");
+        assert_eq!(pending.agent_type, "claude-code");
+        assert_eq!(pending.cwd, folder);
+        assert_eq!(pending.account.as_deref(), Some("work"));
+        assert_eq!(pending.chosen_model.as_deref(), Some("opus"));
+        assert_eq!(
+            pending.resume.as_deref(),
+            Some("harness-session-1"),
+            "the resume token comes from the library's record, not the row"
+        );
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// Two forks that must not happen. grok writes its sessions to the real `~/.grok` whatever
+    /// `HOME` says, so a copied directory would isolate nothing and the two agents would append to
+    /// one store; and copying any store while its harness is running catches the last record
+    /// mid-write. Both are refused with a reason, before anything is copied.
+    #[test]
+    fn a_fork_refuses_a_harness_that_keeps_its_sessions_elsewhere_and_one_still_running() {
+        for (agent_type, expected) in [
+            ("grok", "outside the run directory"),
+            ("claude-code", "still running"),
+        ] {
+            let (mut coordinator, client) = test_coordinator();
+            let (source, project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+            coordinator
+                .pending_conversations
+                .get_mut(&source)
+                .unwrap()
+                .agent_type = agent_type.to_string();
+
+            let forked = AgentId::generate();
+            coordinator.revive_conversation(
+                client.id(),
+                source,
+                forked,
+                project_id,
+                SessionId::generate(),
+            );
+
+            assert!(
+                !coordinator.pending_conversations.contains_key(&forked),
+                "{agent_type}: nothing was registered for the fork"
+            );
+            assert!(
+                !coordinator.agents.agent_dir(forked).exists(),
+                "{agent_type}: nothing was copied"
+            );
+            let said = drain_all(&client);
+            let error = said
+                .iter()
+                .find_map(|message| match message {
+                    Message::ConversationError { agent_id, error } if *agent_id == forked => {
+                        Some(error.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{agent_type}: no refusal, said {said:?}"));
+            assert!(
+                error.contains(expected),
+                "{agent_type}: expected {expected:?}, said {error:?}"
+            );
+
+            coordinator
+                .conversations
+                .remove(&source)
+                .unwrap()
+                .stop(true);
+        }
+    }
+
+    /// Put a real folder in the catalogue, so `resolve_cwd` has something to validate against.
+    fn add_test_project(coordinator: &mut Coordinator, path: &std::path::Path) -> ProjectId {
+        coordinator
+            .projects
+            .add(
+                &path.to_string_lossy(),
+                Some("project".to_string()),
+                None,
+                None,
+                false,
+            )
+            .into_iter()
+            .find_map(|reply| match reply.into_message() {
+                Message::ProjectAdded { project } => Some(project.id()),
+                _ => None,
+            })
+            .expect("the project was added")
     }
 
     // ── probe logins ──────────────────────────────────────────────────

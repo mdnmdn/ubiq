@@ -21,6 +21,7 @@ use crate::state::sink::{
     SettingsMenu, SettingsNav, THEME_CHOICES, THINKING_CHOICES,
 };
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{
     Picker, PickerStyle, card, check_box, choice_pill, column, ghost_button, heading, icon_button,
     label_block, meter, mono, nav_item, pill, primary_button, setting_row, slab, status_dot,
@@ -207,7 +208,10 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     cx.listener(|this, _, _, cx| this.nudge_sink_font(-1, cx)),
                     cx.listener(|this, _, _, cx| this.nudge_sink_font(1, cx)),
                 ))
-                .child(mono("px", theme::text_faint()).text_size(px(11.)))
+                .child(
+                    mono("px", theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                )
                 .into_any_element(),
         ),
         setting_row(
@@ -258,16 +262,16 @@ fn harnesses(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Any
                     ),
                     theme::text_faint(),
                 )
-                .text_size(px(11.)),
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
             )
             .into_any_element(),
         div()
             .px_3()
             .py_2()
             .bg(theme::warning_soft())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::warning())
-            .text_size(px(12.5))
+            .text_size(theme::font(Family::Chrome, Role::Body))
             .text_color(theme::text())
             .child(SharedString::from(
                 "Secrets live in the OS keychain. Ubiq stores only a reference in settings.json, \
@@ -348,7 +352,7 @@ fn harness_card(
                         .min_w(px(0.))
                         .child(
                             div()
-                                .text_size(px(13.5))
+                                .text_size(theme::font(Family::Chrome, Role::Body))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::text())
                                 .child(SharedString::from(fixture.name)),
@@ -361,7 +365,7 @@ fn harness_card(
                                 ),
                                 theme::text_faint(),
                             )
-                            .text_size(px(11.)),
+                            .text_size(theme::font(Family::Chrome, Role::Meta)),
                         ),
                 )
                 .on_click(
@@ -375,7 +379,10 @@ fn harness_card(
                     .items_center()
                     .gap_1()
                     .child(status_dot(theme::success(), theme::success_soft()))
-                    .child(mono("connected", theme::success()).text_size(px(11.))),
+                    .child(
+                        mono("connected", theme::success())
+                            .text_size(theme::font(Family::Chrome, Role::Meta)),
+                    ),
             )
         })
         .child(check_box(
@@ -463,7 +470,10 @@ fn harness_form(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(mono(HARNESS_FIXTURES[0].account, theme::text()).text_size(px(12.5)))
+                .child(
+                    mono(HARNESS_FIXTURES[0].account, theme::text())
+                        .text_size(theme::font(Family::Chrome, Role::Body)),
+                )
                 .child(ghost_button(
                     "sink-harness-reauth",
                     None,
@@ -550,7 +560,7 @@ fn harness_form(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
                             .appearance(false)
                             .bordered(false)
                             .w_full()
-                            .text_size(px(13.)),
+                            .text_size(theme::font(Family::Chrome, Role::Body)),
                     ),
                 ),
         )
@@ -572,7 +582,10 @@ fn env_chips(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Any
         .map(|(index, pair)| {
             pill(theme::border())
                 .gap_1()
-                .child(mono(pair.clone(), theme::text()).text_size(px(11.)))
+                .child(
+                    mono(pair.clone(), theme::text())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                )
                 .child(
                     div()
                         .id(ElementId::Name(format!("sink-env-drop-{index}").into()))
@@ -661,13 +674,13 @@ fn defaults(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                             .gap_0()
                             .child(
                                 div()
-                                    .text_size(px(13.5))
+                                    .text_size(theme::font(Family::Chrome, Role::Body))
                                     .text_color(theme::text())
                                     .child(SharedString::from(*label)),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(theme::font(Family::Chrome, Role::Meta))
                                     .text_color(theme::text_muted())
                                     .child(SharedString::from(*note)),
                             ),
@@ -760,7 +773,10 @@ fn defaults(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     cx.listener(|this, _, _, cx| this.nudge_sink_idle(-5, cx)),
                     cx.listener(|this, _, _, cx| this.nudge_sink_idle(5, cx)),
                 ))
-                .child(mono("min", theme::text_faint()).text_size(px(11.)))
+                .child(
+                    mono("min", theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                )
                 .into_any_element(),
         ),
     ])
@@ -795,14 +811,14 @@ fn keyboard() -> AnyElement {
             "Command palette",
             "Search commands, files and settings from the titlebar.",
             mono("cmd-k", theme::text_muted())
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .into_any_element(),
         ),
         setting_row(
             "Toggle the sink",
             "The application's own test bench, this page.",
             mono("cmd-shift-s", theme::text_muted())
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .into_any_element(),
         ),
     ])

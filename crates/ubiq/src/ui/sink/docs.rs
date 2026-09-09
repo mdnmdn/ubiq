@@ -46,7 +46,7 @@ fn header(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> 
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .child(mono(doc.name, theme::text_muted()).text_size(px(11.5)))
+        .child(mono(doc.name, theme::text_muted()))
         .child(div().flex_1().min_w(px(0.)))
         .children(toggles.then(|| {
             div()

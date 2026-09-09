@@ -16,6 +16,7 @@ use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
 use ubiq::state::nav::{Destination, Locus, View};
+use ubiq::state::prefs;
 use ubiq::state::settings::{self, MarkdownOpen, UiSettings};
 use ubiq_proto::assist::{
     AiProvider, AiProviderInfo, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
@@ -23,7 +24,7 @@ use ubiq_proto::assist::{
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{AiProviderId, ProjectId, SuggestId};
 use ubiq_proto::messages::Message;
-use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
+use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 
 #[test]
@@ -226,6 +227,43 @@ fn flipping_the_isolation_toggle_writes_the_host_layer(cx: &mut TestAppContext) 
             .read_with(cx, |state, _| state.workbench.settings.host.isolate_agents),
         "the toggle's own state matches what it just sent"
     );
+}
+
+/// Every Appearance control persists as it is flipped: there is no apply button, so each of the
+/// four theme axes writes the interface blob on the click that changed it.
+#[gpui::test]
+fn flipping_an_appearance_control_writes_the_interface_blob(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.state.update(cx, |state, cx| {
+        state.set_palette(ubiq::theme::ThemeId("ember-dark"), cx);
+        state.set_accent(Some(ubiq::theme::AccentId("teal")), cx);
+        state.set_density(ubiq::theme::Density::Compact, cx);
+        state.set_chrome_font_size(13.5, cx);
+        state.set_conversation_font_size(15.0, cx);
+    });
+    cx.run_until_parked();
+
+    let written = fixture
+        .said()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::SetPreferences {
+                scope: Scope::Interface,
+                value,
+            } => Some(value),
+            _ => None,
+        })
+        .next_back()
+        .expect("the flips wrote the interface blob");
+    let sent: prefs::InterfacePrefs = prefs::decode(&written).expect("a readable blob");
+
+    assert_eq!(sent.theme.slug(), "ember-dark");
+    assert_eq!(sent.accent, Some(ubiq::theme::AccentId("teal")));
+    assert_eq!(sent.density, ubiq::theme::Density::Compact);
+    assert_eq!(sent.chrome_font_size, Some(13.5));
+    assert_eq!(sent.conversation_font_size, Some(15.0));
 }
 
 /// Naming is on by default and that default costs nothing, because it runs through the provider

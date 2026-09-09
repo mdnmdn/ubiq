@@ -33,6 +33,7 @@ use crate::state::orchestration::{CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PA
 use crate::state::work;
 use crate::state::{Held, Selection};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::canvas::{self, Link};
 use crate::ui::kit::{UbiqIcon, card, ghost_button, mono, state_chip};
@@ -86,7 +87,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             .bg(theme::app_bg())
             .child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .text_color(theme::text_faint())
                     .child(if filtered {
                         "No agent matches the filters."
@@ -192,10 +193,17 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     .h(px(GROUP_LABEL * zoom))
                     .px(px(8.0 * zoom))
                     .bg(theme::pane_bg())
-                    .child(mono(task.shape.label(), theme::text_faint()).text_size(px(9.5 * zoom)))
-                    .child(mono("\u{b7}", theme::text_faint()).text_size(px(9.5 * zoom)))
                     .child(
-                        mono(task.title.clone(), theme::text_muted()).text_size(px(11.0 * zoom)),
+                        mono(task.shape.label(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                    )
+                    .child(
+                        mono("\u{b7}", theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                    )
+                    .child(
+                        mono(task.title.clone(), theme::text_muted())
+                            .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),
                     ),
             );
     }
@@ -325,7 +333,7 @@ fn agent_card(
         // dropping, and its edge takes the accent so it is the one thing in focus.
         .when(carried, |this| {
             this.bg(theme::surface_raised())
-                .border_l(px(theme::ACCENT_EDGE * 2.0))
+                .border_l(px(theme::accent_edge() * 2.0))
                 .border_color(theme::accent())
         })
         .cursor_grab()
@@ -344,13 +352,13 @@ fn agent_card(
                         .min_w(px(0.))
                         .child(
                             div()
-                                .text_size(px(13.0 * zoom))
+                                .text_size(theme::font(Family::Chrome, Role::Body) * zoom)
                                 .text_color(theme::text())
                                 .child(SharedString::from(agent.name.clone())),
                         )
                         .child(
                             mono(agent.role.to_uppercase(), theme::text_faint())
-                                .text_size(px(9.0 * zoom)),
+                                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
                         ),
                 )
                 .child(state_chip(agent.activity.label(), colour, zoom)),
@@ -359,7 +367,7 @@ fn agent_card(
             div()
                 .flex_1()
                 .min_h(px(0.))
-                .text_size(px(11.5 * zoom))
+                .text_size(theme::font(Family::Chrome, Role::Label) * zoom)
                 .text_color(theme::text_muted())
                 .child(SharedString::from(agent.note.clone())),
         )
@@ -374,9 +382,13 @@ fn agent_card(
                         .with_size(Size::XSmall)
                         .text_color(theme::text_faint()),
                 )
-                .child(mono(agent.branch.clone(), theme::text_muted()).text_size(px(10.5 * zoom)))
                 .child(
-                    mono(work::tokens_label(agent), theme::text_faint()).text_size(px(10.5 * zoom)),
+                    mono(agent.branch.clone(), theme::text_muted())
+                        .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                )
+                .child(
+                    mono(work::tokens_label(agent), theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
                 )
                 .child(div().flex_1().min_w(px(0.)))
                 // The way into the conversation with this one agent: it selects the card and puts
@@ -396,7 +408,10 @@ fn agent_card(
                                 .with_size(Size::XSmall)
                                 .text_color(theme::text_faint()),
                         )
-                        .child(mono("chat", theme::text_muted()).text_size(px(10.5 * zoom)))
+                        .child(
+                            mono("chat", theme::text_muted())
+                                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                        )
                         .on_click(cx.listener(move |this, _, _, cx| this.open_agent_chat(id, cx))),
                 ),
         )

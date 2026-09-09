@@ -16,11 +16,18 @@ use gpui::{
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::controls::{field, icon_button};
 
 /// The text size a file list draws at when nobody scales it — the picker and the ref list, which
-/// are dialogs rather than a project's workspace.
-pub const ROW_FONT: f32 = 12.5;
+/// are dialogs rather than a project's workspace. Chrome rather than content for that reason: a
+/// dialog's rows are furniture, and the project's zoom is not theirs to follow.
+///
+/// A function rather than a const because the number itself belongs in `theme.rs`, the one file
+/// allowed to name a size; a row's height and indent are derived from it, so it is an `f32`.
+pub fn row_font() -> f32 {
+    f32::from(theme::font(Family::Chrome, Role::Body))
+}
 
 /// How tall one row is at a given text size.
 ///
@@ -28,14 +35,19 @@ pub const ROW_FONT: f32 = 12.5;
 /// font, so a row that kept a fixed height would leave a gap around small text and clip large
 /// text. The floor keeps the twisty and the kind icon from touching the edges; the ceiling stops
 /// the tree turning into a list of buttons at the top of the range.
+/// The row is a grid, so it also follows the density factor — `theme::density`.
 pub fn row_height(font_size: f32) -> f32 {
-    (font_size * 1.7).round().clamp(18.0, 52.0)
+    (font_size * 1.7 * theme::density().factor())
+        .round()
+        .clamp(18.0, 52.0)
 }
 
 /// How far each level of the tree indents, at a given text size. It scales with the row for the
 /// same reason the height does — an indent is read against the text beside it.
 pub fn row_indent(font_size: f32) -> f32 {
-    (font_size * 0.85).round().clamp(8.0, 24.0)
+    (font_size * 0.85 * theme::density().factor())
+        .round()
+        .clamp(8.0, 24.0)
 }
 
 /// The two-arrangement toggle: tree on the left, list on the right, lit when it is the one on
@@ -87,7 +99,7 @@ pub fn filter_bar(
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(12.5))
+                    .text_size(theme::font(Family::Chrome, Role::Body))
                     .child(input),
             )
             .child(trailing),

@@ -217,6 +217,7 @@ mod tests {
             account: String::new(),
             model: String::new(),
             context_pct: 0,
+            persistent: false,
             thread: Vec::new(),
         }
     }

@@ -18,15 +18,18 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, ElementId,
     Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
-    deferred, div, point, pulsating_between, px,
+    ParentElement, Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, Window,
+    anchored, deferred, div, point, pulsating_between, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
+use gpui_component::v_virtual_list;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::conversation::{ConfigChoice, ConfigValue, ToolContent, ToolKind, ToolStatus};
@@ -49,6 +52,7 @@ use crate::ui::kit::{
 use crate::ui::{handler, indexed};
 
 /// What differs between the surfaces that host a conversation.
+#[derive(Clone)]
 pub struct ConversationView {
     /// What every element id inside is built from, so two conversations on screen at once do not
     /// collide. A prefix rather than an [`ElementId`], because the ids under it are composed.
@@ -137,14 +141,17 @@ pub fn render(
                 .items_center()
                 .gap_2()
                 .bg(theme::danger_soft())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::danger())
                 .child(
                     Icon::new(IconName::TriangleAlert)
                         .with_size(Size::XSmall)
                         .text_color(theme::danger()),
                 )
-                .child(mono(error.clone(), theme::text()).text_size(px(11.5))),
+                .child(
+                    mono(error.clone(), theme::text())
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+                ),
         );
     }
     // One rule, above both. The footer and the composer are one block at the bottom of the view
@@ -285,28 +292,54 @@ pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
     }
 }
 
-/// Which of the five lifecycle-menu rows apply, in the order the menu draws them — Stop, Abort,
-/// Unload, Resume, Delete. A pure reading of the conversation's own state, pulled out of
-/// [`lifecycle_header`] so the enable/disable rule is testable on its own: Stop only while a turn
-/// is running, Abort and Unload only while launched, Resume only while not, Delete always (ending
-/// applies whatever the state).
+/// The rows the lifecycle menu draws, in order — Stop, Abort, Unload, Resume, Fork, the
+/// persistence toggle, Delete — each with whether it applies. A pure reading of the conversation's
+/// own state, pulled out of [`lifecycle_header`] so the enable/disable rule is testable on its own:
+/// Stop only while a turn is running, Abort and Unload only while launched, Resume only while not,
+/// Delete always (ending applies whatever the state).
 ///
 /// **Stop and Abort are different verbs.** Stop interrupts the *turn* and leaves the harness to
 /// take the next one; Abort kills the *process*, which is what is left when a harness has stopped
 /// answering and Stop has nothing to interrupt it with. Abort keeps the conversation, so Resume
 /// brings it back — it is Delete that is irreversible, and only Delete is confirmed.
-/// The rows the lifecycle menu draws, in order. One list, because there were two and they were a
-/// row apart from disagreeing: [`lifecycle_menu_enabled`] answers by position, so a label added to
-/// one copy and not the other is a menu whose rows do the wrong thing.
-const LIFECYCLE_ROWS: [&str; 5] = ["Stop", "Abort", "Unload", "Resume", "Delete"];
-
-pub fn lifecycle_menu_enabled(conversation: &Conversation) -> [bool; 5] {
+///
+/// **Delete stays last** — the two new rows are not destructive, and a menu whose irreversible verb
+/// is somewhere in the middle is a menu clicked by muscle memory into the wrong row.
+///
+/// **One list of pairs, not two arrays.** There were two — labels and enablement — and they were a
+/// row apart from disagreeing, because [`AppState::pick_conversation_menu`] dispatches by position:
+/// a row added to one copy and not the other is a menu whose rows do the wrong thing. The
+/// persistence label is the reason the labels can no longer be a `const`, and a dynamic label is
+/// exactly what would have made that skew easy, so the two are built together here.
+pub fn lifecycle_menu_rows(
+    conversation: &Conversation,
+    persistent: bool,
+    keeps_sessions: bool,
+) -> [(String, bool); 7] {
     [
-        conversation.run != Run::Idle,
-        conversation.launched,
-        conversation.launched,
-        !conversation.launched,
-        true,
+        ("Stop".to_string(), conversation.run != Run::Idle),
+        ("Abort".to_string(), conversation.launched),
+        ("Unload".to_string(), conversation.launched),
+        ("Resume".to_string(), !conversation.launched),
+        // Two conditions, and they refuse for different reasons. `keeps_sessions` is about the
+        // harness: one that writes its sessions outside the run directory would be copied into a
+        // fork that shares its store rather than diverging. The turn state is about the moment:
+        // copying a store while the harness appends to it tears the last record.
+        (
+            "Fork".to_string(),
+            keeps_sessions && conversation.run == Run::Idle,
+        ),
+        (
+            if persistent {
+                "Stop persisting".to_string()
+            } else {
+                "Make persistent".to_string()
+            },
+            // Keeping the run directory of a harness that keeps its sessions elsewhere would
+            // preserve nothing, so the row is drawn dead rather than refused after the click.
+            keeps_sessions,
+        ),
+        ("Delete".to_string(), true),
     ]
 }
 
@@ -360,16 +393,19 @@ pub fn lifecycle_menu(
     let id = conversation.id;
     let entity = cx.entity();
 
-    let enabled = lifecycle_menu_enabled(conversation);
-    let labels = LIFECYCLE_ROWS;
-    let items: Vec<ContextItem> = labels
-        .into_iter()
-        .zip(enabled)
-        .map(|(label, enabled)| {
-            let item = ContextItem::new(label);
-            if enabled { item } else { item.disabled() }
-        })
-        .collect();
+    // The persistence row's label says which way the toggle goes, and that lives on the work
+    // record rather than on the conversation — see [`persistence_mark`].
+    let items: Vec<ContextItem> = lifecycle_menu_rows(
+        conversation,
+        is_persistent(app, id, cx),
+        keeps_sessions(app, conversation, cx),
+    )
+    .into_iter()
+    .map(|(label, enabled)| {
+        let item = ContextItem::new(label);
+        if enabled { item } else { item.disabled() }
+    })
+    .collect();
 
     let mut row = div().flex().flex_none().items_center().child(
         div()
@@ -454,6 +490,62 @@ fn lifecycle_glyph(conversation: &Conversation, view: &ConversationView) -> AnyE
         .into_any_element()
 }
 
+/// Whether this conversation is one the user marked to keep.
+///
+/// **It is not on [`Conversation`].** `persistent` is a property of the *record* — `WorkAgent`
+/// carries it, because every surface that draws an agent draws this glyph and the sidebar and the
+/// card have no live conversation to read it off. So this is the one lookup, and the surfaces that
+/// already hold the record ([`crate::ui::agents::column`]) read it there directly instead.
+fn is_persistent(app: &AppState, id: AgentId, cx: &App) -> bool {
+    app.work(cx)
+        .and_then(|work| work.agent(id))
+        .is_some_and(|agent| agent.persistent)
+}
+
+/// Whether this conversation's harness keeps its own session store where Ubiq can keep or copy it.
+///
+/// Matched on the display label, because that is what a `WorkAgent` carries — the host puts
+/// `AgentTypeInfo::label` there rather than the harness id, so the id is not in the window's hands
+/// at this point.
+///
+/// **True when the harness is not found.** A lookup that misses is not evidence the harness keeps
+/// its sessions elsewhere, and drawing a control dead on a failed match would refuse something that
+/// works. The host refuses the ones that genuinely cannot; this only saves the user the click.
+fn keeps_sessions(app: &AppState, conversation: &Conversation, _cx: &App) -> bool {
+    app.workbench
+        .agent_types
+        .iter()
+        .find(|info| info.label == conversation.harness)
+        .is_none_or(|info| info.keeps_sessions)
+}
+
+/// The mark that says this conversation outlives the window, drawn **beside** the lifecycle glyph
+/// and never into it.
+///
+/// Two marks because they answer two questions: the dot says *what is this doing*, and this says
+/// *will this still be here tomorrow*. Folding the second into the first — a fifth dot colour, or a
+/// tinted state glyph — would cost the dot the one reading it is scanned for.
+///
+/// **Drawn only when it is true.** There is no "not kept" mark: absence is the answer for every
+/// conversation, which is most of them, and a glyph on every row says nothing.
+pub fn persistence_mark(id: impl Into<ElementId>) -> AnyElement {
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .child(
+            Icon::new(UbiqIcon::PanePersistent)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_muted()),
+        )
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new("Kept \u{b7} comes back after a restart")
+                .build(window, cx)
+        })
+        .into_any_element()
+}
+
 /// The colour a lifecycle dot draws — four readings, and only four.
 ///
 /// **Yellow needs you, blue is working, green is idle, grey is stopped.** The dot is read at a
@@ -484,8 +576,8 @@ pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
 /// followed: while a delegate's transcript is up, the main agent writing below it is not the tail
 /// of anything the reader can see, and following it would scroll a transcript nothing was added
 /// to.
-fn tail_signature(conversation: &Conversation, visible: &[(usize, &ConvBlock)]) -> u64 {
-    let tail = match visible.last().map(|(_, block)| block) {
+fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
+    let tail = match visible.last().and_then(|ix| conversation.blocks.get(*ix)) {
         Some(
             ConvBlock::User(text)
             | ConvBlock::Agent { body: text, .. }
@@ -494,6 +586,8 @@ fn tail_signature(conversation: &Conversation, visible: &[(usize, &ConvBlock)]) 
         Some(ConvBlock::Tool { call, open }) => {
             call.title.len() + call.content.len() + usize::from(*open)
         }
+        // A divider never changes once drawn.
+        Some(ConvBlock::Compacted) => 0,
         None => 0,
     };
     // The run is part of it: the writing indicator appears and disappears without a block being
@@ -502,80 +596,148 @@ fn tail_signature(conversation: &Conversation, visible: &[(usize, &ConvBlock)]) 
     (visible.len() as u64).wrapping_mul(1_000_003) ^ tail as u64 ^ run.wrapping_mul(31)
 }
 
-/// The children the transcript is building, each paired with the block it stands for.
-///
-/// Two jobs, both of which need the child's *position* and so cannot be done by the caller. It
-/// records which block each child is, so a request to be taken to a block can be resolved to a
-/// child to scroll to; and above [`TranscriptScroll::windows`] blocks it leaves a child that the
-/// last frame painted well outside the viewport unbuilt, standing in the exact height it had.
-///
-/// **The stand-in is measured, never guessed.** A placeholder of the height the child actually
-/// had keeps the content above and below it exactly where it was, so nothing about the scroll
-/// position changes — which is the whole reason the reader can be spared the markdown, the diffs
-/// and the syntax highlighting of a hundred blocks they are not looking at.
-struct Built<'a> {
-    children: Vec<AnyElement>,
-    /// Which block each child stands for, `None` for a child that is not one — the writing mark,
-    /// an unattached prompt, the empty note.
-    anchors: Vec<Option<usize>>,
-    scroll: Option<&'a TranscriptScroll>,
-    windowing: bool,
+/// What one row of the transcript draws. The plan the virtual list is fed: built once a frame
+/// from the blocks on screen, cheap enough to build whole because nothing in it is an element.
+enum RowKind {
+    /// A block, drawn as itself.
+    Block(usize),
+    /// The row standing for a folded run of same-kind calls.
+    Group {
+        key: String,
+        kind: ToolKind,
+        hidden: usize,
+        running: bool,
+        open: bool,
+    },
+    /// A prompt whose call the transcript does not hold, by its place in `pending`.
+    Adrift(usize),
+    /// The note a transcript with nothing in it draws.
+    Empty,
+    /// The mark under a turn still being written.
+    Writing,
 }
 
-impl<'a> Built<'a> {
-    fn new(scroll: Option<&'a TranscriptScroll>, blocks: usize) -> Self {
-        Self {
-            children: Vec::new(),
-            anchors: Vec::new(),
-            windowing: scroll.is_some_and(|scroll| scroll.windows(blocks)),
-            scroll,
-        }
-    }
+/// One row of the plan: what it draws, which block it stands for, and what the height cache needs
+/// to know about it.
+struct Row {
+    kind: RowKind,
+    /// Which block this row stands for, where it stands for one — what a jump asked for by block
+    /// is resolved against.
+    anchor: Option<usize>,
+    /// The row *across* frames. Identity, not position, so a row keeps its measured height when
+    /// a fold opening above it moves every row below.
+    key: u64,
+    /// What the row is drawing *now*. Moves when the block's text does, which is what has a
+    /// streaming tail measured again; and it carries the width and the conversation family's body
+    /// size, because every height in the transcript is a height at one width and one type size.
+    sig: u64,
+    /// How tall to draw the row before it has been measured once.
+    estimate: Pixels,
+}
 
-    /// The space this child stood in last frame, where it is far enough off screen to be left
-    /// unbuilt. `None` means build it.
-    fn gap(&self) -> Option<AnyElement> {
-        if !self.windowing {
-            return None;
-        }
-        let scroll = self.scroll?;
-        let bounds = scroll.child_bounds(self.children.len())?;
-        if scroll.near_viewport(bounds) {
-            return None;
-        }
-        Some(div().flex_none().h(bounds.size.height).into_any_element())
-    }
+/// The horizontal breathing room around a row. On the rows rather than on the list, because the
+/// list lays its items out in `prepaint`, where a parent's padding and text style are no longer
+/// on the stack — so the row that wants them has to carry them itself.
+const GUTTER: Pixels = px(12.);
 
-    /// Add the child standing for `block`, building it only if it is worth building.
-    fn push(&mut self, block: usize, build: impl FnOnce() -> AnyElement) {
-        let child = self.gap().unwrap_or_else(build);
-        self.children.push(child);
-        self.anchors.push(Some(block));
-    }
+fn hashed(value: impl std::hash::Hash) -> u64 {
+    use std::hash::Hasher as _;
+    let mut hasher = std::hash::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
 
-    /// Add a child that is not a block, and is always built.
-    fn extra(&mut self, child: AnyElement) {
-        self.children.push(child);
-        self.anchors.push(None);
-    }
-
-    /// Which child to scroll to, to bring a block into view. The block's own child where it has
-    /// one; otherwise the last child before it, which is where a folded-away block is drawn.
-    fn child_for(&self, block: usize) -> Option<usize> {
-        if let Some(exact) = self
-            .anchors
-            .iter()
-            .position(|anchor| *anchor == Some(block))
-        {
-            return Some(exact);
+/// What a block is drawing, in one number, and how tall to guess it is before it has been laid
+/// out once.
+///
+/// The estimate is crude on purpose — a line of prose per eighty characters — because it is used
+/// only for the first frame a row appears on: the frame that draws a row measures it, and every
+/// frame after that is the measurement.
+fn block_shape(block: &ConvBlock) -> (u64, Pixels) {
+    let (len, sig) = match block {
+        ConvBlock::User(text)
+        | ConvBlock::Agent { body: text, .. }
+        | ConvBlock::Thought { body: text, .. } => (text.len(), hashed(text.len())),
+        ConvBlock::Tool { call, open } => {
+            let len = call.title.len() + call.content.len();
+            (
+                len,
+                hashed((
+                    len,
+                    call.content.len(),
+                    *open,
+                    std::mem::discriminant(&call.status),
+                )),
+            )
         }
-        self.anchors
-            .iter()
-            .enumerate()
-            .filter(|(_, anchor)| anchor.is_some_and(|anchor| anchor <= block))
-            .map(|(ix, _)| ix)
-            .next_back()
+        ConvBlock::Compacted => (0, hashed("compacted")),
+    };
+    (sig, px(28. + 17. * (len / 80) as f32))
+}
+
+/// A row's content signature: what it is drawing, at the width and the type size it is drawing at.
+///
+/// Both of those are in it because a measured height is only a height at one width and one size —
+/// change either and every height in the cache is stale.
+fn row_signature(width: Pixels, size: Pixels, shape: u64) -> u64 {
+    hashed((f32::from(width).to_bits(), f32::from(size).to_bits(), shape))
+}
+
+/// Which row to scroll to, to bring a block into view. The block's own row where it has one;
+/// otherwise the last row before it, which is where a folded-away block is drawn.
+fn row_for(rows: &[Row], block: usize) -> Option<usize> {
+    if let Some(exact) = rows.iter().position(|row| row.anchor == Some(block)) {
+        return Some(exact);
     }
+    rows.iter()
+        .enumerate()
+        .filter(|(_, row)| row.anchor.is_some_and(|anchor| anchor <= block))
+        .map(|(ix, _)| ix)
+        .next_back()
+}
+
+/// One row, drawn — and wrapped in the padding and the text style the transcript reads in.
+#[allow(clippy::too_many_arguments)]
+fn build_row(
+    conversation: &Conversation,
+    id: AgentId,
+    row: &Row,
+    attached: &HashMap<usize, Vec<&Pending>>,
+    view: &ConversationView,
+    root: &gpui::Entity<AppState>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let inner = match &row.kind {
+        RowKind::Block(ix) => match conversation.blocks.get(*ix) {
+            Some(block) => one_block(conversation, id, *ix, block, attached, view, root, cx),
+            None => div().into_any_element(),
+        },
+        RowKind::Group {
+            key,
+            kind,
+            hidden,
+            running,
+            open,
+        } => tool_group(id, key, *kind, *hidden, *running, *open, view, cx),
+        RowKind::Adrift(at) => match conversation.pending.get(*at) {
+            Some(request) => permission(id, request, None, view, cx),
+            None => div().into_any_element(),
+        },
+        RowKind::Empty => mono("nothing said yet", theme::text_faint())
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
+            .into_any_element(),
+        RowKind::Writing => writing_mark(conversation.activity(), mark_variant(conversation), view),
+    };
+    // A column of one, so the row fills the width the way it did as a child of the transcript's
+    // own column: in a flex row it would be sized by its content instead.
+    div()
+        .flex()
+        .flex_col()
+        .px(GUTTER)
+        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
+        .text_color(theme::text())
+        .child(inner)
+        .into_any_element()
 }
 
 /// How many same-kind tool cards in a row it takes before the run is folded. Below this the fold
@@ -601,9 +763,11 @@ fn one_block(
             view,
             ix,
             body,
+            // The body as a `SharedString` the conversation keeps: a streaming tail is copied when
+            // it grows rather than every time this frame builds it.
             TextView::markdown(
                 view.eid(&format!("md-{ix}")),
-                SharedString::from(body.clone()),
+                conversation.markdown(ix, body),
             )
             .on_link_click(crate::ui::on_link(root.clone(), None))
             .into_any_element(),
@@ -635,7 +799,29 @@ fn one_block(
                     .into_any_element(),
             }
         }
+        ConvBlock::Compacted => compacted(),
     }
+}
+
+/// Where the harness compacted its context. A hairline and a word, no card: what is above it was
+/// still said, and only the agent's memory of it stopped — a heavier mark would read as the
+/// transcript itself being cut.
+fn compacted() -> AnyElement {
+    let rule = || div().h(px(1.)).flex_1().bg(theme::border());
+    div()
+        .py_2()
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .child(rule())
+        .child(
+            mono("Context compacted", theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+        )
+        .child(rule())
+        .into_any_element()
 }
 
 /// The row that stands for the folded part of a run: what kind they were, how many, and a chevron
@@ -692,8 +878,14 @@ fn tool_group(
             .with_size(Size::XSmall)
             .text_color(theme::text_faint()),
         )
-        .child(mono(kind.label(), colour).text_size(px(11.5)))
-        .child(mono(count, theme::text_faint()).text_size(px(11.5)))
+        .child(
+            mono(kind.label(), colour)
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+        )
+        .child(
+            mono(count, theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+        )
         .on_click(cx.listener(move |this, _, _, cx| {
             this.toggle_conversation_tool_group(agent, key.clone(), cx)
         }))
@@ -701,6 +893,11 @@ fn tool_group(
 }
 
 /// What has been said, oldest first — and, when anything new has landed, scrolled to.
+///
+/// **The transcript is virtualized.** What this builds is a *plan* — one [`Row`] per thing on
+/// screen, which is arithmetic rather than elements — and hands it to `v_virtual_list` with a
+/// height for every row. Only the rows the list can see are built, whether the transcript holds
+/// three blocks or three thousand.
 fn transcript(
     app: &AppState,
     conversation: &Conversation,
@@ -710,16 +907,21 @@ fn transcript(
     let id = conversation.id;
     let root = cx.entity();
 
+    // This frame is the one a streamed delta asked for, so the next delta may ask for its own.
+    // See `Conversation::notify_due`: without this the gate in `app::wire` would let one draw
+    // stand in for the whole turn.
+    conversation.drawn();
+
     // Every prompt still up, joined onto the call it authorises by that call's id — which is the
     // only field of a request's patch upstream guarantees. What matches nothing in the transcript
     // is drawn on its own at the end rather than dropped: a request nobody can answer deadlocks
     // the turn, so losing one is worse than drawing it out of place.
     let mut attached: HashMap<usize, Vec<&Pending>> = HashMap::new();
-    let mut adrift: Vec<&Pending> = Vec::new();
-    for request in &conversation.pending {
+    let mut adrift: Vec<usize> = Vec::new();
+    for (at, request) in conversation.pending.iter().enumerate() {
         match conversation.tool_block_index(&request.tool_call.id) {
             Some(block) => attached.entry(block).or_default().push(request),
-            None => adrift.push(request),
+            None => adrift.push(at),
         }
     }
 
@@ -741,10 +943,27 @@ fn transcript(
             tail_signature(conversation, &visible),
         );
     }
-    let mut blocks = Built::new(scroll, visible.len());
+
+    // Which transcript these rows belong to, and at what width and type size. The first keeps a
+    // delegate's heights out of the main agent's; the other two are why a resize — or a change to
+    // the conversation family's base size — re-measures everything, because a height is only a
+    // height at one width and one size.
+    let tag = hashed(conversation.viewing_subagent());
+    let width = scroll.map_or(px(0.), |scroll| scroll.handle.bounds().size.width);
+    let size = theme::font(theme::Family::Conversation, theme::Role::Body);
+    let row = |kind: RowKind, anchor: Option<usize>, slot: (u8, usize), shape: (u64, Pixels)| Row {
+        kind,
+        anchor,
+        key: hashed((tag, slot.0, slot.1)),
+        sig: row_signature(width, size, shape.0),
+        estimate: shape.1,
+    };
+
+    let mut rows: Vec<Row> = Vec::new();
     let mut at = 0usize;
     while at < visible.len() {
-        let (ix, block) = visible[at];
+        let ix = visible[at];
+        let block = &conversation.blocks[ix];
         // A delegation is never folded away: a spawned agent is a second transcript, not a step.
         // Nor is a call somebody is being asked to authorise — a prompt hidden behind a counter is
         // a turn that deadlocks.
@@ -755,9 +974,9 @@ fn transcript(
             let kind = call.kind;
             let mut end = at + 1;
             while end < visible.len() {
-                match visible[end].1 {
+                match &conversation.blocks[visible[end]] {
                     ConvBlock::Tool { call: next, .. }
-                        if next.kind == kind && !attached.contains_key(&visible[end].0) =>
+                        if next.kind == kind && !attached.contains_key(&visible[end]) =>
                     {
                         end += 1;
                     }
@@ -774,104 +993,166 @@ fn transcript(
                 // it away would hide the only part still changing. The moment it finishes there
                 // is nothing left to follow, so it joins the ones before it and the whole run
                 // becomes the one row — which is what a finished run of twelve READs should cost.
-                let (last_ix, last) = visible[end - 1];
+                let last_ix = visible[end - 1];
+                let last = &conversation.blocks[last_ix];
                 let running = matches!(
                     last,
                     ConvBlock::Tool { call, .. }
                         if matches!(call.status, ToolStatus::Pending | ToolStatus::InProgress)
                 );
                 let hidden = if running { end - at - 1 } else { end - at };
-                blocks.push(ix, || {
-                    tool_group(id, &key, kind, hidden, running, open, view, cx)
-                });
+                rows.push(row(
+                    RowKind::Group {
+                        key,
+                        kind,
+                        hidden,
+                        running,
+                        open,
+                    },
+                    Some(ix),
+                    (1, ix),
+                    (hashed((hidden, running, open)), px(24.)),
+                ));
                 if open {
-                    for &(hidden_ix, block) in &visible[at..at + hidden] {
-                        blocks.push(hidden_ix, || {
-                            one_block(
-                                conversation,
-                                id,
-                                hidden_ix,
-                                block,
-                                &attached,
-                                view,
-                                &root,
-                                cx,
-                            )
-                        });
+                    for &hidden_ix in &visible[at..at + hidden] {
+                        rows.push(row(
+                            RowKind::Block(hidden_ix),
+                            Some(hidden_ix),
+                            (0, hidden_ix),
+                            block_shape(&conversation.blocks[hidden_ix]),
+                        ));
                     }
                 }
                 if running {
-                    blocks.push(last_ix, || {
-                        one_block(conversation, id, last_ix, last, &attached, view, &root, cx)
-                    });
+                    rows.push(row(
+                        RowKind::Block(last_ix),
+                        Some(last_ix),
+                        (0, last_ix),
+                        block_shape(last),
+                    ));
                 }
                 at = end;
                 continue;
             }
         }
-        blocks.push(ix, || {
-            one_block(conversation, id, ix, block, &attached, view, &root, cx)
-        });
+        rows.push(row(
+            RowKind::Block(ix),
+            Some(ix),
+            (0, ix),
+            block_shape(block),
+        ));
         at += 1;
     }
 
     // A request whose call the transcript does not hold — the patch carried nothing but an id, or
     // the request outran the call announcing it. Self-contained, and still answerable.
     for request in adrift {
-        blocks.extra(permission(id, request, None, view, cx));
+        rows.push(row(
+            RowKind::Adrift(request),
+            None,
+            (2, request),
+            (hashed(request), px(120.)),
+        ));
     }
 
     // Last, so a transcript holding only an unattached prompt reads as the question it is.
-    if blocks.children.is_empty() {
-        blocks.extra(
-            mono("nothing said yet", theme::text_faint())
-                .text_size(px(11.5))
-                .into_any_element(),
-        );
+    if rows.is_empty() {
+        rows.push(row(RowKind::Empty, None, (3, 0), (0, px(20.))));
     }
 
     // And after everything, while the turn is still running: the tail of a transcript is where a
     // reader waits, so that is where the waiting is drawn. Not while a prompt is up — the question
     // on screen is what is happening, and two marks would compete to say so.
     if conversation.run == Run::Working && conversation.pending.is_empty() {
-        blocks.extra(writing_mark(
-            conversation.activity(),
-            mark_variant(conversation),
-            view,
-        ));
+        rows.push(row(RowKind::Writing, None, (4, 0), (0, px(24.))));
     }
-
-    let mut body = div()
-        .id(view.eid("transcript"))
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .px_3()
-        .py_2()
-        .gap_2()
-        .text_size(px(13.5))
-        .text_color(theme::text())
-        .overflow_y_scroll();
 
     if let Some(scroll) = scroll {
         // Somewhere to be taken to, asked for by the strip that named the prompt. Resolved here
-        // rather than where it was asked for, because only the frame that built the children
-        // knows which child a block ended up as.
+        // rather than where it was asked for, because only the frame that planned the rows knows
+        // which row a block ended up as.
         match scroll
             .take_request()
-            .and_then(|block| blocks.child_for(block))
+            .and_then(|block| row_for(&rows, block))
         {
-            Some(child) => scroll.handle.scroll_to_top_of_item(child),
+            Some(at) => scroll.scroll_to_row(at),
             // The frame that switched transcripts is measuring the one it left, so it cannot
             // answer a jump — it asks for the frame that can. Self-terminating: the next frame
             // is settled, answers, and clears the request.
             None if scroll.request_held() => cx.notify(),
             None => {}
         }
-        body = body.track_scroll(&scroll.handle);
     }
-    body = body.children(blocks.children);
+
+    // Every row's height, which is what the list lays out against: the measurement where there is
+    // one, the estimate where the row has never been drawn.
+    let sizes: Rc<Vec<gpui::Size<Pixels>>> = Rc::new(
+        rows.iter()
+            .map(|row| {
+                let height = scroll.map_or(row.estimate, |scroll| {
+                    scroll.row_height(row.key, row.estimate)
+                });
+                gpui::size(px(0.), height)
+            })
+            .collect(),
+    );
+
+    let plan = Rc::new(rows);
+    let slot = view.slot;
+    let building = view.clone();
+    let entity = root.clone();
+    let mut list = v_virtual_list(
+        root,
+        view.eid("transcript"),
+        sizes,
+        move |app, range, window, cx| {
+            let scroll = app.transcript_scrolls.get(slot);
+            let width = scroll.map_or(px(0.), |scroll| scroll.handle.bounds().size.width);
+            let Some(conversation) = app.conversation(id, cx) else {
+                return Vec::new();
+            };
+            let mut attached: HashMap<usize, Vec<&Pending>> = HashMap::new();
+            for request in &conversation.pending {
+                if let Some(block) = conversation.tool_block_index(&request.tool_call.id) {
+                    attached.entry(block).or_default().push(request);
+                }
+            }
+            let mut built = Vec::with_capacity(range.len());
+            // Whether a row turned out to be a different height than it was drawn at. The list
+            // was told the heights before it laid anything out, so a row measured for the first
+            // time was drawn at a guess and the frame has to be drawn again to be right.
+            let mut again = false;
+            for at in range {
+                let Some(row) = plan.get(at) else { continue };
+                let mut element =
+                    build_row(conversation, id, row, &attached, &building, &entity, cx);
+                if let Some(scroll) = scroll
+                    && width > px(0.)
+                    && scroll.needs_measure(row.key, row.sig)
+                {
+                    let measured = element.layout_as_root(
+                        gpui::size(
+                            gpui::AvailableSpace::Definite(width),
+                            gpui::AvailableSpace::MinContent,
+                        ),
+                        window,
+                        cx,
+                    );
+                    again |= scroll.measured(row.key, row.sig, measured.height);
+                }
+                built.push(element);
+            }
+            if again {
+                cx.notify();
+            }
+            built
+        },
+    )
+    .py_2()
+    .gap_2();
+    if let Some(scroll) = scroll {
+        list = list.track_scroll(&scroll.handle);
+    }
 
     // The jump sits over the transcript rather than in the column, so nothing moves when it
     // appears and the last line stays readable under it.
@@ -881,7 +1162,7 @@ fn transcript(
         .flex_1()
         .min_h(px(0.))
         .relative()
-        .child(body);
+        .child(div().flex().flex_col().flex_1().min_h(px(0.)).child(list));
     if scroll.is_some_and(TranscriptScroll::away) {
         framed = framed.child(to_tail_button(view, cx));
     }
@@ -919,7 +1200,10 @@ fn to_tail_button(view: &ConversationView, cx: &mut Context<AppState>) -> AnyEle
                 .with_size(Size::XSmall)
                 .text_color(theme::text_muted()),
         )
-        .child(mono("Go to last message", theme::text_muted()).text_size(px(10.5)))
+        .child(
+            mono("Go to last message", theme::text_muted())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
         .on_click(cx.listener(move |this, _, _, cx| this.scroll_transcript_to_tail(slot, cx)))
         .into_any_element()
 }
@@ -1066,7 +1350,10 @@ fn writing_mark(activity: Activity, variant: u64, view: &ConversationView) -> An
         .px_1()
         .py_0p5()
         .children(cells)
-        .child(mono(activity.label(), theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(activity.label(), theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+        )
         .into_any_element()
 }
 
@@ -1117,9 +1404,9 @@ fn user_turn(text: &str) -> AnyElement {
             div()
                 .p_2()
                 .bg(theme::accent_soft())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::accent())
-                .text_size(px(13.))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(text.to_string())),
         )
@@ -1137,12 +1424,15 @@ fn thought(body: &str) -> AnyElement {
         .flex_col()
         .gap_1()
         .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::text_faint())
-        .child(mono("THINKING", theme::text_faint()).text_size(px(10.5)))
+        .child(
+            mono("THINKING", theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(body.to_string())),
         )
@@ -1169,9 +1459,18 @@ fn reading_strip(name: &str, model: Option<String>) -> AnyElement {
         .border_b_1()
         .border_color(theme::border())
         .debug_selector(|| "reading-strip".into())
-        .child(mono("\u{21b3}", theme::info()).text_size(px(10.5)))
-        .child(mono(name.to_string(), theme::info()).text_size(px(11.5)))
-        .children(model.map(|model| mono(model, theme::text_faint()).text_size(px(11.))))
+        .child(
+            mono("\u{21b3}", theme::info())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
+        .child(
+            mono(name.to_string(), theme::info())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+        )
+        .children(model.map(|model| {
+            mono(model, theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta))
+        }))
         .into_any_element()
 }
 
@@ -1214,7 +1513,8 @@ fn status_label(status: ToolStatus) -> &'static str {
 /// does in the app's own markdown — monospace on a raised surface — because the title has no room
 /// for the coloured edge every other surface here is identified by.
 fn tool_title(kind: ToolKind, title: String) -> gpui::Div {
-    let text = mono(title, theme::text()).text_size(px(12.));
+    let text = mono(title, theme::text())
+        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label));
     if kind != ToolKind::Execute {
         return text;
     }
@@ -1285,7 +1585,7 @@ fn tool_block(
         )
         .child(
             mono(call.kind.label(), colour)
-                .text_size(px(11.5))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
                 .mt(px(1.)),
         )
         .child(
@@ -1300,7 +1600,7 @@ fn tool_block(
         } else {
             mono(status_label(call.status), status_colour(call.status))
         }
-        .text_size(px(11.5))
+        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
         .mt(px(1.)),
     );
 
@@ -1331,7 +1631,7 @@ fn tool_block(
         .flex_col()
         .flex_none()
         .bg(theme::pane_bg())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(colour)
         .child(header);
 
@@ -1359,7 +1659,10 @@ fn content(item: &ToolContent) -> AnyElement {
             .flex_col()
             .children(
                 text.lines()
-                    .map(|line| mono(line.to_string(), theme::text_muted()).text_size(px(11.5)))
+                    .map(|line| {
+                        mono(line.to_string(), theme::text_muted())
+                            .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
+                    })
                     .collect::<Vec<_>>(),
             )
             .into_any_element(),
@@ -1376,7 +1679,7 @@ fn content(item: &ToolContent) -> AnyElement {
 fn diff(path: &str, old_text: Option<&str>, new_text: &str) -> AnyElement {
     let mut rows: Vec<AnyElement> = vec![
         mono(path.to_string(), theme::text_muted())
-            .text_size(px(11.))
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta))
             .into_any_element(),
     ];
     if let Some(old) = old_text {
@@ -1401,12 +1704,15 @@ fn diff_line(marker: &str, text: &str, fg: Rgba, bg: Rgba) -> AnyElement {
         .gap_2()
         .px_1()
         .bg(bg)
-        .child(mono(marker.to_string(), fg).text_size(px(11.5)))
+        .child(
+            mono(marker.to_string(), fg)
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+        )
         .child(
             mono(text.to_string(), fg)
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(11.5)),
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
         )
         .into_any_element()
 }
@@ -1483,12 +1789,15 @@ fn permission(
         .flex_col()
         .gap_2()
         .bg(theme::warning_soft())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::warning())
-        .child(mono("NEEDS YOU", theme::warning()).text_size(px(10.5)))
+        .child(
+            mono("NEEDS YOU", theme::warning())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(what)),
         )
@@ -1501,7 +1810,7 @@ fn permission(
         .when(buttons.is_empty(), |this| {
             this.child(
                 mono("the harness offered no answer to this", theme::text_faint())
-                    .text_size(px(11.)),
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
             )
         })
         .child(div().flex().items_center().gap_2().children(buttons))
@@ -1609,14 +1918,17 @@ fn needs_you_strip(
         .items_center()
         .gap_2()
         .bg(theme::warning_soft())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::warning())
         .child(
             Icon::new(IconName::TriangleAlert)
                 .with_size(Size::XSmall)
                 .text_color(theme::warning()),
         )
-        .child(mono("NEEDS YOU", theme::warning()).text_size(px(10.5)));
+        .child(
+            mono("NEEDS YOU", theme::warning())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        );
 
     // The count is a mark rather than a clause: "and 3 more waiting" read as part of what the
     // operation was, and the number is the part a reader is counting down.
@@ -1635,13 +1947,16 @@ fn needs_you_strip(
                 .gap_1p5()
                 .cursor_pointer()
                 .when_some(whose, |this, whose| {
-                    this.child(mono(whose, theme::warning()).text_size(px(11.)))
+                    this.child(
+                        mono(whose, theme::warning())
+                            .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+                    )
                 })
                 .child(
                     mono(what, theme::text_muted())
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(11.5)),
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
                 )
                 .tooltip(|window, cx| {
                     gpui_component::tooltip::Tooltip::new("Go to what is waiting").build(window, cx)
@@ -1651,7 +1966,10 @@ fn needs_you_strip(
                 })),
         )
         .children(buttons)
-        .child(mono("⌘⌥Y / ⌘⌥N", theme::text_faint()).text_size(px(10.5)))
+        .child(
+            mono("⌘⌥Y / ⌘⌥N", theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
         .into_any_element()
 }
 
@@ -1668,7 +1986,10 @@ fn waiting_count(waiting: usize, view: &ConversationView) -> AnyElement {
         .justify_center()
         .rounded_full()
         .bg(theme::warning())
-        .child(mono(waiting.to_string(), theme::pane_bg()).text_size(px(10.)))
+        .child(
+            mono(waiting.to_string(), theme::pane_bg())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(format!(
                 "{waiting} requests waiting — the oldest is named here"
@@ -1686,7 +2007,10 @@ fn tipped(id: ElementId, label: String, tip: String, colour: Rgba) -> AnyElement
         .flex()
         .flex_none()
         .items_center()
-        .child(mono(label, colour).text_size(px(11.)))
+        .child(
+            mono(label, colour)
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+        )
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
         })
@@ -1846,7 +2170,10 @@ fn footer(
                         .text_color(theme::text()),
                 )
                 .when(!conversation.account.is_empty(), |this| {
-                    this.child(mono(conversation.account.clone(), theme::text()).text_size(px(11.)))
+                    this.child(
+                        mono(conversation.account.clone(), theme::text())
+                            .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+                    )
                 })
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(identity_tip.clone()).build(window, cx)
@@ -2111,7 +2438,7 @@ fn composer(
                     "This agent has ended \u{2014} its transcript stays, and it takes no more turns.",
                     theme::text_faint(),
                 )
-                .text_size(px(11.5)),
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
             )
             .into_any_element();
     }
@@ -2229,7 +2556,7 @@ fn composer(
 
         if pickers.is_empty() {
             mono("Discovering models\u{2026}", theme::text_faint())
-                .text_size(px(11.5))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
                 .into_any_element()
         } else {
             div()
@@ -2338,7 +2665,7 @@ fn composer(
                         .appearance(false)
                         .bordered(false)
                         .w_full()
-                        .text_size(px(13.)),
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body)),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let input = this.column_inputs[slot].clone();
@@ -2480,7 +2807,10 @@ fn agent_switcher(
             .with_size(Size::XSmall)
             .text_color(theme::text_faint()),
         )
-        .child(mono(subagent_count_label(active, count), theme::text_muted()).text_size(px(11.)))
+        .child(
+            mono(subagent_count_label(active, count), theme::text_muted())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+        )
         .on_click(cx.listener(move |this, _, _, cx| {
             this.toggle_conversation_subagents(id, cx);
         }));
@@ -2501,7 +2831,7 @@ fn agent_switcher(
                             .flex_none()
                             .gap_1()
                             .bg(theme::surface_raised())
-                            .border_l(px(theme::ACCENT_EDGE))
+                            .border_l(px(theme::accent_edge()))
                             .border_color(theme::accent())
                             .shadow_lg()
                             .debug_selector(|| "agent-switcher-panel".into())
@@ -2629,18 +2959,21 @@ fn agent_row(
                         theme::text_muted()
                     },
                 )
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta))
                 .flex_none(),
             )
             .when_some(model, |this, model| {
                 this.child(
                     mono(model, theme::text_faint())
-                        .text_size(px(10.))
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro))
                         .min_w(px(0.)),
                 )
             }),
     )
-    .child(mono(status, status_colour).text_size(px(10.5)))
+    .child(
+        mono(status, status_colour)
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+    )
     .on_click(on_click)
     .when_some(tip, |this, tip| {
         this.tooltip(move |window, cx| {
@@ -2754,13 +3087,13 @@ fn queue_list(
                 .items_center()
                 .gap_2()
                 .bg(theme::surface())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::border())
                 .child(
                     mono(preview, theme::text_muted())
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(11.5)),
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
                 )
                 .child(ghost_button(
                     view.eid(&format!("queued-edit-{queued_id}")),
@@ -2791,4 +3124,30 @@ fn queue_list(
         .gap_1()
         .children(rows)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A cached row height is a height at one width *and* one type size, so both are in the
+    /// signature the cache is keyed on: grow the conversation family and every row is measured
+    /// again rather than drawn at the height it had two points ago.
+    #[test]
+    fn a_row_signature_moves_with_the_width_and_the_type_size() {
+        let width = px(400.);
+        let size = theme::font(theme::Family::Conversation, theme::Role::Body);
+        let sig = row_signature(width, size, 7);
+        assert_eq!(sig, row_signature(width, size, 7), "nothing moved");
+        assert_ne!(
+            sig,
+            row_signature(width, size + px(2.), 7),
+            "a larger conversation size restates every height"
+        );
+        assert_ne!(
+            sig,
+            row_signature(width + px(10.), size, 7),
+            "and so does a resize"
+        );
+    }
 }

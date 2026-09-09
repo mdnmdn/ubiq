@@ -97,7 +97,7 @@ fn vim_chip(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let strip = div()
-        .h(px(theme::STATUS_BAR_HEIGHT))
+        .h(px(theme::status_bar_height()))
         .px_3()
         .flex()
         .flex_none()
@@ -267,7 +267,7 @@ const FONT_SIZES: &[f32] = &[
 /// shown when a nudge-landed size is not one of the ladder's.
 fn font_size_dropdown(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let view = cx.entity();
-    let current = app.ui_font_size_or_default(cx);
+    let current = app.content_font_size_or_default(cx);
     let index = nearest_font_index(current);
 
     Picker::new("font-size", format!("{current:.0}\u{2009}px"))
@@ -284,7 +284,7 @@ fn font_size_dropdown(app: &AppState, cx: &mut Context<AppState>) -> impl IntoEl
             this.open_menu(MenuId::FontSize, cx)
         }))
         .on_pick(indexed(&view, |this, index, _, cx| {
-            this.set_ui_font_size(FONT_SIZES[index], cx)
+            this.set_content_font_size(FONT_SIZES[index], cx)
         }))
         .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
         .into_any_element()

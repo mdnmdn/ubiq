@@ -73,7 +73,7 @@ pub const COMPOSER_ROWS_MIN: usize = 1;
 pub const COMPOSER_ROWS_MAX: usize = 24;
 
 /// How tall one row of a composer is, in pixels — the line height the field is laid out with, at
-/// its own `text_size(px(13.))`. Ubiq's own constant because the figure the library computes from
+/// the conversation family's body size. Ubiq's own constant because the figure the library computes from
 /// the font is not reachable from here, and a drag has to turn pixels into rows somehow. Close
 /// enough is enough: the drag is answered by the pointer, and a row either fits or the next one
 /// does.

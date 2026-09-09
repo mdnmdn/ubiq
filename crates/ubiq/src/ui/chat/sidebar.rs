@@ -53,6 +53,17 @@ pub fn header(
     let mut left = div().flex().flex_none().items_center().gap_2();
     if let (Some((conversation, _)), Some(view)) = (attached, view.as_ref()) {
         left = left.child(conversation::lifecycle_mark(conversation, view));
+        // Beside the state mark, and only when the conversation is kept. `persistent` is on the
+        // work record rather than on the conversation, so it is read from there.
+        if app
+            .work(cx)
+            .and_then(|work| work.agent(conversation.id))
+            .is_some_and(|agent| agent.persistent)
+        {
+            left = left.child(conversation::persistence_mark(SharedString::from(format!(
+                "chat-{id}-persistent"
+            ))));
+        }
     }
     left = left.child(start_control(app, id, window, cx));
 

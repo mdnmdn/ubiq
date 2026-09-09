@@ -39,6 +39,7 @@ use gpui_component::IconName;
 use gpui_component::input::{Input, InputState};
 
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::controls::{field, ghost_button, icon_button, primary_button, section_label};
 use crate::ui::kit::settings::label_block;
 
@@ -105,7 +106,7 @@ pub fn modal_sized(
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(edge)
         .shadow_lg();
     panel = match fill_height {
@@ -186,7 +187,7 @@ pub fn modal_sized(
 pub fn modal_note(text: &str) -> impl IntoElement {
     div()
         .w(relative(1.))
-        .text_size(px(12.5))
+        .text_size(theme::font(Family::Chrome, Role::Body))
         .text_color(theme::text_muted())
         .child(text.to_string())
 }

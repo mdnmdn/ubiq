@@ -627,9 +627,22 @@ impl AppState {
                 if let Some(prefs) = prefs::decode::<prefs::InterfacePrefs>(&blob) {
                     self.workbench.interface_rest = prefs.rest;
                     self.workbench.last_start = prefs.last_start;
-                    if prefs.theme != self.workbench.theme_id {
+                    // The two interface-scoped text bases. The content family's is the project's
+                    // and is pushed in by `ui::shell` for whichever project the window shows.
+                    let scale = theme::text_scale();
+                    theme::set_text_scale(theme::TextScale {
+                        chrome: prefs.chrome_font_size.unwrap_or(theme::CHROME_FONT_SIZE),
+                        conversation: prefs
+                            .conversation_font_size
+                            .unwrap_or(theme::CONVERSATION_FONT_SIZE),
+                        ..scale
+                    });
+                    if prefs.theme != self.workbench.theme_id
+                        || prefs.accent != theme::accent_id()
+                        || prefs.density != theme::density()
+                    {
                         self.workbench.theme_id = prefs.theme;
-                        theme::set_mode(prefs.theme, cx);
+                        theme::set_theme(prefs.theme, prefs.accent, prefs.density, cx);
                     }
                 }
             }
@@ -657,11 +670,44 @@ impl AppState {
                 // already, and reopening the tabs the user has since closed would be worse than
                 // useless.
                 if let Some(view) = restore {
+                    self.restore_chats(id, &view);
                     self.restore_files(id, &view, cx);
                 }
             }
         }
         cx.notify();
+    }
+
+    /// Reopen the chat tabs a project's blob remembered, and ask the host for the conversations
+    /// behind them.
+    ///
+    /// Called once per project, on the same first-restore branch the file set uses, and it
+    /// replaces the single empty tab [`OpenProject::new`] seeds — the blob had not arrived yet
+    /// when that ran.
+    ///
+    /// The revive is a **re-attach**: `source == agent_id`, so the harness resumes its own session
+    /// in the run directory it kept, and the answer arrives as `ConversationStarted` like any
+    /// other start. A conversation that was never marked persistent is gone and the host answers
+    /// nothing; the tab then sits attached to an agent with no transcript, which draws the empty
+    /// page a fresh tab draws.
+    fn restore_chats(&mut self, project: ProjectId, view: &prefs::ViewPrefs) {
+        if view.chats.is_empty() {
+            return;
+        }
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        open.chats = seeded_chats(&view.chats);
+        let agents: Vec<AgentId> = open.chats.iter().filter_map(|tab| tab.attached).collect();
+        for agent in agents {
+            self.bus.send(Message::ReviveConversation {
+                source: agent,
+                agent_id: agent,
+                project_id: project,
+                session_id: self.session,
+            });
+        }
+        self.sync_chat_panels(project);
     }
 
     /// Write down what this window looks like now, for the project on screen. Debounced by the
@@ -710,6 +756,13 @@ impl AppState {
             open.prefs.scratch = scratch;
             open.prefs.pinned_files = pinned_files;
             open.prefs.active_file = open.editor.active_file().map(|file| file.key());
+            // The chat tabs, as what each was attached to. A tab attached to nothing leaves
+            // nothing to bring back, so it is skipped rather than written as a hole.
+            open.prefs.chats = open
+                .chats
+                .iter()
+                .filter_map(|tab| tab.attached.map(|agent| agent.to_string()))
+                .collect();
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();
             open.prefs.file_filter = self.workbench.file_filter.clone();

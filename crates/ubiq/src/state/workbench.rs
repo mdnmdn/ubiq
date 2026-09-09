@@ -421,7 +421,7 @@ impl Default for WorkbenchState {
             config_root: None,
             config_root_is_default: true,
             rail_mode: RailMode::Ide,
-            theme_id: ThemeId::Dark,
+            theme_id: ThemeId::DARK,
             interface_rest: Default::default(),
             last_start: None,
             open_menu: None,
@@ -576,6 +576,7 @@ mod tests {
             chat: true,
             modes: Vec::new(),
             unattended_mode: None,
+            keeps_sessions: true,
         }
     }
 

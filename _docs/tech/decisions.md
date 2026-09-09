@@ -103,7 +103,8 @@ change here.
 
 ### D10 — Every colour goes through a theme token
 
-No literal colour outside `crates/ubiq/src/theme.rs`, and every token has a value in both palettes.
+No literal colour outside `crates/ubiq/src/theme.rs`, and every token has a value in every palette
+the registry holds — `D96` is what makes that a registry rather than a pair.
 
 **Cost:** a thread-local read per colour, and a token to name before any new shade can be used.
 
@@ -1717,6 +1718,47 @@ conformance to the specification is not inherited, so a protocol revision is a h
 rather than a version bump. Blocking calls need their own timeouts, which is why `initialize` is
 bounded at thirty seconds rather than by a runtime's cancellation.
 
+### D97 — The run directory is the conversation: kept when it is marked, copied to fork it
+
+A run's configuration directory — `<ubiq root>/runs/<agent id>`, which `compose_run` pins every
+harness's config lever to — holds that harness's **own session store**: Claude Code's
+`projects/<slug>/*.jsonl`, Codex's rollouts, opencode's relocated data directory. It is not
+scaffolding around the conversation; within one harness on one host it *is* the conversation.
+
+Three behaviours follow from reading it that way, and they replace three that assumed otherwise:
+
+- **Resume** keeps the directory. A conversation the user marks persistent is *parked* rather than
+  retired when its window closes or its harness exits, and the boot sweep passes it over. The
+  harness then finds its own store where it left it and `--resume` — or ACP's `session/load` —
+  works across a restart.
+- **Fork** copies the directory and launches a second agent in the copy with the same harness
+  session id. The two hold separate stores and diverge from the next turn on.
+- **Delete** is the only thing that removes it, and removes all three of the run directory, the
+  library's session record and Ubiq's own row together.
+
+**Why:** it is the only mechanism that is uniform across harnesses. `Harness::transcripts` is
+implemented by Claude Code alone, so nothing built on it could restore a Codex or opencode
+conversation; Claude's `--fork-session` and ACP's draft `session/fork` exist for two harnesses
+between them and not for the rest. Copying a directory needs none of that — it works because every
+harness's `config_anchor` relocates its store into one, a property Ubiq established for isolation
+and reuses here for free. It is also exact rather than approximate: no replay, no compaction, no
+seed format, and no lossy summary of what was said.
+
+**Cost, and it is three real ones.** *Credentials* are seeded into that directory, so a kept one
+must be scrubbed of every `login_seed` destination when its process ends, and `harvest_login` has to
+move off the delete path onto the park path — otherwise a rotated OAuth token is never written back
+and every *other* agent on the same account starts logged out. *Retention* becomes a real question:
+`runs/` stops self-cleaning for marked conversations, which is why persistence is opt-in per
+conversation and why `gc::collect_conversations` exists. And *grok is excluded*: its `config_anchor`
+declares no lever and it writes sessions to the user's real `~/.grok/`, so neither keeping nor
+copying a directory would preserve or isolate anything, and both controls are refused for it with a
+reason rather than silently doing nothing.
+
+The alternative — a host-owned, replayable `ConvUpdate` record, proposed in
+`inbox/conversation-record.md` — is not rejected. It is what cross-harness fork, reattachment from a
+second window and teleport need, and none of those are reachable this way. This is the narrower
+mechanism for the narrower question, and the two coexist.
+
 ### D95 — Claude Code keeps its native stream-json bridge, whatever else moves to ACP
 
 `agent_manager::io::JsonlBridge` and the `claude-code` harness that uses it are not replaced by
@@ -1759,6 +1801,34 @@ whatever the last screen had open, closes the gap the backlog carried as `G88`.
 (`_docs/design/ubiq-layout.png`, `D16`) shows, until the user reaches for a region — a real change to
 the first impression a project makes, traded for a window that never opens onto furniture nobody
 asked for.
+
+### D96 — A palette is a registry row keyed by a slug, and the accent is a seed beside it
+
+`ThemeId` is a newtype over a slug (`ThemeId(&'static str)`) resolved against `PALETTES`, a static
+of `PaletteDef { slug, name, mode, counterpart, palette }`, rather than an enum of the two grounds.
+Three things follow. `Mode { Dark, Light }` becomes a property a palette *has* instead of the thing
+a palette *is*, and it is what the component library and the highlighter are told. The titlebar's
+toggle follows `counterpart` rather than a `toggled` inverse, so it flips ground inside the family
+the user chose. And the accent stops being six literals per palette: an `AccentDef` is one seed, and
+`with_accent` derives `accent`, `accent_muted`, `accent_soft`, `border.focus`, both link underlines
+and `text.on_accent` from it, so N palettes and M accents cost N + M declarations. `theme::set_theme`
+is the one switch point over all of it; `set_mode` and `set_density` are that call with the other
+axes held. Density is resolved into the same `Theme`, so a scaled grid size is read exactly the way
+a colour is.
+
+**Why:** a third palette was a third hand-written function of seventy values, with nothing in the
+shape saying which of them were choices and which were consequences; a different accent on the same
+ground was not expressible at all, because it would have meant duplicating the other sixty-four
+values. A registry makes a family an entry, and a derived accent makes the two axes independent —
+which is also what lets `dress_component_library` hand the library one palette instead of picking
+between its own two.
+
+**Cost:** `ThemeId` no longer proves at compile time that a palette exists, so an unknown slug falls
+back to the first registry row instead of failing to build, and prefs deserialisation is
+case-insensitive string matching rather than an enum. A derived accent also means a palette cannot
+hand-tune one of its six hued tokens against its own ground: what it can choose is the seed, and the
+correction is the same function for every palette. Project swatches stay outside the axis (`D19`),
+so those literals are still per palette.
 
 ## Related docs
 

@@ -614,6 +614,14 @@ impl Mapper {
             Some("system") if value.get("subtype").and_then(Value::as_str) == Some("init") => {
                 self.map_init(value)
             }
+            // The line that explains an occupancy drop — see [`Mapper::message_usage`]. What it
+            // carries beyond the fact of the compaction (its trigger, the pre-compaction token
+            // count) buys a divider nothing, so none of it is read.
+            Some("system")
+                if value.get("subtype").and_then(Value::as_str) == Some("compact_boundary") =>
+            {
+                vec![AgentEvent::Compacted]
+            }
             Some("assistant") => self.map_assistant(value),
             Some("user") => {
                 let events = map_user(value);
@@ -1444,6 +1452,17 @@ mod tests {
                 agents: vec!["Explore".to_string()],
             }]
         );
+    }
+
+    /// The boundary is the whole event: the fields Claude sends with it say how the compaction
+    /// was triggered and how big the context was, neither of which a divider draws.
+    #[test]
+    fn a_compact_boundary_is_a_compaction() {
+        let events = map(
+            r#"{"type":"system","subtype":"compact_boundary","session_id":"abc",
+                "compact_metadata":{"trigger":"auto","pre_tokens":152000}}"#,
+        );
+        assert_eq!(events, vec![AgentEvent::Compacted]);
     }
 
     #[test]

@@ -36,7 +36,7 @@ pub fn pane(app: &AppState, pane_id: PaneId, _cx: &App) -> AnyElement {
         .min_h(px(0.))
         .bg(theme::pane_bg())
         // A pane wears its harness's state on the edge that identifies every surface.
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(if running {
             theme::success()
         } else {
@@ -70,7 +70,7 @@ pub fn config(cols: u16, rows: u16, font_size: f32) -> TerminalConfig {
         font_size: px(font_size),
         scrollback: theme::TERMINAL_SCROLLBACK,
         line_height_multiplier: 1.0,
-        padding: Edges::all(px(theme::TERMINAL_PADDING)),
+        padding: Edges::all(px(theme::terminal_padding())),
         colors: palette(),
     }
 }

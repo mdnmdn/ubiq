@@ -662,6 +662,7 @@ fn map_event(event: AgentEvent) -> Option<ConvUpdate> {
             mode_id: current_mode_id,
         },
         AgentEvent::SessionInfoUpdate { title, .. } => ConvUpdate::Title(title?),
+        AgentEvent::Compacted => ConvUpdate::Compacted,
 
         AgentEvent::UsageUpdate {
             used,
@@ -1108,6 +1109,16 @@ mod tests {
             .is_none()
         );
     }
+
+    /// The one event whose whole content is where it happened.
+    #[test]
+    fn a_compaction_reaches_the_transcript() {
+        assert_eq!(
+            map_event(AgentEvent::Compacted),
+            Some(ConvUpdate::Compacted)
+        );
+    }
+
     /// A meter for a fixed launch, so a row's three launch dimensions are never in question.
     fn meter(dir: &tempfile::TempDir) -> UsageMeter {
         UsageMeter {

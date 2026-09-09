@@ -8,7 +8,7 @@
 //! Every one of them is kit calls. The only hand-rolled body is the folder move's, because it is
 //! the one dialog with a control in it: a tick box that stops it asking again for ten minutes.
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px, relative};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, relative};
 
 use crate::app::AppState;
 use crate::state::FileDialog;
@@ -302,7 +302,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         .child(
                             div()
                                 .w(relative(1.))
-                                .text_size(px(12.5))
+                                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                                 .text_color(theme::text_muted())
                                 .child("Don't ask again for 10 minutes"),
                         ),

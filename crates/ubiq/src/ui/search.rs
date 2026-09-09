@@ -95,7 +95,9 @@ fn glyph_toggle(
         .justify_center()
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
-        .child(mono(label, colour).text_size(px(11.)))
+        .child(
+            mono(label, colour).text_size(theme::font(theme::Family::Content, theme::Role::Meta)),
+        )
         .on_click(on_click)
 }
 
@@ -127,7 +129,7 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     };
     // The results read against the tree and the editor, so they follow the same project font size,
     // and a row is as tall as that size asks for.
-    let font = app.ui_font_size_or_default(cx) - 0.5;
+    let font = app.content_font_size_or_default(cx) - 0.5;
     let row = row_height(font);
 
     for file in &app.search.results {
@@ -365,7 +367,11 @@ fn status_line(text: impl IntoElement) -> AnyElement {
         .items_center()
         .border_t_1()
         .border_color(theme::border())
-        .child(div().text_size(px(10.)).child(text))
+        .child(
+            div()
+                .text_size(theme::font(theme::Family::Content, theme::Role::Micro))
+                .child(text),
+        )
         .into_any_element()
 }
 

@@ -16,6 +16,12 @@ impl AppState {
         let prefs = prefs::InterfacePrefs {
             schema: prefs::SCHEMA,
             theme: self.workbench.theme_id,
+            accent: theme::accent_id(),
+            density: theme::density(),
+            // Two of the three text bases. The third is the content family's, which is the
+            // project's and travels in `ViewPrefs`.
+            chrome_font_size: Some(theme::text_scale().chrome),
+            conversation_font_size: Some(theme::text_scale().conversation),
             last_start: self.workbench.last_start.clone(),
             // Whatever the blob carried that this build does not name, put back as it was found.
             rest: self.workbench.interface_rest.clone(),

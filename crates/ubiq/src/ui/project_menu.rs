@@ -22,6 +22,7 @@ use ubiq_proto::projects::ProjectSnapshot;
 use crate::app::{AppState, focus_window, open_project_window};
 use crate::state::{MenuId, RowAction, when};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::kit::{field, mono, section_label};
 
 /// Where a row sits, which is what decides the actions it carries.
@@ -80,7 +81,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         // The project's own colour, filled: the window says which project it is at a glance.
         .bg(colour)
         .text_color(theme::on_accent())
-        .text_size(px(13.))
+        .text_size(theme::font(Family::Chrome, Role::Body))
         .child(
             Icon::new(IconName::ChevronDown)
                 .with_size(Size::XSmall)
@@ -112,7 +113,7 @@ pub fn window_badge(app: &AppState, cx: &App) -> Option<impl IntoElement> {
             .justify_center()
             .bg(app.project_tint(cx))
             .text_color(theme::on_accent())
-            .text_size(px(12.))
+            .text_size(theme::font(Family::Chrome, Role::Label))
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .child(app.window_label(cx).to_string())
     })
@@ -132,7 +133,7 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
         .flex()
         .flex_col()
         .bg(theme::surface_raised())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(app.project_tint(cx))
         .shadow_lg()
         .child(
@@ -151,7 +152,7 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(12.5))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .child(Input::new(&app.project_search).appearance(false)),
                 ),
         );
@@ -166,7 +167,7 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
             div()
                 .px_3()
                 .py_4()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child("No projects yet."),
         );
@@ -282,7 +283,7 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
                 .id(ElementId::Name(format!("project-name-{project}").into()))
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(if is_current {
                     theme::text()
                 } else {
@@ -298,7 +299,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             div()
                 .id(ElementId::Name(format!("project-path-{project}").into()))
                 .flex_none()
-                .child(mono(tail.clone(), path_colour).text_size(px(10.5)))
+                .child(
+                    mono(tail.clone(), path_colour)
+                        .text_size(theme::font(Family::Chrome, Role::Micro)),
+                )
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(full_path.clone()).build(window, cx)
                 })
@@ -327,7 +331,7 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
                 when::relative_opt(entry.record.last_opened_at, Utc::now()),
                 theme::text_faint(),
             )
-            .text_size(px(10.5)),
+            .text_size(theme::font(Family::Chrome, Role::Micro)),
         ),
     };
 
@@ -419,13 +423,13 @@ fn forget_row(
         .items_center()
         .gap_2()
         .bg(theme::warning_soft())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::warning())
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text())
                 .child(format!(
                     "Forget {name}? Its view state goes; the folder is untouched."
@@ -468,7 +472,7 @@ fn add_row(cx: &mut Context<AppState>) -> impl IntoElement {
         )
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child("Add a project\u{2026}"),
         )
@@ -499,7 +503,7 @@ fn clone_row(cx: &mut Context<AppState>) -> impl IntoElement {
         )
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child("Clone a project\u{2026}"),
         )
@@ -549,7 +553,7 @@ fn remote_row(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         )
         .child(
             div()
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text_muted())
                 .child(label),
         )
@@ -571,13 +575,13 @@ fn banner(error: String, cx: &mut Context<AppState>) -> impl IntoElement {
         .items_center()
         .gap_2()
         .bg(theme::danger_soft())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(theme::danger())
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(11.5))
+                .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text())
                 .child(error),
         )
@@ -599,7 +603,7 @@ fn window_mark(label: char, colour: gpui::Rgba) -> impl IntoElement {
         .flex_none()
         .items_center()
         .justify_center()
-        .text_size(px(10.))
+        .text_size(theme::font(Family::Chrome, Role::Micro))
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .text_color(colour)
         .border_1()
@@ -645,7 +649,7 @@ fn small_button(
         .flex_none()
         .items_center()
         .bg(theme::surface())
-        .text_size(px(11.5))
+        .text_size(theme::font(Family::Chrome, Role::Label))
         .text_color(colour)
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))

@@ -187,8 +187,19 @@ Steps 2, 3 and 5 are independent of each other and each is shippable alone.
 
 ## Next steps
 
-- File as `G212`, pointing at this document.
-- Decide whether the palette registry is worth a `Dnn` — it changes what `ThemeId` means and what
-  `set_mode` promises, which is the kind of thing `decisions.md` carries.
-- The four new palettes need drawing and looking at on the style reference page before any of them
-  ships, the way an icon needs the review sheet.
+- Every step is implemented — the component library wears Ubiq's palette, the palette registry
+  ships six palettes in three families, the accent derives from one seed, density scales the grid
+  half of the constant table, and every type size in the interface comes from
+  `theme::font(Family, Role)` with `just ui` rejecting a literal one.
+  `tech/ui-and-design.md` owns those facts.
+- The registry earned a decision: `D96`, which states what `ThemeId` becomes, that `Mode` is a
+  property a palette has rather than the thing it is, and what a derived accent costs a palette.
+- §6 is implemented: the Appearance section of application settings sets all four axes — the
+  palette family, the ground, the accent as a row of swatches, the chrome and conversation base
+  sizes as a ladder of pills, and density — each persisting on the click that changed it. The
+  content family stays the project's, on the status bar's dropdown. `features/workbench.md` owns
+  what the section offers.
+- `G212` is taken by the ACP delegate heuristic, so this document's own numbering has no row.
+- The four new palettes and the six accents still need looking at on the style reference page,
+  the way an icon needs the review sheet — `G218`.
+- Filing this document is `P12` in `_meta/feedback.md`.

@@ -763,6 +763,13 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         updated_at: Option<String>,
     },
+    /// The harness compacted its context: everything said before this point is still true about
+    /// the conversation, but the agent no longer holds it. Carried with no fields — a reader only
+    /// needs to know *where* the agent's memory begins, and neither the trigger nor a
+    /// pre-compaction token count changes where the line is drawn.
+    ///
+    /// ACP has no equivalent notification; Claude Code is the one harness that reports this.
+    Compacted,
 
     /// Context, spend and money — **the accounting contract every bridge implements**.
     ///

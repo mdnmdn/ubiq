@@ -474,6 +474,10 @@ pub enum ConvUpdate {
     },
     /// The conversation's own title, where the harness names it.
     Title(String),
+    /// The harness compacted its context here. What was said above is still
+    /// true; the agent's memory of it is not, and a transcript that did not
+    /// say so would imply one it no longer has.
+    Compacted,
 
     Usage(UsageRecord),
     RateLimit(RateLimitRecord),

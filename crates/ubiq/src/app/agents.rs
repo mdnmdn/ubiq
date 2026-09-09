@@ -563,8 +563,11 @@ impl AppState {
     }
 
     /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Abort, 2 Unload,
-    /// 3 Resume, 4 Delete. Delete does not act here — it raises a confirm instead, being the one
-    /// destructive, irreversible verb of the five.
+    /// 3 Resume, 4 Fork, 5 the persistence toggle, 6 Delete. The order is
+    /// [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing else's — the rows are
+    /// dispatched by position, so the two are read together or not at all. Delete does not act
+    /// here — it raises a confirm instead, being the one destructive, irreversible verb of the
+    /// seven.
     pub fn pick_conversation_menu(
         &mut self,
         agent_id: AgentId,
@@ -577,12 +580,47 @@ impl AppState {
             1 => self.abort_agent(agent_id, cx),
             2 => self.unload_agent(agent_id, cx),
             3 => self.resume_agent(agent_id, cx),
-            4 => {
+            4 => self.fork_conversation(agent_id, cx),
+            5 => self.toggle_conversation_persistent(agent_id, cx),
+            6 => {
                 self.workbench.confirm_end_conversation = Some(agent_id);
                 cx.notify();
             }
             _ => {}
         }
+    }
+
+    /// Mark a conversation as one to keep, or stop keeping it. Nothing is drawn optimistically:
+    /// the host owns the record, and the glyph moves when the work snapshot says it did — a mark
+    /// that flips on the click and back on the refusal is worse than one that waits.
+    pub fn toggle_conversation_persistent(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        let persistent = self
+            .work(cx)
+            .and_then(|work| work.agent(agent_id))
+            .is_some_and(|agent| agent.persistent);
+        self.bus.send(Message::SetConversationPersistent {
+            agent_id,
+            persistent: !persistent,
+        });
+        cx.notify();
+    }
+
+    /// Fork a conversation: a second agent, launched from a copy of this one's run directory, so
+    /// the two share every turn up to here and diverge from the next one on.
+    ///
+    /// The new agent's id is minted here, the way [`Self::start_new_agent`] mints one — the window
+    /// names the agent it asked for, and the host answers under that name. The source is untouched.
+    pub fn fork_conversation(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::ReviveConversation {
+            source: agent_id,
+            agent_id: AgentId::generate(),
+            project_id,
+            session_id: self.session,
+        });
+        cx.notify();
     }
 
     pub fn dismiss_conversation_menu(&mut self, cx: &mut Context<Self>) {

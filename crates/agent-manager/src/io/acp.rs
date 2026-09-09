@@ -139,9 +139,10 @@ pub fn to_acp(event: &AgentEvent) -> Option<Value> {
         | AgentEvent::PermissionRequest { .. }
         | AgentEvent::TurnEnded { .. }
         | AgentEvent::Log { .. }
-        // Not part of ACP's `session/update` vocabulary at all — Claude Code's own gauge, with
-        // no upstream equivalent to project onto.
-        | AgentEvent::RateLimitUpdate { .. } => return None,
+        // Not part of ACP's `session/update` vocabulary at all — Claude Code's own gauge and its
+        // own compaction notice, with no upstream equivalent to project onto.
+        | AgentEvent::RateLimitUpdate { .. }
+        | AgentEvent::Compacted => return None,
     };
     Some(value)
 }
@@ -437,8 +438,8 @@ fn status(status: ToolStatus) -> &'static str {
 ///   [`AgentEvent::TurnEnded`] are protocol-level in ACP — the result of
 ///   `session/new`, a `session/request_permission` request, and a
 ///   `session/prompt` response — not a `session/update` payload.
-/// - [`AgentEvent::Log`] and [`AgentEvent::RateLimitUpdate`] have no ACP
-///   vocabulary at all.
+/// - [`AgentEvent::Log`], [`AgentEvent::RateLimitUpdate`] and
+///   [`AgentEvent::Compacted`] have no ACP vocabulary at all.
 ///
 /// An unrecognised or missing `sessionUpdate` answers `None`, same as any of
 /// those four. Everything else degrades rather than fails: a malformed or

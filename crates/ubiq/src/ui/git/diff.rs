@@ -76,7 +76,7 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .items_center()
         .gap_2()
         .bg(theme::pane_bg())
-        .child(mono(path, theme::text_muted()).text_size(px(11.5)))
+        .child(mono(path, theme::text_muted()))
         .child(div().flex_1().min_w(px(0.)))
         .child(choice_pill(
             "git-diff-split",

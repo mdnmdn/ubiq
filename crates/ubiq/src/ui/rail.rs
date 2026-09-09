@@ -28,11 +28,15 @@ const ITEM_HEIGHT: f32 = 52.0;
 /// The rail's own width less its border — what everything inside it is exactly as wide as. Fixed
 /// rather than `w_full`, because a mode's label is wider than the rail and a flex child's
 /// automatic minimum size would let that label push its row wider than the rows beside it.
-const ITEM_WIDTH: f32 = theme::RAIL_WIDTH - 1.0;
+fn item_width() -> f32 {
+    theme::rail_width() - 1.0
+}
 const GROUP_HEIGHT: f32 = 42.0;
 /// One project badge: the rail's width less its own border, which is what the selected badge
 /// fills edge to edge.
-const BADGE_HEIGHT: f32 = theme::RAIL_WIDTH - 1.0;
+fn badge_height() -> f32 {
+    theme::rail_width() - 1.0
+}
 /// What an unselected badge keeps clear of the rail's edges, and how thick its ring is.
 const BADGE_MARGIN: f32 = 3.0;
 
@@ -71,8 +75,8 @@ pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         (if white { LOGO_WHITE } else { LOGO_BLUE }).to_vec(),
     ));
     div()
-        .w(px(theme::RAIL_WIDTH))
-        .h(px(theme::TITLEBAR_HEIGHT))
+        .w(px(theme::rail_width()))
+        .h(px(theme::titlebar_height()))
         .flex()
         .flex_none()
         .items_center()
@@ -83,7 +87,7 @@ pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         // project chip beside it ends.
         .border_b_1()
         .border_color(theme::border())
-        .child(img(ImageSource::Image(logo)).size(px(theme::TITLEBAR_HEIGHT - 10.)))
+        .child(img(ImageSource::Image(logo)).size(px(theme::titlebar_height() - 10.)))
 }
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -106,7 +110,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         spent += GROUP_HEIGHT + ITEM_HEIGHT * items.len() as f32;
         groups.push(
             div()
-                .w(px(ITEM_WIDTH))
+                .w(px(item_width()))
                 .flex()
                 .flex_col()
                 .items_center()
@@ -124,13 +128,13 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // The modes come first, always: the badges take whatever whole ones are left over, and none
     // when the window is too short for even one.
     let room = f32::from(window.viewport_size().height)
-        - theme::TITLEBAR_HEIGHT
-        - theme::STATUS_BAR_HEIGHT;
+        - theme::titlebar_height()
+        - theme::status_bar_height();
     // The last badge keeps a pixel off the bottom edge as well.
-    let fits = ((room - spent - 1.) / BADGE_HEIGHT).floor().max(0.) as usize;
+    let fits = ((room - spent - 1.) / badge_height()).floor().max(0.) as usize;
 
     div()
-        .w(px(theme::RAIL_WIDTH))
+        .w(px(theme::rail_width()))
         .flex()
         .flex_none()
         .flex_col()
@@ -207,9 +211,9 @@ fn project_badges(app: &AppState, fits: usize, cx: &mut Context<AppState>) -> Ve
                 // same square drawn as a thick ring, inset so the two never read as one block.
                 .m(px(if selected { 0. } else { BADGE_MARGIN }))
                 .size(px(if selected {
-                    BADGE_HEIGHT
+                    badge_height()
                 } else {
-                    BADGE_HEIGHT - BADGE_MARGIN * 2.
+                    badge_height() - BADGE_MARGIN * 2.
                 }))
                 .when(!selected, |this| {
                     this.border(px(BADGE_MARGIN)).border_color(tint)
@@ -220,7 +224,7 @@ fn project_badges(app: &AppState, fits: usize, cx: &mut Context<AppState>) -> Ve
                 .justify_center()
                 .when(selected, |this| this.bg(tint))
                 .text_color(if selected { theme::on_accent() } else { tint })
-                .text_size(px(15.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Title))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .cursor_pointer()
                 .child(initial)
@@ -244,7 +248,7 @@ fn rail_item(mode: RailMode, active: bool, cx: &mut Context<AppState>) -> AnyEle
         .id(ElementId::Name(
             format!("rail-{}", mode.label().to_lowercase()).into(),
         ))
-        .w(px(ITEM_WIDTH))
+        .w(px(item_width()))
         .h(px(ITEM_HEIGHT))
         .flex()
         .flex_none()
@@ -263,7 +267,7 @@ fn rail_item(mode: RailMode, active: bool, cx: &mut Context<AppState>) -> AnyEle
         )
         .child(
             div()
-                .text_size(px(10.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                 .text_color(fg)
                 .child(SharedString::from(mode.label())),
         )

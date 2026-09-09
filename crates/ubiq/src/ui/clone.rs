@@ -65,9 +65,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .py_2()
                 .flex_none()
                 .bg(theme::danger_soft())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::danger())
-                .text_size(px(11.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
                 .text_color(theme::text())
                 .child(clone_error_note(error))
         }))
@@ -178,7 +178,7 @@ fn repo_list(
                 .px_2()
                 .flex()
                 .items_center()
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(theme::text_faint())
                 .child(match (clone.repos_query.is_some(), clone.truncated) {
                     (true, _) => "Listing\u{2026}",
@@ -213,7 +213,7 @@ fn repo_list(
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(12.5))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                         .child(Input::new(&app.clone_filter_input).appearance(false)),
                 ),
         )
@@ -256,7 +256,7 @@ fn row(clone: &CloneState, repo: &RemoteRepo, cx: &mut Context<AppState>) -> Any
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(match selected {
                     true => theme::text(),
                     false => theme::text_muted(),
@@ -274,7 +274,7 @@ fn row(clone: &CloneState, repo: &RemoteRepo, cx: &mut Context<AppState>) -> Any
                 ElementId::Name(format!("clone-repo-note-{}", repo.id).into()),
                 note.clone(),
                 theme::text_faint(),
-                11.5,
+                theme::font(theme::Family::Chrome, theme::Role::Label),
             )
             .max_w(px(200.))
         }))
@@ -327,7 +327,7 @@ fn url_field(
         .children(match checked {
             Some(Err(note)) => Some(
                 div()
-                    .text_size(px(11.5))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
                     .text_color(theme::danger())
                     .child(note),
             ),
@@ -429,7 +429,15 @@ fn destination(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(elided("clone-parent", path, colour, 12.5).max_w(px(300.)))
+                .child(
+                    elided(
+                        "clone-parent",
+                        path,
+                        colour,
+                        theme::font(theme::Family::Chrome, theme::Role::Body),
+                    )
+                    .max_w(px(300.)),
+                )
                 .child(ghost_button(
                     "clone-parent-choose",
                     None,
@@ -470,13 +478,13 @@ fn options(clone: &CloneState, cx: &mut Context<AppState>) -> AnyElement {
                     .flex_col()
                     .child(
                         div()
-                            .text_size(px(12.5))
+                            .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                             .text_color(theme::text())
                             .child(label),
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                             .text_color(theme::text_faint())
                             .child(note),
                     ),

@@ -14,20 +14,32 @@
 //! button says why it cannot be pressed.
 
 use gpui::{
-    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,
+    StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
 };
 use gpui_component::input::Textarea;
 use ubiq_proto::git::{GitEntry, GitPathChange};
 
 use crate::app::AppState;
 use crate::state::GitStatus;
-use crate::state::git::{Side, change_letter, conflicted, staged, unstaged};
+use crate::state::git::{Side, change_letter, group_changes};
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::explorer::git_colour;
 use crate::ui::kit::{
     badge, check_box, elided_with, field, mono, panel, panel_header, section_label,
 };
+
+/// Every row in the list is this tall, a list heading included, so the list is uniform and only
+/// what is on screen is built.
+const ROW: f32 = 24.0;
+
+/// One row of the flattened working tree: a list's heading, or one changed path in it as an index
+/// into the project's entries.
+enum Flat {
+    Header(Side, usize),
+    Row(Side, usize),
+}
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
@@ -42,63 +54,79 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
 
 /// The working tree: three lists and the box under them.
 fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(git) = app.git_view(cx) else {
+    if app.git_view(cx).is_none() {
         return div().into_any_element();
-    };
+    }
     let entries = app.git_entries(cx).unwrap_or(&[]);
-    let selected = git.path();
+    // Grouped once here instead of filtered three times below, plus a fourth pass for the staged
+    // count `commit_box` used to take on its own — `staged.len()` is that count.
+    let groups = group_changes(entries);
+    let staged_count = groups.staged.len();
 
-    let mut body = div()
-        .id("git-changes")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .overflow_scroll();
-
-    for (side, rows) in [
-        (Side::Conflicted, conflicted(entries)),
-        (Side::Staged, staged(entries)),
-        (Side::Unstaged, unstaged(entries)),
+    // The three lists become one, so the panel is a single virtual list: only the rows on screen
+    // are built, and a heading is a row like any other.
+    let mut rows: Vec<Flat> = Vec::new();
+    for (side, group) in [
+        (Side::Conflicted, &groups.conflicted),
+        (Side::Staged, &groups.staged),
+        (Side::Unstaged, &groups.unstaged),
     ] {
-        if rows.is_empty() {
+        if group.is_empty() {
             continue;
         }
-        body = body.child(list_header(side, rows.len()));
-        for entry in rows {
-            body = body.child(change_row(
-                side,
-                entry,
-                selected == Some(&entry.rel_path),
-                cx,
-            ));
-        }
+        rows.push(Flat::Header(side, group.len()));
+        rows.extend(group.iter().map(|index| Flat::Row(side, *index)));
     }
+
+    let count = rows.len();
+    let view = cx.entity();
+    let mut body = div().flex().flex_col().flex_1().min_h(px(0.)).child(
+        uniform_list("git-changes", count, move |range, window, cx| {
+            let app = view.read(cx);
+            let entries = app.git_entries(cx).unwrap_or(&[]);
+            let selected = app.git_view(cx).and_then(|git| git.path());
+            range
+                .filter_map(|slot| match rows.get(slot)? {
+                    Flat::Header(side, count) => {
+                        Some(list_header(*side, *count).into_any_element())
+                    }
+                    Flat::Row(side, index) => {
+                        let entry = entries.get(*index)?;
+                        Some(change_row(
+                            *side,
+                            entry,
+                            selected == Some(&entry.rel_path),
+                            &view,
+                            window,
+                        ))
+                    }
+                })
+                .collect::<Vec<AnyElement>>()
+        })
+        .flex_1()
+        .min_h(px(0.)),
+    );
 
     // A working tree with nothing to say is a fact worth printing: it is the difference between
     // clean and not yet read, and only one of the two is worth being pleased about.
     if entries.is_empty() {
-        body = body.child(
-            div().px_3().py_2().child(
-                mono(
-                    match app.open_project(cx).and_then(|open| open.git.as_ref()) {
-                        Some(_) => "Nothing to commit",
-                        None => "Not a repository",
-                    },
-                    theme::text_faint(),
-                )
-                .text_size(px(11.5)),
-            ),
-        );
+        body = body.child(div().px_3().py_2().child(mono(
+            match app.open_project(cx).and_then(|open| open.git.as_ref()) {
+                Some(_) => "Nothing to commit",
+                None => "Not a repository",
+            },
+            theme::text_faint(),
+        )));
     }
 
     panel()
         .child(panel_header(
             "Uncommitted changes",
-            mono(format!("{} paths", entries.len()), theme::text_faint()).text_size(px(11.)),
+            mono(format!("{} paths", entries.len()), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
         .child(body)
-        .child(commit_box(app, window, cx))
+        .child(commit_box(app, window, staged_count, cx))
         .into_any_element()
 }
 
@@ -111,7 +139,8 @@ fn commit(app: &AppState, index: usize, cx: &mut Context<AppState>) -> AnyElemen
     panel()
         .child(panel_header(
             "Commit",
-            mono(commit.short_id.clone(), theme::text_faint()).text_size(px(11.)),
+            mono(commit.short_id.clone(), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
         .child(
             div()
@@ -122,7 +151,7 @@ fn commit(app: &AppState, index: usize, cx: &mut Context<AppState>) -> AnyElemen
                 .gap_2()
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text())
                         .child(commit.summary.clone()),
                 )
@@ -130,15 +159,16 @@ fn commit(app: &AppState, index: usize, cx: &mut Context<AppState>) -> AnyElemen
                     format!("{} \u{b7} {}", commit.author, commit.when),
                     theme::text_muted(),
                 ))
-                .children((!commit.refs.is_empty()).then(|| {
-                    mono(commit.refs.join(" \u{b7} "), theme::accent()).text_size(px(11.5))
-                }))
+                .children(
+                    (!commit.refs.is_empty())
+                        .then(|| mono(commit.refs.join(" \u{b7} "), theme::accent())),
+                )
                 .child(
                     mono(
                         "The files a commit touched need the log the git family does not carry yet",
                         theme::text_faint(),
                     )
-                    .text_size(px(11.)),
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
                 ),
         )
         .into_any_element()
@@ -147,7 +177,7 @@ fn commit(app: &AppState, index: usize, cx: &mut Context<AppState>) -> AnyElemen
 /// One list's heading, with what a write version's bulk action would be beside it.
 fn list_header(side: Side, count: usize) -> impl IntoElement {
     div()
-        .h(px(28.))
+        .h(px(ROW))
         .px_3()
         .flex()
         .flex_none()
@@ -157,7 +187,10 @@ fn list_header(side: Side, count: usize) -> impl IntoElement {
         .border_t_1()
         .border_color(theme::border())
         .child(section_label(side.label()))
-        .child(mono(format!("{count}"), theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(format!("{count}"), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
+        )
 }
 
 /// One changed path. The letter is the change on this list's own side of the pair; the colour is
@@ -166,7 +199,8 @@ fn change_row(
     side: Side,
     entry: &GitEntry,
     selected: bool,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     let change = match side {
         Side::Staged => entry.index.as_ref(),
@@ -183,7 +217,7 @@ fn change_row(
 
     let mut row = div()
         .id(key)
-        .h(px(24.))
+        .h(px(ROW))
         .pr_3()
         .flex()
         .flex_none()
@@ -198,15 +232,16 @@ fn change_row(
             name,
             path.clone(),
             theme::text_muted(),
-            12.,
+            theme::font(theme::Family::Chrome, theme::Role::Label),
         ))
         .children(
             // A rename is the one change whose old name is worth the width: the row's own name is
             // where the file went, and the pair says where it came from.
             match change {
-                Some(GitPathChange::Renamed { from }) => {
-                    Some(mono(format!("\u{2190} {from}"), theme::text_faint()).text_size(px(10.5)))
-                }
+                Some(GitPathChange::Renamed { from }) => Some(
+                    mono(format!("\u{2190} {from}"), theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Micro)),
+                ),
                 _ => None,
             },
         );
@@ -218,8 +253,10 @@ fn change_row(
             .border_color(theme::accent());
     }
 
-    row.on_click(cx.listener(move |this, _, _, cx| this.select_git_path(side, &path, cx)))
-        .into_any_element()
+    row.on_click(window.listener_for(view, move |this, _, _, cx| {
+        this.select_git_path(side, &path, cx)
+    }))
+    .into_any_element()
 }
 
 /// The colour a changed path takes, which is the explorer's for the same path: both are the same
@@ -232,15 +269,16 @@ fn row_colour(entry: &GitEntry) -> Rgba {
 ///
 /// Inert, and it says so. A message is kept because the thought is worth keeping even when the
 /// action is a version away.
-fn commit_box(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
+fn commit_box(
+    app: &AppState,
+    window: &Window,
+    staged_count: usize,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
     let Some(git) = app.git_view(cx) else {
         return div();
     };
     let focused = app.git_message.read(cx).focus_handle(cx).is_focused(window);
-    let staged_count = app
-        .git_entries(cx)
-        .map(|entries| staged(entries).len())
-        .unwrap_or(0);
     let amend = git.amend;
 
     div()
@@ -266,7 +304,7 @@ fn commit_box(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                                 .appearance(false)
                                 .bordered(false)
                                 .w_full()
-                                .text_size(px(12.5)),
+                                .text_size(theme::font(Family::Chrome, Role::Body)),
                         )
                         .on_click(cx.listener(|this, _, window, cx| {
                             let input = this.git_message.clone();
@@ -286,7 +324,7 @@ fn commit_box(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 ))
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(theme::font(Family::Chrome, Role::Label))
                         .text_color(theme::text_muted())
                         .child("amend"),
                 )
@@ -301,9 +339,9 @@ fn commit_box(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         .flex_none()
                         .items_center()
                         .bg(theme::surface())
-                        .border_l(px(theme::ACCENT_EDGE))
+                        .border_l(px(theme::accent_edge()))
                         .border_color(theme::border())
-                        .text_size(px(12.5))
+                        .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text_faint())
                         .child(match staged_count {
                             1 => "Commit 1 file".to_string(),
@@ -316,6 +354,6 @@ fn commit_box(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 "Ubiq observes this repository and never writes into it",
                 theme::text_faint(),
             )
-            .text_size(px(10.5)),
+            .text_size(theme::font(Family::Chrome, Role::Micro)),
         )
 }

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-08
+updated: 2026-09-09
 verified: 2026-09-08
 code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico]
 depends_on: [tech-structure]
@@ -81,7 +81,7 @@ everything else only when it complains. What the console does with the records i
 |---|---|
 | `just am <args>` | Run the `am` CLI — `just am claude --print-config` provisions a run and prints what it would launch, without launching it |
 | `just host` | Build the host and prove no drawing crate reaches its dependency tree |
-| `just ui` | Build the interface and prove it never names the host |
+| `just ui` | Build the interface and prove it never names the host, and never names a type size of its own — a literal `text_size(px(N))` outside `theme.rs` fails it |
 | `just core` | Build the library the way Ubiq consumes it, with default features off. **This is the check that matters** — it fails the moment a CLI or terminal type leaks into the core |
 
 ### Checks

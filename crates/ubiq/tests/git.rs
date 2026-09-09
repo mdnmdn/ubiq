@@ -237,6 +237,50 @@ fn the_graph_is_as_wide_as_its_widest_lane() {
     assert_eq!(git.lanes(), widest);
 }
 
+/// A same-length in-place replacement — a rebase that does not change the commit count is the
+/// real-world case — must not serve a stale search haystack or a stale lane count. This is the
+/// bug a cache keyed on `commits.len()` had: `set_commits` must recompute both every time, not
+/// only when the length changes.
+#[test]
+fn a_same_length_replacement_never_serves_a_stale_haystack_or_lane_count() {
+    let mut git = GitView::new(
+        Vec::new(),
+        vec![row(
+            "aaaaaaa",
+            "Refit the terminal",
+            "Marco",
+            0,
+            Vec::new(),
+            true,
+        )],
+    );
+
+    git.set_commits(vec![row(
+        "bbbbbbb",
+        "Register the migration",
+        "Sara",
+        3,
+        Vec::new(),
+        false,
+    )]);
+
+    assert_eq!(git.lanes(), 4, "the new commit's lane, not the old one's");
+
+    git.search = "terminal".into();
+    assert_eq!(
+        git.visible_commits().len(),
+        0,
+        "the old haystack must not still match after a same-length replacement"
+    );
+
+    git.search = "migration".into();
+    assert_eq!(
+        git.visible_commits().len(),
+        1,
+        "the new commit's own haystack must match"
+    );
+}
+
 #[test]
 fn a_path_lands_in_a_list_for_each_side_of_its_pair() {
     let entries = working_tree();

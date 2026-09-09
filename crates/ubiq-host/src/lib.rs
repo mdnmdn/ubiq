@@ -25,6 +25,7 @@
 //! - `shells`: which shells this machine has, and how one is started
 //! - `agent`: agent-type definitions and the registry over them
 //! - `conversation`: one live agent, its pump thread, and the one mapping onto the bus
+//! - `conversation_record`: a conversation's launch recipe on disk, so a marked one outlives the process
 //! - `watch`: what changed on disk in an open project, said without being asked
 //! - `mcp_server`: the MCP surface Ubiq exposes to the agents it hosts
 
@@ -35,6 +36,7 @@ pub mod cli_shortcut;
 pub mod config;
 pub mod connectors;
 pub mod conversation;
+pub mod conversation_record;
 pub mod coordinator;
 pub mod environment;
 pub mod files;

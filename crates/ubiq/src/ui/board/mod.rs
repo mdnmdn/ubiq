@@ -38,6 +38,7 @@ use ubiq_proto::work::{Status, TaskRecord};
 use crate::app::AppState;
 use crate::state::work;
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{card, choice_pill, field, meter, mono, primary_button, section_label};
 use crate::ui::work::{activity_colour, bucket_colour};
@@ -57,9 +58,9 @@ impl Render for Ghost {
             .px_2()
             .py_1()
             .bg(theme::surface_raised())
-            .border_l(px(theme::ACCENT_EDGE))
+            .border_l(px(theme::accent_edge()))
             .border_color(theme::accent())
-            .text_size(px(12.))
+            .text_size(theme::font(Family::Chrome, Role::Label))
             .text_color(theme::text())
             .child(self.0.clone())
     }
@@ -136,7 +137,7 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
         .collect();
 
     div()
-        .min_h(px(theme::TITLEBAR_HEIGHT))
+        .min_h(px(theme::titlebar_height()))
         .px_3()
         .py_2()
         .flex()
@@ -189,7 +190,7 @@ fn filter_field(app: &AppState, window: &Window, cx: &App) -> impl IntoElement {
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(12.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .child(Input::new(&app.task_filter).appearance(false)),
         )
 }
@@ -235,7 +236,7 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
         .flex_none()
         .flex_col()
         .bg(theme::pane_bg())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(if lit { theme::accent() } else { colour })
         // The column a drop would file the card into says so by lighting up, which is the only
         // answer the user gets before letting go.
@@ -266,14 +267,20 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
                     .text_color(theme::text_faint()),
             )
             .child(div().size(px(7.)).flex_none().rounded_full().bg(colour))
-            .child(mono(format!("{count}"), theme::text_muted()).text_size(px(11.)))
+            .child(
+                mono(format!("{count}"), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
             .children(
                 status
                     .label()
                     .to_uppercase()
                     .chars()
                     .filter(|c| !c.is_whitespace())
-                    .map(|c| mono(c.to_string(), theme::text_faint()).text_size(px(10.))),
+                    .map(|c| {
+                        mono(c.to_string(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro))
+                    }),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_board_column(status, cx)))
             .into_any_element();
@@ -293,7 +300,7 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
             .justify_center()
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(theme::font(Family::Chrome, Role::Label))
                     .text_color(theme::text_faint())
                     .child("Nothing here."),
             )
@@ -327,7 +334,7 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
                 .child(div().size(px(7.)).flex_none().rounded_full().bg(colour))
                 .child(section_label(status.label()))
                 .child(div().flex_1().min_w(px(0.)))
-                .child(mono(format!("{count}"), theme::text_muted()).text_size(px(11.5)))
+                .child(mono(format!("{count}"), theme::text_muted()))
                 .child(
                     Icon::new(IconName::ChevronLeft)
                         .with_size(Size::XSmall)
@@ -372,11 +379,10 @@ fn task_card(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> A
                 .items_center()
                 .gap_1p5()
                 .child(
-                    div()
-                        .px_1()
-                        .border_1()
-                        .border_color(theme::border())
-                        .child(mono(task.shape.label(), theme::text_faint()).text_size(px(9.5))),
+                    div().px_1().border_1().border_color(theme::border()).child(
+                        mono(task.shape.label(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro)),
+                    ),
                 )
                 .children(task.blocked().then(|| {
                     Icon::new(IconName::TriangleAlert)
@@ -393,9 +399,10 @@ fn task_card(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> A
                 }))
                 // The drop the host has not answered yet, said in the faintest token there is: the
                 // card is still in its old column and saying so is the whole point.
-                .children(
-                    moving.then(|| mono("moving\u{2026}", theme::text_faint()).text_size(px(11.))),
-                )
+                .children(moving.then(|| {
+                    mono("moving\u{2026}", theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
+                }))
                 .child(div().flex_1().min_w(px(0.)))
                 .children(task.priority.label().map(|label| {
                     mono(
@@ -406,7 +413,7 @@ fn task_card(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> A
                             theme::text_faint()
                         },
                     )
-                    .text_size(px(11.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
                 }))
                 .child(
                     div()
@@ -431,7 +438,7 @@ fn task_card(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> A
         )
         .child(
             div()
-                .text_size(px(13.5))
+                .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child(title),
         )
@@ -470,10 +477,13 @@ fn session_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -
                     .with_size(Size::XSmall)
                     .text_color(theme::text_faint()),
             )
-            .child(mono(session.name.clone(), theme::text_muted()).text_size(px(11.)))
+            .child(
+                mono(session.name.clone(), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
             .into_any_element(),
         None => mono("no session yet", theme::warning())
-            .text_size(px(11.))
+            .text_size(theme::font(Family::Chrome, Role::Meta))
             .into_any_element(),
     }
 }
@@ -489,7 +499,7 @@ fn now_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> An
             format!("{}/{total} sub-tasks", task.done())
         };
         return mono(text, theme::text_muted())
-            .text_size(px(11.))
+            .text_size(theme::font(Family::Chrome, Role::Meta))
             .into_any_element();
     };
 
@@ -514,14 +524,17 @@ fn now_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> An
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::hover()))
                 .child(div().size(px(6.)).flex_none().rounded_full().bg(colour))
-                .child(mono(agent.name.clone(), colour).text_size(px(11.)))
+                .child(
+                    mono(agent.name.clone(), colour)
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                )
                 .on_click(cx.listener(move |this, _, _, cx| this.open_task_chat(id, cx))),
         )
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_muted())
                 .truncate()
                 .child(SharedString::from(format!("\u{2014} {}", agent.note))),

@@ -407,7 +407,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                                 .appearance(false)
                                 .bordered(false)
                                 .w_full()
-                                .text_size(px(12.5)),
+                                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body)),
                         ),
                     ),
             ),

@@ -84,6 +84,18 @@ pub struct HostSettings {
     #[serde(default)]
     pub agent_commands: BTreeMap<String, String>,
     /// Globs every project search and every filename index skip, whatever a project record says.
+    /// How many days a conversation nobody marked persistent is kept before its record is
+    /// collected. Thirty by default — long enough that last month's work is still there to go
+    /// back to, short enough that the store is not a transcript of the year.
+    ///
+    /// `0` never collects, and that is a real answer rather than a degenerate one: a user who
+    /// wants everything kept says so with a number, not by finding a switch somewhere else.
+    ///
+    /// A *persistent* conversation is exempt entirely, whatever this reads. Marking one is the
+    /// user saying keep it, and a timer must not overrule that — such a conversation goes only by
+    /// an explicit unmark or delete.
+    #[serde(default = "retain_conversations_days_default")]
+    pub retain_conversations_days: u32,
     #[serde(default = "search_excludes_default")]
     pub search_excludes: Vec<String>,
     /// External tools a search may fall back to, in the order they are tried, and only when the
@@ -241,7 +253,15 @@ pub struct SavedRemoteHost {
 /// dropping it on its next write turns automatic naming back on for a user who had switched it
 /// off — a setting that reverts to *calling a model* rather than to not calling one, which is the
 /// direction that costs something.
-pub const HOST_SETTINGS_SCHEMA: u32 = 12;
+///
+/// Thirteen adds [`HostSettings::retain_conversations_days`], and it is the sharpest case yet. The
+/// field decides when a conversation nobody marked persistent has its record collected, and it
+/// defaults to thirty days. An older build dropping it returns a user who asked for `0` — never
+/// collect — or for a longer window to that default, and the next collector run then deletes
+/// records they had said to keep. Every other field on this record reverts a *setting*; this one
+/// reverts and then deletes the user's own data, which is why the guard matters here even though
+/// the field is additive and defaulted.
+pub const HOST_SETTINGS_SCHEMA: u32 = 13;
 
 fn isolate_agents_default() -> bool {
     true
@@ -249,6 +269,10 @@ fn isolate_agents_default() -> bool {
 
 fn auto_name_conversations_default() -> bool {
     true
+}
+
+fn retain_conversations_days_default() -> u32 {
+    30
 }
 
 /// Kept consistent with [`crate::files::WALK_SKIP`] and [`crate::files::LIST_HIDE`] — these are
@@ -287,6 +311,7 @@ impl Default for HostSettings {
             agent_home: AgentHome::default(),
             extra_grants: Vec::new(),
             agent_commands: BTreeMap::new(),
+            retain_conversations_days: retain_conversations_days_default(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
             index_level: IndexLevel::default(),

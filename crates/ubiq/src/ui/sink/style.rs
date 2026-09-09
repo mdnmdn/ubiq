@@ -30,11 +30,10 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, ROW_FONT, Tab, badge, card, check_box, choice_pill,
-    context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row, icon_button,
-    kind_icon, label_hint, meter, mono, panel_header, pill, primary_button, progress_ring,
-    removable_tag, section_label, slab, state_chip, status_dot, stepper, tab_strip, toggle_pill,
-    view_switch,
+    ContextItem, Picker, PickerStyle, Tab, badge, card, check_box, choice_pill, context_panel,
+    disclosure, file_row, filter_bar, ghost_button, hint_row, icon_button, kind_icon, label_hint,
+    meter, mono, panel_header, pill, primary_button, progress_ring, removable_tag, row_font,
+    section_label, slab, state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -144,35 +143,67 @@ fn swatch_of(name: impl Into<SharedString>, colour: Rgba) -> AnyElement {
                 .border_1()
                 .border_color(theme::border()),
         )
-        .child(mono(name, theme::text_muted()).text_size(px(10.)))
+        .child(
+            mono(name, theme::text_muted())
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro)),
+        )
         .into_any_element()
 }
 
 // ── Type ────────────────────────────────────────────────────────────
 
-/// The sizes the window actually uses, each said at the size it is.
+/// The type scale, said at the sizes it resolves to: five roles down, three families across.
+///
+/// Each family has a base of its own, so a column moves on its own — the chrome and a
+/// conversation are interface-scoped, the content family is the project's. Nothing here names a
+/// number: what the roles resolve to is `theme::font`'s answer, which is the point.
 fn typography() -> AnyElement {
-    let sizes = [
-        (15.0, "15 · a screen's title"),
-        (13.5, "13.5 · a composer, a menu row"),
-        (12.5, "12.5 · body copy, a tab, a button"),
-        (11.0, "11 · a footnote, a badge"),
+    let families = [
+        (theme::Family::Chrome, "chrome"),
+        (theme::Family::Content, "content"),
+        (theme::Family::Conversation, "conversation"),
+    ];
+    let roles = [
+        (theme::Role::Title, "Title · a screen or section heading"),
+        (theme::Role::Body, "Body · running text, the family's base"),
+        (theme::Role::Label, "Label · a control, a row, a tab"),
+        (theme::Role::Meta, "Meta · a timestamp, a count, a hint"),
+        (theme::Role::Micro, "Micro · a badge, a chip"),
     ];
 
-    let lines: Vec<AnyElement> = sizes
+    let columns: Vec<AnyElement> = families
         .iter()
-        .map(|(size, label)| {
+        .map(|(family, name)| {
             div()
-                .text_size(px(*size))
-                .text_color(theme::text())
-                .child(SharedString::from(*label))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .flex_1()
+                .min_w(px(0.))
+                .child(section_label(name))
+                .children(roles.iter().map(|(role, label)| {
+                    div()
+                        .text_size(theme::font(*family, *role))
+                        .text_color(theme::text())
+                        .child(SharedString::from(*label))
+                        .into_any_element()
+                }))
                 .into_any_element()
         })
         .collect();
 
+    let lines = vec![
+        div()
+            .flex()
+            .gap_4()
+            .items_start()
+            .children(columns)
+            .into_any_element(),
+    ];
+
     group(
         "Type",
-        "Four sizes, one mono family, and the three text tiers.",
+        "Five roles over three independently sized families, one mono family, and the three text tiers.",
         vec![
             div()
                 .flex()
@@ -216,7 +247,7 @@ fn typography() -> AnyElement {
 
 fn tinted(text: &str, colour: Rgba) -> AnyElement {
     div()
-        .text_size(px(12.5))
+        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
         .text_color(colour)
         .child(SharedString::from(text.to_string()))
         .into_any_element()
@@ -281,7 +312,7 @@ fn surfaces(cx: &mut Context<AppState>) -> AnyElement {
         labelled(
             "pill",
             pill(theme::info())
-                .child(mono("a chip", theme::text()).text_size(px(11.5)))
+                .child(mono("a chip", theme::text()))
                 .into_any_element(),
         ),
     ]);
@@ -326,7 +357,7 @@ fn surfaces(cx: &mut Context<AppState>) -> AnyElement {
             None,
             Some(
                 mono("trailing", theme::text_faint())
-                    .text_size(px(10.5))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                     .into_any_element(),
             ),
         ))
@@ -339,7 +370,7 @@ fn surfaces(cx: &mut Context<AppState>) -> AnyElement {
             "sink-disclosure",
             "disclosure",
             mono("3 open", theme::text_faint())
-                .text_size(px(11.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                 .into_any_element(),
             false,
             cx.listener(|this, _, _, cx| this.toggle_sink_disclosure(cx)),
@@ -608,12 +639,13 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let filter = labelled(
         "filter_bar",
         filter_bar(
-            mono("Go to file\u{2026}", theme::text_faint()).text_size(px(12.5)),
+            mono("Go to file\u{2026}", theme::text_faint())
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body)),
             mono(
                 if tree { "Tree view" } else { "List view" },
                 theme::text_faint(),
             )
-            .text_size(px(10.5))
+            .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
             .px_1()
             .bg(theme::surface_raised()),
             false,
@@ -623,9 +655,12 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
     let specimen = labelled(
         "file_row",
-        file_row("sink-file-row", 1, true, true, true, ROW_FONT)
+        file_row("sink-file-row", 1, true, true, true, row_font())
             .child(kind_icon(false, theme::warning()))
-            .child(mono("main.rs", theme::warning()).text_size(px(13.)))
+            .child(
+                mono("main.rs", theme::warning())
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Body)),
+            )
             .child(badge("M", theme::warning()))
             .into_any_element(),
     );
@@ -704,7 +739,7 @@ fn fields(app: &AppState, window: &Window, cx: &App) -> AnyElement {
                             .appearance(false)
                             .bordered(false)
                             .w_full()
-                            .text_size(px(13.)),
+                            .text_size(theme::font(theme::Family::Chrome, theme::Role::Body)),
                     )
                     .into_any_element(),
             ),
@@ -728,10 +763,10 @@ pub fn framed_active(edge: Rgba, focused: bool) -> gpui::Div {
         .px_2()
         .flex()
         .bg(theme::surface())
-        .border_l(px(theme::ACCENT_EDGE))
+        .border_l(px(theme::accent_edge()))
         .border_color(colour);
     if focused {
-        root = root.border_b(px(theme::ACCENT_EDGE));
+        root = root.border_b(px(theme::accent_edge()));
     }
     root
 }
@@ -852,7 +887,7 @@ pub fn group(title: &str, note: &str, children: Vec<AnyElement>) -> AnyElement {
                 .child(
                     div()
                         .max_w(px(620.))
-                        .text_size(px(12.))
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
                         .text_color(theme::text_muted())
                         .child(SharedString::from(note.to_string())),
                 ),
@@ -888,7 +923,7 @@ pub fn labelled(name: &str, child: AnyElement) -> AnyElement {
         .child(
             div()
                 .font_family(theme::MONO_FONT)
-                .text_size(px(10.))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                 .text_color(theme::text_faint())
                 .child(SharedString::from(name.to_string())),
         )

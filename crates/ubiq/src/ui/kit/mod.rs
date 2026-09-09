@@ -51,7 +51,7 @@ pub use controls::{
     section_label, slab, state_chip, status_dot, stepper, toggle_pill,
 };
 pub use files::{
-    ROW_FONT, file_row, filter_bar, kind_icon, row_height, row_indent, twisty, view_switch,
+    file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,
 };
 pub use icons::UbiqIcon;
 pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};

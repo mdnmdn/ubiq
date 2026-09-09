@@ -11,7 +11,7 @@
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, uniform_list,
 };
 use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -251,7 +251,7 @@ pub fn render(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> A
     let project = app.project(cx);
     let key = tab_key(&file.path, Subject::File);
     // The list follows the project's own text size, the way the search results and the tree do.
-    let font = app.ui_font_size_or_default(cx) - 0.5;
+    let font = app.content_font_size_or_default(cx) - 0.5;
     let row = row_height(font);
     // The definition the caret is in, so the row the user is standing in is lit.
     let here = app
@@ -259,51 +259,60 @@ pub fn render(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> A
         .and_then(|(line, _)| enclosing(&app.outline, line))
         .map(|def| def.line);
 
-    let rows = app.outline.iter().map(|def| {
-        let line = def.line;
-        let key = key.clone();
-        div()
-            .id(gpui::ElementId::Name(format!("outline-{line}").into()))
-            .cursor_pointer()
-            .when(here == Some(line), |this| this.bg(theme::selected()))
-            .hover(|this| this.bg(theme::hover()))
-            .on_click(cx.listener(move |this, _, _, cx| this.goto_outline(project, &key, line, cx)))
-            .h(px(row))
-            .px_3()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_2()
-            .child(
-                mono(def.kind.sigil(), theme::text_faint())
-                    .text_size(px(font - 1.))
-                    .flex_none()
-                    .w(px(font * 2.2)),
-            )
-            .child(
-                mono(def.name.clone(), theme::text())
-                    .text_size(px(font))
-                    .flex_1()
-                    .min_w(px(0.))
-                    .truncate(),
-            )
-            .child(
-                mono(format!("{line}"), theme::text_faint())
-                    .text_size(px(font - 1.))
-                    .flex_none(),
-            )
-    });
+    // The definitions themselves stay where they are: the list reads them back out of the window
+    // when it builds the rows on screen, so a two-thousand-definition file costs a viewport.
+    let count = app.outline.len();
+    let view = cx.entity();
 
     panel()
         .child(
-            div()
-                .id("outline-list")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h(px(0.))
-                .overflow_y_scroll()
-                .children(rows),
+            uniform_list("outline-list", count, move |range, window, cx| {
+                let defs = &view.read(cx).outline;
+                range
+                    .filter_map(|index| {
+                        let def = defs.get(index)?;
+                        let line = def.line;
+                        let key = key.clone();
+                        Some(
+                            div()
+                                .id(gpui::ElementId::Name(format!("outline-{line}").into()))
+                                .cursor_pointer()
+                                .when(here == Some(line), |this| this.bg(theme::selected()))
+                                .hover(|this| this.bg(theme::hover()))
+                                .on_click(window.listener_for(&view, move |this, _, _, cx| {
+                                    this.goto_outline(project, &key, line, cx)
+                                }))
+                                .h(px(row))
+                                .px_3()
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    mono(def.kind.sigil(), theme::text_faint())
+                                        .text_size(px(font - 1.))
+                                        .flex_none()
+                                        .w(px(font * 2.2)),
+                                )
+                                .child(
+                                    mono(def.name.clone(), theme::text())
+                                        .text_size(px(font))
+                                        .flex_1()
+                                        .min_w(px(0.))
+                                        .truncate(),
+                                )
+                                .child(
+                                    mono(format!("{line}"), theme::text_faint())
+                                        .text_size(px(font - 1.))
+                                        .flex_none(),
+                                )
+                                .into_any_element(),
+                        )
+                    })
+                    .collect::<Vec<AnyElement>>()
+            })
+            .flex_1()
+            .min_h(px(0.)),
         )
         .into_any_element()
 }

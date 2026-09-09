@@ -64,7 +64,7 @@ use crate::state::{
     ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState,
     prefs,
 };
-use crate::theme::{self, ThemeId};
+use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
 use crate::ui::dock::{self as dock, WorkbenchPanel};
 use gpui::{
@@ -310,16 +310,7 @@ impl OpenProject {
     /// instance up rather than rebuild it — which is what makes seeding one chat tab here safe:
     /// a tab closed later stays closed on every re-entry, because this is not on that path again.
     fn new(prefs: prefs::ViewPrefs) -> Self {
-        let chats = free_chat_slot(&[])
-            .map(|slot| {
-                vec![ChatTab {
-                    id: ChatId::generate(),
-                    slot,
-                    attached: None,
-                    picker_open: false,
-                }]
-            })
-            .unwrap_or_default();
+        let chats = seeded_chats(&prefs.chats);
         Self {
             panes: Vec::new(),
             focused_pane: None,
@@ -341,6 +332,38 @@ impl OpenProject {
             just_saved: HashSet::new(),
         }
     }
+}
+
+/// The chat tabs a project opens on: one per agent its blob remembered, in tab order, and a single
+/// empty tab when it remembered none — or when nothing it remembered still parses.
+///
+/// The saved id is the *attachment*, never the tab: a `ChatId` is a process-local counter, so every
+/// tab here is minted fresh. Slots come from the bounded chat pool, and a list longer than the pool
+/// stops at the last slot rather than handing out one twice.
+fn seeded_chats(saved: &[String]) -> Vec<ChatTab> {
+    let mut tabs: Vec<ChatTab> = Vec::new();
+    for agent in saved.iter().filter_map(|id| id.parse::<AgentId>().ok()) {
+        let Some(slot) = free_chat_slot(&tabs) else {
+            break;
+        };
+        tabs.push(ChatTab {
+            id: ChatId::generate(),
+            slot,
+            attached: Some(agent),
+            picker_open: false,
+        });
+    }
+    if tabs.is_empty()
+        && let Some(slot) = free_chat_slot(&[])
+    {
+        tabs.push(ChatTab {
+            id: ChatId::generate(),
+            slot,
+            attached: None,
+            picker_open: false,
+        });
+    }
+    tabs
 }
 
 /// Write what a conversation derives onto the agent record the rest of the window reads.
@@ -1026,7 +1049,7 @@ fn pane_title_number(title: &str) -> Option<&str> {
 
 /// Re-exported so `main.rs` can name the palette it boots with.
 pub fn boot_theme() -> ThemeId {
-    ThemeId::Dark
+    ThemeId::DARK
 }
 
 /// Open a window on a project.

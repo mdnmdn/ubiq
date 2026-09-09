@@ -14,7 +14,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use gpui::{Pixels, ScrollHandle, px};
+use std::sync::Arc;
+
+use gpui::{Pixels, SharedString, px};
+use gpui_component::VirtualListScrollHandle;
 use ubiq_proto::conversation::{
     ConfigOption, ConfigValue, ConvContent, ConvUpdate, PermissionOption, PlanEntry,
     RateLimitRecord, StopReason, Subagent, TokenSpend, ToolCallPatch, ToolCallRecord, ToolStatus,
@@ -44,13 +47,16 @@ pub enum ConvBlock {
     },
     /// A tool call and whether its detail is open.
     Tool { call: ToolCallRecord, open: bool },
+    /// Where the harness compacted: everything above is still what was said, but the agent no
+    /// longer holds it. Nobody said it, so it carries no attribution.
+    Compacted,
 }
 
 impl ConvBlock {
     /// Which subagent produced this block, where one did.
     pub fn subagent(&self) -> Option<&Subagent> {
         match self {
-            ConvBlock::User(_) => None,
+            ConvBlock::User(_) | ConvBlock::Compacted => None,
             ConvBlock::Agent { subagent, .. } | ConvBlock::Thought { subagent, .. } => {
                 subagent.as_ref()
             }
@@ -298,6 +304,36 @@ pub struct Conversation {
     /// The message currently being appended to, and which block it is. A
     /// change of id starts a new block — that is what a message id is for.
     open: Option<(String, usize)>,
+    /// The two readings of `blocks` the transcript asks for every frame, kept rather than scanned:
+    /// which blocks are on screen, and which subagents exist at all. See [`BlockIndex`].
+    index: RefCell<BlockIndex>,
+    /// The last block's markdown, as a `SharedString` the renderer clones for free. One slot,
+    /// because only the block being streamed into grows: a finished block is cloned once when the
+    /// tail moves past it and never again.
+    ///
+    /// ponytail: one slot. A per-block map if a static transcript ever measures slow.
+    markdown: RefCell<Option<(usize, SharedString)>>,
+    /// Whether a draw is already scheduled for this conversation — see [`Self::notify_due`].
+    notify_pending: Cell<bool>,
+}
+
+/// What a frame reads off `blocks`, cached so it is scanned when the transcript grows rather than
+/// once per frame per block.
+///
+/// **Keyed by length and by who is being read**, which is sound because `blocks` is append-only and
+/// a block's body growing cannot change either answer: a chunk that lengthens the tail leaves both
+/// the visible set and the subagent set exactly as they were.
+#[derive(Clone, Debug, Default)]
+struct BlockIndex {
+    /// The `blocks.len()` this was built from.
+    len: usize,
+    /// The `viewing` it was built for — the raw field, stale id included.
+    viewing: Option<String>,
+    /// Which blocks whoever is being read sees, by index into `blocks`. An `Arc` so a frame takes
+    /// a reference count rather than a copy.
+    visible: Arc<Vec<usize>>,
+    /// Every subagent that has said anything.
+    subagents: HashSet<String>,
 }
 
 impl Conversation {
@@ -337,7 +373,77 @@ impl Conversation {
             seq: 0,
             tools: HashMap::new(),
             open: None,
+            index: RefCell::default(),
+            markdown: RefCell::default(),
+            notify_pending: Cell::new(false),
         }
+    }
+
+    /// The block index, rebuilt only if the transcript grew or the reader switched transcripts.
+    fn index(&self) -> std::cell::Ref<'_, BlockIndex> {
+        {
+            let mut index = self.index.borrow_mut();
+            if index.len != self.blocks.len() || index.viewing != self.viewing {
+                index.len = self.blocks.len();
+                index.viewing = self.viewing.clone();
+                index.subagents.clear();
+                index.subagents.extend(
+                    self.blocks
+                        .iter()
+                        .filter_map(|block| block.subagent_id().map(str::to_string)),
+                );
+                // The same discounting [`Self::viewing_subagent`] does, resolved here because the
+                // set it needs is the one being built.
+                let viewing = self
+                    .viewing
+                    .as_deref()
+                    .filter(|id| index.subagents.contains(*id));
+                index.visible = Arc::new(
+                    self.blocks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, block)| block.subagent_id() == viewing)
+                        .map(|(ix, _)| ix)
+                        .collect(),
+                );
+            }
+        }
+        self.index.borrow()
+    }
+
+    /// The markdown of block `ix`, as a `SharedString`, without copying a streaming tail once per
+    /// frame. Rebuilt only when the body actually changed — a body only ever grows, so an equal
+    /// length is an unchanged block.
+    pub fn markdown(&self, ix: usize, body: &str) -> SharedString {
+        let mut slot = self.markdown.borrow_mut();
+        if let Some((at, text)) = slot.as_ref()
+            && *at == ix
+            && text.len() == body.len()
+        {
+            return text.clone();
+        }
+        let text = SharedString::from(body.to_string());
+        *slot = Some((ix, text.clone()));
+        text
+    }
+
+    /// Whether this conversation's next draw is due, or a frame is already coming that will do it.
+    ///
+    /// A streamed turn arrives as one delta per token, and each one marking the whole window dirty
+    /// is the clock the whole interface runs at. So the first delta of a burst answers `true` and
+    /// is drawn; the rest answer `false`.
+    ///
+    /// **Nothing is dropped, including the last delta.** Answering `false` means a frame is
+    /// already on its way, and every delta since has already been folded into this record — so
+    /// that frame draws them whether they asked for it or not. The flag is cleared by
+    /// [`Self::drawn`], which the frame calls, so the delta after it starts the cycle again.
+    pub fn notify_due(&self) -> bool {
+        !self.notify_pending.replace(true)
+    }
+
+    /// A frame has drawn this transcript: the next delta asks for one of its own.
+    pub fn drawn(&self) {
+        self.notify_pending.set(false);
     }
 
     /// What a subagent is called: the title of the `Task` call that spawned it — the bridge
@@ -410,10 +516,10 @@ impl Conversation {
     /// Whether anything in the transcript was said by this subagent — which is the only
     /// evidence the window has that the agent exists at all. What makes a delegation block a way
     /// in to a second transcript rather than a dead label.
+    /// A set lookup rather than a scan: this is asked once per `Delegate` block per frame, and a
+    /// scan there is the transcript read once per delegation.
     pub fn has_subagent(&self, id: &str) -> bool {
-        self.blocks
-            .iter()
-            .any(|block| block.subagent_id() == Some(id))
+        self.index().subagents.contains(id)
     }
 
     /// Whose transcript is on screen, once a stale id is discounted: a subagent that has gone from
@@ -424,19 +530,17 @@ impl Conversation {
         self.has_subagent(id).then_some(id)
     }
 
-    /// The blocks to draw, for whoever is being read — with their real indices, because an
-    /// element id and the tool-toggle listener both key off a block's position in `blocks`.
+    /// The blocks to draw, for whoever is being read — as indices, because an element id and the
+    /// tool-toggle listener both key off a block's position in `blocks`.
     ///
     /// One transcript at a time: the main agent's own turns exclude every subagent's, and a
     /// subagent's include only its own. The rule lives here so the switcher and the transcript
     /// cannot disagree about it.
-    pub fn visible_blocks(&self) -> Vec<(usize, &ConvBlock)> {
-        let viewing = self.viewing_subagent();
-        self.blocks
-            .iter()
-            .enumerate()
-            .filter(|(_, block)| block.subagent_id() == viewing)
-            .collect()
+    ///
+    /// Cached in [`BlockIndex`] and handed out as an `Arc`, so a frame costs a reference count
+    /// rather than a filtered copy of the whole transcript.
+    pub fn visible_blocks(&self) -> Arc<Vec<usize>> {
+        Arc::clone(&self.index().visible)
     }
 
     /// The badge the sidebar and the column header draw.
@@ -615,6 +719,12 @@ impl Conversation {
             // Held here; `refresh_agent_record` (`app.rs`) is what copies it onto the
             // `WorkAgent` the sidebar, the column header and the chat panel actually read.
             ConvUpdate::Title(title) => self.title = Some(title),
+            ConvUpdate::Compacted => {
+                // A divider ends whatever was open above it: the next chunk is the agent talking
+                // about a context it no longer shares with the one before.
+                self.open = None;
+                self.blocks.push(ConvBlock::Compacted);
+            }
 
             ConvUpdate::Usage(usage) => {
                 // Spend is a flow, and every report's flow counts — the conversation's own and
@@ -969,13 +1079,9 @@ pub type TranscriptKey = (AgentId, Option<String>);
 /// wheel notch that lands one pixel short is not a reader who has scrolled away.
 const TAIL_SLACK: Pixels = px(24.);
 
-/// Above this many blocks the transcript stops building what is off screen. Below it every block
-/// is built every frame, which is both cheaper than the bookkeeping and exact on the first frame.
-const WINDOW_MIN: usize = 40;
-
-/// How far beyond the viewport a block is still built, so a wheel notch lands on drawn content
-/// rather than on a placeholder waiting for the next frame.
-const WINDOW_MARGIN: Pixels = px(2_000.);
+/// How far a re-measurement has to move before the row is worth drawing again. Below this the
+/// difference is layout rounding, and answering it would be a frame per frame for ever.
+const MEASURE_SLACK: Pixels = px(0.5);
 
 /// What one composer slot's transcript remembers between frames.
 ///
@@ -986,9 +1092,8 @@ const WINDOW_MARGIN: Pixels = px(2_000.);
 /// Every field is interior-mutable because `render` holds `&AppState`: there is no mutable path
 /// to this from inside an element, and these are readings of the last frame rather than state the
 /// application owns.
-#[derive(Default)]
 pub struct TranscriptScroll {
-    pub handle: ScrollHandle,
+    pub handle: VirtualListScrollHandle,
     /// The tail signature the handle was last followed to the bottom for. What keeps the follow
     /// from fighting the reader: the transcript follows only when the tail actually moved.
     followed: Cell<u64>,
@@ -1009,6 +1114,29 @@ pub struct TranscriptScroll {
     /// gone. So a request to be taken to a block waits for the frame after the switch, which is
     /// the first frame whose measurements are of the transcript the block is in.
     settled: Cell<bool>,
+    /// What each row of the transcript actually laid out to, keyed by the row's identity: the
+    /// content signature it was measured at, and the height it measured.
+    ///
+    /// The virtual list is told every row's height before it lays one out, so a variable-height
+    /// transcript has to remember them. Keyed by identity rather than by position, because a fold
+    /// opening shifts every row below it and a height cache that moved with them would guess wrong
+    /// about the whole transcript below the fold.
+    heights: RefCell<HashMap<u64, (u64, Pixels)>>,
+}
+
+impl Default for TranscriptScroll {
+    fn default() -> Self {
+        Self {
+            handle: VirtualListScrollHandle::new(),
+            followed: Cell::default(),
+            showing: RefCell::default(),
+            saved: RefCell::default(),
+            target: Cell::default(),
+            away: Cell::default(),
+            settled: Cell::default(),
+            heights: RefCell::default(),
+        }
+    }
 }
 
 impl TranscriptScroll {
@@ -1041,11 +1169,10 @@ impl TranscriptScroll {
                         .set_offset(gpui::point(self.handle.offset().x, y));
                     self.away.set(true);
                 }
-                // Somewhere to be taken to outranks the tail: gpui applies `scroll_to_bottom`
-                // *after* a scroll-to-item, so asking for both in one frame is asking for the
-                // bottom.
+                // Somewhere to be taken to outranks the tail: the list answers a scroll-to-row
+                // *after* an offset, so asking for both in one frame is asking for the bottom.
                 None if self.target.get().is_none() => {
-                    self.handle.scroll_to_bottom();
+                    self.to_bottom();
                     self.away.set(false);
                 }
                 None => {}
@@ -1056,7 +1183,7 @@ impl TranscriptScroll {
         if self.followed.get() != signature {
             self.followed.set(signature);
             if !self.away.get() && self.target.get().is_none() {
-                self.handle.scroll_to_bottom();
+                self.to_bottom();
             }
         }
     }
@@ -1100,35 +1227,55 @@ impl TranscriptScroll {
 
     /// Put the reader back on the tail, and follow it again from here.
     pub fn to_tail(&self) {
-        self.handle.scroll_to_bottom();
+        self.to_bottom();
         self.away.set(false);
     }
 
-    /// Whether a transcript of this many children is long enough to be worth windowing.
-    pub fn windows(&self, children: usize) -> bool {
-        children > WINDOW_MIN && self.handle.bounds().size.height > px(0.)
+    /// Put the handle past the end of the content. The list clamps an offset it cannot honour to
+    /// the exact bottom, on the frame it is given rather than the one after — which is what keeps
+    /// a streaming tail in view while the block it is growing gets taller.
+    fn to_bottom(&self) {
+        self.handle
+            .set_offset(gpui::point(self.handle.offset().x, px(-1.0e9)));
     }
 
-    /// Where a child of the last frame was painted, for deciding whether to build it again.
-    /// `None` for a child that frame did not have.
-    pub fn child_bounds(&self, ix: usize) -> Option<gpui::Bounds<Pixels>> {
-        self.handle.bounds_for_item(ix)
-    }
-
-    /// Whether a child painted at these bounds is close enough to the viewport to build.
+    /// How tall to tell the virtual list a row is, before it has laid it out.
     ///
-    /// **The two are in different spaces, and that is the whole of this function.** A scroll
-    /// handle records each child where it was *laid out*, with the container's own scroll not yet
-    /// applied, while the viewport is where the container sits on screen. So the visible window in
-    /// the children's space is the viewport shifted by the offset — the same arithmetic
-    /// `ScrollHandle::top_item` does, deliberately, because a second reading of it that drifted
-    /// would window the wrong blocks and blank the ones being read.
-    pub fn near_viewport(&self, bounds: gpui::Bounds<Pixels>) -> bool {
-        let viewport = self.handle.bounds();
-        let offset = self.handle.offset().y;
-        let top = viewport.top() - offset - WINDOW_MARGIN;
-        let bottom = viewport.bottom() - offset + WINDOW_MARGIN;
-        bounds.bottom() >= top && bounds.top() <= bottom
+    /// Three cases. A row **unchanged** since it was measured is its measurement, which is the
+    /// common one. A row whose content **has changed** — the streaming tail, a fold opening — is
+    /// its last measurement, because a block that grew by a line is a line taller than it was and
+    /// nothing closer is available until it is laid out again. A row **never measured** is the
+    /// caller's estimate; the frame that draws it measures it, and the frame after that is exact.
+    ///
+    /// So the last measurement whatever it was measured at — which content it was measured at
+    /// decides only whether it is measured *again*, and that is [`Self::needs_measure`].
+    pub fn row_height(&self, key: u64, estimate: Pixels) -> Pixels {
+        self.heights
+            .borrow()
+            .get(&key)
+            .map_or(estimate, |(_, height)| *height)
+    }
+
+    /// Whether a row has to be laid out to be known: one never measured, or one whose content
+    /// has moved since it was. What keeps the measurement off the frames that do not need it.
+    pub fn needs_measure(&self, key: u64, sig: u64) -> bool {
+        !matches!(self.heights.borrow().get(&key), Some((measured, _)) if *measured == sig)
+    }
+
+    /// Record what a row laid out to. `true` where that is not the height the row was drawn at,
+    /// so the frame that measured it knows it has to be drawn again.
+    pub fn measured(&self, key: u64, sig: u64, height: Pixels) -> bool {
+        let previous = self.heights.borrow_mut().insert(key, (sig, height));
+        match previous {
+            Some((_, was)) => (height - was).abs() > MEASURE_SLACK,
+            None => true,
+        }
+    }
+
+    /// Put the reader where the last frame's measurements say a row is. Answers a jump asked for
+    /// by block, once the caller has resolved it to a row.
+    pub fn scroll_to_row(&self, row: usize) {
+        self.handle.scroll_to_item(row, gpui::ScrollStrategy::Top);
     }
 }
 
@@ -1231,7 +1378,7 @@ mod tests {
     fn the_transcript_shows_exactly_one_agent() {
         let mut c = three_greeters();
 
-        let main: Vec<usize> = c.visible_blocks().into_iter().map(|(ix, _)| ix).collect();
+        let main: Vec<usize> = c.visible_blocks().to_vec();
         assert_eq!(
             main,
             vec![0, 1, 2, 3],
@@ -1241,8 +1388,8 @@ mod tests {
         c.viewing = Some("t754".to_string());
         assert_eq!(
             c.visible_blocks()
-                .into_iter()
-                .map(|(_, block)| block.clone())
+                .iter()
+                .map(|ix| c.blocks[*ix].clone())
                 .collect::<Vec<_>>(),
             vec![ConvBlock::Agent {
                 body: "Ahoy!".to_string(),

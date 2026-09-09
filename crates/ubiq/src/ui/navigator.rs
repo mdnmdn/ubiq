@@ -16,7 +16,7 @@ use gpui::{
 use crate::app::AppState;
 use crate::state::navigator::{Group, NavRow, NavigatorState};
 use crate::theme;
-use crate::ui::kit::{ROW_FONT, elided, file_row, section_label};
+use crate::ui::kit::{elided, file_row, row_font, section_label};
 
 /// The context the navigator is answered in, and the one the component library gives the field
 /// inside it. The field wears both: `Navigator` sits on the field's own div, so the input it holds
@@ -113,7 +113,7 @@ fn panel(app: &AppState, nav: &NavigatorState, cx: &mut Context<AppState>) -> im
                 .px_2()
                 .flex()
                 .items_center()
-                .text_size(px(12.5))
+                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(theme::text_faint())
                 .child("Nowhere to go")
                 .into_any_element(),
@@ -130,7 +130,7 @@ fn panel(app: &AppState, nav: &NavigatorState, cx: &mut Context<AppState>) -> im
                 .flex_col()
                 .overflow_y_scroll()
                 .bg(theme::surface_raised())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(theme::accent())
                 .shadow_lg()
                 .children(children),
@@ -169,13 +169,13 @@ fn line(
         false,
         on_cursor,
         true,
-        ROW_FONT,
+        row_font(),
     )
     .child(elided(
         ("navigator-label", index),
         row.label.clone(),
         colour,
-        12.5,
+        theme::font(theme::Family::Chrome, theme::Role::Body),
     ))
     .child(
         div()
@@ -187,7 +187,7 @@ fn line(
                 ("navigator-detail", index),
                 row.detail.clone(),
                 theme::text_faint(),
-                11.,
+                theme::font(theme::Family::Chrome, theme::Role::Meta),
             )),
     )
     .tooltip(move |window, cx| {

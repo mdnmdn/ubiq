@@ -72,6 +72,8 @@ pub enum UbiqIcon {
     ModeTeams,
     /// the harness has stopped and is waiting for the reader to answer
     PaneAwaiting,
+    /// the conversation is kept — its run directory survives a restart and it comes back
+    PanePersistent,
     /// the harness is working, with no measurable progress to report
     PaneThinking,
     /// a conversation that exists but has no process behind it
@@ -152,6 +154,7 @@ impl IconNamed for UbiqIcon {
             Self::ModeTasks => "icons/mode-tasks.svg",
             Self::ModeTeams => "icons/mode-teams.svg",
             Self::PaneAwaiting => "icons/pane-awaiting.svg",
+            Self::PanePersistent => "icons/pane-persistent.svg",
             Self::PaneThinking => "icons/pane-thinking.svg",
             Self::PaneUnloaded => "icons/pane-unloaded.svg",
             Self::RoleAnalyst => "icons/role-analyst.svg",
@@ -210,6 +213,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::ModeTasks,
     UbiqIcon::ModeTeams,
     UbiqIcon::PaneAwaiting,
+    UbiqIcon::PanePersistent,
     UbiqIcon::PaneThinking,
     UbiqIcon::PaneUnloaded,
     UbiqIcon::RoleAnalyst,
@@ -278,6 +282,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/mode-tasks.svg" => ours!("mode-tasks"),
         "icons/mode-teams.svg" => ours!("mode-teams"),
         "icons/pane-awaiting.svg" => ours!("pane-awaiting"),
+        "icons/pane-persistent.svg" => ours!("pane-persistent"),
         "icons/pane-thinking.svg" => ours!("pane-thinking"),
         "icons/pane-unloaded.svg" => ours!("pane-unloaded"),
         "icons/role-analyst.svg" => ours!("role-analyst"),

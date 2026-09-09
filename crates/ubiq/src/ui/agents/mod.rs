@@ -111,7 +111,7 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     };
 
     div()
-        .h(px(theme::TITLEBAR_HEIGHT))
+        .h(px(theme::titlebar_height()))
         .px_2()
         .flex()
         .flex_none()
@@ -135,7 +135,7 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "drag a tab onto another column to group \u{b7} drop right to open a new one",
                 theme::text_faint(),
             )
-            .text_size(px(11.5)),
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
         )
         .children(close_all(app, cx))
         .child(new_agent(cx))

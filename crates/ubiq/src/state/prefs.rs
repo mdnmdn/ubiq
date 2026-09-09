@@ -8,7 +8,7 @@
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::state::RailMode;
-use crate::theme::ThemeId;
+use crate::theme::{AccentId, Density, ThemeId};
 
 /// The shape this build writes and understands. Bump it and older blobs are discarded.
 ///
@@ -86,6 +86,31 @@ pub struct LastStart {
 pub struct InterfacePrefs {
     pub schema: u32,
     pub theme: ThemeId,
+    /// The accent the palette is dressed in. `None` — and a blob written before this field
+    /// existed — is the palette's own seed, so no schema bump: `default` like every field added
+    /// after the first release.
+    #[serde(default)]
+    pub accent: Option<AccentId>,
+    /// How tight the grid is drawn. `Regular` — and a blob written before this field existed — is
+    /// the size every constant declares, so no schema bump.
+    #[serde(default)]
+    pub density: Density,
+    /// The base point size the chrome is drawn at — titlebar, status bar, rail, tabs, menus,
+    /// modals, settings, pickers. `None` — and a blob written before this field existed — is
+    /// [`crate::theme::CHROME_FONT_SIZE`], so no schema bump.
+    ///
+    /// Interface-scoped, not the project's: the chrome is the window's furniture, and growing it
+    /// reflows the window rather than one project's reading.
+    #[serde(default)]
+    pub chrome_font_size: Option<f32>,
+    /// The base point size a conversation is drawn at — the transcript, the tool blocks, the
+    /// composer, the agents columns. `None` is [`crate::theme::CONVERSATION_FONT_SIZE`].
+    ///
+    /// Its own axis rather than the content family's: a transcript is read as prose, at a size
+    /// that has nothing to do with the size code is read at. The content family is the third and
+    /// stays per project — see [`ViewPrefs::content_font_size`].
+    #[serde(default)]
+    pub conversation_font_size: Option<f32>,
     /// What the last conversation was started on, so the next empty tab opens on it. `default`
     /// like every field added after the first release — see [`ViewPrefs`].
     #[serde(default)]
@@ -104,7 +129,11 @@ impl Default for InterfacePrefs {
     fn default() -> Self {
         Self {
             schema: SCHEMA,
-            theme: ThemeId::Dark,
+            theme: ThemeId::DARK,
+            accent: None,
+            density: Density::Regular,
+            chrome_font_size: None,
+            conversation_font_size: None,
             last_start: None,
             rest: Default::default(),
         }
@@ -158,11 +187,27 @@ pub struct ViewPrefs {
     #[serde(default)]
     pub scratch: Vec<Scratch>,
     /// The open files protected from close, as the same tab keys `open_files` uses. A tab key is
-    /// the one tab identity that survives a restart — a pane dies with its process and a chat tab
-    /// gets a fresh id every run, so only a file's pin is worth writing down; see
-    /// `OpenFile::pinned`.
+    /// the one tab identity a restart can act on — a pane dies with its process, so only a file's
+    /// pin is worth writing down; see `OpenFile::pinned`.
     #[serde(default)]
     pub pinned_files: Vec<String>,
+    /// The chat tabs that were open, in tab order, as the agent each was attached to. A tab
+    /// attached to nothing is not written down: there is nothing to bring back, and a fresh tab
+    /// is what an empty list already produces.
+    ///
+    /// **The tab's own id is not what is remembered.** A `ChatId` is a process-local counter and
+    /// means nothing in the next run; the attachment is what does, now that a conversation can be
+    /// marked persistent and the host keeps its run directory across a restart. A restore mints a
+    /// fresh id per tab and asks the host to revive the agent named here.
+    ///
+    /// Stored as text rather than as an `AgentId`, the rule `bookmarks` follows: an id this build
+    /// can no longer read costs one tab on restore rather than the whole blob.
+    ///
+    /// **No schema bump for it** — it is `#[serde(default)]` like every field added after the
+    /// first release, and moving the schema would throw away every user's whole layout for the
+    /// sake of a convenience.
+    #[serde(default)]
+    pub chats: Vec<String>,
     /// Which of `open_files` or `scratch` was in front. A key rather than an index, because a
     /// file that fails to open must not shift what "active" meant.
     #[serde(default)]
@@ -177,10 +222,15 @@ pub struct ViewPrefs {
     /// have to be re-typed. Absent means the field was empty.
     #[serde(default)]
     pub file_filter: String,
-    /// The point size this project's text is drawn at — editors, terminal panes and the explorer
-    /// tree together — so a zoom survives a restart. `None` is the interface's default.
-    #[serde(default)]
-    pub ui_font_size: Option<f32>,
+    /// The base point size the **content** family is drawn at — editors, the viewer, terminal
+    /// panes, the explorer tree and search results together — so a zoom survives a restart.
+    /// `None` is [`crate::theme::EDITOR_FONT_SIZE`].
+    ///
+    /// The one text family that is the project's rather than the interface's: a zoom travels with
+    /// the project it was chosen for. Written as `ui_font_size` before the three families were
+    /// named, which is the alias — a blob already on disk keeps its zoom, so no schema bump.
+    #[serde(default, alias = "ui_font_size")]
+    pub content_font_size: Option<f32>,
     /// Whether every file editor in this project soft-wraps long lines. `None` is the editor's own
     /// default.
     #[serde(default)]
@@ -217,11 +267,12 @@ impl Default for ViewPrefs {
             open_files: Vec::new(),
             scratch: Vec::new(),
             pinned_files: Vec::new(),
+            chats: Vec::new(),
             active_file: None,
             expanded: Vec::new(),
             selected: None,
             file_filter: String::new(),
-            ui_font_size: None,
+            content_font_size: None,
             editor_wrap: None,
             hidden_modes: Vec::new(),
             bookmarks: Vec::new(),

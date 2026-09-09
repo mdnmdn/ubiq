@@ -55,6 +55,7 @@ fn agent(id: AgentId, session: SessionId, task: Option<TaskId>, name: &str) -> W
         account: "work".to_string(),
         model: "Opus 4.6".to_string(),
         context_pct: 5,
+        persistent: false,
         thread: Vec::new(),
     }
 }

@@ -22,6 +22,7 @@ use gpui_component::IconName;
 use crate::app::AppState;
 use crate::state::agents::SINK_SLOT;
 use crate::theme;
+use crate::theme::{Family, Role};
 use crate::ui::conversation::ConversationView;
 use crate::ui::empty::empty_page;
 use crate::ui::kit::{choice_pill, ghost_button, icon_button, mono};
@@ -214,7 +215,10 @@ fn viewer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .flex_none()
                 .border_b_1()
                 .border_color(theme::border())
-                .child(mono(path, theme::text_muted()).text_size(px(11.)))
+                .child(
+                    mono(path, theme::text_muted())
+                        .text_size(theme::font(Family::Chrome, Role::Meta)),
+                )
         }))
         .child(body)
         .child(formatted(app, selected.as_ref()))
@@ -253,7 +257,9 @@ fn actions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             cx.listener(|this, _, _, cx| this.set_sink_message_original(true, cx)),
         ))
         .child(div().flex_1())
-        .child(mono(counted, theme::text_faint()).text_size(px(11.)))
+        .child(
+            mono(counted, theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
+        )
         .child(icon_button(
             "sink-tape-follow",
             IconName::ArrowDown,
@@ -314,27 +320,27 @@ fn row(app: &AppState, entry: &Arc<TapeEntry>, cx: &mut Context<AppState>) -> An
         .hover(|this| this.bg(theme::hover()))
         .when(selected, |this| {
             this.bg(theme::accent_soft())
-                .border_l(px(theme::ACCENT_EDGE))
+                .border_l(px(theme::accent_edge()))
                 .border_color(colour)
         })
         .on_click(cx.listener(move |this, _, _, cx| this.select_sink_message(seq, cx)))
         .child(
             mono(time(entry), theme::text_faint())
                 .flex_none()
-                .text_size(px(11.)),
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
         )
         .child(mono(arrow(entry.direction), colour).flex_none().w(px(14.)))
         .child(
             mono(entry.kind.clone(), colour)
                 .flex_1()
                 .min_w(px(0.))
-                .text_size(px(11.))
+                .text_size(theme::font(Family::Chrome, Role::Meta))
                 .overflow_hidden(),
         )
         .child(
             mono(size_of(entry.json.len()), theme::text_muted())
                 .flex_none()
-                .text_size(px(11.)),
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
         )
         .into_any_element()
 }
@@ -359,7 +365,7 @@ fn formatted(app: &AppState, entry: Option<&Arc<TapeEntry>>) -> AnyElement {
         return pane
             .items_center()
             .justify_center()
-            .child(mono("Pick a message to read it.", theme::text_faint()).text_size(px(11.5)))
+            .child(mono("Pick a message to read it.", theme::text_faint()))
             .into_any_element();
     };
 
@@ -377,8 +383,13 @@ fn formatted(app: &AppState, entry: Option<&Arc<TapeEntry>>) -> AnyElement {
             .flex_none()
             .items_center()
             .gap_2()
-            .child(mono(arrow(entry.direction), colour).text_size(px(11.)))
-            .child(mono(entry.kind.clone(), colour).text_size(px(11.)))
+            .child(
+                mono(arrow(entry.direction), colour)
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
+            .child(
+                mono(entry.kind.clone(), colour).text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
             .child(div().flex_1())
             .child(
                 mono(
@@ -389,7 +400,7 @@ fn formatted(app: &AppState, entry: Option<&Arc<TapeEntry>>) -> AnyElement {
                     },
                     theme::text_faint(),
                 )
-                .text_size(px(10.5)),
+                .text_size(theme::font(Family::Chrome, Role::Micro)),
             ),
     );
 
@@ -405,7 +416,10 @@ fn formatted(app: &AppState, entry: Option<&Arc<TapeEntry>>) -> AnyElement {
             .overflow_scroll()
             .children(
                 text.lines()
-                    .map(|line| mono(line.to_string(), theme::text()).text_size(px(11.)))
+                    .map(|line| {
+                        mono(line.to_string(), theme::text())
+                            .text_size(theme::font(Family::Chrome, Role::Meta))
+                    })
                     .collect::<Vec<_>>(),
             ),
     )

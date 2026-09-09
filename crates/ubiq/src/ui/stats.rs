@@ -66,7 +66,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             None,
             Some(
                 mono(tab.note(), theme::text_faint())
-                    .text_size(px(11.))
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
                     .into_any_element(),
             ),
         ))
