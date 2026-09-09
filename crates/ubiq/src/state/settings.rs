@@ -462,9 +462,10 @@ pub struct SettingsState {
     /// The saved setups the host holds — a harness plus the identity, model and mode to start it
     /// with. References only, like `accounts`, and only ever what the host last said.
     pub profiles: Vec<ProfileInfo>,
-    /// The profile form, while one is up. It carries the profile being edited; the id and model
-    /// are read out of their fields at save time, the way the login modal reads its name.
-    pub profile_form: Option<ProfileInfo>,
+    /// The profile form, while one is up. The same form the New agent modal is drawn from — a
+    /// profile is a saved answer to the same questions — with the name read out of its field at
+    /// save time, the way the login modal reads its own.
+    pub profile_form: Option<crate::state::new_agent::NewAgentForm>,
     /// The login modal, while one is up.
     pub login: Option<LoginState>,
     /// The rename, delete or sign-out question over one account, while one is up.

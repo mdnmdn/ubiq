@@ -30,10 +30,11 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, ROW_FONT, Tab, badge, card, choice_pill, context_panel,
-    disclosure, file_row, filter_bar, ghost_button, icon_button, kind_icon, meter, mono,
-    panel_header, pill, primary_button, progress_ring, removable_tag, section_label, slab,
-    state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
+    ContextItem, Picker, PickerStyle, ROW_FONT, Tab, badge, card, check_box, choice_pill,
+    context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row, icon_button,
+    kind_icon, label_hint, meter, mono, panel_header, pill, primary_button, progress_ring,
+    removable_tag, section_label, slab, state_chip, status_dot, stepper, tab_strip, toggle_pill,
+    view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -405,6 +406,46 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .on_dismiss(handler(&cx.entity(), |this, _, cx| this.close_menu(cx)))
                 .into_any_element(),
         ),
+        // The same picker in the shape a form wants: a bordered box with the chevron at its right
+        // edge, so a closed trigger reads as something to click rather than as a line of text.
+        // Drawn closed — the list it would open is the one above.
+        labelled(
+            "Picker (Field)",
+            div()
+                .w(px(200.))
+                .child(
+                    Picker::new("sink-picker-field", MENU_ITEMS[sink.picked])
+                        .items(MENU_ITEMS)
+                        .selected(sink.picked)
+                        .style(PickerStyle::Field),
+                )
+                .into_any_element(),
+        ),
+    ]);
+
+    // The row a dense form is built out of: the label and the hint mark it carries on the left,
+    // one control on the right, and the words themselves on the mark's hover.
+    let hinted = row(vec![
+        labelled(
+            "label_hint",
+            label_hint(
+                "sink-label-hint",
+                "Thinking effort",
+                "How hard the model is asked to think.",
+            ),
+        ),
+        labelled(
+            "hint_row",
+            div()
+                .w(px(320.))
+                .child(hint_row(
+                    "sink-hint-row",
+                    "Persistent",
+                    "Persists across Ubiq restarts \u{2014} not yet built.",
+                    check_box("sink-hint-row-check", true, |_, _, _| {}).into_any_element(),
+                ))
+                .into_any_element(),
+        ),
     ]);
 
     let facets: Vec<AnyElement> = FACETS
@@ -544,7 +585,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         "Controls",
         "A toggle is an independent facet; a choice is one value of a set. Off keeps its outline \
          so turning it back on does not move the row.",
-        vec![buttons, pills, tags, reports, level],
+        vec![buttons, hinted, pills, tags, reports, level],
     )
 }
 

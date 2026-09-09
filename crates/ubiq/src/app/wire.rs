@@ -1047,12 +1047,34 @@ impl AppState {
                     .entry(id)
                     .or_insert_with(|| Conversation::new(id, harness, account));
                 conversation.accepts_input = accepts_input;
+                // The agents screen draws only what this window can talk to, and this is the one
+                // place a conversation comes into being — see `AgentsView::live`.
+                open.agents.live = open.conversations.keys().copied().collect();
                 open.agents.prune(&open.work);
-                // Unlike an agent that merely changed, this one was asked for: the user pressed
-                // New agent a moment ago, so it comes on the field rather than onto the bench.
-                // A chat tab's own *New chat* attaches to it separately, synchronously, the
-                // moment the id is minted — see `AppState::pick_new_agent_menu`.
-                open.agents.reveal(id);
+                // Where it lands is whoever asked. A `+` or a chat header that raised the New
+                // agent form aimed the start at itself — see `AppState::aim_start` — and anything
+                // else comes on the agents screen's field rather than onto the bench: unlike an
+                // agent that merely changed, this one was asked for.
+                match (
+                    self.pending_chat_attach.take(),
+                    std::mem::take(&mut self.pending_chat_open),
+                    std::mem::take(&mut self.sink.messages.pending_attach),
+                ) {
+                    (Some(chat), _, _) => self.attach_chat(chat, Some(id), cx),
+                    // The chat strip's `+`: **this** is where the tab comes into being, so a form
+                    // that was dismissed instead left no empty tab behind.
+                    (None, true, _) => {
+                        if let Some(chat) = self.open_chat_tab_now(cx) {
+                            self.attach_chat(chat, Some(id), cx);
+                        }
+                    }
+                    (None, false, true) => self.sink.messages.agent = Some(id),
+                    (None, false, false) => {
+                        if let Some(open) = self.projects.get_mut(&project_id) {
+                            open.agents.reveal(id);
+                        }
+                    }
+                }
                 self.refill_columns = true;
                 cx.notify();
             }
@@ -1084,10 +1106,7 @@ impl AppState {
                 refresh_agent_record(open, agent_id);
                 cx.notify();
                 if let Some(queued) = next_prompt {
-                    self.bus.send(Message::PromptAgent {
-                        agent_id,
-                        text: queued.text,
-                    });
+                    self.send_prompt(agent_id, queued.text);
                 }
             }
 
@@ -1266,6 +1285,54 @@ impl AppState {
             // a harness that has been uninstalled has to leave the menu, or read as unavailable.
             Message::AgentTypes { agent_types } => {
                 self.workbench.agent_types = agent_types;
+                cx.notify();
+            }
+
+            // What a harness offers, for whichever start form asked. Dropped unless it matches
+            // the form's harness *and* identity as they stand now: a probe is slow exactly once
+            // and a slow answer for a harness the user has since changed away from would
+            // overwrite the fresh one it arrived behind.
+            Message::HarnessCatalogue {
+                agent_type,
+                account,
+                models,
+                last_model,
+                last_thinking,
+            } => {
+                let profile_model = self
+                    .new_agent_form()
+                    .and_then(|form| form.model.clone())
+                    .filter(|it| !it.is_empty());
+                let profile_thinking = self
+                    .new_agent_form()
+                    .and_then(|form| form.thinking.clone())
+                    .filter(|it| !it.is_empty());
+                if let Some(form) = self.new_agent_form_mut()
+                    && form.agent_type == agent_type
+                    && form.account == account
+                {
+                    // Preselection, in order of how much it knows: what the form was opened
+                    // holding, then what this harness was last launched with, then the harness's
+                    // own default.
+                    let model = profile_model
+                        .or_else(|| (!last_model.is_empty()).then(|| last_model.clone()))
+                        .or_else(|| models.iter().find(|it| it.default).map(|it| it.id.clone()))
+                        .filter(|id| models.iter().any(|it| it.id == *id));
+                    let thinking = profile_thinking
+                        .or_else(|| (!last_thinking.is_empty()).then(|| last_thinking.clone()))
+                        .or_else(|| {
+                            model.as_ref().and_then(|id| {
+                                models
+                                    .iter()
+                                    .find(|it| it.id == *id)
+                                    .and_then(|it| it.default_level.clone())
+                            })
+                        });
+                    form.models = models;
+                    form.probing = false;
+                    form.model = model;
+                    form.thinking = thinking;
+                }
                 cx.notify();
             }
 

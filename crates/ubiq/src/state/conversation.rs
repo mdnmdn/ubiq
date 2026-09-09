@@ -278,6 +278,16 @@ pub struct Conversation {
     /// composer slot that happens to be drawing it.
     pub attached: Vec<Attachment>,
     next_attached_id: u64,
+    /// A preamble folded into the turn now in flight, to be taken back off the harness's echo of
+    /// it.
+    ///
+    /// The form's opening prompt and its subagent ceiling are sent to the harness in front of the
+    /// user's first message — instructions the agent must read, not something the user wrote — and
+    /// a transcript that opened with them would be putting words in the reader's mouth. The
+    /// harness echoes the turn it received, verbatim, so the only place to take them off again is
+    /// the echo. Set when the turn goes out and consumed by the next [`ConvUpdate::UserChunk`],
+    /// which is that turn's own echo; a harness that echoes nothing simply never spends it.
+    prompt_preamble: Option<String>,
 
     /// The highest sequence number applied. An update that does not follow it
     /// is a gap, and a gap is worth saying rather than silently drawing.
@@ -323,6 +333,7 @@ impl Conversation {
             next_queued_id: 0,
             attached: Vec::new(),
             next_attached_id: 0,
+            prompt_preamble: None,
             seq: 0,
             tools: HashMap::new(),
             open: None,
@@ -500,6 +511,29 @@ impl Conversation {
         self.rate_limit.as_ref().and_then(|r| r.five_hour_pct)
     }
 
+    /// Say that the turn now going out carries `preamble` in front of what the user typed, so the
+    /// echo of it can be read back as the user's own words. Empty is nothing to take off.
+    pub fn expect_preamble(&mut self, preamble: &str) {
+        if !preamble.is_empty() {
+            self.prompt_preamble = Some(preamble.to_string());
+        }
+    }
+
+    /// Take the preamble back off the harness's echo, if this is the echo it was folded into.
+    ///
+    /// Spent whether or not it matched: it belongs to exactly one turn, and a harness that
+    /// reformats what it echoes must not leave it armed for the next one, where it would cut the
+    /// front off a message the user really did write.
+    fn strip_preamble(&mut self, text: String) -> String {
+        let Some(preamble) = self.prompt_preamble.take() else {
+            return text;
+        };
+        match text.strip_prefix(&preamble) {
+            Some(rest) => rest.trim_start().to_string(),
+            None => text,
+        }
+    }
+
     /// Whether a `seq` follows the last one applied.
     ///
     /// The bus promises order per agent, so a gap means a message was lost
@@ -526,7 +560,8 @@ impl Conversation {
                 // per prompt, and merging two would merge two questions.
                 self.open = None;
                 if let Some(text) = text_of(&content) {
-                    self.blocks.push(ConvBlock::User(text));
+                    let said = self.strip_preamble(text);
+                    self.blocks.push(ConvBlock::User(said));
                 }
                 self.run = Run::Working;
             }

@@ -21,15 +21,18 @@ impl AppState {
         Some(id)
     }
 
-    /// The `+` beside *New chat*: a new **view**, attached to nothing, beside whatever tabs are
-    /// already open. Distinct from [`Self::new_chat`], which starts a new **harness** — one adds
-    /// a perspective, the other adds a conversation to have one on.
-    pub fn new_chat_tab(&mut self, cx: &mut Context<Self>) {
-        if let Some(id) = self.open_chat_tab(cx) {
-            self.pending_panels
-                .push(PanelEdit::Open(PanelKind::Chat(id)));
-        }
+    /// A new **view**, in the dock, attached to nothing.
+    ///
+    /// The chat strip's `+` still means "add a view", but it adds one only once there is
+    /// something to look at: *Attach existing agent* opens a tab pointed at the pick, and *New
+    /// agent* raises the form first and opens the tab from `Message::ConversationStarted`, so a
+    /// dismissed form leaves no empty tab behind.
+    pub fn open_chat_tab_now(&mut self, cx: &mut Context<Self>) -> Option<ChatId> {
+        let id = self.open_chat_tab(cx)?;
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::Chat(id)));
         cx.notify();
+        Some(id)
     }
 
     /// Attach one chat tab to a conversation, or to nothing. The one place this is done, so the
@@ -53,22 +56,13 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let mut opened_empty = false;
         if let Some(open) = self.projects.get_mut(&project)
             && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
         {
             tab.picker_open = !tab.picker_open;
-            opened_empty = tab.picker_open && tab.attached.is_none();
         }
-        // An empty tab's control offers what can be *started*, so the three lists behind that
-        // half are asked for again as it opens — the rule `open_new_agent_menu` already follows,
-        // and for the same reason: a harness installed or an account signed in since the window
-        // opened is offered without a restart.
-        if opened_empty {
-            self.bus.send(Message::ListAgentTypes);
-            self.bus.send(Message::ListAccounts);
-            self.bus.send(Message::ListProfiles);
-        }
+        // Nothing is asked for here any more: the control's only start is *New agent*, and the
+        // form it raises asks the host for the harnesses, the accounts and the profiles itself.
         // A fresh search on every open, the way every searchable picker in the window starts one.
         let picker_search = self.picker_search.clone();
         picker_search.update(cx, |state, cx| {
@@ -91,32 +85,52 @@ impl AppState {
         cx.notify();
     }
 
-    /// One row of a chat tab's unified control, clicked.
+    /// Raise the form and aim what it starts at this tab.
+    ///
+    /// Two controls ask for the same thing — the header's *New agent* row and the play button an
+    /// empty tab draws in place of a transcript — and a conversation that opened somewhere other
+    /// than the tab the user clicked in is the surprise both would otherwise spring. One method,
+    /// so neither can forget the aim.
+    pub fn start_new_agent_in_chat(
+        &mut self,
+        id: ChatId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_chat_attach = Some(id);
+        self.sink.messages.pending_attach = false;
+        self.open_new_agent(window, cx);
+    }
+
+    /// One row of a chat tab's control, clicked.
     ///
     /// **The list is built here exactly as it was drawn**, so a position means the same row in
-    /// both — the rule every position-matched menu in this window follows. An empty tab's rows
-    /// cover both halves: start a conversation on a harness, or show one already running. An
-    /// attached tab's cover only the second, so a pick can never orphan what the tab is showing.
-    pub fn pick_chat_row(&mut self, id: ChatId, index: usize, cx: &mut Context<Self>) {
+    /// both — the rule every position-matched menu in this window follows. *New agent* raises the
+    /// form and aims what it starts at this tab; every other row moves the tab to a conversation
+    /// that already exists.
+    pub fn pick_chat_row(
+        &mut self,
+        id: ChatId,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(row) = self.chat_picks(id, cx).rows.get(index).copied() else {
             return;
         };
         match row {
             ChatPick::Attach(agent) => self.attach_chat(id, Some(agent), cx),
-            ChatPick::Start(choice) => match self.start_harness_choice(choice, cx) {
-                Some(agent) => self.attach_chat(id, Some(agent), cx),
-                // Nothing started — a harness that went missing between the draw and the click.
-                // The control shuts anyway rather than sitting open over a row that did nothing.
-                None => self.dismiss_chat_picker(id, cx),
-            },
+            ChatPick::New => {
+                self.dismiss_chat_picker(id, cx);
+                self.start_new_agent_in_chat(id, window, cx);
+            }
             ChatPick::Inert => {}
         }
     }
 
-    /// What one chat tab's unified control offers, built once and read by both the frame that
-    /// draws it and the click that resolves against it.
+    /// What one chat tab's control offers, built once and read by both the frame that draws it
+    /// and the click that resolves against it.
     pub fn chat_picks(&self, id: ChatId, cx: &App) -> ChatPicks {
-        let offers = crate::ui::agents::harness_offers(self);
         let query = self.picker_search.read(cx).value().to_string();
         let chats: &[ChatTab] = match self.open_project(cx) {
             Some(open) => &open.chats,
@@ -126,12 +140,12 @@ impl AppState {
             .work(cx)
             .map(|work| work.agents.as_slice())
             .unwrap_or(&[]);
-        let attached = chats
+        let mine = chats
             .iter()
             .find(|tab| tab.id == id)
-            .is_some_and(|tab| tab.attached.is_some());
-        let attach = attach_choices(chats, id, agents, &query);
-        chat_picks(&offers, &attach, attached, &query)
+            .and_then(|tab| tab.attached);
+        let shown: Vec<AgentId> = chats.iter().filter_map(|tab| tab.attached).collect();
+        chat_picks(&attach_choices(agents, &shown, mine, &query))
     }
 
     /// Close a chat tab, panel and all — the gesture, as opposed to

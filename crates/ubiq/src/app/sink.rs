@@ -89,11 +89,10 @@ impl AppState {
             .or_else(|| self.sink_conversations().first().map(|(id, _)| *id))
     }
 
-    /// Start a conversation from the bench, through the same New agent menu the agents screen
-    /// raises — and read it here when it arrives.
+    /// Start or attach a conversation from the bench, through the same `+` menu the agents
+    /// screen raises. What a pick does lands back here: the menu carries which surface asked.
     pub fn start_sink_chat(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
-        self.sink.messages.pending_attach = true;
-        self.open_new_agent_menu(at, cx);
+        self.open_new_agent_menu(at, crate::state::NewAgentSurface::Sink, cx);
     }
 
     pub fn set_sink_conversation(&mut self, agent: AgentId, cx: &mut Context<Self>) {

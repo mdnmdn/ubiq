@@ -1575,42 +1575,32 @@ pub fn account_dialog(
 /// This is a modal rather than a tab on purpose: an OAuth flow wants the whole of the user's
 /// attention for the half-minute it takes, and a login that scrolled away behind a pane is a
 /// login nobody finishes.
-/// The profile form: a name, a harness, and the three references a start can carry.
+/// The profile form: a name, and every question a start answers.
 ///
-/// Built like the login modal because it asks the same kind of question — one screen, pills for
-/// what is chosen from a list, fields for what is typed. The model is one of those fields rather
-/// than a picker: the harness's true model list is only known once a conversation is up, and that
-/// is where it is offered.
+/// It is [`crate::ui::new_agent::body`] with a name field above it — a profile is a saved answer
+/// to the same questions, so it asks them with the same rows rather than with a second set that
+/// would drift. What it drops is what a saved setup does not have: the profile half of the target
+/// picker, and the Start button.
 pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(form) = app.workbench.settings.profile_form.clone() else {
         return div().into_any_element();
     };
     let view = cx.entity();
-    let chosen = app
-        .workbench
-        .agent_types
-        .iter()
-        .find(|it| it.id == form.agent_type);
     let named = !app.profile_id_input.read(cx).value().trim().is_empty();
-    let ready = named && chosen.is_some();
-
-    let accounts = app.workbench.settings.accounts_for(&form.agent_type);
+    let ready = named && !form.agent_type.is_empty();
 
     let body = div()
         .flex()
         .flex_col()
         .gap_3()
         .pt_3()
-        .child(modal_note(
-            "A saved setup: which harness, as whom, on which model and in which mode. Starting \
-             one from New agent skips every question.",
-        ))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(label_block(
+                .child(crate::ui::kit::label_hint(
+                    "app-settings-profile-name-hint",
                     "Name",
                     "What to call this setup. Saving over an existing name replaces it.",
                 ))
@@ -1627,156 +1617,47 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
                     .child(Input::new(&app.profile_id_input).appearance(false)),
                 ),
         )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(label_block("Harness", "Which tool this setup runs."))
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        // Only what is installed here, the same rule the login picker follows.
-                        .children(
-                            app.workbench
-                                .agent_types
-                                .iter()
-                                .filter(|it| it.available)
-                                .map(|agent_type| {
-                                    let id = agent_type.id.clone();
-                                    choice_pill(
-                                        ElementId::Name(
-                                            format!("app-settings-profile-harness-{id}").into(),
-                                        ),
-                                        &agent_type.label,
-                                        form.agent_type == agent_type.id,
-                                        cx.listener(move |this, _, _, cx| {
-                                            this.pick_profile_harness(id.clone(), cx)
-                                        }),
-                                    )
-                                }),
-                        ),
-                ),
-        )
-        // Only identities signed in to the chosen harness, and nothing at all when there are
-        // none — an empty row of pills is a question with no answers.
-        .when(!accounts.is_empty(), |body| {
-            let pills: Vec<_> = accounts
-                .iter()
-                .map(|account| {
-                    let id = account.id.clone();
-                    let active = form.account.as_deref() == Some(account.id.as_str());
-                    choice_pill(
-                        ElementId::Name(format!("app-settings-profile-account-{id}").into()),
-                        &account.id,
-                        active,
-                        cx.listener(move |this, _, _, cx| {
-                            // Picking the chosen one again clears it: there is no other way back
-                            // to "whatever the library would use".
-                            this.pick_profile_account((!active).then(|| id.clone()), cx)
-                        }),
-                    )
-                })
-                .collect();
-            body.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(label_block(
-                        "Account",
-                        "Which identity it runs as. Leave it off to let the harness decide.",
-                    ))
-                    .child(div().flex().flex_wrap().gap_2().children(pills)),
-            )
-        })
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(label_block(
-                    "Model",
-                    "The model id this setup asks for, as the harness names it.",
-                ))
-                .child(
-                    field(
-                        theme::border(),
-                        app.profile_model_input
-                            .read(cx)
-                            .focus_handle(cx)
-                            .is_focused(window),
-                    )
-                    .h(px(30.))
-                    .px_2()
-                    .child(Input::new(&app.profile_model_input).appearance(false)),
-                ),
-        )
-        // A harness that advertises no modes draws no mode picker — several do not have any.
-        .when(chosen.is_some_and(|it| !it.modes.is_empty()), |body| {
-            let pills: Vec<_> = chosen
-                .map(|it| it.modes.as_slice())
-                .unwrap_or_default()
-                .iter()
-                .map(|mode| {
-                    let value = mode.value.clone();
-                    let active = form.mode.as_deref() == Some(mode.value.as_str());
-                    choice_pill(
-                        ElementId::Name(format!("app-settings-profile-mode-{}", mode.value).into()),
-                        &mode.name,
-                        active,
-                        cx.listener(move |this, _, _, cx| {
-                            this.pick_profile_mode((!active).then(|| value.clone()), cx)
-                        }),
-                    )
-                })
-                .collect();
-            body.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(label_block(
-                        "Mode",
-                        "The permission mode it starts in. Leave it off for the harness's own.",
-                    ))
-                    .child(div().flex().flex_wrap().gap_2().children(pills)),
-            )
-        })
+        .child(crate::ui::new_agent::body(app, window, cx))
         .into_any_element();
 
-    let footer = div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(ghost_button(
-            "app-settings-profile-cancel",
-            None,
-            "Cancel",
-            cx.listener(|this, _, _, cx| this.close_profile_form(cx)),
-        ))
-        .child(
-            primary_button(
-                "app-settings-profile-save",
+    // The same action row the New agent modal draws: what is not built yet on the left, what the
+    // form is for on the right.
+    let footer = crate::ui::new_agent::footer_row(
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(ghost_button(
+                "app-settings-profile-cancel",
                 None,
-                "Save",
-                cx.listener(|this, _, _, cx| this.save_profile(cx)),
+                "Cancel",
+                cx.listener(|this, _, _, cx| this.close_profile_form(cx)),
+            ))
+            .child(
+                primary_button(
+                    "app-settings-profile-save",
+                    None,
+                    "Save",
+                    cx.listener(|this, _, _, cx| this.save_new_agent_profile(cx)),
+                )
+                .when(!ready, |button| button.opacity(0.5)),
             )
-            .when(!ready, |button| button.opacity(0.5)),
-        )
-        .into_any_element();
+            .into_any_element(),
+    );
 
-    modal(
-        "app-settings-profile",
-        theme::accent(),
-        "Profile",
-        body,
-        footer,
-        crate::ui::handler(&view, |this, _, cx| this.close_profile_form(cx)),
-        window,
+    crate::ui::new_agent::confirmable(
+        div().child(modal(
+            "app-settings-profile",
+            theme::accent(),
+            "Profile",
+            body,
+            footer,
+            crate::ui::handler(&view, |this, _, cx| this.close_profile_form(cx)),
+            window,
+        )),
+        cx,
     )
+    .into_any_element()
 }
 
 pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -1821,11 +1702,15 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
                 .flex()
                 .items_center()
                 .gap_2()
+                // Not "Abort": a harness whose login is its ordinary screen (grok) never ends
+                // by itself, so this button is how a finished sign-in gets recorded. It stops
+                // the harness and the modal stays up to say what was captured — the X beside
+                // the title is still the way out that reports nothing.
                 .child(ghost_button(
                     "app-settings-login-abort",
                     None,
-                    "Abort",
-                    cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
+                    if login.probe { "Abort" } else { "Done" },
+                    cx.listener(|this, _, _, cx| this.finish_harness_login(cx)),
                 ))
                 .into_any_element(),
         ),
@@ -2115,7 +2000,13 @@ fn running(
         .pt_3()
         .child(modal_note(note))
         .child(
+            // `flex()` is not decoration: `terminal::pane` returns a `flex_1` column, and under
+            // the dock its parent is a flex container so it fills the panel. A plain block
+            // wrapper gives it no flex context, so it hugs its content and the emulator draws as
+            // a one-line black band across the top of an otherwise empty box.
             div()
+                .flex()
+                .flex_col()
                 .flex_1()
                 .min_h(px(0.))
                 .border_1()

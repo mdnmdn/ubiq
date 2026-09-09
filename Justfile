@@ -127,6 +127,32 @@ docs-graph:
 diagram SOURCE:
     uv run _tools/excalidraw.py to-image -i {{SOURCE}} -o {{without_extension(SOURCE)}}.png --scale 2
 
+# ── icons ──────────────────────────────────────────────────────────
+
+# The icon set's mechanical rules — registry, spec, ink. I01-I11
+icons-check:
+    uv run _tools/icons.py check
+
+# A review sheet: `just icons-sheet pane-thinking`, or `just icons-sheet --category pane`
+icons-sheet *ARGS:
+    uv run _tools/icons.py sheet {{ARGS}}
+
+# Copy a shipped icon in-tree as one of ours — no args fills every unfilled `adopted:` row
+icons-adopt *ARGS:
+    uv run _tools/icons.py adopt {{ARGS}}
+
+# Compare the competing takes in assets/icons/variants/: `just icons-variants --category tool`
+icons-variants *ARGS:
+    uv run _tools/icons.py variants {{ARGS}}
+
+# The whole set, one contact sheet per category — the periodic coherence pass
+icons-audit *ARGS:
+    uv run _tools/icons.py audit {{ARGS}}
+
+# Icons that look like each other
+icons-dupes:
+    uv run _tools/icons.py dupes
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output

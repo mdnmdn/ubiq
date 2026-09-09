@@ -25,6 +25,7 @@ Code loads them by name; any other harness reads `.claude/skills/<name>/SKILL.md
 | `ubiq-host` | The coordinator, a pane's lifecycle, the project catalogue, a store or a worker thread |
 | `ubiq-transport` | A message, the bus and its routing, the framing, an id type, a log subsystem, a remote host |
 | `ubiq-files` | The file, search, index or watch workers, the explorer tree, the picker or the search panel |
+| `ubiq-icons` | An icon — the registry, the SVG spec, the draw-and-review loop |
 | `ubiq-docs` | Finishing any change — the same-commit duty, the frontmatter, the lint, `Dnn` and `Gnn` |
 
 A skill is a reference, not an authority: where one disagrees with the document it was built from,

@@ -95,6 +95,7 @@ Folders encode **kind of knowledge**; frontmatter encodes **stability**. Never m
 | `product/` | Why Ubiq exists, in user terms. **No code references** |
 | `features/` | One document per user-visible capability: contract on top, implementation below |
 | `tech/` | Cross-cutting models, rules, conventions and procedures |
+| `references/` | Specifications of protocols Ubiq speaks but does not own. Exempt from the length and fence caps |
 | `design/` | Wireframes, prototypes, captured artifacts. **Assets, not documents** — excluded from every lint check, because editing evidence to satisfy a linter destroys what makes it evidence |
 | `wip/` | The current task's working notes. Deleted when the task closes |
 | `inbox/` | Raw unprocessed input, waiting to be filed |

@@ -11,6 +11,7 @@
 //! list mean anything.
 
 use ubiq::app::{AppState, BusHub, DialogCancel};
+use ubiq::state::new_agent::OpenList;
 use ubiq::state::sink::ColourField;
 use ubiq::state::sink::SinkModal;
 use ubiq::state::workbench::{FileDialog, ProjectSettings, ProjectSettingsMode};
@@ -90,6 +91,41 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
     state.read_with(cx, |state, _| {
         assert!(state.workbench.file_dialog.is_none());
         assert!(state.workbench.settings.open, "the dialog took settings");
+    });
+
+    // The New agent modal, and its own picker above it: a list down over a form is peeled before
+    // the form under it, which is the rung a picker inside a modal needs and `open_menu` cannot
+    // give it.
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.open_new_agent(window, cx);
+                state.toggle_new_agent_list(OpenList::Target, window, cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(
+            state
+                .workbench
+                .new_agent
+                .as_ref()
+                .is_some_and(|form| form.open.is_none()),
+            "the list went down"
+        );
+        assert!(
+            state.workbench.new_agent.is_some(),
+            "the list took the modal with it"
+        );
+    });
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.new_agent.is_none());
+        assert!(state.workbench.settings.open, "the modal took settings");
     });
 
     escape(&state, cx);

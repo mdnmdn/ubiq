@@ -35,6 +35,7 @@ sits beside a `current` one rather than in a separate folder.
 | `product/` | Why Ubiq exists, in user terms. No code references |
 | `features/` | One document per user-visible capability: contract on top, implementation below |
 | `tech/` | Cross-cutting models, rules, conventions and procedures |
+| `references/` | Specifications of protocols Ubiq speaks but does not own. External material, kept verbatim |
 | `design/` | Wireframes, prototypes and captured artifacts. Assets, not documents |
 | `wip/` | The current task's working notes. Deleted when the task closes |
 | `inbox/` | Raw unprocessed input, waiting to be filed |
@@ -76,30 +77,38 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
-| [The chat panel](./features/chat.md) | Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares. | 2026-09-08 |
+| [The chat panel](./features/chat.md) | Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares. | 2026-09-09 |
 | [Connectors](./features/connectors.md) | Named authenticated identities at GitHub, GitLab, Gitea, Azure DevOps, Atlassian and Google Workspace — cloud or self-hosted, several per provider — created by completing a flow, with the token in the OS keychain and an untrusted certificate resolved by pinning one confirmed fingerprint to the instance. | 2026-09-08 |
 | [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-05 |
 | [Notifications](./features/notifications.md) | One bell in the titlebar over a host-owned history — a level, an origin and an optional link per notification, a badge that counts the unread, a flash that carries a click straight to where it points, and mute rules by scope, level and duration that also decide what the desktop hears. | 2026-09-08 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-08 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-08 |
 | [Stats](./features/stats.md) | The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not. | 2026-09-08 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-08 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-09 |
 
 ### Tech
 
 | Document | What it is | Verified |
 |---|---|---|
 | [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-08 |
-| [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-08 |
+| [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-09 |
 | [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-08 |
 | [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-08 |
-| [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-08 |
+| [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-09 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
-| [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, and the checks a change has to pass before it lands. | 2026-09-08 |
+| [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run. | 2026-09-08 |
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-08 |
-| [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant. | 2026-09-08 |
-| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-08 |
+| [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant. | 2026-09-09 |
+| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-09 |
 | [Version control](./tech/version-control.md) | How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-07 |
+
+### References
+
+| Document | What it is | Verified |
+|---|---|---|
+| [A2UI catalogs and components](./references/a2ui-catalog.md) | The vocabulary an A2UI agent draws from — the eighteen components of the basic catalog with their props and enums, the shared envelope properties, the fifteen catalog functions, the layout model and its deliberate refusal of padding and colour, templated lists, and how an application defines a catalog of its own. | 2026-09-09 |
+| [A2UI protocol — the wire](./references/a2ui-protocol.md) | The Agent-to-UI protocol as an external contract — the six agent-to-renderer envelopes and the four renderer-to-agent ones, the surface lifecycle, the flat adjacency-list component model, JSON-Pointer data binding and two-way input, actions and function calls, catalog negotiation, the version landscape, and the SDKs that exist. | 2026-09-09 |
+| [Agent Client Protocol (ACP)](./references/acp-protocol.md) | The JSON-RPC wire reference for the Agent Client Protocol — initialisation, session setup and loading, the streaming update vocabulary, tool-call reporting, permission prompts, the client-side filesystem and terminal callbacks, and the Rust SDK Ubiq reads. | 2026-09-03 |
 
 ### Meta
 
@@ -154,6 +163,8 @@ a link.
 | Structural decisions and their cost (`Dnn`) | `tech/decisions.md` |
 | The harness library's boundary and the rules across it | `tech/agent-manager.md` |
 | Harness config locations, launch flags, catalog, accounts | `crates/agent-manager/_docs/` |
+| What the Agent Client Protocol says on the wire | `references/acp-protocol.md` |
+| What the A2UI protocol says on the wire, and its widget catalog | `references/a2ui-protocol.md`, `references/a2ui-catalog.md` |
 | The diagram authoring format | `tech/diagram-format.md` |
 | Session and workspace lifecycle | `features/sessions-and-workspaces.md` |
 | Log subsystems, levels, the ring's capacity and the console | `features/logs.md` |
@@ -191,6 +202,8 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Adding a log event, a subsystem, or changing the log console | `features/logs.md` |
 | Changing the Stats screen, what the host reports, or the usage meter | `features/stats.md`, then `tech/transport-contract.md` |
 | Launching a harness, or touching accounts, skills or MCP servers | `tech/agent-manager.md`, then that crate's own `_docs/` |
+| Wiring a harness that speaks ACP, or adding a session update | `references/acp-protocol.md`, then `tech/transport-contract.md` |
+| Rendering an agent-authored UI tree | `references/a2ui-protocol.md`, then `references/a2ui-catalog.md` |
 | Adding a file and not knowing where it goes | `tech/project-structure.md` |
 | Adding a command | `tech/operations.md` |
 | Editing or rendering a wireframe | `tech/diagram-format.md` |

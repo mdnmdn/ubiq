@@ -3,9 +3,12 @@
 //! **One control answers both questions.** A tab either shows a conversation or it does not, and
 //! the thing the user wants in each case is different — start something, or move to something
 //! already running. Two controls side by side made the user pick the question before answering
-//! it; one control that changes its icon and its offer does not. An empty tab is offered both
-//! halves, and an attached tab only the second: starting from a tab that already shows a
-//! conversation would leave the first with no view and no way back to it.
+//! it; one control whose first row starts and whose rest attach does not.
+//!
+//! **It is a bare chevron.** What the tab is showing is already said twice on this row — by the
+//! dock's tab and by the state mark beside it — so the control that changes it says only that
+//! there is a list, and its tooltip says what the list is about. A label here was a third copy of
+//! the conversation's name wearing a control's clothes.
 //!
 //! **The row reads left to right in the order a reader asks.** The state mark says what the
 //! conversation *is*, the control says what it is *on*, and the three-dots at the far end says
@@ -20,18 +23,16 @@
 //! region's, because opening another view of the same kind is the tab strip's gesture in this
 //! window and the chat panel is not an exception to it.
 
-use gpui::{
-    Context, ElementId, Focusable, IntoElement, ParentElement, SharedString, Styled, Window, div,
-    px,
-};
-use gpui_component::IconName;
-
 use crate::app::AppState;
 use crate::state::ChatId;
 use crate::state::conversation::Conversation;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::Picker;
 use crate::ui::{handler, indexed};
+use gpui::{
+    Context, ElementId, Focusable, IntoElement, ParentElement, SharedString, Styled, Window, div,
+    px,
+};
 
 /// The row of controls above a chat tab's transcript.
 pub fn header(
@@ -53,7 +54,7 @@ pub fn header(
     if let (Some((conversation, _)), Some(view)) = (attached, view.as_ref()) {
         left = left.child(conversation::lifecycle_mark(conversation, view));
     }
-    left = left.child(start_control(app, id, attached.is_some(), window, cx));
+    left = left.child(start_control(app, id, window, cx));
 
     let mut right = div().flex().flex_none().items_center().gap_1();
     if let (Some((conversation, _)), Some(view)) = (attached, view.as_ref()) {
@@ -74,22 +75,21 @@ pub fn header(
 
 /// The one control: start a conversation, or move to one already running.
 ///
-/// **The icon says which question it is asking.** An empty tab wears `Play` — there is something
-/// to begin — and an attached one wears the harness glyph, because the question has become which
-/// conversation rather than whether to have one.
+/// **No text and no state of its own** — a chevron, and a tooltip. Its rows are
+/// [`crate::state::chat_picks`], built once and read again by [`AppState::pick_chat_row`] when one
+/// is clicked, so a position means the same row in both.
 ///
-/// Its rows are [`crate::state::chat_picks`], built once and read again by
-/// [`AppState::pick_chat_row`] when one is clicked, so a position means the same row in both. The
-/// harness half is grouped exactly as the agents screen's own menu groups it — the offers come
-/// from [`crate::ui::agents::harness_offers`], which is that menu's labelling, not a second copy.
+/// The first row raises the New agent form, which asks the harness, the identity, the model, the
+/// level and the mode together. The flattened harness-and-identity list this control used to
+/// carry above its conversations is gone with the row that started from it: it launched with every
+/// question but the first skipped, and the form is what asks them.
 ///
-/// An empty tab opens on the last harness anything was started on
-/// ([`AppState::remembered_choice`]), so the common case is one click away and the list is still
-/// there for every other case.
+/// **An attached tab is offered the start too.** It used to be denied one, on the grounds that
+/// starting from a tab already showing a conversation would leave the first with no view; the
+/// conversation it leaves is still on this very list, one click from coming back.
 fn start_control(
     app: &AppState,
     id: ChatId,
-    attached: bool,
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
@@ -106,45 +106,24 @@ fn start_control(
         .is_focused(window);
 
     let picks = app.chat_picks(id, cx);
-    let label = picks
-        .selected
-        .and_then(|ix| picks.labels.get(ix))
-        .cloned()
-        .unwrap_or_else(|| "Start or attach".to_string());
 
-    // The remembered harness is only a preselection, and only where there is nothing attached to
-    // preselect instead: a tab showing a conversation is already sitting on its own answer.
-    let selected = picks.selected.or_else(|| {
-        if attached {
-            return None;
-        }
-        let remembered = app.remembered_choice()?;
-        picks
-            .rows
-            .iter()
-            .position(|row| *row == crate::state::ChatPick::Start(remembered))
-    });
-
-    let mut picker = Picker::new(ElementId::Name(format!("chat-start-{id}").into()), label)
-        .icon(if attached {
-            IconName::Asterisk
-        } else {
-            IconName::Play
-        })
+    // No label and no icon: the trigger's own chevron is the whole control.
+    let mut picker = Picker::new(ElementId::Name(format!("chat-start-{id}").into()), "")
+        .tooltip("change agent")
         .items(picks.labels)
         .disabled(picks.disabled)
         .separators(picks.separators)
         .open(open)
         .search(&app.picker_search, search_focused);
-    if let Some(index) = selected {
+    if let Some(index) = picks.selected {
         picker = picker.selected(index);
     }
     picker
         .on_toggle(handler(&entity, move |this, window, cx| {
             this.toggle_chat_picker(id, window, cx)
         }))
-        .on_pick(indexed(&entity, move |this, index, _, cx| {
-            this.pick_chat_row(id, index, cx)
+        .on_pick(indexed(&entity, move |this, index, window, cx| {
+            this.pick_chat_row(id, index, window, cx)
         }))
         .on_dismiss(handler(&entity, move |this, _, cx| {
             this.dismiss_chat_picker(id, cx)

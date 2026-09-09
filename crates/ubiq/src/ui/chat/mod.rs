@@ -12,15 +12,18 @@
 
 pub mod sidebar;
 
-use gpui::{App, Context, IntoElement, ParentElement, SharedString, Styled, Window, div, px};
-use gpui_component::IconName;
+use gpui::{
+    App, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
+};
+use gpui_component::{Icon, IconName, Sizable as _};
 
 use crate::app::AppState;
 use crate::state::ChatId;
 use crate::state::conversation::Conversation;
 use crate::theme;
+use crate::theme::{EMPTY_START_ICON, EMPTY_START_SIZE};
 use crate::ui::conversation::{self, ConversationView};
-use crate::ui::empty;
 use crate::ui::kit::panel;
 
 pub fn render(
@@ -77,20 +80,43 @@ fn body(
             window,
             cx,
         ),
-        // Nothing attached. The control that fixes it is named rather than left to be found, the
-        // same way the agents screen's empty page names it — and it is one control now, so the
-        // page names one thing rather than offering a choice between two.
+        // Nothing attached, and nothing to explain: a tab with no conversation in it is the
+        // ordinary state of a fresh tab, not a fault. So the page is the one thing there is to do
+        // about it — no title and no note, which said in two lines what the icon says. Not
+        // `empty::empty_page`, whose whole shape is a title and a note.
         None => div()
             .flex()
             .flex_col()
             .flex_1()
             .min_h(px(0.))
-            .child(empty::empty_page(
-                "Nothing attached",
-                "Start a conversation, or attach one already running, from the control above.",
-                IconName::Play,
-                None,
-            ))
+            .items_center()
+            .justify_center()
+            .bg(theme::app_bg())
+            // Drawn at its own size rather than through `kit::icon_button`: that is the window's
+            // chrome control, a fixed small square, and this is a page's whole empty state — the
+            // one thing there is to do here, so it is sized as the page's subject.
+            .child(
+                div()
+                    .id("chat-empty-start")
+                    .size(px(EMPTY_START_SIZE))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme::hover()))
+                    .child(
+                        Icon::new(IconName::Play)
+                            .with_size(px(EMPTY_START_ICON))
+                            .text_color(theme::text_muted()),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.start_new_agent_in_chat(id, window, cx)
+                    }))
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new("start a new agent").build(window, cx)
+                    }),
+            )
             .into_any_element(),
     }
 }

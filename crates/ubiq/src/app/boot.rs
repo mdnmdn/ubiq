@@ -169,8 +169,13 @@ impl AppState {
         // values when one is being edited.
         let profile_id_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("reviewer, planner\u{2026}"));
-        let profile_model_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("gpt-5, sonnet\u{2026}"));
+        // The opening prompt, for the New agent modal and the profile form alike. Seeded when
+        // either opens: empty for a bare harness, the profile's own words when one is picked.
+        let new_agent_prompt = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("What should this agent do first?\u{2026}")
+                .auto_grow(3, 8)
+        });
 
         // Seeded fresh with the account's current id whenever the rename dialog opens, so this
         // construction-time placeholder is only ever seen ahead of that.
@@ -321,10 +326,14 @@ impl AppState {
                         this.update(cx, |this, cx| this.select_file(path, cx));
                     }
                 });
+            // The chat strip's `+` opens the same two-row menu the agents screen's does; both
+            // of its rows still add a view, so the strip keeps meaning "add a view".
             let chat_app = app.clone();
-            let new_chat: crate::ui::dock::skin::NewPaneRun = Rc::new(move |_window, cx| {
+            let new_chat: crate::ui::dock::skin::NewChatRun = Rc::new(move |x, y, _window, cx| {
                 if let Some(this) = chat_app.upgrade() {
-                    this.update(cx, |this, cx| this.new_chat_tab(cx));
+                    this.update(cx, |this, cx| {
+                        this.open_new_agent_menu((x, y), crate::state::NewAgentSurface::Chat, cx)
+                    });
                 }
             });
             DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx).with_renderer(
@@ -764,7 +773,7 @@ impl AppState {
             login_account_input.read(cx).focus_handle(cx),
             login_command_input.read(cx).focus_handle(cx),
             profile_id_input.read(cx).focus_handle(cx),
-            profile_model_input.read(cx).focus_handle(cx),
+            new_agent_prompt.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
@@ -879,6 +888,8 @@ impl AppState {
             pending_regions: None,
             region_had_content: (false, false, false),
             workbench: WorkbenchState::default(),
+            pending_chat_attach: None,
+            pending_chat_open: false,
             sink: SinkState::default(),
             stats: StatsState::default(),
             notifications: NotificationsState::default(),
@@ -933,7 +944,7 @@ impl AppState {
             login_account_input,
             login_command_input,
             profile_id_input,
-            profile_model_input,
+            new_agent_prompt,
             account_rename_input,
             clone_filter_input,
             clone_url_input,

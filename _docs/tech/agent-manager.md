@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-08
-verified: 2026-09-08
+updated: 2026-09-09
+verified: 2026-09-09
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -109,8 +109,13 @@ account" is `agent_manager::profile::Profile` with its `harness` and `account` s
 layer that comes later is the same type with `defaults.instructions` filled. A `Profile` also
 carries a `mode` beside its `isolate` — the harness-native permission mode, which `resolve` reads
 into `spec.policy.permission_mode` under a flag and above nothing, so it sits on the profile rather
-than in `ProfileDefaults`: it is a policy axis, not a composition input. The profile named `default`
-is what a run with no explicit selection resolves to.
+than in `ProfileDefaults`: it is a policy axis, not a composition input. Beside it sits
+`max_subagents`, and `ProfileDefaults` carries `thinking` and `prompt`. **Those three the library
+records and never reads.** No harness has a subagent-ceiling flag and an opening prompt is a turn
+rather than a launch, so there is nothing for `resolve` to compose them into; they are on the
+profile because a saved setup has to remember what it asked for, and it is Ubiq's start that acts
+on them. `thinking` is an ordinary default, on the same terms as `model`. The profile named
+`default` is what a run with no explicit selection resolves to.
 
 **Ubiq writes the form over profiles and none of the mechanism behind them.**
 `crates/ubiq-host/src/agent.rs` reads and writes them through an `FsProfileStore` rooted at
@@ -119,9 +124,11 @@ pins no harness, and `save_profile()` folds one back into a `Profile` and calls
 `FsProfileStore::save`. The store owns the on-disk shape, the id and the resolution; the host owns
 only where the root is. There is no delete, because the library offers none: adding a `remove_dir_all`
 here rather than a `delete` there is exactly the shape rule 1 forbids — [`../backlog.md`](../backlog.md).
-The four fields the interface can set are the harness, the account, the model and the mode; the
-skills, MCP servers, hooks, instructions, isolation and `extends` chain a `Profile` can carry are
-still written by hand, because nothing lists the catalog on the wire.
+The seven fields the interface can set are the harness, the account, the model, the reasoning
+level, the mode, the subagent ceiling and the opening prompt — the same seven questions the start
+form asks, since a profile is a saved answer to them. The skills, MCP servers, hooks, instructions,
+isolation and `extends` chain a `Profile` can carry are still written by hand, because nothing
+lists the catalog on the wire.
 
 **A workspace has two faces, and `agent.rs` composes both.** `Agents::compose` is the terminal one:
 `IoModes::Passthrough`, and a launch to exec under a pseudo-terminal. `Agents::converse` is the
@@ -221,8 +228,10 @@ never happens; the agent then holds `cargo` on its `PATH` and is denied the mome
 `crates/ubiq-host/src/environment.rs` is the fix: `Environment::load` reads
 `<config root>/environment.toml` at startup — an `[env]` table of variables and a `[[grants]]` list of
 `path`/`write` pairs, absent by default, and a missing or malformed file is the empty environment,
-logged rather than fatal. `Agents::set_environment` holds it, and `compose_run` reads it in three
-places: the file's `[env]` vars are appended to the launch environment before the harness's own
+logged rather than fatal. `Agents::set_environment` holds it, and two helpers are the only readers — `Agents::add_machine_env`
+and `Agents::isolate_options` — used by `compose_run` **and by `begin_login`**, because a login is a
+run with a different argv and every grant one needs the other needs. They do three things: the
+file's `[env]` vars are appended to the launch environment before the harness's own
 (never over a name the harness already set), the now-public `IsolateOptions::grant_toolchains` is
 called with `environment.lookup` — the file's answer first, the process's second, which is what
 makes this resolve identically from a terminal or from the Dock — and every absolute directory the

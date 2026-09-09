@@ -22,6 +22,7 @@ pub mod git;
 pub mod kit;
 pub mod logs;
 pub mod navigator;
+pub mod new_agent;
 pub mod new_pane_menu;
 pub mod notifications;
 pub mod orchestration;

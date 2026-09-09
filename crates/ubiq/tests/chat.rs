@@ -191,7 +191,9 @@ fn two_chat_tabs_coexist_with_different_attachments_and_slots(cx: &mut TestAppCo
     fixture
         .state
         .update(cx, |state, cx| state.attach_chat(tab_a, Some(agent_a), cx));
-    fixture.state.update(cx, |state, cx| state.new_chat_tab(cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.open_chat_tab_now(cx));
     cx.run_until_parked();
 
     let tab_b = fixture.state.read_with(cx, |state, cx| {
@@ -227,7 +229,9 @@ fn typing_in_one_chat_tab_leaves_the_other_s_draft_alone(cx: &mut TestAppContext
     let tab_a = fixture
         .state
         .read_with(cx, |state, cx| state.open_project(cx).unwrap().chats[0].id);
-    fixture.state.update(cx, |state, cx| state.new_chat_tab(cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.open_chat_tab_now(cx));
     cx.run_until_parked();
 
     let (slot_a, slot_b) = fixture.state.read_with(cx, |state, cx| {
@@ -297,7 +301,9 @@ fn a_slot_freed_by_a_close_is_reused_and_carries_no_draft(cx: &mut TestAppContex
     fixture
         .state
         .update(cx, |state, cx| state.closed_chat_tab(tab, cx));
-    fixture.state.update(cx, |state, cx| state.new_chat_tab(cx));
+    fixture
+        .state
+        .update(cx, |state, cx| state.open_chat_tab_now(cx));
     cx.run_until_parked();
 
     let (reused_slot, draft) = fixture.state.read_with(cx, |state, cx| {
@@ -322,7 +328,7 @@ fn a_conversation_disables_in_another_tab_s_picker_but_not_its_own() {
     let a = ChatId::generate();
     let b = ChatId::generate();
     let agent = AgentId::generate();
-    let chats = vec![
+    let chats = [
         ChatTab {
             id: a,
             slot: COLUMNS_MAX,
@@ -338,14 +344,15 @@ fn a_conversation_disables_in_another_tab_s_picker_but_not_its_own() {
     ];
     let agents = vec![an_agent(agent, "Claude Code")];
 
-    let from_a = attach_choices(&chats, a, &agents, "");
+    let shown: Vec<_> = chats.iter().filter_map(|tab| tab.attached).collect();
+    let from_a = attach_choices(&agents, &shown, Some(agent), "");
     assert_eq!(from_a.selected, Some(0), "A's own attachment stays picked");
     assert!(
         from_a.disabled.is_empty(),
         "a tab's own row is never the one it disables"
     );
 
-    let from_b = attach_choices(&chats, b, &agents, "");
+    let from_b = attach_choices(&agents, &shown, None, "");
     assert_eq!(from_b.selected, None);
     assert_eq!(
         from_b.disabled,

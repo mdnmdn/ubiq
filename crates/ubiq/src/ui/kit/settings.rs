@@ -1,4 +1,4 @@
-//! Furniture the settings pages share: a heading, a label/control row, a nav item.
+//! Furniture the settings pages share: a heading, a label/control row, a hinted one, a nav item.
 //!
 //! **Nothing here is a new primitive.** The kitchen sink composed these first; the live settings
 //! overlay and project settings use the same functions, so a row looked at on the sink is the row
@@ -47,6 +47,68 @@ pub fn setting_row(label: &str, note: &str, control: AnyElement) -> AnyElement {
         .border_b_1()
         .border_color(theme::border())
         .child(label_block(label, note))
+        .child(control)
+        .into_any_element()
+}
+
+/// A label with its explanation folded into a hint icon beside it, and a row built out of one.
+///
+/// [`label_block`] spends a whole line on the note, which is what turns a form of eight questions
+/// into a form that scrolls. The words are worth having and worth reading **once**, so they move
+/// onto the hover of a mark next to the label: the row stays one line high, and the explanation is
+/// a pointer away rather than gone.
+///
+/// It takes an id because a tooltip needs a stateful element to hang off — the same bargain
+/// [`crate::ui::kit::elided`] makes.
+pub fn label_hint(id: impl Into<ElementId>, label: &str, hint: &str) -> AnyElement {
+    let hint: SharedString = hint.to_string().into();
+    div()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .child(
+            div()
+                .text_size(px(13.))
+                .text_color(theme::text())
+                .child(SharedString::from(label.to_string())),
+        )
+        .child(
+            div()
+                .id(id)
+                .flex()
+                .flex_none()
+                .items_center()
+                .child(
+                    Icon::new(IconName::Info)
+                        .with_size(Size::XSmall)
+                        .text_color(theme::text_faint()),
+                )
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(hint.clone()).build(window, cx)
+                }),
+        )
+        .into_any_element()
+}
+
+/// One question on one line: the label and its hint on the left, the control on the right.
+///
+/// [`setting_row`]'s shape without the note under it, for a form dense enough that the note is a
+/// hint — see [`label_hint`]. No rule between rows either: what groups these is the block they are
+/// drawn in, and a hairline under every one of eight rows reads as eight sections.
+pub fn hint_row(
+    id: impl Into<ElementId>,
+    label: &str,
+    hint: &str,
+    control: AnyElement,
+) -> AnyElement {
+    div()
+        .w(relative(1.))
+        .py_1()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_4()
+        .child(label_hint(id, label, hint))
         .child(control)
         .into_any_element()
 }

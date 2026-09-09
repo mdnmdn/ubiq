@@ -161,8 +161,9 @@ pub enum MenuId {
     /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
     /// opened is `WorkbenchState::new_pane_menu`.
     NewPane,
-    /// The agents screen's "New agent": which harness — and which identity — a conversation is
-    /// started on. Its rows are [`HarnessChoice`], and where it opened is
+    /// The `+` menu every surface that hosts a conversation raises: *New agent*, which opens the
+    /// form, and *Attach existing agent*, which lists what is already running. Where it opened,
+    /// which surface asked and which of its two stages is drawn is
     /// `WorkbenchState::new_agent_menu`.
     NewAgent,
     /// One conversation's three-dots lifecycle menu (Stop, Unload, Resume, Delete), by the agent
@@ -193,10 +194,6 @@ pub enum NewPaneRow {
 }
 
 /// One row of the harness menu, in the order it is drawn.
-///
-/// Offered by every surface that can start a conversation — the agents screen's New agent and
-/// the chat panel's New chat — because they start the same thing and a second list would be a
-/// second answer to one question.
 ///
 /// Here rather than in the module that paints it for the same reason [`NewPaneRow`] is: the
 /// pick is matched by position, so the menu and the action behind it must read one list.
@@ -294,6 +291,22 @@ pub struct WorkbenchState {
     /// clone has no project yet, and the two questions — "which repository" and "what is this
     /// project called here" — are asked in different places.
     pub clone_project: Option<CloneState>,
+    /// The New agent modal, while it is up. Beside `clone_project` because it is the same kind of
+    /// thing: a question raised over the window, answered once, and carrying its own pickers'
+    /// open state because a modal is redrawn from state on every frame.
+    pub new_agent: Option<crate::state::new_agent::NewAgentForm>,
+    /// What a start still has to say to a harness, by the conversation it was started for.
+    ///
+    /// A start composes a preamble — the subagent ceiling as a directive, and the opening prompt
+    /// the form was given — and **does not send it**: a turn sent before the user has said
+    /// anything opens the transcript on words the user never wrote. It is held here instead, and
+    /// the composer's send path takes it and puts it in front of the first thing the user sends,
+    /// so the harness reads it and the transcript does not show it. See
+    /// `crate::state::new_agent::fold_preamble`.
+    ///
+    /// One entry per conversation, taken on first use and never re-added: it is a preamble, not a
+    /// standing prefix.
+    pub agent_preambles: std::collections::HashMap<AgentId, String>,
     /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
@@ -326,10 +339,8 @@ pub struct WorkbenchState {
     /// Where the new-pane menu's chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::NewPane`.
     pub new_pane_menu: Option<(f32, f32)>,
-    /// Where the agents screen's "New agent" was clicked. `Some` exactly while `open_menu` is
-    /// `MenuId::NewAgent`, and it reads the same [`WorkbenchState::agent_types`] the new-pane menu
-    /// does: which harnesses this machine has is one answer, asked once.
-    pub new_agent_menu: Option<(f32, f32)>,
+    /// The `+` menu, while it is down. `Some` exactly while `open_menu` is `MenuId::NewAgent`.
+    pub new_agent_menu: Option<NewAgentMenu>,
     /// Where a conversation's three-dots menu was clicked. `Some` exactly while `open_menu` is
     /// `MenuId::ConversationLifecycle(_)` — the agent it belongs to is carried on that `MenuId`
     /// itself rather than duplicated here.
@@ -351,6 +362,32 @@ pub struct WorkbenchState {
     pub bookmarks_open: bool,
 }
 
+/// Which surface raised the `+` menu, and so where whatever it produces lands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NewAgentSurface {
+    /// The agents screen: a pick opens a column.
+    Agents,
+    /// The IDE's chat strip: a pick opens a chat tab, whichever row it was. The strip's `+` means
+    /// "add a view" and keeps meaning it — the menu only answers what the view is looking at.
+    Chat,
+    /// The kitchen sink's bench, which reads one conversation at a time.
+    Sink,
+}
+
+/// The `+` menu while it is down: where it opened, who asked, and which stage is drawn.
+///
+/// Two stages rather than one flat list, because the two rows ask different kinds of question —
+/// *New agent* raises a form, *Attach existing agent* opens a list that can run to every
+/// conversation in the project, and a list that long under a row that is not it reads as the menu
+/// having only one real answer.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct NewAgentMenu {
+    pub at: (f32, f32),
+    pub surface: NewAgentSurface,
+    /// Whether the second stage — the list of conversations — is what is drawn.
+    pub attach: bool,
+}
+
 impl Default for WorkbenchState {
     fn default() -> Self {
         Self {
@@ -365,6 +402,8 @@ impl Default for WorkbenchState {
             row_action: None,
             project_settings: None,
             clone_project: None,
+            new_agent: None,
+            agent_preambles: Default::default(),
             remote_connect: None,
             settings: SettingsState::default(),
             project_error: None,
@@ -409,31 +448,26 @@ impl WorkbenchState {
         rows
     }
 
-    /// What a harness menu offers: every installed harness bare, plus one row per identity signed
-    /// into one — grouped so both are legible, read by every surface that starts a conversation
-    /// and by the pick behind it.
+    /// What a harness menu offers: one row per identity signed into a harness, and one per saved
+    /// setup — grouped so both are legible, read by every surface that offers a list of them and
+    /// by the pick behind it.
     ///
-    /// **Signing in must not take away the zero-config start.** A harness with no captured login
-    /// is the only "Default" row it can be, and that stays true once accounts exist: which
-    /// identity a conversation runs as is fixed the moment it starts, so naming one is a choice
-    /// worth making explicitly, not a default a login should have taken away silently. So every
-    /// available harness keeps its bare `Default` row regardless of what accounts exist, and each
-    /// logged-in identity adds its own row in a second, `Configured` group below a separator —
-    /// omitted entirely, heading included, when nothing is signed in: a lone empty heading is
-    /// worse than none.
+    /// **A bare harness is no longer a row.** Starting one with nothing else answered is what the
+    /// New agent form is for, and it asks the identity, the model, the level and the mode in the
+    /// same breath; a row that started a harness on whatever the library happened to resolve was
+    /// the same launch with every question skipped. So the `Default` group — every
+    /// [`HarnessChoice::Harness`] row, its heading and its separator — is gone, and what is left
+    /// is the two groups that name something the user set up.
     ///
-    /// Unavailable harnesses keep their row in `Default`, disabled, so the menu says a tool is
-    /// missing rather than silently omitting it — the same rule the flat list followed before
-    /// identities.
-    /// Saved setups add a third, `Defined` group below the other two, omitted heading and all
-    /// when there are none — the rule `Configured` already follows.
+    /// Unavailable harnesses are still what a row draws disabled over, so a list says a tool is
+    /// missing rather than silently omitting it.
     ///
     /// **A harness that cannot converse is omitted entirely**, unavailable ones notwithstanding:
-    /// the two absences say different things. "Not installed" is a row worth drawing disabled,
-    /// because installing it is the fix; "has no structured bridge" is not something the reader
-    /// can act on, and the harness is not missing — it still runs perfectly well in a pane, which
-    /// is where [`Self::new_pane_rows`] keeps offering it. Indices stay indices into
-    /// `agent_types`, so the two menus read one list.
+    /// the two absences say different things. "Not installed" is worth drawing disabled, because
+    /// installing it is the fix; "has no structured bridge" is not something the reader can act
+    /// on, and the harness is not missing — it still runs perfectly well in a pane, which is where
+    /// [`Self::new_pane_rows`] keeps offering it. Indices stay indices into `agent_types`, so the
+    /// two menus read one list.
     pub fn harness_choices(
         &self,
         accounts: &[AccountInfo],
@@ -446,7 +480,6 @@ impl WorkbenchState {
             .filter(|(_, harness)| harness.chat)
             .map(|(index, _)| index)
             .collect();
-        let defaults = conversable.iter().copied().map(HarnessChoice::Harness);
 
         let pairs: Vec<HarnessChoice> = conversable
             .iter()
@@ -462,19 +495,15 @@ impl WorkbenchState {
             })
             .collect();
 
-        if pairs.is_empty() && profiles.is_empty() {
-            return defaults.collect();
-        }
-
-        let mut rows: Vec<HarnessChoice> = vec![HarnessChoice::Label("Default".into())];
-        rows.extend(defaults);
+        let mut rows: Vec<HarnessChoice> = Vec::new();
         if !pairs.is_empty() {
-            rows.push(HarnessChoice::Separator);
             rows.push(HarnessChoice::Label("Configured".into()));
             rows.extend(pairs);
         }
         if !profiles.is_empty() {
-            rows.push(HarnessChoice::Separator);
+            if !rows.is_empty() {
+                rows.push(HarnessChoice::Separator);
+            }
             rows.push(HarnessChoice::Label("Defined".into()));
             rows.extend((0..profiles.len()).map(HarnessChoice::Profile));
         }
@@ -501,6 +530,7 @@ mod tests {
             available,
             chat: true,
             modes: Vec::new(),
+            unattended_mode: None,
         }
     }
 
@@ -518,6 +548,9 @@ mod tests {
             account: None,
             model: None,
             mode: None,
+            thinking: None,
+            max_subagents: None,
+            prompt: None,
         }
     }
 
@@ -528,24 +561,20 @@ mod tests {
         }
     }
 
-    /// With no accounts at all the menu is exactly the flat harness list it was before
-    /// identities existed — which is what keeps a machine that has signed nothing in working.
+    /// With nothing signed in and nothing saved there is no list at all. A bare harness is not a
+    /// row any more — the New agent form is what starts one — so a machine that has configured
+    /// nothing has nothing to offer here rather than a group of unanswered launches.
     #[test]
-    fn no_accounts_offers_the_bare_harnesses() {
+    fn nothing_configured_offers_nothing() {
         let state = with(vec![harness("claude-code", true), harness("codex", true)]);
 
-        assert_eq!(
-            state.harness_choices(&[], &[]),
-            vec![HarnessChoice::Harness(0), HarnessChoice::Harness(1)]
-        );
+        assert_eq!(state.harness_choices(&[], &[]), Vec::new());
     }
 
-    /// Signing in adds a second, "Configured" group; it never removes the "Default" row a
-    /// harness with no identity chosen still needs — that is the library's own zero-config path,
-    /// and losing it on first login was accidental. The separator sits between every `Harness`
-    /// and every `Pair`, and both headings are decorations at the positions the pick must skip.
+    /// Signing in is what puts rows on the list: one `Configured` group, its heading a decoration
+    /// at a position the pick must skip, and no `Default` group over it.
     #[test]
-    fn accounts_add_a_configured_group_without_removing_the_default_row() {
+    fn accounts_are_the_configured_group() {
         let state = with(vec![harness("claude-code", true)]);
         let accounts = [
             account("mdn", &["claude-code"]),
@@ -555,9 +584,6 @@ mod tests {
         assert_eq!(
             state.harness_choices(&accounts, &[]),
             vec![
-                HarnessChoice::Label("Default".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Separator,
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
                     harness: 0,
@@ -572,8 +598,7 @@ mod tests {
     }
 
     /// An account is only offered for the harnesses it actually has a login for. One account
-    /// serving two harnesses is normal, and an account that serves neither offers nothing — but
-    /// every harness, signed into or not, still gets its `Default` row.
+    /// serving two harnesses is normal, and an account that serves neither offers nothing.
     #[test]
     fn an_account_is_only_offered_where_it_is_signed_in() {
         let state = with(vec![
@@ -589,11 +614,6 @@ mod tests {
         assert_eq!(
             state.harness_choices(&accounts, &[]),
             vec![
-                HarnessChoice::Label("Default".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Harness(1),
-                HarnessChoice::Harness(2),
-                HarnessChoice::Separator,
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
                     harness: 0,
@@ -607,33 +627,9 @@ mod tests {
         );
     }
 
-    /// A harness whose binary is missing keeps its row so the menu can say so, disabled. It
-    /// must not be omitted — a tool that vanished should read as unavailable, not as absent —
-    /// and the row must still be at the position the pick will look for.
-    #[test]
-    fn an_unavailable_harness_keeps_its_row() {
-        let state = with(vec![harness("claude-code", false), harness("codex", true)]);
-        let accounts = [account("mdn", &["claude-code"])];
-
-        assert_eq!(
-            state.harness_choices(&accounts, &[]),
-            vec![
-                HarnessChoice::Label("Default".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Harness(1),
-                HarnessChoice::Separator,
-                HarnessChoice::Label("Configured".into()),
-                HarnessChoice::Pair {
-                    harness: 0,
-                    account: "mdn".to_string()
-                },
-            ]
-        );
-    }
-
-    /// A saved setup adds a third, "Defined" group — and it appears with no account signed in at
+    /// A saved setup adds a second, "Defined" group — and it appears with no account signed in at
     /// all, since a profile carries its own identity. `Configured` stays absent in that case:
-    /// an empty heading is worse than none, which is the rule this group inherits.
+    /// an empty heading is worse than none, which is the rule both groups follow.
     #[test]
     fn profiles_add_a_defined_group_of_their_own() {
         let state = with(vec![harness("codex", true)]);
@@ -642,9 +638,6 @@ mod tests {
         assert_eq!(
             state.harness_choices(&[], &profiles),
             vec![
-                HarnessChoice::Label("Default".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Separator,
                 HarnessChoice::Label("Defined".into()),
                 HarnessChoice::Profile(0),
                 HarnessChoice::Profile(1),
@@ -661,7 +654,7 @@ mod tests {
 
         let rows = state.harness_choices(&accounts, &[]);
         assert_eq!(
-            rows[5],
+            rows[1],
             HarnessChoice::Pair {
                 harness: 1,
                 account: "mdn".to_string()
@@ -681,10 +674,21 @@ mod tests {
             grok,
             harness("codex", true),
         ]);
+        let accounts = [account("mdn", &["claude-code", "grok", "codex"])];
 
         assert_eq!(
-            state.harness_choices(&[], &[]),
-            vec![HarnessChoice::Harness(0), HarnessChoice::Harness(2)],
+            state.harness_choices(&accounts, &[]),
+            vec![
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+                HarnessChoice::Pair {
+                    harness: 2,
+                    account: "mdn".to_string()
+                },
+            ],
             "the indices are still positions in `agent_types`, gap and all"
         );
         assert_eq!(

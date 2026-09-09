@@ -25,7 +25,9 @@ use crate::state::agents::{
     COMPOSER_ROWS_MAX_DEFAULT, COMPOSER_ROWS_MIN, COMPOSER_SLOTS,
 };
 use crate::state::board::{BoardState, Field};
-use crate::state::chat::{ChatPick, ChatPicks, attach_choices, chat_picks, free_chat_slot};
+use crate::state::chat::{
+    AttachChoices, ChatPick, ChatPicks, attach_choices, chat_picks, free_chat_slot,
+};
 use crate::state::conversation::{Conversation, Run, TranscriptScroll};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
@@ -57,9 +59,10 @@ use crate::state::vim::VimState;
 use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
-    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, HarnessChoice,
-    LogState, MenuId, NewPaneRow, OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode,
-    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs,
+    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, LogState, MenuId,
+    NewAgentMenu, NewAgentSurface, NewPaneRow, OpenFile, PanelKind, ProjectSettings,
+    ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState,
+    prefs,
 };
 use crate::theme::{self, ThemeId};
 use crate::ui;
@@ -462,10 +465,19 @@ pub struct AppState {
     bookmark_marks: HashMap<gpui::EntityId, gpui_component::input::TextDecorationCollection>,
 
     pub workbench: WorkbenchState,
-    /// Which chat tab's own *New chat* is waiting on [`Message::StartConversation`]'s round trip,
-    /// so [`Self::pick_new_agent_menu`] knows which tab to attach the freshly minted conversation
-    /// to. Cleared on dismiss and consumed on pick, so a start from anywhere else — the agents
-    /// screen's own *New agent* — never attaches to a stale tab.
+    /// Which chat tab is waiting on [`Message::ConversationStarted`], so the conversation the
+    /// New agent form produces lands in the tab that asked for it. Set as the form is raised and
+    /// consumed when the answer arrives, so a start from anywhere else — the agents screen's own
+    /// `+` — never attaches to a stale tab.
+    pub pending_chat_attach: Option<ChatId>,
+    /// The same wait, from the chat strip's `+`, where **no tab exists yet**: the panel is opened
+    /// when the conversation actually arrives. A tab opened at the moment the form was raised is
+    /// a tab a dismissed form leaves behind, empty and unasked for — so the strip writes down that
+    /// a start is in flight and `Message::ConversationStarted` mints the view.
+    ///
+    /// Cleared by [`Self::close_new_agent`]: a flag left standing would capture the next
+    /// conversation from anywhere into a tab nobody opened.
+    pub pending_chat_open: bool,
     /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
     /// the window rather than to a project, because the sink has no project behind it.
     pub sink: SinkState,
@@ -644,7 +656,9 @@ pub struct AppState {
     /// The model is free text rather than a picker — the conversation's own model list is the
     /// harness's answer, and it is offered where a conversation starts.
     pub profile_id_input: Entity<InputState>,
-    pub profile_model_input: Entity<InputState>,
+    /// The opening prompt, shared by the New agent modal and the profile form — only one of the
+    /// two is ever up, and a second field would be a second thing to keep in step.
+    pub new_agent_prompt: Entity<TextareaState>,
     /// The accounts section's rename dialog field, seeded with the account's current id when
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.
@@ -777,6 +791,7 @@ pub use hosts::{
 };
 mod image_edit;
 mod nav;
+mod new_agent;
 mod notifications;
 mod panels;
 mod picker;

@@ -3,7 +3,7 @@
 //! Since the neutral model *is* ACP's `session/update` vocabulary (see
 //! [`super::model`]), this is a rename and a re-casing rather than a
 //! translation: the discriminant moves from `type` to `sessionUpdate`, and
-//! keys go from snake_case to camelCase. `_docs/inbox/acp-protocol.md` is the wire
+//! keys go from snake_case to camelCase. `_docs/references/acp-protocol.md` is the wire
 //! reference; the two rules it turns on are that **ACP keys are camelCase
 //! while discriminator values stay snake_case**, and that every union is
 //! internally tagged with its payload flattened beside the tag.

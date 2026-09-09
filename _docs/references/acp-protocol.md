@@ -1,3 +1,14 @@
+---
+id: ref-acp-protocol
+title: Agent Client Protocol (ACP)
+kind: reference
+status: current
+summary: The JSON-RPC wire reference for the Agent Client Protocol — initialisation, session setup and loading, the streaming update vocabulary, tool-call reporting, permission prompts, the client-side filesystem and terminal callbacks, and the Rust SDK Ubiq reads.
+read_when: you are wiring a harness that speaks ACP, adding a session update variant, or checking what the protocol says before assuming it
+updated: 2026-09-09
+verified: 2026-09-03
+---
+
 # Agent Client Protocol (ACP) — Wire Reference
 
 ## What this is

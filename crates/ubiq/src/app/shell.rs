@@ -391,6 +391,12 @@ impl AppState {
             self.toggle_app_provider_picker(cx);
             return;
         }
+        // The same case again for the start form's own pickers, which keep their open state on
+        // the form for the same reason: Escape takes the list down before the form under it.
+        if let Some(list) = self.new_agent_form().and_then(|form| form.open) {
+            self.toggle_new_agent_list(list, window, cx);
+            return;
+        }
         // The bell's list is painted last of the window's overlays, so it is peeled first — and
         // the mute picker inside it before the list it is drawn in.
         if self.notifications.muting.is_some() {
@@ -429,6 +435,10 @@ impl AppState {
             self.cancel_connect(window, cx);
         } else if settings.dialog.is_some() {
             self.close_account_dialog(cx);
+        } else if self.workbench.new_agent.is_some() {
+            // Painted over the settings page and everything it raises, so it is peeled first of
+            // the forms.
+            self.close_new_agent(cx);
         } else if settings.profile_form.is_some() {
             self.close_profile_form(cx);
         } else if settings.login.is_some() {

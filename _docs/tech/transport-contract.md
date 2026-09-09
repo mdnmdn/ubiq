@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-08
-verified: 2026-09-08
+updated: 2026-09-09
+verified: 2026-09-09
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -76,12 +76,14 @@ The control path. Lower volume, request-and-response.
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
 | `CheckAgentCommand` | UI → coordinator | `agent_type`, `command` | `AgentCommandChecked` |
+| `ListHarnessCatalogue` | UI → coordinator | `agent_type`, `account?` | `HarnessCatalogue` |
 | `SessionList` | coordinator → UI | `sessions[]` | — |
 | `SessionCreated` | coordinator → UI | `session` | — |
 | `SessionAttached` | coordinator → UI | `session`, `workspaces[]` | — |
 | `WorkspaceSpawned` | coordinator → UI | `workspace` | — |
 | `AgentTypes` | coordinator → UI | `agent_types[]` | — |
 | `AgentCommandChecked` | coordinator → UI, asking client only | `agent_type`, `ok`, `detail` | — |
+| `HarnessCatalogue` | coordinator → UI, asking client only | `agent_type`, `account?`, `models[]`, `last_model`, `last_thinking` | — |
 | `Status` | coordinator → UI | `message` | — |
 | `Error` | coordinator → UI | `message` | — |
 
@@ -189,11 +191,34 @@ but `harness_choices` in `crates/ubiq/src/state/workbench.rs` filters every chat
 nothing about how many turns one process takes; a one-shot harness (Copilot, opencode) is `chat:
 true` the same as a multi-turn one (Claude Code, codex).
 
+**`modes` is whatever the harness named, and `unattended_mode` says which of them asks nothing.**
+A permission mode is not a universal concept — it is one harness's own vocabulary, carried as
+`ConfigChoice` rows — so an interface that wanted to open a start form on "ask nothing" had no way
+to tell which id meant it without a table of its own. `unattended_mode` is the library's
+`Harness::unattended_mode` crossing the bus: the harness's own spelling, `None` where it has no
+such mode or already asks nothing. Which id means "all permissions" stays the harness's business,
+which is the same reason `modes` is a list rather than an enum.
+
 **`CheckAgentCommand` tries a typed command line before it is saved.** The UI sends `agent_type` and
 the candidate `command`; the coordinator runs it with `--version` on its own thread against a 5s
 timeout and answers `AgentCommandChecked` — `ok` and a one-line `detail` — to the asking client
 only, never broadcast, because trying a command is not a fact about the harness that every window
 needs to hear.
+
+**`ListHarnessCatalogue` asks what a harness offers before anything is started.** A start form has
+to name a model and a reasoning level, and until this pair existed the only way to learn them was
+to launch the harness and read the `ConfigOptions` that came back — which meant the form could
+only be filled in for a conversation that already existed. The coordinator answers on a one-off
+thread through the same `probe_catalogue` the discovery thread inside `start_conversation` uses,
+so the probe shells out without blocking the run loop, and the answer is cached on the harness
+binary's own version string: slow exactly once, cheap after. A probe that fails answers
+`HarnessCatalogue` with an empty `models` list rather than nothing at all — an unanswerable
+harness offers "whatever it defaults to" instead of leaving the asker waiting. `account` rides
+along as the cache key's identity leg; the probe itself is per harness. `last_model` and
+`last_thinking` are what this harness was last actually launched with, empty where no such flag
+ever went out — the same convention the host's own `chosen_model` follows — and they are a
+preselection, never a promise: a model gone since simply preselects nothing. The answer goes to
+the asking client only, because a form is one window's question.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
@@ -575,7 +600,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -592,10 +617,23 @@ is what multiplexes several of them down one channel.
 | `ConversationNamed` | host → UI | `agent_id`, `title`, `summary?` | — |
 
 **The vocabulary is the Agent Client Protocol's; the transport is the bus.** `D53` states why, and
-[`../inbox/acp-protocol.md`](../inbox/acp-protocol.md) is the wire reference every name here
+[`../references/acp-protocol.md`](../references/acp-protocol.md) is the wire reference every name here
 comes from. What that buys is that the library's own event model, this family and the mapper between
 them are one vocabulary rather than three, and that a harness which speaks ACP natively is read
 rather than translated.
+
+**`StartConversation` carries the picks the start form asked for**, and each of `model`,
+`thinking` and `mode` outranks the profile's own record, the way a pick always does: the host
+seeds `chosen_model`, `chosen_thinking` and `chosen_mode` from the field first and the profile
+second. An absent or empty field says nothing, which is what leaves the profile — or, failing
+that, the harness's own default — in charge. Empty rather than `None` alone because the interface
+sends the form's answer whatever it is, and "the user did not choose" and "the field is not on
+this message" have to read the same.
+
+**There is deliberately no `max_subagents` here.** No harness has a flag for it, so there is
+nothing for the host to pass; the interface says it to the agent instead, as a directive folded in
+front of the conversation's first turn. `ProfileInfo` still carries the number, because a saved
+setup has to remember what it asked for; *The workbench* says what a start does with it.
 
 **A conversation is a workspace's other face.** `SpawnWorkspace` makes a terminal one and
 `StartConversation` makes a conversation one; a harness cannot be both at once, because a child's
@@ -774,14 +812,14 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Forty-two records travel inside payloads.
+Forty-three records travel inside payloads.
 
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]` |
+| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
@@ -805,6 +843,7 @@ Forty-two records travel inside payloads.
 | `RateLimitRecord` | `five_hour_pct?`, `five_hour_resets_at?`, `seven_day_pct?`, `seven_day_resets_at?`, `status` |
 | `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
 | `ConfigChoice` | `value`, `name`, `description?`, `group?` |
+| `CatalogueModel` | `id`, `description?`, `default`, `levels[]`, `default_level?` |
 | `Notification` | `id`, `level`, `family`, `actor?`, `category?`, `text`, `link?`, `at`, `muted`, `read` |
 | `NotificationRequest` | `level`, `family`, `actor?`, `category?`, `text`, `link?`, `muted`, `os` — the last two default `false` |
 | `UbiqLink` | one of: `Pane`, `Project`, `Agent`, `File{project,path}`, `Url` |
@@ -812,7 +851,7 @@ Forty-two records travel inside payloads.
 | `MuteRule` | `scope`, `max_level`, `until?` |
 | `MuteFor` | one of: `Minutes5`, `Minutes15`, `Hour1`, `Hours8`, `Always` |
 | `Notifications` | `items[]` newest first, `mutes[]` |
-| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?` |
+| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -890,7 +929,7 @@ override" would become indistinguishable from "say nothing about it".
 
 The conversation family's own enums are the Agent Client Protocol's and are named after it rather
 than after anything here, so a reader can check them against
-[`../inbox/acp-protocol.md`](../inbox/acp-protocol.md) directly. `ToolKind` is ACP's ten —
+[`../references/acp-protocol.md`](../references/acp-protocol.md) directly. `ToolKind` is ACP's ten —
 `Read`, `Edit`, `Delete`, `Move`, `Search`, `Execute`, `Think`, `Fetch`, `SwitchMode`, `Other` —
 and carries the verb its block's header leads with. `ToolStatus` is `Pending`, `InProgress`,
 `Completed` or `Failed`. `PermissionKind` is `AllowOnce`, `AllowAlways`, `RejectOnce` or
@@ -1046,8 +1085,8 @@ a host answer that will not come.
 ## The profile family
 
 The thirteenth family, and the account family's neighbour. A **profile** is a saved setup — which
-harness, as whom, with which model and which permission mode — and this family is how one is
-listed and written. It is deliberately three messages: profiles are stored beside accounts by the
+harness, as whom, with which model, reasoning level and permission mode, how many subagents at
+once, and what to open with — and this family is how one is listed and written. It is deliberately three messages: profiles are stored beside accounts by the
 harness library, so they fail the same way and share `AccountError` rather than minting a second
 error variant.
 
@@ -1061,18 +1100,25 @@ error variant.
 credential on disk, which is what makes deleting an account worth a message and deleting a profile
 not.
 
-**References only, like the account family.** `ProfileInfo` names an account, a model and a mode by
-id; nothing here is credential material or a path. `None` on a field means the profile does not
-mention that axis and a lower layer decides, which is the library's replace-by-default rule
-crossing the bus intact.
+**References only, like the account family.** `ProfileInfo` names an account, a model, a reasoning
+level and a mode by id; nothing here is credential material or a path. `None` on a field means the
+profile does not mention that axis and a lower layer decides, which is the library's
+replace-by-default rule crossing the bus intact.
+
+**A profile answers the same questions a start does**, which is why the record grew `thinking`,
+`max_subagents` and `prompt` when the start form did: one form asks both, so anything the form can
+answer is something a profile can save. The last two are the interface's own — no harness has a
+subagent flag and an opening prompt is a turn, not a launch — so the library records them and
+never reads them, and it is the start that acts on them.
 
 **A profile named on `StartConversation` seeds the picker, it does not bypass it.** The host reads
-the profile's record and copies its model and mode into the pending conversation's picks, so the
+the profile's record and copies its model, level and mode into the pending conversation's picks, so the
 `ConfigOptions` the window draws show the profile's choices and a launch that nobody touched
 sends them. It has to work this way round: the host passes the picks as flags, and a flag outranks
 the profile inside the library's `resolve`, so a profile left unseeded would be displayed wrong and
-then launched over. `account` on the same message stays separate and still wins over the profile's,
-which is what "the user picked this one" means.
+then launched over. `account`, `model`, `thinking` and `mode` on the same message stay separate and
+win over the profile's, which is what "the user picked this one" means — a profile is the default
+a form opened on, and every field the user then changed is the user saying otherwise.
 
 ## The command-line family
 

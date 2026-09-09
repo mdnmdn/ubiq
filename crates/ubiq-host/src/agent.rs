@@ -292,6 +292,7 @@ impl Agents {
                             group: None,
                         })
                         .collect(),
+                    unattended_mode: harness.unattended_mode().map(str::to_string),
                 }
             })
             .collect()
@@ -409,6 +410,9 @@ impl Agents {
                     account: profile.account,
                     model: profile.defaults.model,
                     mode: profile.mode,
+                    thinking: profile.defaults.thinking,
+                    max_subagents: profile.max_subagents,
+                    prompt: profile.defaults.prompt,
                 })
             })
             .collect())
@@ -423,9 +427,12 @@ impl Agents {
             account: profile.account,
             defaults: ProfileDefaults {
                 model: profile.model,
+                thinking: profile.thinking,
+                prompt: profile.prompt,
                 ..Default::default()
             },
             mode: profile.mode,
+            max_subagents: profile.max_subagents,
             ..Default::default()
         };
         self.profile_store()
@@ -536,6 +543,48 @@ impl Agents {
     /// library for the policy and spawns what comes back, exactly as it does for a pane.
     /// `probe` runs a plain shell under the login's policy instead of the harness — see
     /// [`Self::shell_probe_launch`] for why the policy is unaffected by the swap.
+    /// This machine's own variables, added to a launch the harness has already described.
+    /// Never over a name the harness itself set: a confined launch's `env` is the whole
+    /// environment, and `CLAUDE_CONFIG_DIR` and its siblings are what pin a run — or a
+    /// login's capture home — to the directory it was composed for.
+    fn add_machine_env(&self, launch: &mut Launch) {
+        for (key, value) in &self.environment.env {
+            if !launch.env.iter().any(|(name, _)| name == key) {
+                launch.env.push((key.clone(), value.clone()));
+            }
+        }
+    }
+
+    /// The grants this machine adds to any policy, a run's and a login's alike.
+    ///
+    /// A login used to get none of these, and on a machine whose node, python or homebrew
+    /// tree sits where no shipped layer expects it that is a harness which cannot start: the
+    /// pane opened, printed nothing, and the sign-in never began.
+    ///
+    /// Toolchain roots come before the user's own grants, so an explicit one is the last word
+    /// on a path the environment also named. The lookup is this machine's file first and the
+    /// process second: Ubiq started from the Finder has none of these set, and a toolchain
+    /// root nobody named is a root nothing grants.
+    ///
+    /// Every directory on `PATH` is granted read-only. A tool installed where no layer expects
+    /// it is otherwise unreachable — `operation not permitted: cargo`, with the binary sitting
+    /// in the run's own `PATH`. Reading a tool is not writing its cache: what a build writes to
+    /// is granted by the toolchain roots, not by this.
+    fn isolate_options(&self) -> IsolateOptions {
+        let mut options = IsolateOptions::new(self.root.join("isol8"));
+        options.grant_toolchains(|name| self.environment.lookup(name));
+        options.extra_ro.extend(self.environment.path_dirs());
+        for grant in self.environment.grants.iter().chain(&self.extra_grants) {
+            let path = expand_home(&grant.path);
+            if grant.write {
+                options.extra_rw.push(path);
+            } else {
+                options.extra_ro.push(path);
+            }
+        }
+        options
+    }
+
     pub fn begin_login(
         &self,
         agent_type: &str,
@@ -552,6 +601,9 @@ impl Agents {
             .login(&home)
             .with_context(|| format!("asking {agent_type} how it logs in"))?;
         self.resolve_program(agent_type, &mut plan.launch);
+        // Before the policy is planned, so a grant can be read off these — the same order
+        // `compose` keeps.
+        self.add_machine_env(&mut plan.launch);
 
         // The credential's timestamp before the login runs. A harness that exits cleanly
         // without refreshing its credential has not logged anyone in, and this is the only
@@ -562,13 +614,8 @@ impl Agents {
         // The policy is rendered from `plan` — the harness's own program — before anything
         // about `probe` is looked at, so a probe inspects exactly the sandbox a real login
         // would run under, not a policy computed for a shell.
-        let confined = isolate::login_confined(
-            &home,
-            &plan,
-            None,
-            &IsolateOptions::new(self.root.join("isol8")),
-        )
-        .with_context(|| format!("resolving the policy a {agent_type} login runs under"))?;
+        let confined = isolate::login_confined(&home, &plan, None, &self.isolate_options())
+            .with_context(|| format!("resolving the policy a {agent_type} login runs under"))?;
         let mut launch = isolate::confined_launch(&confined)
             .with_context(|| format!("preparing a confined {agent_type} login"))?;
         if probe {
@@ -848,11 +895,7 @@ impl Agents {
         // off them. Never over a name the harness itself set: a confined launch's `env` is the
         // whole environment, and `CLAUDE_CONFIG_DIR` and its siblings are what pin a run to its
         // throwaway configuration.
-        for (key, value) in &self.environment.env {
-            if !provisioned.launch.env.iter().any(|(name, _)| name == key) {
-                provisioned.launch.env.push((key.clone(), value.clone()));
-            }
-        }
+        self.add_machine_env(&mut provisioned.launch);
 
         // Every confined run keeps the real home unless the user said otherwise. A home of its
         // own was once the answer to "a second run of the same profile should find its caches,
@@ -863,26 +906,8 @@ impl Agents {
         //
         // The home and the extra grants are the two answers Ubiq holds rather than the library:
         // both are settings a person set on this machine, and the library has no way to ask.
-        let mut options = IsolateOptions::new(self.root.join("isol8"));
+        let mut options = self.isolate_options();
         options.home = home_mode(&self.home);
-        // Before the user's own grants, so an explicit one is the last word on
-        // a path the environment also named. The lookup is this machine's file first and the
-        // process second: Ubiq started from the Finder has none of these set, and a toolchain
-        // root nobody named is a root nothing grants.
-        options.grant_toolchains(|name| self.environment.lookup(name));
-        // Every directory on `PATH`, read-only. A tool installed where no layer expects it is
-        // otherwise unreachable — `operation not permitted: cargo`, with the binary sitting in
-        // the run's own `PATH`. Reading a tool is not writing its cache: what a build writes
-        // to is granted by the toolchain roots above, not by this.
-        options.extra_ro.extend(self.environment.path_dirs());
-        for grant in self.environment.grants.iter().chain(&self.extra_grants) {
-            let path = expand_home(&grant.path);
-            if grant.write {
-                options.extra_rw.push(path);
-            } else {
-                options.extra_ro.push(path);
-            }
-        }
 
         let confined = isolate::plan(&provisioned.launch, &spec, &provisioned.dir, &options)
             .with_context(|| format!("resolving the policy for a {agent_type} run"))?;

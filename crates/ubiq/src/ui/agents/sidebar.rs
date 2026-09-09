@@ -1,10 +1,11 @@
 //! The list down the side of the agents screen: every session, every agent in it, and what each
 //! one is doing.
 //!
-//! It lists **everything the host reports**, not what is on screen. That is the point of it: a
-//! column is one conversation and there are only ever a few of them, so the list is the one place
-//! the whole project is visible at once — and an agent the user has benched is still here, marked,
-//! rather than gone.
+//! It lists **every conversation this window holds**, not what is on screen. That is the point of
+//! it: a column is one conversation and there are only ever a few of them, so the list is the one
+//! place the whole project is visible at once — and an agent the user has benched is still here,
+//! marked, rather than gone. What it does not list is an agent this window cannot talk to, which
+//! is what `AgentsView::live_agents` answers for every reader on this screen.
 //!
 //! One click reveals: an agent already in a column comes to the front of it, and a benched one
 //! opens a column of its own. A session's row folds it away.
@@ -31,9 +32,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let mut groups: Vec<AnyElement> = Vec::new();
     if let (Some(work), Some(agents)) = (app.work(cx), app.agents(cx)) {
         for session in &work.sessions {
-            let members: Vec<&WorkAgent> = work
-                .agents
-                .iter()
+            let members: Vec<&WorkAgent> = agents
+                .live_agents(work)
+                .into_iter()
                 .filter(|agent| agent.session == session.id)
                 .collect();
             // A session nobody is working in is not drawn: the list is about agents, and a header

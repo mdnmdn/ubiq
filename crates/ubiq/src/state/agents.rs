@@ -17,6 +17,11 @@
 //! conversation, so taking it off screen leaves the agent running and puts it on the bench, where
 //! the sidebar still lists it and one click brings it back. Nothing on this screen kills an agent.
 //!
+//! **The screen draws only the agents this window can talk to.** The host's projection is wider
+//! than that — it carries the mock work thread's fixtures too — so every reader here goes through
+//! [`AgentsView::live_agents`] rather than `work.agents`, and the Teams screen keeps reading the
+//! whole projection.
+//!
 //! Nothing here draws and nothing here names a colour — an activity says what it *is*, and
 //! `ui::work` decides which token that reads in.
 
@@ -148,6 +153,20 @@ pub struct AgentsView {
     /// The tab the pointer is carrying. A tab dropped on another column joins it; dropped past the
     /// last column it opens one of its own.
     pub dragging: Option<AgentId>,
+    /// The agents this screen may draw: the ones this window holds a live [`Conversation`] for.
+    ///
+    /// **The host's projection is wider than what a column can talk to.** It also carries the
+    /// fixtures the mock work thread seeds into every project, which have a name and an activity
+    /// and nothing behind them — a column opened on one would be a transcript with no harness at
+    /// the other end. The Teams screen keeps reading the whole projection, because a graph is a
+    /// map of who spawned whom and a mock has a place on it; this screen does not.
+    ///
+    /// Kept here rather than recomputed per reader so the sidebar, the bench and the columns
+    /// cannot disagree about which agents exist. `AppState` refreshes it wherever a conversation
+    /// is created.
+    ///
+    /// [`Conversation`]: super::conversation::Conversation
+    pub live: Vec<AgentId>,
     /// Whether the screen has laid itself out from the work yet. The first `WorkList` arranges the
     /// columns once; every later one only prunes, because an arrangement the user has changed is
     /// not something an arriving record may undo.
@@ -162,6 +181,7 @@ impl Default for AgentsView {
             collapsed: Vec::new(),
             drafts: vec![String::new(); COMPOSER_SLOTS],
             dragging: None,
+            live: Vec::new(),
             arranged: false,
         }
     }
@@ -169,6 +189,20 @@ impl Default for AgentsView {
 
 impl AgentsView {
     // ── what it holds ───────────────────────────────────────────────
+
+    /// Whether this window can actually talk to that agent — see [`Self::live`].
+    pub fn is_live(&self, agent: AgentId) -> bool {
+        self.live.contains(&agent)
+    }
+
+    /// The agents the screen may draw, in the host's own order. Every reader on this screen goes
+    /// through it rather than through `work.agents` directly.
+    pub fn live_agents<'a>(&self, work: &'a WorkProjection) -> Vec<&'a WorkAgent> {
+        work.agents
+            .iter()
+            .filter(|agent| self.is_live(agent.id))
+            .collect()
+    }
 
     /// Which column and which tab an agent is drawn in, if it is on screen at all.
     pub fn holds(&self, agent: AgentId) -> Option<(usize, usize)> {
@@ -193,8 +227,8 @@ impl AgentsView {
     /// The agents the host reports that no column is showing. **On the bench, not gone**: each is
     /// still running, still listed in the sidebar, and one click from a column of its own.
     pub fn benched<'a>(&self, work: &'a WorkProjection) -> Vec<&'a WorkAgent> {
-        work.agents
-            .iter()
+        self.live_agents(work)
+            .into_iter()
             .filter(|agent| !self.on_screen(agent.id))
             .collect()
     }
@@ -208,15 +242,15 @@ impl AgentsView {
         let matches =
             |agent: &WorkAgent| query.is_empty() || agent.name.to_lowercase().contains(&query);
 
-        let bench: Vec<AgentId> = work
-            .agents
-            .iter()
+        let bench: Vec<AgentId> = self
+            .live_agents(work)
+            .into_iter()
             .filter(|agent| !self.on_screen(agent.id) && matches(agent))
             .map(|agent| agent.id)
             .collect();
-        let elsewhere: Vec<AgentId> = work
-            .agents
-            .iter()
+        let elsewhere: Vec<AgentId> = self
+            .live_agents(work)
+            .into_iter()
             .filter(|agent| {
                 self.holds(agent.id).is_some_and(|(col, _)| col != column) && matches(agent)
             })
@@ -305,9 +339,9 @@ impl AgentsView {
     pub fn arrange(&mut self, work: &WorkProjection) {
         self.columns.clear();
         for session in &work.sessions {
-            let members: Vec<AgentId> = work
-                .agents
-                .iter()
+            let members: Vec<AgentId> = self
+                .live_agents(work)
+                .into_iter()
                 .filter(|agent| agent.session == session.id)
                 .map(|agent| agent.id)
                 .collect();
@@ -332,10 +366,19 @@ impl AgentsView {
     /// simply stops being listed.
     pub fn prune(&mut self, work: &WorkProjection) -> bool {
         let before = self.on_the_field() + self.columns.len();
+        // Lifted out and put back so the retain can read it while the columns are held mutably.
+        // Narrowed to what the host still reports on the way through: `live` is written where a
+        // conversation comes into being and nowhere else, so this is what keeps an agent that has
+        // since ended from sitting in it for the life of the window.
+        let mut live = std::mem::take(&mut self.live);
+        live.retain(|id| work.agent(*id).is_some());
         for column in &mut self.columns {
-            column.tabs.retain(|id| work.agent(*id).is_some());
+            column
+                .tabs
+                .retain(|id| work.agent(*id).is_some() && live.contains(id));
             column.active = column.active.min(column.tabs.len().saturating_sub(1));
         }
+        self.live = live;
         self.columns.retain(|column| !column.tabs.is_empty());
         self.clamp_focus();
         before != self.on_the_field() + self.columns.len()

@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-08
+updated: 2026-09-09
 verified: 2026-09-08
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
@@ -20,8 +20,11 @@ A workspace is composed by the library and confined by default: `RunSpec` → pr
 pseudo-terminal, and a pane shows the harness's own screen. That is the **passthrough** half. The
 conversation half runs too: a Claude conversation streams end to end (P1), an identity can be
 signed in from inside Ubiq and saved into a named definition that a conversation starts from (P4 and
-P5), the model and the mode are picked before the harness launches (P3), and the chat panel and the
-agents column draw one conversation through one component. A conversation is confined by
+P5), the model, the reasoning level and the mode are picked before the harness launches (P3), and
+the chat panel and the agents column draw one conversation through one component. P3's ordering has
+since been pushed one step earlier: `ListHarnessCatalogue` answers what a harness offers without
+starting one, so the New agent form asks every question a start answers before the first
+`StartConversation` goes out (`D92`). A conversation is confined by
 `isolate_agents` like a pane, and a defined agent keeps a persistent home behind that (P6). What
 remains is the thinking level and permissions (P7).
 
@@ -53,8 +56,8 @@ false are deleted rather than annotated: this is what is true now.
 | `IoBridge` is two methods, both `&mut self`, and `next_event` **blocks** | The host needs one pump thread per structured workspace; `send` and `next_event` cannot be called concurrently without splitting the bridge |
 | Only **Claude** and **Codex** accept a second turn on the same process (`IoSupport::multi_turn`). opencode and Copilot bridges are one-shot: the prompt goes in through argv, the process answers once and exits, and `send` on that process is a no-op | All four still back a conversation column. A one-shot harness's turn ending is a process exiting, not the conversation — the coordinator's `finish_one_shot_turn` relaunches it with the harness's own session id on the next prompt (`RunSpec::resume`), so the composer never has to know which kind it is talking to |
 | **Every bridge auto-approves.** Claude's reader answers every `control_request` with `allow`; Codex auto-accepts every approval RPC; opencode runs `--dangerously-skip-permissions`; Copilot runs `--allow-all --no-ask-user` | A permission prompt in the UI would be theatre — the tool has already run. This is the one item with a security consequence, and it gates any "ask me first" feature |
-| **Model discovery is implemented for all five harnesses** — `Harness::discover_models` (`harness/mod.rs:501`) is overridden by every one. But it takes **no account and no directory**, so a list is per harness rather than per identity, and Claude's probe reads the *ambient* login; discovery **is** cached now — `FileHarnessCache` (`crates/ubiq-host/src/store/harness.rs`) writes `<config root>/cache/harness-models.toml`, keyed on `(harness, account, version)`, with `version` read off the harness binary's own `--version` — so a hit skips the probe outright and a harness whose version cannot be read bypasses the cache in both directions | A model picker is available today, and its list is the same whichever account was chosen. Per-account lists need the trait signature to change. The catalogue can go stale until the harness binary's version string changes |
-| **A thinking / reasoning-effort catalog exists in Rust for two of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses. opencode, Copilot CLI and Grok CLI still answer the empty default — none of the three exposes a reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is still a *label on an option*, not wired to this catalog | The library-side catalog exists for the two harnesses that support reasoning effort; nothing in the UI or bridge layer consumes it yet, so "thinking budget" is still not a picker anyone can draw |
+| **Model discovery is implemented for all five harnesses** — `Harness::discover_models` (`harness/mod.rs:501`) is overridden by every one. But it takes **no account and no directory**, so a list is per harness rather than per identity, and Claude's probe reads the *ambient* login; discovery **is** cached now — `FileHarnessCache` (`crates/ubiq-host/src/store/harness.rs`) writes `<config root>/cache/harness-models.toml`, keyed on `(harness, account, version)`, with `version` read off the harness binary's own `--version` — so a hit skips the probe outright and a harness whose version cannot be read bypasses the cache in both directions. `ListHarnessCatalogue` reaches the same probe and the same cache with no conversation in the picture | A model picker is available before a start as well as after one, and its list is the same whichever account was chosen. Per-account lists need the trait signature to change. The catalogue can go stale until the harness binary's version string changes |
+| **A thinking / reasoning-effort catalog exists in Rust for two of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses. opencode, Copilot CLI and Grok CLI still answer the empty default — none of the three exposes a reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is a *label on an option* rather than a reading of this catalog | The catalog reaches the interface through `HarnessCatalogue`, which folds each model's levels into the `CatalogueModel` beside it, so the New agent form draws a level picker and a profile can pin one. The three harnesses with no reasoning concept draw no level row at all, which is the honest shape of an empty catalog |
 | **No bridge emits `ConfigOptionUpdate`, and all four reject `SetConfigOption`.** `AgentEvent::ConfigOptionUpdate` (`io/model.rs:623`) has zero producers; `Message::SetAgentConfig` is fully plumbed host-side (`coordinator.rs:647`) and fails one layer down | The config-option mechanism is a shape with nothing behind it. A model chosen at launch works; a model changed mid-turn cannot |
 | `Policy` carries an opaque `permission_mode` string, passed through per harness. Claude's `init` event already reports `permissionMode`, and the bridge surfaces it as `SessionStarted.mode` | The mode is the one item of the three that is free — it is already on the wire as `ConvUpdate::Started` |
 | **Ubiq writes a session record of its own.** `crates/ubiq-host/src/agent.rs` calls `agent_manager::session::save` the moment a run is composed, into `<ubiq root>/sessions` — a directory it passes explicitly, so `AM_SESSIONS` cannot redirect a user's Ubiq transcripts — and copies the harness's own transcript in at teardown. Ubiq's sessions and agents are otherwise in-memory (`ubiq-host/src/work/mod.rs`), and only tasks persist | A run's record and the harness's own file outlive the run directory. `am session ls` reads the library's store and so does not list Ubiq's runs; and the record is metadata plus a harness file, not an `AgentEvent` transcript. The live conversation state still does not survive a restart |
@@ -107,7 +110,7 @@ model makes an inbound bridge a reader of its own vocabulary rather than a third
 `io/acp.rs` becomes a real adapter rather than a lossy projection; and the UI's render model is
 already ACP-shaped by coincidence. **The mapping is settled and recorded elsewhere** — `D53` in
 `tech/decisions.md`, the family in `tech/transport-contract.md`, and the wire in
-[`../inbox/acp-protocol.md`](../inbox/acp-protocol.md). (`refs/multica` holds no ACP code, so an
+[`../references/acp-protocol.md`](../references/acp-protocol.md). (`refs/multica` holds no ACP code, so an
 earlier claim that these were confirmed against its clients was unsupported.)
 
 Two corrections a reader would not get from the harness documents.
@@ -359,8 +362,8 @@ into `conversations` — where a live pump exists — only then.
    forwards that same prompt as the harness's first turn.
 
 **The window mints the `agent_id` and draws the pending conversation.**
-`StartConversation`'s only caller, `AppState::pick_new_agent_menu`
-(`crates/ubiq/src/app/agents.rs`), generates it with `AgentId::generate()` before sending. `Conversation`
+`StartConversation`'s only caller, `AppState::start_new_agent`
+(`crates/ubiq/src/app/new_agent.rs`), generates it with `AgentId::generate()` before sending. `Conversation`
 carries a `launched` flag, `false` from `Conversation::new` until `ConvUpdate::Started` sets it, and
 a `chosen: BTreeMap<String, String>` (keyed by `config_id`) the composer's own pickers write to,
 since the host does not echo a `SetAgentConfig` sent before launch. While `launched` is false,
@@ -380,18 +383,27 @@ not `Serialize`; the host maps it into a `ConfigOption` itself
 (`crates/ubiq-host/src/coordinator.rs`'s `model_config_option`) rather than adding a `ubiq-proto`
 counterpart.
 
-**Thinking effort is not in this package** — there is no catalog to read. The mode is, and nearly
-free: Claude's `init` already reports `permissionMode`.
+**Thinking effort was not in this package** — there was no catalog to read at the time. The mode
+was, and nearly free: Claude's `init` reports `permissionMode`.
 
 **Done when** a conversation started from either surface offers that harness's real models before
 its first turn, and the harness launches with the one picked.
+
+**What landed on top of it.** The composer's pending pickers are the *second* place these questions
+are asked; the first is now the New agent form, which asks them before the start. The catalogue
+reaches it through `ListHarnessCatalogue`/`HarnessCatalogue` — the same `probe_catalogue` and the
+same version-keyed cache, answered on a one-off thread with no conversation in the picture — so
+`Harness::discover_thinking`'s two-harness catalog has a consumer, and a profile can pin a level
+(`ProfileDefaults::thinking`) as well as a model. `StartConversation` carries `model`, `thinking`
+and `mode`, each outranking the profile's own record, and `AgentTypeInfo::unattended_mode` is what
+the mode picker opens on so the interface never guesses which id means "ask nothing".
 
 ### P4 — Agent definitions — **landed**
 
 **The identity half.** The settings overlay's Harnesses section lists the accounts Ubiq holds, each
 showing which harnesses it can start; `+ Add harness` signs a new one in. Starting a conversation
 offers one row per harness *and identity* — `HarnessChoice`, a flat list because the kit has no
-submenu and a pick is an index, read by both New agent and New chat so one question has one answer.
+submenu and a pick is an index, read wherever a target is offered so one question has one answer.
 The identity is chosen once and read-only in the footer after, because a turn already taken was
 taken as somebody.
 
@@ -465,7 +477,14 @@ keychain). Its test asserts on the *resolved* stack, which is what catches the t
 **The outcome is decided by the credential, not the exit code**, because a harness can exit cleanly
 having done nothing. The host stamps the credential's mtime before the launch; at the pane's end
 there are three answers — fresh (an account exists), untouched (nobody was logged in), absent (the
-flow was abandoned, which is what Abort does and is always safe). Only the first records anything,
+flow was abandoned, which is what the title's X does and is always safe). **The running step's
+button is `Done`, not `Abort`, and it keeps the modal up.** A harness whose login *is* its ordinary
+interactive screen — grok has no login verb at all — never exits once the browser flow is finished,
+so the user saying so is the only thing that ends it; `finish_harness_login` stops the pane and
+leaves the flow's state in place, and `login_ended` then draws whatever the host answers. Taking
+that state at the same moment (the old Abort) threw away the `HarnessLoginCaptured` on its way back,
+and a sign-in that had worked read as nothing happening. A probe has no outcome coming, so its
+button stays `Abort` and closes outright. Only the first of the three answers records anything,
 so a half-finished login leaves nothing to clean up, and creating an account *is* logging one in.
 `capture_login` persists a **reference** only, pointing `Account.home` at the capture dir: no
 credential bytes are stored and none cross the bus. The family is in
@@ -545,6 +564,22 @@ wrote it — and waits only on the replay that hands it to a fresh harness (`G12
   self-contained binary already named by this policy cannot even start — Codex's Node interpreter,
   reached through a shim that resolves outside the home entirely (`mise`), is the case that found
   this. The trap is not only the keychain; `login_confined`'s `login_runtime_grants` is the fix.
+- **A login policy that is not the run policy is a login that cannot start.** `login_runtime_grants`
+  covers the harness's own binary and the well-known runtime roots under the real `$HOME`; it knows
+  nothing of the toolchain roots, `PATH` directories and user grants `environment.toml` names, and
+  those are exactly what a machine that installed node or homebrew somewhere unusual depends on. A
+  login built its policy from a bare `IsolateOptions` while `compose` fed it the whole machine
+  environment, so the pane opened, the harness died before its first byte, and the modal showed an
+  empty terminal with no URL to click. `Agents::isolate_options` is now the one answer both callers
+  use, `add_machine_env` the one env merge, and `login_confined` honours `extra_rw` and the full
+  `ENV_PASS` allowlist the way `plan` does. **A login is a run with a different argv; any grant one
+  needs, the other needs.**
+- **A terminal in a block wrapper is a one-line black band.** `ui/terminal.rs::pane` returns a
+  `flex_1` column and fills its panel because the dock's parent is a flex container. The login
+  modal wrapped it in a bordered `div` that was not `flex()`, so the emulator had no flex context,
+  hugged its content, and drew as a single dark line across the top of a tall empty box — which
+  reads as "the harness printed nothing", not as a layout bug. Any new host for `pane` is a flex
+  column or it is this bug again.
 - **A pane with no project silently skips the close path.** `close_pane` returns early when a pane
   belongs to no project, which is every login pane — so a login that exited *successfully* never
   reached `CloseWorkspace`, `pane_gone` never ran, and the credential sat on disk with no account
@@ -596,7 +631,7 @@ wrote it — and waits only on the replay that hands it to a fresh harness (`G12
    pseudo-terminal reader already works; per window bounds the thread count if someone opens forty.
 4. **Where does "allow always" live?** Per conversation is the protocol's scope; per agent
    definition is what a user would expect to survive a restart. P7 needs an answer.
-5. **Who mints an `AgentId`?** Settled by P3: the window mints it — `pick_new_agent_menu()` with
+5. **Who mints an `AgentId`?** Settled by P3: the window mints it — `start_new_agent()` with
    `AgentId::generate()`, the `SessionId` precedent — and the host adopts it in
    `Coordinator::start_conversation` rather than generating its own.
 6. **Should `discover_models` take the composed run?** It takes no account and no directory, so a

@@ -65,11 +65,17 @@ impl ModeLayout {
     }
 }
 
-/// The last thing a chat tab was started on: the harness, and the identity it ran as.
+/// The last thing a chat tab was started on: the harness, the identity it ran as, and the two
+/// answers the New agent form cannot recover from anywhere else.
 ///
 /// Interface scope rather than a project's, because which harnesses this machine has and which
 /// account is signed into them is a fact about the machine — a second project on the same laptop
 /// should open offering what the first one used, not start from nothing again.
+///
+/// The model and the reasoning level are deliberately **not** here: the host already remembers
+/// those per harness and identity, and hands them back with the catalogue. What it does not know
+/// about is the permission mode a start asked for and the subagent ceiling it was given, so those
+/// two are written here and read back as the form's preselection.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
 pub struct LastStart {
     pub agent_type: String,
@@ -77,6 +83,13 @@ pub struct LastStart {
     pub account: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
+    /// What the last start was allowed to do without asking. `None` is "the harness's own", which
+    /// is a real answer as well as what a blob written before this field carried.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// The subagent ceiling the last start asked for. `None` says nothing about it at all.
+    #[serde(default)]
+    pub max_subagents: Option<u8>,
 }
 
 /// What belongs to the whole interface rather than to any one project.

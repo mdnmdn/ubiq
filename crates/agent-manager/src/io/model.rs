@@ -6,7 +6,7 @@
 //!
 //! The event names and shapes here are the Agent Client Protocol's
 //! `session/update` vocabulary, minus two things: the JSON-RPC envelope, and
-//! the session id. `_docs/inbox/acp-protocol.md` is the wire reference this
+//! the session id. `_docs/references/acp-protocol.md` is the wire reference this
 //! transcribes, and `_docs/io-modes.md` is the design note.
 //!
 //! **An event carries no session identity, deliberately.** Whoever holds the

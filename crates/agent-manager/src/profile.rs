@@ -75,6 +75,10 @@ pub struct Profile {
     /// axis; a per-run `--permission-mode` outranks it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// The most subagents a run of this profile asks for at once. Never a launch flag — no
+    /// harness has one: this is only where the number is recorded, never read by the library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_subagents: Option<u8>,
 }
 
 /// The `[defaults]` sub-table of a profile: the composition a run overlays.
@@ -100,6 +104,12 @@ pub struct ProfileDefaults {
     /// Path to an instructions file layered into the run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<PathBuf>,
+    /// Default reasoning-effort level, in the harness's own vocabulary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    /// An opening prompt to send as the conversation's first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 impl ProfileDefaults {
@@ -111,6 +121,8 @@ impl ProfileDefaults {
             && self.model.is_none()
             && self.hooks.is_none()
             && self.instructions.is_none()
+            && self.thinking.is_none()
+            && self.prompt.is_none()
     }
 
     /// Overlay `other` onto `self` in place: for each field, a `Some` value in
@@ -131,6 +143,12 @@ impl ProfileDefaults {
         }
         if other.instructions.is_some() {
             self.instructions = other.instructions.clone();
+        }
+        if other.thinking.is_some() {
+            self.thinking = other.thinking.clone();
+        }
+        if other.prompt.is_some() {
+            self.prompt = other.prompt.clone();
         }
     }
 }
@@ -439,6 +457,9 @@ pub fn flatten(chain: &[Profile]) -> Profile {
         if profile.mode.is_some() {
             acc.mode = profile.mode.clone();
         }
+        if profile.max_subagents.is_some() {
+            acc.max_subagents = profile.max_subagents;
+        }
         acc.defaults.overlay(&profile.defaults);
     }
 
@@ -643,6 +664,8 @@ isolate = "base-policy"
 mcps = ["github"]
 skills = ["review"]
 model = "sonnet"
+thinking = "low"
+prompt = "base prompt"
 "#,
         );
         // Leaf overrides account + defaults.mcps + isolate, inherits the rest.
@@ -657,6 +680,7 @@ isolate = false
 [defaults]
 mcps = ["postgres"]
 model = "haiku"
+thinking = "high"
 "#,
         );
 
@@ -676,6 +700,9 @@ model = "haiku"
         // Inherited from parent (leaf did not mention).
         assert_eq!(flat.harness.as_deref(), Some("claude"));
         assert_eq!(flat.defaults.skills, Some(vec!["review".to_string()]));
+        // thinking overridden by leaf, prompt inherited from root (leaf did not mention).
+        assert_eq!(flat.defaults.thinking.as_deref(), Some("high"));
+        assert_eq!(flat.defaults.prompt.as_deref(), Some("base prompt"));
 
         // Convenience wrapper agrees.
         assert_eq!(resolve_flattened(&store, "child")?, flat);

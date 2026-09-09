@@ -325,6 +325,7 @@ fn cmd_create(opts: CreateOpts) -> Result<()> {
         },
         isolate: None,
         mode: None,
+        max_subagents: None,
     };
 
     let path = store.save(&profile)?;

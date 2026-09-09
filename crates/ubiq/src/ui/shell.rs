@@ -12,7 +12,7 @@ use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Wind
 use crate::app::{AppState, FocusFileFilter, ImageRedo, ImageUndo, SubmitSearch, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
-use crate::ui::{rail, remote_connect, ribbon, settings, status_bar, titlebar};
+use crate::ui::{new_agent, rail, remote_connect, ribbon, settings, status_bar, titlebar};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -122,6 +122,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .login
                 .as_ref()
                 .map(|_| settings::login(app, window, cx)),
+        )
+        // The New agent modal, over the settings page and the forms it raises: it is opened from
+        // the workbench rather than from settings, and a start question left under an open page
+        // would be a modal the user cannot see.
+        .children(
+            app.workbench
+                .new_agent
+                .as_ref()
+                .map(|_| new_agent::render(app, window, cx)),
         )
         // The profile form, painted beside the login modal: both are raised from the harnesses
         // section, and only one is ever up.
@@ -246,14 +255,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             (app.workbench.open_menu == Some(crate::state::MenuId::NewPane))
                 .then(|| crate::ui::new_pane_menu::overlay(app, window, cx)),
         )
-        // The new-agent menu, named a point by whichever surface asked for a conversation — the
-        // agents screen's control or the IDE chat panel's. It is painted here rather than from
-        // either, so both get it: the state it reads is the window's.
+        // The `+` menu, named a point by whichever surface asked — the agents screen's control,
+        // the IDE chat strip's `+`, or the sink's bench. It is painted here rather than from any
+        // of them, so all three get it: the state it reads is the window's.
         .children(
             app.workbench
                 .new_agent_menu
                 .is_some()
-                .then(|| crate::ui::agents::new_agent_menu(app, cx)),
+                .then(|| crate::ui::agents::new_agent_menu(app, window, cx)),
         )
         // The remote-connect modal, raised from the titlebar rather than from settings — painted
         // here on the same terms as the clone modal just above.

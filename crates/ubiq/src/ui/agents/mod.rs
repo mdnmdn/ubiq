@@ -1,5 +1,11 @@
-//! The Agents screen: every agent the host reports, listed down one side, and the ones the user is
-//! working with drawn as **parallel columns** of conversation across the rest.
+//! The Agents screen: every agent this window holds a live conversation for, listed down one side,
+//! and the ones the user is working with drawn as **parallel columns** of conversation across the
+//! rest.
+//!
+//! **Not everything the host reports.** The projection is wider than what a column can talk to —
+//! it carries the mock work thread's fixtures too — so every reader on this screen goes through
+//! [`crate::state::AgentsView::live_agents`]. The Teams screen keeps reading the whole projection,
+//! because a graph is a map of who spawned whom and a mock has a place on one.
 //!
 //! This is the screen for *talking to* the agents. The screen for *arranging* them is
 //! [`crate::ui::orchestration`], and the two never share a view: a graph is a map of who spawned
@@ -30,14 +36,13 @@ pub mod column;
 pub mod sidebar;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    AnyElement, Context, Focusable as _, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
-use crate::state::HarnessChoice;
-use crate::state::chat::StartOffer;
+use crate::state::NewAgentSurface;
 use crate::theme;
 use crate::ui::empty;
 use crate::ui::kit::{self, ghost_button, mono};
@@ -58,7 +63,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     let field = if agents.columns.is_empty() {
         // Every agent on the bench. The page says which control puts one back rather than leaving
         // an empty row that reads as a project with nothing running.
-        let note = if work.agents.is_empty() {
+        let note = if agents.live_agents(work).is_empty() {
             "Nothing is running in this project yet."
         } else {
             "Every agent is on the bench. Pick one in the list to open a column."
@@ -161,8 +166,8 @@ fn close_all(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
     )
 }
 
-/// **New agent**: the control that asks which harness — and which identity — to start a live
-/// conversation on, here, in this project. It opens [`new_agent_menu`], which the shell paints.
+/// **New agent**: the `+` that asks what this screen should be showing. It opens
+/// [`new_agent_menu`], which the shell paints.
 fn new_agent(cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
@@ -174,130 +179,91 @@ fn new_agent(cx: &mut Context<AppState>) -> AnyElement {
             "New agent",
             cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
                 let at = event.position();
-                this.open_new_agent_menu((at.x.into(), at.y.into()), cx);
+                this.open_new_agent_menu((at.x.into(), at.y.into()), NewAgentSurface::Agents, cx);
             }),
         ))
         .into_any_element()
 }
 
-/// The menu that control opens: one row per harness *and identity*, at the point that was clicked.
+/// The menu every `+` in the window opens, at the point that was clicked.
 ///
-/// Both lists are the host's own: the same [`AgentTypeInfo`] the new-pane menu offers, and the
-/// accounts the settings page manages. A harness the host could not find on disk is listed and
-/// disabled, exactly as it is there.
+/// **Two rows, because there are two questions.** *New agent* raises the form, which asks the
+/// harness, the identity, the model, the level and the mode together; *Attach existing agent*
+/// lists the conversations this project already has. The flattened harness-and-identity list this
+/// menu used to be is gone: it started a conversation with every question but the first skipped,
+/// and the form is what asks them.
 ///
-/// **This is the only place the identity can be chosen.** A conversation runs as somebody for its
-/// whole life — a turn already taken was taken as somebody — so the choice is made before the first
-/// turn and read-only after, where the column's footer reports it.
+/// The second row is the second *stage* of the same menu rather than a submenu — the kit has
+/// none, and a list that can run to every conversation in the project does not belong under a row
+/// that is not it.
 ///
-/// What a pick starts is a conversation rather than a pane: the two are the same question asked of
-/// different halves of a workspace, and a conversation has no size.
+/// **The rows and the pick are one list**, matched by position: the first stage's two rows are
+/// fixed, and the second's are [`AppState::attach_rows`], read again by
+/// [`AppState::pick_new_agent_menu`] exactly as they were drawn.
 ///
-/// Painted by [`crate::ui::shell`] rather than from here, because more than one surface opens it —
-/// this screen's control and the IDE chat panel's — and the state it reads is the window's, not
-/// either page's.
+/// **The second stage is a [`kit::Picker`], not a context menu**, because it can run to every
+/// conversation in the project and a list that long has to be searchable. The chat header's
+/// chevron has always been one; this is the same mechanism, and the window keeps exactly one way
+/// to narrow a list. The picker is anchored at the click point by an absolutely-placed trigger,
+/// which its own panel then covers — the first stage keeps the context menu, whose two fixed rows
+/// have nothing to filter.
 ///
-/// **The rows and the pick are one list.** Both go through
-/// [`crate::state::Workbench::harness_choices`], and a pick is the row's position in it: the kit has
-/// no submenu, so harness-and-identity depth is faked by flattening, and the index is the only thing
-/// that carries which row was chosen.
-///
-/// [`AgentTypeInfo`]: ubiq_proto::messages::AgentTypeInfo
-/// How one [`HarnessChoice`] reads, and whether it can be picked.
-///
-/// **One labelling, two surfaces.** The agents screen's menu and the chat tab's unified control
-/// offer the same rows and resolve a pick through the same index, so what a row says and whether
-/// it is live is answered once here rather than written out twice — the second copy is how the
-/// two drift into disagreeing about which harness a position means.
-pub fn harness_offer(app: &AppState, at: usize, row: &HarnessChoice) -> StartOffer {
-    let inert = |label: String, separator: bool| StartOffer {
-        label,
-        enabled: false,
-        separator,
-        choice: None,
-    };
-    let (harness, account) = match row {
-        HarnessChoice::Label(text) => return inert(text.to_string(), false),
-        HarnessChoice::Separator => return inert(String::new(), true),
-        // A profile draws under its own name rather than the harness's — "reviewer" is what the
-        // user called this setup — and reads disabled when the harness it names is not installed
-        // here, the same as a bare harness row.
-        HarnessChoice::Profile(index) => {
-            let Some(profile) = app.workbench.settings.profiles.get(*index) else {
-                return inert(String::new(), false);
-            };
-            let available = app
-                .workbench
-                .agent_types
-                .iter()
-                .any(|info| info.id == profile.agent_type && info.available);
-            return StartOffer {
-                label: profile.id.clone(),
-                enabled: available,
-                separator: false,
-                choice: Some(at),
-            };
-        }
-        HarnessChoice::Harness(harness) => (*harness, None),
-        HarnessChoice::Pair { harness, account } => (*harness, Some(account)),
-    };
-    let Some(agent) = app.workbench.agent_types.get(harness) else {
-        return inert(String::new(), false);
-    };
-    // "Claude Code — syn2". Composed into one line because a menu row has no second line to put
-    // it on, which is the same thing the shell rows do with "(default)".
-    let label = match account {
-        Some(account) => format!("{} \u{2014} {account}", agent.label),
-        None => agent.label.clone(),
-    };
-    StartOffer {
-        label,
-        enabled: agent.available,
-        separator: false,
-        choice: Some(at),
-    }
-}
-
-/// Every row the harness list offers, labelled — what both surfaces draw.
-pub fn harness_offers(app: &AppState) -> Vec<StartOffer> {
-    app.workbench
-        .harness_choices(
-            &app.workbench.settings.accounts,
-            &app.workbench.settings.profiles,
-        )
-        .iter()
-        .enumerate()
-        .map(|(at, row)| harness_offer(app, at, row))
-        .collect()
-}
-
-pub fn new_agent_menu(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+/// Painted by [`crate::ui::shell`] rather than from here, because three surfaces open it — this
+/// screen's control, the IDE chat strip's `+` and the sink's bench — and the state it reads is the
+/// window's, not any page's.
+pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
-    let items: Vec<kit::ContextItem> = harness_offers(app)
-        .into_iter()
-        .map(|offer| {
-            if offer.separator {
-                return kit::ContextItem::separator();
-            }
-            let item = kit::ContextItem::new(SharedString::from(offer.label));
-            if offer.enabled { item } else { item.disabled() }
-        })
-        .collect();
-    // Nothing found on this machine is said in the menu rather than by a control that opens on
-    // emptiness.
-    let items = if items.is_empty() {
-        vec![kit::ContextItem::new("No harness found here").disabled()]
-    } else {
-        items
+    let Some(menu) = app.workbench.new_agent_menu else {
+        return div().into_any_element();
     };
-    let at = app.workbench.new_agent_menu.unwrap_or_default();
+
+    if menu.attach {
+        let rows = app.attach_rows(menu.surface, cx);
+        let search_focused = app
+            .picker_search
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        // No label and no icon: the trigger is only what the panel hangs from, and the panel
+        // covers it.
+        let picker = kit::Picker::new("agents-attach-menu", "")
+            .items(rows.items.iter().map(|(_, name)| name.clone()))
+            // Already shown by another panel of this surface: drawn, not dropped — a row that
+            // vanishes reads as a conversation that ended rather than one taken.
+            .disabled(rows.disabled.clone())
+            .open(true)
+            .search(&app.picker_search, search_focused)
+            .on_pick(indexed(&view, |this, index, window, cx| {
+                this.pick_new_agent_menu(index, window, cx);
+            }))
+            .on_dismiss(handler(&view, |this, _, cx| {
+                this.dismiss_new_agent_menu(cx)
+            }));
+        return div()
+            .absolute()
+            .left(px(menu.at.0))
+            .top(px(menu.at.1))
+            .child(picker)
+            .into_any_element();
+    }
+
+    let nothing_to_attach = app.attach_rows(menu.surface, cx).items.is_empty();
+    let attach = kit::ContextItem::new("Attach existing agent");
+    let items: Vec<kit::ContextItem> = vec![
+        kit::ContextItem::new("New agent"),
+        if nothing_to_attach {
+            attach.disabled()
+        } else {
+            attach
+        },
+    ];
 
     kit::context_menu(
         "agents-new-menu",
-        point(px(at.0), px(at.1)),
+        point(px(menu.at.0), px(menu.at.1)),
         items,
-        indexed(&view, |this, index, _window, cx| {
-            this.pick_new_agent_menu(index, cx);
+        indexed(&view, |this, index, window, cx| {
+            this.pick_new_agent_menu(index, window, cx);
         }),
         handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
     )

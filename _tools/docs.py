@@ -93,9 +93,14 @@ BANNED_PHRASES = (
 )
 BANNED_PHRASE_EXEMPTIONS = {"tech-decisions": {"used to", "previously", "no longer"}}
 
-# Allowed to discuss time: `wip/` and `inbox/` are dated by nature, and `_meta/` describes a
-# process that happens in time — and quotes the banned list verbatim as instruction.
-TIMELESSNESS_EXEMPT_DIRS = ("wip", "inbox", "_meta")
+# Allowed to discuss time: `wip/` and `inbox/` are dated by nature, `_meta/` describes a
+# process that happens in time — and quotes the banned list verbatim as instruction — and
+# `references/` records the version history of a protocol this project does not own.
+TIMELESSNESS_EXEMPT_DIRS = ("wip", "inbox", "_meta", "references")
+
+# External specifications, read by lookup and quoted verbatim: neither the length band nor the
+# fence caps describe what they are for.
+LENGTH_EXEMPT_DIRS = ("references",)
 
 WIP_STALE_DAYS = 30
 INBOX_STALE_DAYS = 14
@@ -490,7 +495,7 @@ def check_l2(docs: list[Doc], report: LintReport) -> None:
 def check_l4(docs: list[Doc], report: LintReport) -> None:
     for doc in docs:
         total = doc.total_lines
-        if doc.id in LENGTH_EXEMPT_IDS:
+        if doc.id in LENGTH_EXEMPT_IDS or doc.folder in LENGTH_EXEMPT_DIRS:
             pass
         elif total > LENGTH_CEILING:
             report.add("L4", doc.rel, f"{total} lines, over the {LENGTH_CEILING}-line ceiling")
@@ -501,14 +506,18 @@ def check_l4(docs: list[Doc], report: LintReport) -> None:
                 f"{total} lines, over the {LENGTH_TARGET[1]}-line target",
                 severity="warn",
             )
-        if total < LENGTH_FLOOR_WARN and doc.id not in LENGTH_EXEMPT_IDS:
+        if (
+            total < LENGTH_FLOOR_WARN
+            and doc.id not in LENGTH_EXEMPT_IDS
+            and doc.folder not in LENGTH_EXEMPT_DIRS
+        ):
             report.add(
                 "L4",
                 doc.rel,
                 f"{total} lines, under {LENGTH_FLOOR_WARN} — fold it into its parent?",
                 severity="warn",
             )
-        if doc.id in FENCE_EXEMPT_IDS:
+        if doc.id in FENCE_EXEMPT_IDS or doc.folder in LENGTH_EXEMPT_DIRS:
             continue
         if total and doc.fence_lines / total > FENCE_DENSITY_MAX:
             pct = 100 * doc.fence_lines / total
@@ -725,11 +734,18 @@ GROUPS = (
     ("product", "Product"),
     ("features", "Features"),
     ("tech", "Tech"),
+    ("references", "References"),
     ("_meta", "Meta"),
     ("wip", "Work in progress"),
     ("", "Unclassified"),
 )
-GROUP_BY_KIND = {"product": "product", "feature": "features", "tech": "tech", "meta": "_meta"}
+GROUP_BY_KIND = {
+    "product": "product",
+    "feature": "features",
+    "tech": "tech",
+    "reference": "references",
+    "meta": "_meta",
+}
 
 
 def read_marker(text: str, name: str) -> tuple[int, int] | None:

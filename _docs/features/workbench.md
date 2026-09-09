@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-08
-verified: 2026-09-08
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+updated: 2026-09-09
+verified: 2026-09-09
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -87,33 +87,117 @@ many of them are grouped — and names both gestures, because neither leaves a m
 to be discovered from. Its controls are `Close all` and `New agent`. `Close all` benches every agent
 on screen — `bench_agent` for every tab in every column, the same thing a tab's own close already
 does, not `EndConversation` — and is shown only when there is something on screen to bench; a row
-with no columns gets no button rather than one that would silently do nothing. `New
-agent` reads the same `ListAgentTypes` answer the new-pane menu reads, plus the accounts signed in,
-but not the same rows from it: `WorkbenchState::harness_choices` keeps only the harnesses whose
-`AgentTypeInfo::chat` is true, because a harness with no structured bridge (Grok) can draw a pane's
-screen but has nothing to turn into a `ConvUpdate` — offering it here would start a conversation
-that never speaks. The new-pane menu keeps every harness regardless, `chat` or not, since a pane
-asks nothing of the bridge. `WorkbenchState::harness_choices` then groups what survives that filter
-into three: every available harness bare, under a `Default` heading; then —
-only when at least one account is signed in — a `Configured` heading below a separator with one row
-per `(harness, account)` pair; then, on the same terms, a `Defined` heading with one row per saved
-profile, `HarnessChoice::Profile(usize)` indexing the list settings holds. A group with nothing in
-it is omitted whole, heading and separator together, rather than drawn empty. Signing in or defining
-a profile adds a group; neither removes a harness's `Default` row, because which identity and which
-setup a conversation runs as are fixed the moment it starts and are worth choosing explicitly, and
-the library still has an answer — the profile called `default`, or the user's own home — for what a
-bare pick runs as. A `Defined` row carries the profile id on `StartConversation` beside the account,
-and the host seeds the pending conversation's pickers from that profile, so the model and the mode
-it names are what the composer shows before the first turn rather than a surprise at launch. All
-headings and separators are rows like any other `HarnessChoice`,
-disabled and unpickable, because the menu and the pick behind it read one list matched by position;
-`AppState::pick_new_agent_menu` returns rather than acting when a pick lands on one. A pick sends
-`StartConversation` at once, in the same turn — no prompt sits between choosing a harness and the
-first turn. The conversation's name is not the UI's to set: the host derives it from the harness's
-command, with a per-project counter from the second occurrence onward. A type whose binary is not
-on this machine is listed and refuses the click rather than being started into a failure. What a
-pick eventually makes is a conversation rather than a pane — the same question asked of the other
-face of a workspace, and a conversation has no size.
+with no columns gets no button rather than one that would silently do nothing.
+
+**`New agent` is a `+` that asks two questions, one stage at a time.** *New agent* raises the New
+agent form; *Attach existing agent* opens a searchable list of the conversations this project
+already has. Two rows rather than one flat list because the two are different kinds of question,
+and a list that can run to every conversation in the project does not belong hanging under a row
+that is not it. The second row is the second *stage* of the same menu rather than a submenu — the
+kit has none — and it is drawn as a `kit::Picker` so it can be filtered, while the first stage
+stays a context menu, its two fixed rows having nothing to narrow. *Attach existing agent* is
+disabled when there is nothing to attach: a row that opens on emptiness is worse than a row that
+says so.
+
+**One `+` menu, three surfaces.** The agents screen's control, the IDE chat strip's `+` and the
+kitchen sink's bench all raise it, and `WorkbenchState::new_agent_menu` carries which of them
+asked — so what a pick *does* differs while what it *offers* does not. A conversation picked on
+the agents screen is revealed in a column, one picked on the chat strip opens a tab attached to
+it, one picked on the bench becomes what the bench reads. What "already taken" means is the
+asking surface's own business and nothing else's: `state::chat::attach_choices` is the one builder
+behind every attach list in the window, and it disables the conversations the *other* panels of
+that surface are showing — never dropping them, because a row that vanishes reads as a
+conversation that ended rather than one already open. The two surfaces may show the same
+conversation at once, and the host is never told.
+
+**The New agent form asks every question a start answers** — `D92` is why it is one form and why a
+profile is the same form saved. It is a modal, `state::new_agent::NewAgentForm`,
+painted by the shell over whatever is underneath — the same treatment the clone and remote-connect
+modals get, and for the same reason: it is raised from the workbench rather than from any one page.
+Its rows, top to bottom, are the target, then the harness and its identity, the model, the
+reasoning level, the permission mode, a subagent ceiling, a persistence checkbox and an opening
+prompt. **Every row is one line**, the label and a hint mark on the left and the control on the
+right, with the explanation on the mark's hover rather than under the row — eight notes is what
+made this form taller than the window. **Everything below the first row is drawn inert until a
+target is chosen**, faint and taking no click rather than hidden, because a form whose shape jumps
+as it is filled in has to be re-read after every answer.
+
+**The target is a harness signed into an identity, or a saved setup**, and those are the two groups
+`WorkbenchState::harness_choices` offers. It reads the same `ListAgentTypes` answer the new-pane
+menu reads, plus the accounts signed in and the profiles saved, but not the same rows from it: it
+keeps only the harnesses whose `AgentTypeInfo::chat` is true, because a harness with no structured
+bridge (Grok) can draw a pane's screen but has nothing to turn into a `ConvUpdate` — offering it
+here would start a conversation that never speaks. The new-pane menu keeps every harness
+regardless, `chat` or not, since a pane asks nothing of the bridge. What survives that filter is
+grouped into a `Configured` heading with one row per `(harness, account)` pair and a `Defined`
+heading with one row per saved profile, `HarnessChoice::Profile(usize)` indexing the list settings
+holds; a group with nothing in it is omitted whole, heading and separator together, rather than
+drawn empty. **A bare harness is not a row.** Starting one with nothing else answered is what the
+form is for, and it asks the identity, the model, the level and the mode in the same breath — a
+row that launched on whatever the library happened to resolve was that same launch with every
+question skipped. A harness whose binary is not on this machine is still what a row draws disabled
+over, so a list says a tool is missing rather than omitting it.
+
+**A profile is a saved answer to the same questions**, which is why the settings page's profile
+form is this same form with a different `Purpose`: no profile row in the target picker, no `Start`
+button, and a name and a `Save` instead. Two forms asking one set of questions differently is how
+the two drift apart. Picking a profile as the target fills every row below from what it saved;
+`Save profile` on a start form writes the answers back out under a name the window's prompt asks
+for, offered only when the target is a bare harness — saving a start that already points at a
+profile would be writing that profile over itself.
+
+**The model and the level are known before anything is started.** Opening the form sends
+`ListHarnessCatalogue` for the chosen harness and identity, and `HarnessCatalogue` comes back with
+the models that harness will answer for, the reasoning levels each accepts, and what this harness
+was last actually launched with. Until it lands the model row says it is asking rather than
+drawing an empty list, which would read as a harness with no models. A catalogue for a harness or
+an identity the form has since moved off is dropped: a probe is slow exactly once, and a slow
+answer arriving behind a fresh one would overwrite it. Preselection runs in order of how much it
+knows — what the form was opened holding, then the last launch, then the harness's own default.
+The mode picker opens on `AgentTypeInfo::unattended_mode`, the harness's own word for "ask
+nothing", so the interface never guesses which id means all permissions.
+
+**Nothing is created until the conversation lands.** The `+` writes down *where* a start is aimed
+and raises the form; the column or the tab is minted when `Message::ConversationStarted` arrives,
+so a form the user dismisses leaves no empty tab and no empty column behind. A start that never
+happened releases the aim too, so the next conversation from anywhere else is not claimed by it.
+
+**The form opens on the last thing that worked.** `InterfacePrefs::LastStart` records the harness,
+the identity, the saved setup, the permission mode and the subagent ceiling a conversation was last
+begun with. The model and the level are deliberately not in it: the host already remembers those
+per harness and hands them back with the catalogue, and the two the host knows nothing about are
+the two written here. It is interface scope rather than a project's — which harnesses this machine
+has and which account is signed into them is a fact about the machine — and it is a hint, never a
+promise: a harness uninstalled or a profile deleted since answers nothing rather than opening the
+form on a start that would fail.
+
+**A subagent ceiling is said to the agent, not passed as a flag.** No harness has such an option,
+so the only way to ask for one is to say so, and the form writes it — with the opening prompt, if
+there is one — into a preamble held against the conversation rather than sent as a turn of its own.
+A transcript that opened on a directive the user never wrote would read as the conversation
+beginning with someone else's words. `AppState::send_prompt`, the one place `PromptAgent` is built,
+folds the preamble in front of the **first** turn the user actually sends and tells the conversation
+what it folded in; the harness echoes the turn it received, verbatim, and `Conversation` takes the
+preamble back off that echo, so the harness reads the directive and the transcript never shows it.
+The preamble is taken rather than read — it belongs to exactly one turn — and it is spent whether
+or not it matched, so a harness that reformats its echo cannot leave it armed to cut the front off
+a message the user really did write.
+
+**The persistence checkbox is disabled and always false.** An agent that survives a restart is not
+built (`G97`), and a checkbox that lied about it would be worse than one that says so plainly.
+
+**`Start` sends `StartConversation` at once**, carrying the model, the level and the mode the form
+answered, each of which outranks the profile's own record. The conversation's name is not the UI's
+to set: the host derives it from the harness's command, with a per-project counter from the second
+occurrence onward. What a start eventually makes is a conversation rather than a pane — the same
+question asked of the other face of a workspace, and a conversation has no size.
+
+**The agents screen lists only what this window can talk to.** The work projection is wider than
+that — it carries the host's mock work-thread fixtures too — so every reader on this screen goes
+through `AgentsView::live_agents`, which keeps the agents this window holds a live `Conversation`
+for. The sidebar, the empty page's note and the column refill all read it. The orchestration
+screen keeps reading the whole projection, because a graph is a map of who spawned whom and a
+fixture has a place on one.
 
 **Closing a tab benches the agent; it does not end it.** This is the one place the screen
 deliberately reads differently from a terminal pane, whose close kills the harness behind it —
@@ -154,8 +238,8 @@ screen in some other column — shown, disabled rather than dropped from the lis
 vanished would read as an agent that had ended, and `AgentsView::open_in` already refuses to draw one
 twice. Neither group is split further by role or task: `WorkAgent` carries both, but neither is filled
 from a real run yet, so a grouping built from them would be drawing real groups over invented values.
-A profile is now a real thing a conversation can start from, and it still does not help here — it
-pins a harness, an account, a model and a mode, and carries no role and no task — so the backlog row
+A profile is a real thing a conversation can start from, and it still does not help here — it
+pins a harness, an identity and how the run is set up, and carries no role and no task — so the backlog row
 on grouping by role, task or team waits on those fields existing rather than on definitions. The list is
 searchable exactly the way every other filter in the window is: a lowercase substring typed into the
 shared `picker_search` field, narrowing both groups at once and dropping a heading whole once nothing
@@ -255,7 +339,7 @@ to undo. The checkbox that switches it off is in application settings' Assistanc
 `D90` is the decision behind replacing a name nobody typed, and the row a user still cannot type
 one over is `G119`.
 
-**The sidebar lists everything the host reports, not what is on screen.** That is the point of it: a
+**The sidebar lists every conversation this window holds, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
 whole project is visible at once, and a benched agent is in it, marked, rather than gone. A session
 is a group with a bar down its left edge, and the bar carries the worst thing happening under it —
@@ -1060,18 +1144,16 @@ that cannot run it. Clicking a row opens it for editing; `+ Add profile` opens t
 Nothing here deletes or renames — see [`../backlog.md`](../backlog.md) — so correcting a profile
 means saving over its id, and typing a different name saves a second profile beside the first.
 
-**The profile form is a modal built like the login one**, and asks five questions in the order the
-answers constrain each other. A name, typed. A harness, as `choice_pill`s over the installed ones.
-An account, as pills over the identities signed in to *that* harness — the row is absent rather than
-empty when there are none. A model, as free text, because no message lists a harness's models
-outside a conversation's own discovery; the picker a conversation start draws is still the place a
-model is chosen from a real list. And a mode, as pills over what the host reported for that harness
-in `AgentTypeInfo`, drawn only when that list is non-empty, since a harness with no permission modes
-should ask no question. Re-clicking a chosen account or mode clears it, because "no answer" is a
-real answer a profile can hold and a pill row otherwise has no way back to it. Switching the harness
-clears both the mode and the account, since both are scoped to a harness and neither would still
-mean anything. Save is dimmed until the profile is named and a harness is chosen; everything else
-may be left unset.
+**The profile form is the New agent form with a name field above it.** A profile is a saved answer
+to the questions a start asks, so it asks them with the same rows, drawn from the same
+`NewAgentForm` — a second form asking one set of questions differently is how the two drift apart.
+What `Purpose::Profile` changes is only what a profile does not have: no profile row in the target
+picker (a profile built out of a profile is the `extends` chain, and that is written by hand), no
+`Start`, and a `Save` under a name that is typed rather than asked for afterwards. The model and
+the level are drawn from `HarnessCatalogue`, asked for as the form opens, so a model is chosen off
+the harness's real list here as it is at a start. Save is dimmed until the profile is named and a
+target is chosen; everything else may be left unset, because "no answer" is a real answer a profile
+can hold.
 
 **The Isolation section is the one the host acts on**, so its three rows are the only ones that write
 the Host layer rather than the interface's own — an agent runs under a policy, and the half that
@@ -1814,6 +1896,7 @@ saying no file is open, because the files are panels of their own:
 | Picker page | `ui/sink/files.rs` | The kitchen sink, on its sixth page | Fills it; scrolls | `SinkState::picker`, and the fixture tree in `state/sink.rs` |
 | Settings | `ui/sink/settings.rs` | The kitchen sink, on its seventh page | Fills it; nav plus a scrolling body | `SinkState::settings`, and the window's settings fields |
 | Project settings | `ui/sink/project.rs` | The kitchen sink, on its eighth page | A dialog-shaped panel in the page | `SinkState::project`, and the window's project-name fields |
+| New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `profile_form` — one `NewAgentForm` either way |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
 | Empty page | `ui/empty.rs` | The centre panel in `KB` mode, and with no project open | Fills it | `RailMode`, or nothing at all |
@@ -1970,10 +2053,10 @@ project-settings overlay, the application-settings overlay, the login modal, or 
 own menus over all of it: the file-tab menu, the new-pane menu and the new-agent menu. Those last
 three are painted here rather than by the surface that opened them, because more than one surface
 opens them and what there is to offer is the window's answer, not a page's — the new-agent menu is
-`ui::agents::new_agent_menu`, which the agents screen's `New agent` control raises. The chat panel
-does not: its own start-or-attach control offers those rows inline, through the same labelling
-(`ui::agents::harness_offers`) and the same start (`AppState::start_harness_choice`), because it has
-a second half — the conversations already running — that the menu has nothing to say about. The mark is drawn by `rail::mark`
+`ui::agents::new_agent_menu`, raised by the agents screen's `+`, the IDE chat strip's and the
+kitchen sink's bench alike. The New agent modal is painted here too, on the same terms and above
+the settings overlay: it is opened from the workbench, and a question left under an open page is a
+question the user cannot see. The mark is drawn by `rail::mark`
 in that first row so it sits in the corner above the rail rather than inside it. It fixes no
 arrangement — everything between the chrome is the dock's.
 
@@ -2248,8 +2331,23 @@ never fails. `benched()` is the
 difference between what the host reports and what the columns hold, and `on_the_field()`,
 `grouped()`, `count()` and `has_room()` are what the header, the status bar and the drop targets
 read. `COLUMNS_MAX` and `COLUMN_MIN_WIDTH` live here rather than in `theme.rs`, because how many
-conversations fit and how narrow one may get are facts about a conversation. Nothing in it draws,
+conversations fit and how narrow one may get are facts about a conversation. `live` is the set of
+agents this window holds a `Conversation` for, written where one comes into being, and
+`live_agents()` narrows the projection to it — what every reader on the agents screen goes through.
+Nothing in it draws,
 nothing in it names a colour, and it is tested without a frame in `crates/ubiq/tests/agents.rs`.
+
+**The New agent form is three modules with the window's usual division of labour.**
+`state/new_agent.rs` is `NewAgentForm` and small pure readings of it — `Purpose` (start, or write a
+profile), `Target` (a harness with its identity, or a profile), `OpenList` (which of its pickers is
+down, one at a time), `model_levels()`, `default_mode()`, `preamble()` and `fold_preamble()`, all
+tested without a frame. `app/new_agent.rs` is the mutators, and reaches for whichever of the two
+forms is up rather than taking a discriminator — two ways to answer one question is how the two
+would drift apart again — plus `start_new_agent()`, `send_prompt()` and `take_agent_preamble()`.
+`ui/new_agent.rs` draws the modal, and its `body()` is what the settings page's profile form draws
+too. `WorkbenchState` holds the live form as `new_agent`, the `+` menu as `new_agent_menu`
+(`NewAgentMenu`: where it opened, which `NewAgentSurface` asked, and whether the attach stage is
+drawn), and the held preambles as `agent_preambles`, one entry per conversation, taken on first use.
 
 `state/conversation.rs` is one live agent's transcript as the window holds it. `Conversation::apply`
 folds a delta in — a chunk extends the block its message id names, a change of id starts a new one, a
@@ -2270,10 +2368,11 @@ mention and appends nothing, `send_or_enqueue()` is what the composer's one butt
 (send when idle, queue on `Conversation` when a turn is already running and there is anything to
 send — the composed text, so attachments with nothing typed still count — nothing when there is
 not), `steer_column()` resolves the slot's agent through `AppState::agent_for_slot`
-and chooses between `send_or_enqueue()` and the mock's path, and `pick_new_agent_menu()` starts a
-conversation on the harness at that row. `crates/ubiq/tests/conversation.rs` covers both.
+and chooses between `send_or_enqueue()` and the mock's path, and `send_prompt()` is the one place
+`PromptAgent` is built — folding a start's held preamble in front of the first turn and telling the
+`Conversation` what to take back off the echo. `crates/ubiq/tests/conversation.rs` covers both.
 
-**A conversation is drawn before its harness exists.** `pick_new_agent_menu()` mints the `AgentId`
+**A conversation is drawn before its harness exists.** `AppState::start_new_agent()` mints the `AgentId`
 itself — the `SessionId` precedent — and the host adopts it, so `ConversationStarted` and the
 `Conversation` it creates arrive with no process behind them yet; `Conversation.launched` stays
 `false` until the harness's own `Started` update sets it. While it is false, `composer()` draws one

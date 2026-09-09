@@ -32,6 +32,12 @@ pub const MENU_ANCHOR_UP: Anchor = Anchor::BottomLeft;
 pub enum PickerStyle {
     Plain,
     Chip,
+    /// The shape [`crate::ui::kit::field`] gives a text input: a filled box on its own left edge,
+    /// the value on the left and the chevron pinned to the right.
+    ///
+    /// For a picker in a form, where the plain trigger reads as a line of text rather than as
+    /// something to click. It takes the width it is given, so a column of them lines up.
+    Field,
 }
 
 #[derive(IntoElement)]
@@ -57,6 +63,9 @@ pub struct Picker {
     /// A filter field drawn at the top of the panel: the buffer, and whether it holds focus.
     /// `None` is every picker that has not opted in — see [`Self::search`].
     search: Option<(Entity<InputState>, bool)>,
+    /// What the trigger says on hover. The one way a picker drawn with no label says what its
+    /// list is about — see [`Self::tooltip`].
+    tooltip: Option<SharedString>,
     layer: usize,
 }
 
@@ -77,6 +86,7 @@ impl Picker {
             on_pick: None,
             on_dismiss: None,
             search: None,
+            tooltip: None,
             layer: MENU_LAYER,
         }
     }
@@ -150,6 +160,16 @@ impl Picker {
     /// Draw a filter field at the top of the panel. The caller has already filtered `items`;
     /// this only draws the field and reports the focus ring — the same split `project_menu`'s
     /// hand-rolled search uses.
+    /// What the trigger says on hover.
+    ///
+    /// For the picker drawn as a bare chevron: with no label there is nothing on the control
+    /// saying which question it asks, and the hover is where that goes rather than a word of text
+    /// repeating what the row beside it already says.
+    pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(text.into());
+        self
+    }
+
     pub fn search(mut self, state: &Entity<InputState>, focused: bool) -> Self {
         self.search = Some((state.clone(), focused));
         self
@@ -183,6 +203,7 @@ impl RenderOnce for Picker {
             on_pick,
             on_dismiss,
             search,
+            tooltip,
             layer,
         } = self;
 
@@ -201,15 +222,27 @@ impl RenderOnce for Picker {
             .cursor_pointer()
             .hover(|this| this.bg(theme::hover()));
 
-        if style == PickerStyle::Chip {
-            trigger = trigger
-                .px_2()
-                .bg(theme::surface())
-                .border_l(px(theme::ACCENT_EDGE))
-                .border_color(theme::border())
-                .text_size(px(12.5));
-        } else {
-            trigger = trigger.px_2();
+        match style {
+            PickerStyle::Chip => {
+                trigger = trigger
+                    .px_2()
+                    .bg(theme::surface())
+                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_color(theme::border())
+                    .text_size(px(12.5));
+            }
+            PickerStyle::Field => {
+                trigger = trigger
+                    .h(px(28.))
+                    .w_full()
+                    .px_2()
+                    .justify_between()
+                    .bg(theme::surface())
+                    .border_l(px(theme::ACCENT_EDGE))
+                    .border_color(theme::border())
+                    .text_size(px(12.5));
+            }
+            PickerStyle::Plain => trigger = trigger.px_2(),
         }
 
         if let Some(icon) = icon {
@@ -220,11 +253,23 @@ impl RenderOnce for Picker {
             );
         }
 
-        trigger = trigger.child(label).child(
+        // The value gives way rather than pushing the chevron off the end: a field-shaped trigger
+        // is one line high, and a long model id is what would otherwise widen the whole column.
+        let value = match style {
+            PickerStyle::Field => div().flex_1().min_w(px(0.)).truncate().child(label),
+            _ => div().child(label),
+        };
+        trigger = trigger.child(value).child(
             Icon::new(IconName::ChevronDown)
                 .with_size(Size::XSmall)
                 .text_color(theme::text_faint()),
         );
+
+        if let Some(text) = tooltip {
+            trigger = trigger.tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+            });
+        }
 
         if let Some(toggle) = on_toggle.clone() {
             // Opening rather than toggling: the panel's own outside-click dismissal would

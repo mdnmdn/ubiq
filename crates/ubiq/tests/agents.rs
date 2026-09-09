@@ -48,6 +48,18 @@ fn agent(id: AgentId, session: SessionId, name: &str, activity: Activity) -> Wor
     }
 }
 
+/// A view that can talk to everything the projection holds.
+///
+/// The screen draws only the agents this window has a live conversation for, and `AppState` fills
+/// that in as each conversation is created — so a test seeding the state directly has to say so
+/// too, or it is testing an empty screen.
+fn live_view(work: &WorkProjection) -> AgentsView {
+    AgentsView {
+        live: work.agents.iter().map(|a| a.id).collect(),
+        ..AgentsView::default()
+    }
+}
+
 /// One project's work and the screen's view of it, with a name for every id in it.
 struct Fixture {
     work: WorkProjection,
@@ -82,7 +94,7 @@ fn seeded() -> Fixture {
         Vec::new(),
     );
 
-    let mut view = AgentsView::default();
+    let mut view = live_view(&work);
     view.arrange(&work);
     Fixture {
         work,
@@ -306,7 +318,7 @@ fn the_screen_is_full_at_the_ceiling_and_says_so() {
 
     // One session, so `arrange` gives it one column holding all of them — the ceiling is on
     // columns, not on tabs.
-    let mut view = AgentsView::default();
+    let mut view = live_view(&work);
     view.arrange(&work);
     assert_eq!(view.columns.len(), 1);
     assert!(view.has_room());
@@ -389,7 +401,7 @@ fn nothing_on_the_bench_or_elsewhere_yields_no_rows() {
         vec![agent(alone, solo, "Solo", Activity::Writing)],
         Vec::new(),
     );
-    let mut view = AgentsView::default();
+    let mut view = live_view(&work);
     view.arrange(&work);
     assert!(view.bench_rows(0, &work, "").is_empty());
 }
@@ -482,5 +494,42 @@ fn the_search_filters_both_groups_by_name() {
             .bench_rows(0, &f.work, "nothing matches this")
             .is_empty(),
         "a query matching nobody leaves no rows and no headings"
+    );
+}
+
+/// **The screen draws only what this window can talk to.** The host's projection also carries the
+/// mock work thread's fixtures, which have a name and an activity and nothing behind them; a
+/// column opened on one would be a transcript with no harness at the other end. Every reader on
+/// this screen goes through the same filter, so a fixture is on none of them.
+#[test]
+fn an_agent_with_no_conversation_is_on_no_list() {
+    let mut f = seeded();
+    let ghost = AgentId::generate();
+    f.work
+        .agents
+        .push(agent(ghost, f.store, "Mock", Activity::Writing));
+
+    let mut view = AgentsView::default();
+    view.live = f.view.live.clone();
+    view.arrange(&f.work);
+    assert_eq!(
+        view.on_the_field(),
+        3,
+        "the fixture gets no column of its own"
+    );
+    assert!(!view.on_screen(ghost));
+    assert!(
+        view.benched(&f.work).iter().all(|a| a.id != ghost),
+        "and it is not on the bench either — it is simply not this screen's"
+    );
+    assert!(view.live_agents(&f.work).iter().all(|a| a.id != ghost));
+
+    view.bench(f.builder);
+    assert!(
+        !view.bench_rows(0, &f.work, "").contains(&BenchRow::Agent {
+            id: ghost,
+            disabled: false
+        }),
+        "nor on a column's own `+`"
     );
 }

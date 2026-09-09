@@ -251,7 +251,7 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        self.bus.send(Message::PromptAgent { agent_id, text });
+        self.send_prompt(agent_id, text);
         self.clear_attachments(agent_id, cx);
         self.clear_composer(slot, window, cx);
         cx.notify();
@@ -904,177 +904,210 @@ impl AppState {
 
     // ── starting a live agent ───────────────────────────────────────
 
-    /// Open the agents screen's "New agent" menu, anchored where it was clicked.
+    /// Open the `+` menu, anchored where it was clicked, on its first stage.
     ///
-    /// The list is asked for again here for the reason [`Self::open_new_pane_menu`] asks: a
-    /// harness installed since the window opened is offered without a restart.
-    pub fn open_new_agent_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+    /// **One menu, three surfaces.** The agents screen, the IDE's chat strip and the sink's bench
+    /// all ask the same two questions — start something, or look at something already running —
+    /// so they raise one menu and it carries who asked. What a pick then *does* differs, and
+    /// [`Self::pick_new_agent_menu`] is where that is answered.
+    ///
+    /// The lists it leads to are asked for again here, for the reason
+    /// [`Self::open_new_pane_menu`] asks: a harness installed, an account signed in or a profile
+    /// written since the window opened is offered without a restart.
+    pub fn open_new_agent_menu(
+        &mut self,
+        at: (f32, f32),
+        surface: NewAgentSurface,
+        cx: &mut Context<Self>,
+    ) {
         if self.workbench.open_menu.is_some() {
             self.close_menu(cx);
         }
         self.workbench.open_menu = Some(MenuId::NewAgent);
-        self.workbench.new_agent_menu = Some(at);
+        self.workbench.new_agent_menu = Some(NewAgentMenu {
+            at,
+            surface,
+            attach: false,
+        });
         self.bus.send(Message::ListAgentTypes);
-        // Both halves of what the menu offers are asked for on every open, so a harness
-        // installed or an account signed in since the window opened is offered without a
-        // restart. The harness list already worked this way.
         self.bus.send(Message::ListAccounts);
         self.bus.send(Message::ListProfiles);
         cx.notify();
     }
 
-    /// Pick the harness — and the identity — at that row of the menu, and start the conversation
-    /// at once: naming is the host's, from the harness's command, so there is nothing left to ask
-    /// the user before [`Message::StartConversation`] goes out.
+    /// What the `+` menu's second stage offers: every conversation in this project that no other
+    /// panel of the asking surface already shows.
     ///
-    /// A harness the host could not find is drawn disabled and takes no click, so picking it does
-    /// nothing rather than asking for a start that would fail.
-    pub fn pick_new_agent_menu(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.workbench.open_menu = None;
-        self.workbench.new_agent_menu = None;
-        let started = self.start_harness_choice(index, cx);
-        // The sink's bench asked for this one, so it reads it rather than staying on whichever
-        // conversation happened to be first.
-        if started.is_some() && std::mem::take(&mut self.sink.messages.pending_attach) {
-            self.sink.messages.agent = started;
-        }
-        cx.notify();
+    /// The one builder every attach list in the window goes through, so "already taken" means the
+    /// same thing here as it does in the chat header's own control.
+    ///
+    /// The stage draws a filter field — it is a `kit::Picker`, the window's one searchable-list
+    /// mechanism — so what was typed narrows the rows here, once, for both the frame that draws
+    /// them and the click that resolves against them. The **first** stage's two fixed rows read
+    /// this too, to say whether there is anything to attach at all, and must not be narrowed by
+    /// whatever some other picker was last used to search: the query counts only while the second
+    /// stage is the one on screen.
+    pub fn attach_rows(&self, surface: NewAgentSurface, cx: &App) -> AttachChoices {
+        let query = match self.workbench.new_agent_menu {
+            Some(menu) if menu.attach => self.picker_search.read(cx).value().to_string(),
+            _ => String::new(),
+        };
+        let agents = self
+            .work(cx)
+            .map(|work| work.agents.as_slice())
+            .unwrap_or(&[]);
+        let (shown, mine): (Vec<AgentId>, Option<AgentId>) = match surface {
+            NewAgentSurface::Agents => (
+                self.agents(cx)
+                    .map(|view| {
+                        view.columns
+                            .iter()
+                            .flat_map(|column| column.tabs.iter().copied())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                None,
+            ),
+            NewAgentSurface::Chat => (
+                self.open_project(cx)
+                    .map(|open| open.chats.iter().filter_map(|tab| tab.attached).collect())
+                    .unwrap_or_default(),
+                None,
+            ),
+            NewAgentSurface::Sink => (Vec::new(), self.sink_agent()),
+        };
+        attach_choices(agents, &shown, mine, &query)
     }
 
-    /// Start the conversation named by that row of [`crate::state::WorkbenchState::harness_choices`],
-    /// and answer the id it was given — `None` when the row starts nothing.
+    /// One row of the `+` menu, clicked.
     ///
-    /// Its own method rather than the menu's body, because the chat panel's unified control offers
-    /// the same rows and must resolve them the same way: two readings of one list is how a reorder
-    /// turns into a wrong launch.
-    pub fn start_harness_choice(
+    /// The first stage's two rows are fixed, so their indices are; the second stage's are
+    /// [`Self::attach_rows`], read again here exactly as it was drawn — the rule every
+    /// position-matched menu in this window follows.
+    pub fn pick_new_agent_menu(
         &mut self,
         index: usize,
+        window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Option<AgentId> {
-        // The same list the menu drew, so an index cannot mean one row on screen and another
-        // here — the rule every position-matched menu in the window follows.
-        let rows = self.workbench.harness_choices(
-            &self.workbench.settings.accounts,
-            &self.workbench.settings.profiles,
-        );
-        // A profile names its harness by id rather than by position, so all three rows resolve to
-        // the same triple before anything is checked.
-        let picked = match rows.get(index) {
-            Some(HarnessChoice::Harness(harness)) => self
-                .workbench
-                .agent_types
-                .get(*harness)
-                .map(|agent| (agent.id.clone(), None, None)),
-            Some(HarnessChoice::Pair { harness, account }) => self
-                .workbench
-                .agent_types
-                .get(*harness)
-                .map(|agent| (agent.id.clone(), Some(account.clone()), None)),
-            Some(HarnessChoice::Profile(profile)) => self
-                .workbench
-                .settings
-                .profiles
-                .get(*profile)
-                .map(|profile| {
-                    (
-                        profile.agent_type.clone(),
-                        profile.account.clone(),
-                        Some(profile.id.clone()),
-                    )
-                }),
-            // A heading or a hairline is drawn, never picked — a click cannot land on one today
-            // since both are disabled, but this is what stops a future reorder turning into a
-            // wrong launch.
-            Some(HarnessChoice::Label(_)) | Some(HarnessChoice::Separator) | None => None,
+    ) {
+        let Some(menu) = self.workbench.new_agent_menu else {
+            return;
         };
-        let (agent_type, account, profile) = picked?;
-        // A profile whose harness is not installed here is drawn disabled, the same as a bare
-        // harness row, so this is the belt to those braces.
-        if !self
-            .workbench
-            .agent_types
-            .iter()
-            .any(|info| info.id == agent_type && info.available)
-        {
-            return None;
+        if !menu.attach {
+            match index {
+                // *New agent*: the form answers everything, and where the conversation lands is
+                // written down now so the answer can find its way there when it arrives.
+                0 => {
+                    self.workbench.open_menu = None;
+                    self.workbench.new_agent_menu = None;
+                    self.aim_start(menu.surface, cx);
+                    self.open_new_agent(window, cx);
+                }
+                // *Attach existing agent*: the same menu, second stage. Nothing else may be open
+                // at once, so the menu stays where it is rather than reopening somewhere new.
+                //
+                // The stage is a searchable picker, so the filter it shares with every other one
+                // is cleared and focused on the way in — the rule `open_picker_menu` says once.
+                1 => {
+                    self.workbench.new_agent_menu = Some(NewAgentMenu {
+                        attach: true,
+                        ..menu
+                    });
+                    let search = self.picker_search.clone();
+                    search.update(cx, |state, cx| {
+                        state.set_value("", window, cx);
+                        state.focus(window, cx);
+                    });
+                    cx.notify();
+                }
+                _ => {}
+            }
+            return;
         }
-        let project_id = self.project(cx)?;
-        let agent_id = AgentId::generate();
-        self.bus.send(Message::StartConversation {
-            agent_id,
-            project_id,
-            session_id: self.session,
-            rel_path: None,
-            agent_type: agent_type.clone(),
-            account: account.clone(),
-            profile: profile.clone(),
-        });
-        // What was started last is what the next empty tab offers first — see
-        // `AppState::remember_harness_choice`.
-        self.remember_harness_choice(&agent_type, account.as_deref(), profile.as_deref(), cx);
-        cx.notify();
-        Some(agent_id)
+
+        let rows = self.attach_rows(menu.surface, cx);
+        let picked = rows
+            .items
+            .get(index)
+            .filter(|_| !rows.disabled.contains(&index))
+            .map(|(agent, _)| *agent);
+        self.workbench.open_menu = None;
+        self.workbench.new_agent_menu = None;
+        let Some(agent) = picked else {
+            cx.notify();
+            return;
+        };
+        self.show_conversation(menu.surface, agent, cx);
     }
 
-    /// Write down what a conversation was just started on, so the next empty tab opens offering
+    /// Write down where the conversation a start is about to produce should land, so
+    /// `Message::ConversationStarted` can put it there. Nothing to write for the agents screen:
+    /// a conversation with no other claim on it opens a column, which is what that screen does
+    /// with every arrival anyway.
+    ///
+    /// **Nothing is created here.** A view raised as the form goes up is a view left behind when
+    /// the form is dismissed — an empty column or an empty tab nobody asked for — so the aim is
+    /// only written down, and the panel is minted when the conversation lands. See
+    /// [`Self::clear_aim`], which is what a dismissal calls.
+    pub(super) fn aim_start(&mut self, surface: NewAgentSurface, _cx: &mut Context<Self>) {
+        self.clear_aim();
+        match surface {
+            NewAgentSurface::Agents => {}
+            NewAgentSurface::Chat => self.pending_chat_open = true,
+            NewAgentSurface::Sink => self.sink.messages.pending_attach = true,
+        }
+    }
+
+    /// Forget where a start was aimed. A form that never started anything leaves no claim on the
+    /// next conversation from anywhere else.
+    pub(super) fn clear_aim(&mut self) {
+        self.pending_chat_attach = None;
+        self.pending_chat_open = false;
+        self.sink.messages.pending_attach = false;
+    }
+
+    /// Show a conversation on the surface that asked for it.
+    fn show_conversation(
+        &mut self,
+        surface: NewAgentSurface,
+        agent: AgentId,
+        cx: &mut Context<Self>,
+    ) {
+        match surface {
+            NewAgentSurface::Agents => self.reveal_agent(agent, cx),
+            NewAgentSurface::Chat => {
+                if let Some(id) = self.open_chat_tab_now(cx) {
+                    self.attach_chat(id, Some(agent), cx);
+                }
+            }
+            NewAgentSurface::Sink => self.set_sink_conversation(agent, cx),
+        }
+    }
+
+    /// Write down what a conversation was just started on, so the next form opens offering
     /// it. Interface scope: which harnesses this machine has is a fact about the machine, not
     /// about the project that happened to use one.
-    fn remember_harness_choice(
+    pub(super) fn remember_harness_choice(
         &mut self,
         agent_type: &str,
         account: Option<&str>,
         profile: Option<&str>,
+        mode: Option<&str>,
+        max_subagents: Option<u8>,
         _cx: &mut Context<Self>,
     ) {
         let last = crate::state::prefs::LastStart {
             agent_type: agent_type.to_string(),
             account: account.map(str::to_string),
             profile: profile.map(str::to_string),
+            mode: mode.map(str::to_string),
+            max_subagents,
         };
         if self.workbench.last_start.as_ref() == Some(&last) {
             return;
         }
         self.workbench.last_start = Some(last);
         self.remember_interface();
-    }
-
-    /// Which row of [`crate::state::WorkbenchState::harness_choices`] the last start named, if it
-    /// is still on offer. A harness uninstalled, or an account signed out, since simply answers
-    /// `None` — the remembered pick is a hint, never a promise.
-    pub fn remembered_choice(&self) -> Option<usize> {
-        let last = self.workbench.last_start.as_ref()?;
-        let rows = self.workbench.harness_choices(
-            &self.workbench.settings.accounts,
-            &self.workbench.settings.profiles,
-        );
-        rows.iter().position(|row| match row {
-            HarnessChoice::Harness(harness) => {
-                last.profile.is_none()
-                    && last.account.is_none()
-                    && self
-                        .workbench
-                        .agent_types
-                        .get(*harness)
-                        .is_some_and(|agent| agent.id == last.agent_type)
-            }
-            HarnessChoice::Pair { harness, account } => {
-                last.profile.is_none()
-                    && last.account.as_deref() == Some(account.as_str())
-                    && self
-                        .workbench
-                        .agent_types
-                        .get(*harness)
-                        .is_some_and(|agent| agent.id == last.agent_type)
-            }
-            HarnessChoice::Profile(profile) => self
-                .workbench
-                .settings
-                .profiles
-                .get(*profile)
-                .is_some_and(|held| Some(held.id.as_str()) == last.profile.as_deref()),
-            HarnessChoice::Label(_) | HarnessChoice::Separator => false,
-        })
     }
 
     pub fn dismiss_new_agent_menu(&mut self, cx: &mut Context<Self>) {

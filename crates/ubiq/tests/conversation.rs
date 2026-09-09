@@ -21,9 +21,9 @@ use gpui::{
 };
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
-use ubiq::state::WindowRegistry;
 use ubiq::state::agents::{COMPOSER_ROWS_MAX, COMPOSER_ROWS_MIN};
 use ubiq::state::conversation::{Conversation, Pending, Run, TranscriptScroll, short_model_label};
+use ubiq::state::{NewAgentSurface, WindowRegistry};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
@@ -374,7 +374,9 @@ fn a_naming_renames_the_record_and_carries_its_summary(cx: &mut TestAppContext) 
     // A naming is not a transcript delta: it carries no `seq`, so it must not have consumed one
     // or the next real update would read as a gap.
     let (seq_is_untouched, blocks) = fixture.state.read_with(cx, |state, cx| {
-        let conversation = state.conversation(id, cx).expect("the conversation is here");
+        let conversation = state
+            .conversation(id, cx)
+            .expect("the conversation is here");
         (conversation.is_next(1), conversation.blocks.len())
     });
     assert!(
@@ -464,70 +466,84 @@ fn an_error_is_surfaced_with_or_without_a_conversation(cx: &mut TestAppContext) 
     );
 }
 
-/// Picking a harness asks the host to start a conversation at once, in the same turn — naming is
-/// the host's, so there is no prompt in between. The id is what crosses, never the label.
+/// The `+` no longer starts anything by itself. Its first row raises the New agent form — which
+/// is what asks the harness, the identity, the model, the level and the mode — and its second
+/// turns the same menu into the list of conversations already running.
 #[gpui::test]
-fn picking_a_harness_starts_a_conversation(cx: &mut TestAppContext) {
+fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.host.send(
         To::Everyone,
         Message::AgentTypes {
-            agent_types: vec![
-                AgentTypeInfo {
-                    id: "claude-code".to_string(),
-                    label: "Claude Code".to_string(),
-                    command: "claude".to_string(),
-                    available: true,
-                    chat: true,
-                    modes: Vec::new(),
-                },
-                AgentTypeInfo {
-                    id: "codex".to_string(),
-                    label: "Codex".to_string(),
-                    command: "codex".to_string(),
-                    available: false,
-                    chat: true,
-                    modes: Vec::new(),
-                },
-            ],
+            agent_types: vec![AgentTypeInfo {
+                id: "claude-code".to_string(),
+                label: "Claude Code".to_string(),
+                command: "claude".to_string(),
+                available: true,
+                chat: true,
+                modes: Vec::new(),
+                unattended_mode: None,
+            }],
         },
     );
     cx.run_until_parked();
     let _ = fixture.said();
 
-    fixture.state.update(cx, |state, cx| {
-        state.open_new_agent_menu((10.0, 20.0), cx);
-        state.pick_new_agent_menu(0, cx);
-    });
-    cx.run_until_parked();
-
-    let started = fixture
-        .said()
-        .into_iter()
-        .find_map(|message| match message {
-            Message::StartConversation {
-                project_id,
-                agent_type,
-                ..
-            } => Some((project_id, agent_type)),
-            _ => None,
+    // Row 1 keeps the menu open on its second stage rather than starting anything.
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_menu((10.0, 20.0), NewAgentSurface::Agents, cx);
+                state.pick_new_agent_menu(1, window, cx);
+            })
         })
-        .expect("picking a harness asks for a conversation");
-    assert_eq!(started.0, fixture.project);
-    assert_eq!(started.1, "claude-code");
-
-    // A harness the host could not find is drawn disabled and takes no click.
-    fixture.state.update(cx, |state, cx| {
-        state.open_new_agent_menu((10.0, 20.0), cx);
-        state.pick_new_agent_menu(1, cx);
-    });
+        .expect("the window is open");
     cx.run_until_parked();
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.new_agent_menu)
+            .is_some_and(|menu| menu.attach),
+        "the second row opens the attach stage of the same menu"
+    );
     assert!(
         !fixture
             .said()
             .iter()
             .any(|message| matches!(message, Message::StartConversation { .. })),
-        "an unavailable harness was started anyway"
+        "nothing is started until the form is answered"
+    );
+
+    // Row 0 shuts the menu and raises the form, and still starts nothing on its own.
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_menu((10.0, 20.0), NewAgentSurface::Agents, cx);
+                state.pick_new_agent_menu(0, window, cx);
+            })
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.new_agent_menu.is_none()),
+        "the menu is put away once the form is up"
+    );
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.new_agent_form().is_some()),
+        "the first row raises the New agent form"
+    );
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::StartConversation { .. })),
+        "the form asks before anything is launched"
     );
 }
 

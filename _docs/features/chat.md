@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-08
-verified: 2026-09-08
+updated: 2026-09-09
+verified: 2026-09-09
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -32,52 +32,50 @@ same freedom a terminal panel already has. Its default home is the right edge, a
 
 **A tab is attached to a conversation, or to nothing.** The attachment is `state::chat::ChatTab`, one
 entry per tab in the project's own `OpenProject::chats`, holding the tab's id, its composer slot,
-whether its start-or-attach control is down, and the `AgentId` it is looking at. Closing a tab drops the
+whether its control is down, and the `AgentId` it is looking at. Closing a tab drops the
 `ChatTab` and frees its slot; the conversation, if it had one, is the host's and keeps running.
 
-**One control chooses what a tab is looking at, and it is the same control that starts one.** A tab
+**One control chooses what a tab is looking at, and its first row starts something new.** A tab
 either shows a conversation or it does not, and what the user wants in each case is a different
 thing — begin something, or move to something already running. Two controls side by side made the
-user pick the question before answering it. The trigger, in the tab's own header, wears `Play` and
-reads `Start or attach` on an empty tab, and the harness glyph and the conversation's name on an
-attached one.
+user pick the question before answering it; one control whose first row starts and whose rest
+attach does not. **It is a bare chevron**, in the tab's own header, and it says *change agent* on
+hover: what the tab is showing is already said twice on that row, by the dock's tab and by the
+state mark beside it, so a label here would be a third copy of the conversation's name wearing a
+control's clothes.
 
-**An empty tab is offered both halves; an attached tab only the second.** Starting from a tab that
-already shows a conversation would leave that one with no view and no way back to it, so the offer
-to start is the empty tab's alone — which is what lets one control answer both questions without
-either becoming a trap. The first half is the harness list, grouped exactly as the agents screen's
-own `New agent` menu groups it, under a `Start new` heading; the second is every conversation the
-project has — the same registry the agents sidebar lists — under `Attach running`, a heading drawn
-only when there is something under it.
+**Its first row is *New agent*, and it raises the window's start form.** Which harness, as whom,
+on which model, at which reasoning level and under which permission mode are all one question,
+asked together, and *The workbench* is where the form is described. The flattened
+harness-and-identity list this control used to carry above its conversations is gone with the row
+that started from it: it launched with every question but the first skipped.
 
-**Typing filters both halves.** A harness list runs to hundreds of rows once every account and saved
-setup is on it, and a search that reached only the conversations would leave the long half
-untouched. While something is typed the headings and hairlines are dropped rather than left standing
-over rows that may all have gone: what a search shows is the matches.
+**An attached tab is offered the start too.** Starting from a tab already showing a conversation
+would once have left the first with no view; the conversation it leaves is on this very list, one
+click from coming back.
+
+**Everything under it is a conversation to move to.** The rows are every conversation the project
+has — the same registry the agents sidebar lists — under a hairline, drawn only when there is
+something below it: a divider over nothing reads as a group that failed to load. Typing filters
+them, and the hairline goes with the list when a query empties it.
 
 A conversation already attached to a *different* chat tab draws disabled and cannot be picked; it is
 never dropped from the list, because a row that vanishes reads as a conversation that ended rather
 than one taken. The tab's own current attachment stays selectable, since it is the row already
 checked.
 
-**An empty tab opens on the last harness anything was started on.** `InterfacePrefs::last_start`
-records the harness, the account and the saved setup a conversation was last begun with, so the
-common case is one click and the list is still there for every other. Interface scope rather than a
-project's: which harnesses this machine has, and which account is signed into them, is a fact about
-the machine. It is a hint, never a promise — a harness uninstalled or an account signed out since
-simply preselects nothing.
-
 **Exclusivity is per chat tab, not per conversation, and it stops at this surface's edge.** The
 agents workbench may show the same conversation in a column at the same moment a chat tab is
 attached to it, and the host is never told which surfaces are looking, because a view was never the
 workspace.
 
-**Adding a view is the tab strip's gesture, not the panel's.** A second chat tab, attached to
-nothing, is opened by a `+` on the dock's own tab strip — beside the terminal region's, offered on
-the strip of any group holding a chat, so a chat dragged into the editor region takes the control
-with it rather than leaving the gesture behind. Opening another view of the same kind is what a tab
-strip does in this window, and the chat panel is not an exception to it. Starting a *harness* is the
-header control's; adding a *view* is the strip's.
+**Adding a view is the tab strip's gesture, not the panel's.** A `+` on the dock's own tab strip —
+beside the terminal region's, offered on the strip of any group holding a chat, so a chat dragged
+into the editor region takes the control with it rather than leaving the gesture behind — opens the
+window's two-row `+` menu: *New agent*, or *Attach existing agent*. The strip's `+` still means
+"add a view"; the menu only answers what the view will be looking at, and **the tab is minted when
+there is something to put in it** — a pick attaches at once, and a start form opens the tab from
+`Message::ConversationStarted`, so a form the user dismisses leaves no empty tab behind.
 
 **The header reads left to right in the order a reader asks.** The state mark says what the
 conversation *is*, the control beside it says what it is *on*, and the three-dots at the far right
@@ -108,8 +106,11 @@ empty region opens onto.
 **Every chat tab draws from the same shared conversation view.** What a tab shows for its attachment
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer
 every surface that hosts a live agent shares — the run pill, the context ring, the token cost, the
-launch-time model and thinking pickers. A tab unattached to anything shows a page naming what fixes
-it, the same way the agents screen's empty page does. **A link in a rendered reply goes where it
+launch-time model and thinking pickers. **A tab unattached to anything is one large play button**,
+centred, on `start a new agent` — no title and no note, because a tab with no conversation in it is
+the ordinary state of a fresh tab rather than a fault, and two lines of explanation said what the
+icon says. It is drawn at `EMPTY_START_SIZE` rather than through `kit::icon_button`: that is the
+window's chrome control, a fixed small square, and this is the page's whole subject. **A link in a rendered reply goes where it
 points**: the transcript hands `ui::on_link` to its `TextView`, so a relative path resolved from the
 project root or a full `ubiq://` opens that place in the window, `http`, `https` and `mailto` reach
 the operating system, and anything else does nothing — see
@@ -359,29 +360,29 @@ is dropped on restore, the way a saved terminal leaf naming a gone pane is — a
 host's to confirm, so an unfamiliar one is trusted no further than an unfamiliar pane id is.
 
 `crates/ubiq/src/state/chat.rs` holds `ChatTab`, `free_chat_slot` — the lowest slot in the chat
-range nothing is using — and `attach_choices`, the pure function behind the picker: which
-conversations survive the typed filter, which of them are attached to a *different* tab and so
-disabled, and which index (if any) is this tab's own current pick.
+range nothing is using — and `attach_choices`, the pure function behind every attach list in the
+window: which conversations survive the typed filter, which of them an open panel of the *asking
+surface* already shows and so draws disabled, and which index (if any) is the asking panel's own
+current pick. One builder, so "already taken" is answered once for the chat header's control, the
+`+` menu's second stage and the agents screen alike.
 
 `crates/ubiq/src/state/agents.rs` defines `COLUMNS_MAX`, `CHATS_MAX` and
 `COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX`; `AgentsView::free_slot` still allocates a column's slot
 from the low range, unchanged.
 
 `crates/ubiq/src/app/chat.rs` is where a tab's own lifecycle lives: `open_chat_tab` mints one and
-gives it a slot, `new_chat_tab` is what the strip's `+` runs, `attach_chat` sets or clears an
-attachment, `chat_picks` builds what the control offers, `pick_chat_row` resolves a click against
+gives it a slot, `open_chat_tab_now` puts it in the dock as well — called when there is a
+conversation to put in it, never before — `attach_chat` sets or clears an attachment, `chat_picks` builds what the control offers, `pick_chat_row` resolves a click against
 that same list, `toggle_chat_picker` and `dismiss_chat_picker` own the control's open flag, and
 `closed_chat_tab` is what a tab leaving the dock for good runs — dropping the `ChatTab`, clearing its
 slot's draft, and touching nothing about the conversation it was looking at.
 
 **Rows and the actions behind them are matched by position**, the rule every menu in this window
-follows, so `state::chat::chat_picks` builds one list of `ChatPick`s — `Start`, `Attach` or `Inert`
-— that the frame draws and the click resolves against. There is no second reading of the harness
-list to drift out of step with the first. A `Start` resolves through
-`AppState::start_harness_choice` in `crates/ubiq/src/app/agents.rs`, which the agents screen's own
-menu also calls: the agent id is minted client-side there, before the host is asked to start it, so
-the tab attaches with no round trip to wait on. What a harness row *says* is
-`ui::agents::harness_offers`, the agents menu's own labelling rather than a second copy of it.
+follows, so `state::chat::chat_picks` builds one list of `ChatPick`s — `New`, `Attach` or `Inert` —
+that the frame draws and the click resolves against. A `New` raises the start form and writes down
+that this tab is where the conversation goes; the tab is attached when
+`Message::ConversationStarted` lands, so the id is never claimed by a form that was dismissed. An
+`Attach` is immediate: the conversation already exists.
 
 `crates/ubiq/src/app/panels.rs`'s `sync_chat_panels` is a chat tab's real population — squaring the
 dock's tree with `OpenProject::chats` — called whenever a project is entered, right after
@@ -391,8 +392,8 @@ fresh tab when the user reopens an emptied right region.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
 once — `attached`, read by both children below rather than asked twice — and hands it to the shared
-conversation renderer (`header: false`), or draws the empty page; `sidebar.rs` draws the one header
-row: the state mark and the unified control on the left, the three-dots on the right. The permission prompt is that shared renderer's
+conversation renderer (`header: false`), or draws the empty page's play button; `sidebar.rs` draws
+the one header row: the state mark and the chevron on the left, the three-dots on the right. The permission prompt is that shared renderer's
 too: `crates/ubiq/src/state/conversation.rs` holds `Pending` — the request id, the tool-call patch
 and the options — in `Conversation::pending`, with `oldest_pending()` for what the keyboard means,
 `answered()` for one request leaving, `Pending::option_for` for the first option of a reading,
@@ -450,12 +451,12 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 
 | What happens | Result |
 |---|---|
-| A chat tab has nothing attached | Its page names what fixes it, rather than an empty transcript, and its dock tab reads `New chat` |
+| A chat tab has nothing attached | Its page is the play button that starts one, rather than an empty transcript, and its dock tab reads `New chat` |
 | No provider is configured, or the naming fails | The tab keeps the mechanical name it started with and hovers to nothing. Nothing is reported: no name was taken away and no question was asked |
 | A naming answers a title and nothing after it | The tab is renamed and draws no hover. A summary is a tooltip, and a tooltip is allowed to be absent |
 | The chat range's composer slots are all taken | The strip's `+` and a re-opened empty right region do nothing; there is no ninth slot to hand out, the same ceiling a ninth column meets |
-| A harness is uninstalled between the draw and the click | `start_harness_choice` answers nothing, the tab stays attached to what it had, and the control shuts rather than sitting open over a row that did nothing |
-| The remembered harness is gone | Nothing is preselected; the list opens as it would have on a fresh machine |
+| A harness is uninstalled between the draw and the click | The start form refuses rather than sending a `StartConversation` that would fail as a spawn, and the tab stays attached to what it had |
+| The remembered harness is gone, or the remembered profile deleted | The form answers nothing rather than opening on a start that would fail |
 | A saved arrangement names a chat id this window never minted | The leaf is dropped, and the tree normalises around the gap, the same as an unfamiliar saved terminal leaf |
 | A picker's filter matches nothing | The panel says so; a row already disabled is never what a filter with no matches is confused for |
 | A menu is open and the user clicks elsewhere | The menu dismisses; no other menu opens on the same click |

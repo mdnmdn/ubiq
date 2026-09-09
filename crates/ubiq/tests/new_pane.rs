@@ -146,6 +146,7 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
         // a harness that cannot hold a transcript still draws its own screen perfectly well.
         chat: true,
         modes: Vec::new(),
+        unattended_mode: None,
     }
 }
 

@@ -220,8 +220,11 @@ Nothing in `_tools/` is imported by the crates, and nothing in the crates is imp
 ## `_docs/` and `refs/`
 
 `_docs/` is described by its own map, [`../INDEX.md`](../INDEX.md), and governed by
-`_docs/_meta/librarian.md`. Its one structural oddity: `_docs/design/` holds wireframes, prototypes
-and captured artifacts rather than documents, and is excluded from documentation checks.
+`_docs/_meta/librarian.md`. Two of its folders hold something other than Ubiq's own knowledge:
+`_docs/design/` holds wireframes, prototypes and captured artifacts rather than documents, and is
+excluded from documentation checks; `_docs/references/` holds the specifications of protocols Ubiq
+speaks but does not own, kept close to the code that implements them and exempt from the length and
+fence caps that shape a document written here.
 
 `refs/` holds other repositories checked out for reference. Its contents are never edited and never
 cited as if they were part of this tree — the documentation linter treats a path under `refs/` as

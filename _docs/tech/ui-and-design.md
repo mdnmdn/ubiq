@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-08
-verified: 2026-09-08
-code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
+updated: 2026-09-09
+verified: 2026-09-09
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -134,6 +134,7 @@ restyling the shell should be one file to visit.
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
 | `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
+| `EMPTY_START_SIZE`, `EMPTY_START_ICON` | The start control on an empty chat panel: about three times a chrome `kit::icon_button`, because it is the page's whole subject rather than one control among a row of them |
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
 | `LOGIN_MODAL_WIDTH`, `LOGIN_MODAL_HEIGHT` | The one modal that is not one question: a running harness login, sized through `kit::modal_sized`'s fill mode so a full-screen TUI (`opencode`, `grok`) gets a real terminal instead of the ~50×16 a one-question modal would give it |
 | `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
@@ -303,7 +304,7 @@ and project settings are this shape: `SETTINGS_WIDTH` by `SETTINGS_HEIGHT` (proj
 the same width), clamped to the viewport, body scrolling inside, switching nav sections must not
 change the panel's size. They keep the modal's scrim, coloured left edge, outside-click dismiss and
 `deferred` priority, and they are painted from the shell over the window rather than from
-`kit::modal`. The furniture — `heading`, `setting_row`, `nav_item` — lives in `ui/kit/settings.rs`
+`kit::modal`. The furniture — `heading`, `setting_row`, `hint_row`, `label_hint`, `nav_item` — lives in `ui/kit/settings.rs`
 so the kitchen sink draws the same rows.
 
 **A list that hangs off a control is not a modal, and does not get the modal's device.** The ⌘K
@@ -393,7 +394,25 @@ row stays pickable even if the caller also passed its index to `.disabled(...)`.
 `.separators(indices)` draws the same hairline the context menu's own separator does at those rows
 instead of text, so a searchable picker can carry group headings — themselves plain `.disabled(...)`
 rows — in the one `items` list a caller builds and a pick indexes into, the way the agents screen's
-column `+` groups the bench from what is already on screen elsewhere.
+column `+` groups the bench from what is already on screen elsewhere. `.tooltip(text)` is what a
+picker drawn with no label says on hover — the chat header's chevron is one, and with no words on
+the trigger the hover is the only place the question it asks can go.
+
+**A picker has three shapes, and the third is for a form.** `PickerStyle::Plain` is the bare
+trigger, `Chip` the small filled one a composer's config controls wear, and `Field` the shape
+`kit::field` gives a text input: a filled box on its own coloured left edge, taking the width it is
+given, the value truncating rather than pushing the chevron off the end. A column of pickers in a
+form reads as a column that way rather than as a ragged edge, and a picker among text inputs reads
+as something to click rather than as a line of text.
+
+**A dense form's notes live on a hint mark, not under the row.** `kit::label_hint(id, label, hint)`
+draws the label with an `Info` mark beside it and the words on the mark's hover, and
+`kit::hint_row(id, label, hint, control)` is `setting_row`'s shape built from one: label and mark
+left, control right, one line high, with no rule between rows — a hairline under every one of eight
+rows reads as eight sections. `setting_row` and `label_block` spend a whole line on the note, which
+is what turns a form of eight questions into a form that scrolls; the words are worth having and
+worth reading once. Both take an id, because a tooltip needs a stateful element to hang off — the
+same bargain `kit::elided` makes.
 
 The state dot itself is what a conversation's lifecycle reading is drawn as — no primitive of its
 own. `ui::conversation::lifecycle` derives one `Lifecycle` from the conversation's own fields
@@ -414,19 +433,20 @@ it.
 `ConversationView` carries `header: bool` beside its existing `footer` and `composer` — the agents
 column keeps it `true` and gets a bordered strip holding the menu; the chat panel sets it `false`
 and draws the identical fragments, `ui::conversation::lifecycle_mark` and `lifecycle_menu`, at
-opposite ends of its own toolbar row instead, beside its `New chat` and `New tab`. The state's
+opposite ends of its own toolbar row instead, with the chevron that changes what the tab is looking
+at between them. The state's
 reading and the menu's enable rule — `lifecycle`, `lifecycle_colour` and `lifecycle_menu_enabled` —
 are read in exactly one place regardless of which surface calls them, so a second surface adopting
 the shared view is a `ConversationView` field, never a forked copy of any of the three.
 
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
-icon set.** The chat panel's toolbar is icon-only: the lifecycle menu, `New chat` and `New tab` each
-keep `icon_button`'s icon and lose `ghost_button`'s inline label, the label reappearing as the same
-hover tooltip every other icon-only control in the window already uses — the titlebar's panel
-toggles, the agents column tab's `×` (`Put on the bench`). Two controls that both add something
-must still read as different actions at a glance, so a row is never given the same icon twice with
-only the tooltip to tell them apart — `New chat` and `New tab` keep their own icons for exactly that
-reason.
+icon set.** The chat panel's toolbar is icon-only: the lifecycle menu and the change-agent chevron
+keep their icon and lose `ghost_button`'s inline label, the label reappearing as the same hover
+tooltip every other icon-only control in the window already uses — the titlebar's panel toggles, the
+agents column tab's `×` (`Put on the bench`), the chevron's own `change agent`. Two controls that
+both add something must still read as different actions at a glance, so a row is never given the
+same icon twice with only the tooltip to tell them apart, and the dock's two `+` controls — a
+terminal pane's and a chat view's — keep their own icons for exactly that reason.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two
@@ -526,6 +546,32 @@ To add an area to the window:
    it belongs in `ui/kit/`, must not name `AppState`, and gets a specimen on the style reference.
 5. Colours through tokens, sizes through constants, no radii, and a coloured left edge on anything
    that reads as a surface.
+
+## The icon set
+
+`gpui-component` embeds the Lucide set and exposes it as `IconName`, and that is what `icon_button`,
+`Icon::new` and the menus take. What it does not cover — a harness, a pane's state, a permission
+mode, an orchestration node — lives in `assets/icons/` as a monochrome 24x24 SVG, listed with its
+goal in `assets/icons/icons.yaml`. One name per icon: the file name, the registry key and the Rust
+variant are the same kebab-case word.
+
+**The file carries no colour.** `Window::paint_svg` rasterises through resvg into an alpha mask,
+caches it in the sprite atlas under path and size only, and tints it with an `Hsla` when the sprite
+is composited. So a token decides an icon's colour at the call site, the two palettes and any future
+accent cost nothing and re-rasterise nothing, and a gradient or a second colour in an SVG is
+silently discarded. An icon that genuinely needs two colours is two `Icon` elements with two tokens.
+The same is true of a transformation: rotate and scale are a matrix on the cached tile, always about
+the element's own centre.
+
+Hence the spec — `0 0 24 24`, `currentColor` at `stroke-width` 2, all ink inside 1.5-22.5, at most
+four shapes, and none of `<text> <use> <defs> <style> <mask>`, the gradients or `<animate>`.
+`just icons-check` enforces the mechanical half; `just icons-sheet` and `just icons-audit` render
+the review sheets an icon is judged on, at 16, 24 and 64px in both palettes, against a frozen canon
+strip. The rules and the drawing loop are the `ubiq-icons` skill.
+
+Micro-animation is not part of any of this: it is a state's property, driven by `with_animation` on
+the element, and it never produces an icon variant. The writing mark in `ui/conversation/mod.rs` is
+the most complex one the app draws, and it is five divs and an opacity ramp.
 
 ## Design assets
 

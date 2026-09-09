@@ -155,6 +155,8 @@ fn the_interface_blob_carries_the_last_start() {
             agent_type: "claude-code".to_string(),
             account: Some("mdn".to_string()),
             profile: None,
+            mode: Some("bypass".to_string()),
+            max_subagents: Some(3),
         }),
         rest: Default::default(),
     };
@@ -164,6 +166,18 @@ fn the_interface_blob_carries_the_last_start() {
     let older = format!(r#"{{"schema":{},"theme":"Dark"}}"#, prefs::SCHEMA);
     let back: InterfacePrefs = prefs::decode(&older).expect("a blob without the field decodes");
     assert_eq!(back.last_start, None);
+
+    // The mode and the ceiling arrived after the first release, so a blob written without them is
+    // read rather than discarded — the rule every field here follows.
+    let older = format!(
+        r#"{{"schema":{},"theme":"Dark","last_start":{{"agent_type":"codex"}}}}"#,
+        prefs::SCHEMA
+    );
+    let back: InterfacePrefs = prefs::decode(&older).expect("a blob without the two decodes");
+    let last = back.last_start.expect("the last start survives");
+    assert_eq!(last.agent_type, "codex");
+    assert_eq!(last.mode, None);
+    assert_eq!(last.max_subagents, None);
 }
 
 /// The schema moved when a remembered file became a tab key rather than a path, when the saved

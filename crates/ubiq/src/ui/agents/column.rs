@@ -200,16 +200,14 @@ fn tab(
     }
 
     row.child(status_dot(colour, theme::pane_bg()))
-        .child(
-            div()
-                .id(eid("agents-tab-name", id))
-                .child(name)
-                .when_some(summary, |this, summary| {
-                    this.tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(summary.clone()).build(window, cx)
-                    })
-                }),
-        )
+        .child(div().id(eid("agents-tab-name", id)).child(name).when_some(
+            summary,
+            |this, summary| {
+                this.tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(summary.clone()).build(window, cx)
+                })
+            },
+        ))
         .child(
             div()
                 .id(eid("agents-tab-close", id))

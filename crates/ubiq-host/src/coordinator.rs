@@ -18,7 +18,7 @@ use ubiq_proto::conversation::{
 };
 use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SuggestId};
-use ubiq_proto::messages::{Message, WorkspaceInfo};
+use ubiq_proto::messages::{CatalogueModel, Message, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth};
 use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
@@ -1130,6 +1130,12 @@ impl Coordinator {
             } => {
                 self.check_agent_command_job(client, agent_type, command);
             }
+            Message::ListHarnessCatalogue {
+                agent_type,
+                account,
+            } => {
+                self.list_harness_catalogue_job(client, agent_type, account);
+            }
 
             Message::ListAccounts => {
                 self.send_accounts(client);
@@ -1619,10 +1625,13 @@ impl Coordinator {
                 agent_type,
                 account,
                 profile,
+                model,
+                thinking,
+                mode,
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    profile,
+                    profile, model, thinking, mode,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -1805,6 +1814,9 @@ impl Coordinator {
         agent_type: String,
         account: Option<String>,
         profile: Option<String>,
+        model: Option<String>,
+        thinking: Option<String>,
+        mode: Option<String>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
@@ -1913,10 +1925,21 @@ impl Coordinator {
                 .into_iter()
                 .find(|record| record.id == name)
         });
-        let chosen_model = record.as_ref().and_then(|record| record.model.clone());
-        let chosen_mode = record.and_then(|record| record.mode.clone());
+        // An explicit pick outranks the profile's, the way a pick always does: a flag was the
+        // user overriding what the profile set, and the profile's own record is only the
+        // fallback when there was no pick.
+        let chosen_model = model
+            .filter(|value| !value.is_empty())
+            .or_else(|| record.as_ref().and_then(|record| record.model.clone()));
+        let chosen_thinking = thinking
+            .filter(|value| !value.is_empty())
+            .or_else(|| record.as_ref().and_then(|record| record.thinking.clone()));
+        let chosen_mode = mode
+            .filter(|value| !value.is_empty())
+            .or_else(|| record.and_then(|record| record.mode.clone()));
         let seeded_model = chosen_model.clone();
         let seeded_mode = chosen_mode.clone().unwrap_or_default();
+        let seeded_thinking = chosen_thinking.clone().unwrap_or_default();
         self.pending_conversations.insert(
             agent_id,
             PendingConversation {
@@ -1926,7 +1949,7 @@ impl Coordinator {
                 profile,
                 cwd,
                 chosen_model,
-                chosen_thinking: None,
+                chosen_thinking,
                 chosen_mode,
                 catalogue: Vec::new(),
                 // The discovery thread below always sends the first message this agent_id will
@@ -1976,11 +1999,19 @@ impl Coordinator {
                     seeded_model.as_deref().filter(|model| !model.is_empty()),
                     &last_model,
                 );
+                // A seeded thinking pick (from an explicit `StartConversation` field or the
+                // profile record) outranks the remembered last-used level, the same way
+                // `chosen_model` outranks `last_model` above.
+                let thinking_for_options = if seeded_thinking.is_empty() {
+                    &last_thinking
+                } else {
+                    &seeded_thinking
+                };
                 let options = build_config_options(
                     &agent_type,
                     &models,
                     &chosen_model,
-                    &last_thinking,
+                    thinking_for_options,
                     &seeded_mode,
                 );
                 discovery_mailbox.send(Message::ConversationUpdate {
@@ -2529,6 +2560,63 @@ impl Coordinator {
                     agent_type,
                     ok,
                     detail,
+                });
+            })
+            .ok();
+    }
+
+    /// Answer [`Message::ListHarnessCatalogue`] on a one-off thread — same shape as the
+    /// discovery thread inside [`Self::start_conversation`], because the same probe backs both:
+    /// probing shells out and the coordinator must keep answering every other window while it
+    /// runs. A probe failure sends an empty `models` list rather than nothing: an unanswerable
+    /// harness offers "whatever it defaults to" rather than leaving the asker waiting forever.
+    fn list_harness_catalogue_job(
+        &self,
+        client: ClientId,
+        agent_type: String,
+        account: Option<String>,
+    ) {
+        let mailbox = self.host.mailbox(To::Client(client));
+        let cache = self.catalogue.clone();
+        thread::Builder::new()
+            .name(format!("harness-catalogue-{agent_type}"))
+            .spawn(move || {
+                let account_key = account.clone().unwrap_or_default();
+                let models =
+                    probe_catalogue(&agent_type, &account_key, &cache).unwrap_or_else(|error| {
+                        tracing::warn!(
+                            harness = %agent_type,
+                            path = %std::env::var("PATH").unwrap_or_default(),
+                            "harness catalogue probe failed: {error:#}"
+                        );
+                        Vec::new()
+                    });
+                let (last_model, last_thinking) = cache.last_used(&agent_type).unwrap_or_default();
+                let models = models
+                    .into_iter()
+                    .map(|model| CatalogueModel {
+                        id: model.id,
+                        description: model.description,
+                        default: model.default,
+                        levels: model
+                            .levels
+                            .into_iter()
+                            .map(|level| ConfigChoice {
+                                value: level.value,
+                                name: level.label,
+                                description: level.description,
+                                group: None,
+                            })
+                            .collect(),
+                        default_level: model.default_level,
+                    })
+                    .collect();
+                mailbox.send(Message::HarnessCatalogue {
+                    agent_type,
+                    account,
+                    models,
+                    last_model,
+                    last_thinking,
                 });
             })
             .ok();

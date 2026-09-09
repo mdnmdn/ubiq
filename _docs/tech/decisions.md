@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-08
-verified: 2026-09-08
+updated: 2026-09-09
+verified: 2026-09-09
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -868,7 +868,7 @@ silent.
 
 **Cost:** three of them. Our vocabulary lags upstream's, and a v2 that reshapes diffs into structured
 file changes and makes the message id required is drafted — every one of those is a change here, and
-`_docs/inbox/acp-protocol.md` records what is coming. Two variants are on the wire and refused, because the
+`_docs/references/acp-protocol.md` records what is coming. Two variants are on the wire and refused, because the
 family was designed whole rather than grown one at a time. And a conversation and a pane are two
 spawn messages rather than one, which is the price of a record that does not carry geometry nobody
 set.
@@ -998,6 +998,10 @@ group — heading and separator included — omitted entirely when nothing is si
 **Cost:** the menu is one row longer per harness once an account exists, and a reader of
 `HarnessChoice` must skip two decoration variants, `Label` and `Separator`, that carry no pick —
 the same cost `NewPaneRow::Separator` pays for the same reason.
+
+**Superseded by `D92`.** The bare row was a start with every question but the first skipped; the
+form asks them all, so `harness_choices` keeps only `Configured` and `Defined`. What the library
+answers for a bare pick still exists — the form's identity picker is where it is reached.
 
 ### D60 — The model/thinking catalogue is a disk cache keyed on the harness binary's version
 
@@ -1668,6 +1672,34 @@ by no menu — writing one means finding the config root and hand-authoring TOML
 A missing or malformed file is silently the empty environment rather than a startup error, so a typo
 in a grant is a `cargo` denial with no message pointing at the file that caused it, discoverable
 only in the log line `Environment::load` writes.
+
+### D92 — One form asks every question a start answers, and a profile is a saved answer to it
+
+Starting a conversation used to be a menu pick: a row naming a harness, or a harness and an
+identity, sent `StartConversation` on the click. Everything else about the run — the model, the
+reasoning level, the permission mode — could only be chosen *after* the harness was up, from the
+pickers the composer draws while the conversation is pending, because nothing on the wire could
+say what a harness offered until one had been launched and probed. So the questions a user
+actually has at the moment of starting were asked in two places, in the wrong order, and one of
+them only afterwards.
+
+`ListHarnessCatalogue` removes the reason: the models and reasoning levels a harness will answer
+for can be asked before anything is started. So there is one form, `NewAgentForm`, raised from the
+`+` on every surface that hosts a conversation, and it asks the target, the identity, the model,
+the level, the mode, a subagent ceiling and an opening prompt together. The settings page's profile
+form is the same form with a different `Purpose`, because a profile *is* a saved answer to those
+questions and two forms asking them differently is how the two drift apart. Nothing is created
+until `Message::ConversationStarted` lands, so a dismissed form leaves no empty column and no empty
+tab. The subagent ceiling and the opening prompt have no launch flag anywhere — no harness has
+one — so they are folded in front of the user's first turn as a preamble and stripped back off the
+harness's echo of it, which keeps them out of a transcript the user did not write.
+
+**Cost:** a click became a form. The one-click start on a remembered harness is gone, and
+`InterfacePrefs::LastStart` preselecting every row is what stands in for it. The preamble is the
+sharper cost: it depends on the harness echoing the turn it was handed verbatim, so a harness that
+reformats its echo shows the directive in the transcript once — the preamble is spent either way,
+which bounds the damage to one turn rather than every one. And a directive is not a flag: an agent
+may ignore the subagent ceiling, which no launch option would have let it do.
 
 ## Related docs
 

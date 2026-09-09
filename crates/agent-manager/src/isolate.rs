@@ -555,6 +555,14 @@ pub fn login_confined(
 
     let mut base = isol8::Spec::new(cmd.clone());
     base.add_dirs_rw = vec![path_string(home)];
+    // A relocated toolchain root is as unreachable to a login as it is to a run — the caller
+    // names it the same way, so this honours `extra_rw` the same way [`plan`] does.
+    for extra in &options.extra_rw {
+        let grant = path_string(extra);
+        if !base.add_dirs_rw.contains(&grant) {
+            base.add_dirs_rw.push(grant);
+        }
+    }
     base.home = Some(path_string(home));
     base.set_env = plan
         .launch
@@ -562,7 +570,10 @@ pub fn login_confined(
         .iter()
         .map(|(k, v)| format!("{k}={v}"))
         .collect();
-    base.env_pass = vec!["TERM".to_string(), "COLORTERM".to_string()];
+    // The same allowlist a run gets. A login is a harness reaching the network behind whatever
+    // proxy and certificate store this machine has, in whatever locale it runs — a shorter list
+    // here is a login that fails where the run beside it works.
+    base.env_pass = ENV_PASS.iter().map(|name| (*name).to_string()).collect();
 
     // A login's `$HOME` is the capture directory, and isol8 auto-grants nothing from the
     // real home when the home is replaced — so a harness that is not a self-contained
@@ -1177,6 +1188,47 @@ mod tests {
                 .add_dirs_ro
                 .contains(&toolchain.path().display().to_string())
         );
+    }
+
+    // 13b. …and `extra_rw` the same way, or a relocated toolchain root a login needs to write
+    // is denied where the run beside it may write it. The whole ENV_PASS allowlist must reach
+    // a login too: a shorter list is a sign-in that cannot see this machine's proxy, locale or
+    // certificate store.
+    #[test]
+    fn login_confined_honours_extra_rw_and_passes_the_run_env_allowlist() {
+        let state = TempDir::new().expect("state dir");
+        let home = TempDir::new().expect("capture home");
+        let cache = TempDir::new().expect("writable root");
+        let plan = crate::harness::LoginPlan {
+            launch: Launch {
+                program: "copilot".to_string(),
+                args: vec!["login".to_string()],
+                env: vec![(
+                    "COPILOT_HOME".to_string(),
+                    home.path().display().to_string(),
+                )],
+                env_remove: Vec::new(),
+                env_clear: false,
+            },
+            credential_files: vec![PathBuf::from("config.json")],
+        };
+        let mut options = IsolateOptions::new(state.path().to_path_buf());
+        options.extra_rw = vec![cache.path().to_path_buf()];
+
+        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
+
+        assert!(
+            confined
+                .spec
+                .add_dirs_rw
+                .contains(&cache.path().display().to_string())
+        );
+        for name in ENV_PASS {
+            assert!(
+                confined.spec.env_pass.iter().any(|passed| passed == name),
+                "{name} is in ENV_PASS but not passed to a login"
+            );
+        }
     }
 
     // 8. extra_ro entries on IsolateOptions must reach the policy as read-only

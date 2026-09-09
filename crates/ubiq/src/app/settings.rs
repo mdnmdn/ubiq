@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::new_agent::{NewAgentForm, Purpose};
 
 /// What a kept agent home is called when the choice is made before a name is typed. A home with
 /// no name is not a state the host can act on, so the choice never stores one.
@@ -656,6 +657,29 @@ impl AppState {
         cx.notify();
     }
 
+    /// Stop the running harness and wait for the outcome, keeping the modal up.
+    ///
+    /// The difference from [`close_harness_login`](Self::close_harness_login) is the whole point:
+    /// a harness whose login is its ordinary interactive screen — grok's is — never exits once
+    /// the browser flow is done, so the only thing that ends it is the user saying so. Discarding
+    /// the modal at that moment threw away the `HarnessLoginCaptured` on its way back, and a
+    /// sign-in that had in fact worked read as nothing happening at all. The state stays, the
+    /// pane goes, and `login_ended` draws the `Done` step the host's answer describes.
+    /// A probe is not one of them: it never reaches `finish_login`, so no outcome is coming and
+    /// waiting for one would hang the modal. Its shell closes the flow outright.
+    pub fn finish_harness_login(&mut self, cx: &mut Context<Self>) {
+        let Some(login) = &self.workbench.settings.login else {
+            return;
+        };
+        if login.probe {
+            return self.close_harness_login(cx);
+        }
+        if let LoginStep::Running { pane } = login.step {
+            self.close_login_pane(pane, cx);
+        }
+        cx.notify();
+    }
+
     /// The login is running: adopt its pane so the modal can draw it.
     ///
     /// A login pane belongs to no project, so it joins no project's pane list and gets no
@@ -904,86 +928,34 @@ impl AppState {
     /// the id is what the host overwrites by, so editing keeps it and typing a new one saves a
     /// second profile rather than renaming the first.
     ///
-    /// The two typed fields are seeded here, the way the rename dialog seeds its own: they are
-    /// read back only at save time, so nothing mirrors them per keystroke.
+    /// It is the New agent form with [`Purpose::Profile`]: the same questions, so the same rows,
+    /// and every pick below the name is answered by that form's own mutators. The two typed
+    /// fields are seeded here, the way the rename dialog seeds its own.
     pub fn open_profile_form(
         &mut self,
         profile: Option<ProfileInfo>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let profile = profile.unwrap_or(ProfileInfo {
-            id: String::new(),
-            agent_type: String::new(),
-            account: None,
-            model: None,
-            mode: None,
-        });
+        let form = match &profile {
+            Some(profile) => NewAgentForm::from_profile(profile, Purpose::Profile),
+            None => NewAgentForm::new(Purpose::Profile),
+        };
+        let id = profile.as_ref().map(|it| it.id.clone()).unwrap_or_default();
+        let prompt = form.prompt.clone();
         self.profile_id_input
-            .update(cx, |state, cx| state.set_value(&profile.id, window, cx));
-        self.profile_model_input.update(cx, |state, cx| {
-            state.set_value(profile.model.as_deref().unwrap_or(""), window, cx)
-        });
-        self.workbench.settings.profile_form = Some(profile);
+            .update(cx, |state, cx| state.set_value(&id, window, cx));
+        self.set_new_agent_prompt(&prompt, window, cx);
+        self.workbench.settings.profile_form = Some(form);
         self.workbench.settings.error = None;
+        // What the harness offers is what the model and level rows are drawn from, so an edit
+        // opens asking for it rather than showing an empty list until something is repicked.
+        self.probe_new_agent_catalogue(cx);
         cx.notify();
     }
 
     pub fn close_profile_form(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.profile_form = None;
-        cx.notify();
-    }
-
-    /// Pick which harness the setup is for. The mode goes with it: the choices come from the
-    /// harness's own list, so one kept across a switch would name a mode the new harness has
-    /// never heard of.
-    pub fn pick_profile_harness(&mut self, agent_type: String, cx: &mut Context<Self>) {
-        if let Some(form) = &mut self.workbench.settings.profile_form
-            && form.agent_type != agent_type
-        {
-            form.agent_type = agent_type;
-            form.mode = None;
-            // The account may not be signed in to the new harness either.
-            form.account = None;
-            cx.notify();
-        }
-    }
-
-    /// Pick the identity, or clear it by picking the one already chosen.
-    pub fn pick_profile_account(&mut self, account: Option<String>, cx: &mut Context<Self>) {
-        if let Some(form) = &mut self.workbench.settings.profile_form {
-            form.account = account;
-            cx.notify();
-        }
-    }
-
-    pub fn pick_profile_mode(&mut self, mode: Option<String>, cx: &mut Context<Self>) {
-        if let Some(form) = &mut self.workbench.settings.profile_form {
-            form.mode = mode;
-            cx.notify();
-        }
-    }
-
-    /// Write the setup down. The host answers with `Profiles`, or with `AccountError` when the
-    /// id is not a name it can file — profiles are stored beside accounts and fail the same way.
-    pub fn save_profile(&mut self, cx: &mut Context<Self>) {
-        let id = self.profile_id_input.read(cx).value().trim().to_string();
-        let model = self.profile_model_input.read(cx).value().trim().to_string();
-        let Some(form) = self.workbench.settings.profile_form.take() else {
-            return;
-        };
-        // Both are required and the button is disabled without them: belt to its braces.
-        if id.is_empty() || form.agent_type.is_empty() {
-            self.workbench.settings.profile_form = Some(form);
-            return;
-        }
-        self.bus.send(Message::SaveProfile {
-            profile: ProfileInfo {
-                id,
-                model: (!model.is_empty()).then_some(model),
-                ..form
-            },
-        });
         cx.notify();
     }
 

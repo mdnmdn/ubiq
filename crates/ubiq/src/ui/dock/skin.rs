@@ -36,6 +36,14 @@ const TAB_BAR: f32 = 38.0;
 /// The hit function a "new terminal" control calls once it is clicked.
 pub type NewPaneRun = Rc<dyn Fn(&mut Window, &mut App)>;
 
+/// The click on the chat strip's `+`, handed across the renderer seam with the point it went
+/// down at.
+///
+/// The strip cannot build what the `+` offers — *New agent* raises a form and *Attach existing
+/// agent* lists the project's conversations — so it says where it was clicked and `AppState`
+/// paints the menu over the window. The same crossing the pane `+`'s chevron already makes.
+pub type NewChatRun = Rc<dyn Fn(f32, f32, &mut Window, &mut App)>;
+
 /// The right-click on a file tab, handed across the renderer seam.
 ///
 /// The tab bar knows which tab and where the click went down; `AppState` knows what to offer on a
@@ -133,7 +141,7 @@ pub struct Skin {
     /// Beside `new_pane` rather than folded into it: the two open different things — one starts a
     /// harness, the other opens a second view of conversations that already exist — and a group
     /// may hold chats and panes at once, in which case the strip honestly offers both.
-    new_chat: Option<NewPaneRun>,
+    new_chat: Option<NewChatRun>,
     /// The file-tab right-click, so a tab can ask for its context menu. `None` where the skin has
     /// no project-facing window to hand the click to.
     file_tab_menu: Option<FileTabMenuRun>,
@@ -168,7 +176,7 @@ impl Skin {
     }
 
     /// Attach the "new chat tab" control to the strip of every group holding a chat.
-    pub fn with_new_chat(self: &Rc<Self>, run: NewPaneRun) -> Rc<Self> {
+    pub fn with_new_chat(self: &Rc<Self>, run: NewChatRun) -> Rc<Self> {
         Rc::new(Self {
             new_chat: Some(run),
             ..(**self).clone()
@@ -649,7 +657,10 @@ impl TabGroupRenderer for Skin {
                                 .with_size(Size::XSmall)
                                 .text_color(theme::text_faint()),
                         )
-                        .on_click(move |_, window, cx| run(window, cx))
+                        .on_click(move |event: &gpui::ClickEvent, window, cx| {
+                            let at = event.position();
+                            run(at.x.into(), at.y.into(), window, cx);
+                        })
                         .tooltip(|window, cx| {
                             gpui_component::tooltip::Tooltip::new("New chat tab").build(window, cx)
                         }),

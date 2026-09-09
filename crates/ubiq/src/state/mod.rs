@@ -24,6 +24,7 @@ pub mod layout;
 pub mod logs;
 pub mod nav;
 pub mod navigator;
+pub mod new_agent;
 pub mod notifications;
 pub mod orchestration;
 pub mod prefs;
@@ -42,9 +43,7 @@ pub mod workbench;
 
 pub use agents::{AgentsView, BenchRow, Column};
 pub use board::{BoardState, Field, TaskForm};
-pub use chat::{
-    AttachChoices, ChatPick, ChatPicks, ChatTab, StartOffer, attach_choices, chat_picks,
-};
+pub use chat::{AttachChoices, ChatPick, ChatPicks, ChatTab, attach_choices, chat_picks};
 pub use conversation::{ConvBlock, Conversation, Pending, Run};
 pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{ChatId, PanelClass, PanelKind, Region};
@@ -62,6 +61,7 @@ pub use image_edit::{EditOp, ImageEdit, ImageTool, ShapeKind};
 pub use layout::Layout;
 pub use logs::LogState;
 pub use nav::{Destination, Locus, View};
+pub use new_agent::{NewAgentForm, OpenList, Purpose, Target};
 pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
 pub use remote::{AttemptId, RemoteConnectState, RemoteConnectStep};
 pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
@@ -70,6 +70,6 @@ pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    FileDialog, HarnessChoice, MenuId, NewPaneRow, ProjectSettings, ProjectSettingsMode, RailMode,
-    RowAction, WorkbenchState,
+    FileDialog, HarnessChoice, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow, ProjectSettings,
+    ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
 };

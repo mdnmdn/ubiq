@@ -163,6 +163,27 @@ pub enum Message {
         ok: bool,
         detail: String,
     },
+    /// Which models — and which reasoning levels for each — `agent_type` will answer for, asked
+    /// before anything is started. Answered with [`Message::HarnessCatalogue`].
+    ///
+    /// The probe shells out and the answer is cached on the harness binary's own version string,
+    /// so this is cheap after the first ask and slow exactly once.
+    ListHarnessCatalogue {
+        agent_type: String,
+        /// Already the cache key's identity leg, though the probe is per harness today.
+        account: Option<String>,
+    },
+    /// The catalogue that answers it, plus what this harness was last actually launched with —
+    /// a preselection, never a promise: a model gone since simply preselects nothing.
+    HarnessCatalogue {
+        agent_type: String,
+        account: Option<String>,
+        models: Vec<CatalogueModel>,
+        /// Empty means no model flag was ever passed — the same convention the host's own
+        /// `chosen_model` uses.
+        last_model: String,
+        last_thinking: String,
+    },
 
     // ── Account family: the identities a harness runs as ─────────────
     /// Which accounts exist, and which harnesses each can actually log in. Answered with
@@ -1075,6 +1096,13 @@ pub enum Message {
         /// no profile at all. `account` above still wins where both name one — the profile is
         /// the default, the pick is the user saying otherwise.
         profile: Option<String>,
+        /// Which model to launch on, from [`Message::HarnessCatalogue`]. `None` or empty leaves
+        /// the harness on its own default. Outranks the profile's, the way a pick always does.
+        model: Option<String>,
+        /// Which reasoning-effort level, same convention as `model`.
+        thinking: Option<String>,
+        /// Which permission mode, from [`AgentTypeInfo::modes`], same convention.
+        mode: Option<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -1534,6 +1562,30 @@ pub struct AgentTypeInfo {
     /// the harness has no such axis — a mode is not a universal concept, it is whatever this
     /// particular harness named.
     pub modes: Vec<ConfigChoice>,
+    /// Which of [`Self::modes`] means "ask nothing" — the harness's own word for it, from the
+    /// library's `Harness::unattended_mode`. `None` where the harness has no such mode, or
+    /// already asks nothing. It is what a start form defaults its mode picker to, so the
+    /// interface never has to guess which id means "all permissions".
+    pub unattended_mode: Option<String>,
+}
+
+/// One model a harness will answer for, with the reasoning-effort levels it accepts folded in.
+///
+/// The interface's own copy of the host's `store::harness::CachedModel`: the two probes
+/// (`discover_models` + `discover_thinking`) are joined once, host-side, so a picker reads one
+/// record rather than two lists it has to correlate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogueModel {
+    /// The harness's own model id, e.g. `sonnet`, `gpt-5-codex`.
+    pub id: String,
+    pub description: Option<String>,
+    /// Whether the harness names this one its default.
+    pub default: bool,
+    /// The reasoning-effort levels this model accepts, in the harness's own vocabulary. Empty
+    /// is the normal case — most models have no such knob.
+    pub levels: Vec<ConfigChoice>,
+    /// Which level the harness starts at, where it says.
+    pub default_level: Option<String>,
 }
 
 /// One account, as the UI is told about it.
@@ -1572,6 +1624,15 @@ pub struct ProfileInfo {
     pub model: Option<String>,
     /// The permission mode it picks, from [`AgentTypeInfo::modes`].
     pub mode: Option<String>,
+    /// The reasoning-effort level it picks, in the harness's own vocabulary.
+    pub thinking: Option<String>,
+    /// The most subagents this setup asks for at once. Never a launch flag — no harness has
+    /// one: the interface writes it into the conversation's opening prompt as a directive, and
+    /// this is only where the number is remembered.
+    pub max_subagents: Option<u8>,
+    /// An opening prompt to send as the conversation's first turn. It is a turn like any other,
+    /// which is why it is text here rather than anything the run is composed from.
+    pub prompt: Option<String>,
 }
 
 /// Secret material as it crosses the bus.

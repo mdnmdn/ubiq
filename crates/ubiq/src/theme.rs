@@ -61,6 +61,11 @@ pub const GRAPH_DOT_PITCH: f32 = 28.0;
 pub const AGENT_SIDEBAR_WIDTH: f32 = 300.0;
 pub const NEW_COLUMN_STRIP: f32 = 28.0;
 
+/// The start control on an empty chat panel: about three times a chrome `kit::icon_button`,
+/// because it is the page's whole subject rather than one control among a row of them.
+pub const EMPTY_START_SIZE: f32 = 90.0;
+pub const EMPTY_START_ICON: f32 = 48.0;
+
 /// A modal: how wide it is drawn, and the most of the window's height it may take before its body
 /// scrolls inside it. A modal is one question, so it is one width rather than a per-caller size.
 pub const MODAL_WIDTH: f32 = 460.0;
