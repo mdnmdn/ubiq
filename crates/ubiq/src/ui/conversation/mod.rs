@@ -42,9 +42,9 @@ use crate::state::file_picker::{SizeReading, size_label, size_reading};
 use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 use crate::ui::kit::{
-    ContextItem, HARNESS_GLYPH, Picker, PickerStyle, confirm_modal, context_menu, ghost_button,
-    icon_button, mono, pill, primary_button, progress_ring, progress_ring_in, removable_tag,
-    status_dot,
+    ContextItem, Picker, PickerStyle, UbiqIcon, confirm_modal, context_menu, ghost_button,
+    harness_icon, icon_button, mono, pill, primary_button, progress_ring, progress_ring_in,
+    removable_tag, status_dot,
 };
 use crate::ui::{handler, indexed};
 
@@ -421,9 +421,33 @@ fn lifecycle_glyph(conversation: &Conversation, view: &ConversationView) -> AnyE
     let state = lifecycle(conversation);
     let colour = lifecycle_colour(state);
     let label = state.label();
+    // The three quiet states keep the plain dot — colour alone answers them. The four a reader
+    // acts on get the shape the registry drew for exactly this: `pane-awaiting` and
+    // `pane-thinking` are canon, `pane-unloaded` and Lucide's own `CircleX` round out the set.
+    let mark = match state {
+        Lifecycle::Waiting => Icon::new(UbiqIcon::PaneAwaiting)
+            .with_size(Size::XSmall)
+            .text_color(colour)
+            .into_any_element(),
+        Lifecycle::Working(_) => Icon::new(UbiqIcon::PaneThinking)
+            .with_size(Size::XSmall)
+            .text_color(colour)
+            .into_any_element(),
+        Lifecycle::Unloaded => Icon::new(UbiqIcon::PaneUnloaded)
+            .with_size(Size::XSmall)
+            .text_color(colour)
+            .into_any_element(),
+        Lifecycle::Ended => Icon::new(IconName::CircleX)
+            .with_size(Size::XSmall)
+            .text_color(colour)
+            .into_any_element(),
+        Lifecycle::Starting | Lifecycle::Ready | Lifecycle::Idle => {
+            status_dot(colour, theme::pane_bg()).into_any_element()
+        }
+    };
     div()
         .id(view.eid("lifecycle-glyph"))
-        .child(status_dot(colour, theme::pane_bg()))
+        .child(mark)
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
         })
@@ -1775,21 +1799,16 @@ fn footer(
     // Which harness, and which identity answered — one chip, because they are one answer: this
     // conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
     // once, in the New agent menu, because a turn already taken was taken as somebody.
-    let (identity, mut identity_tip) = if conversation.account.is_empty() {
-        (
-            HARNESS_GLYPH.to_string(),
-            format!(
-                "{} \u{2014} no account, running as you",
-                conversation.harness
-            ),
+    let mark = harness_icon(&conversation.harness);
+    let mut identity_tip = if conversation.account.is_empty() {
+        format!(
+            "{} \u{2014} no account, running as you",
+            conversation.harness
         )
     } else {
-        (
-            format!("{HARNESS_GLYPH} {}", conversation.account),
-            format!(
-                "{} \u{b7} signed in as {} \u{2014} chosen once, when the agent was started",
-                conversation.harness, conversation.account
-            ),
+        format!(
+            "{} \u{b7} signed in as {} \u{2014} chosen once, when the agent was started",
+            conversation.harness, conversation.account
         )
     };
     // Whether this identity may spend past its plan is a fact about the account, so it hangs off
@@ -1821,7 +1840,14 @@ fn footer(
                 .h(px(22.))
                 .px_2()
                 .id(view.eid("identity"))
-                .child(mono(identity, theme::text()).text_size(px(11.)))
+                .child(
+                    Icon::new(mark)
+                        .with_size(Size::XSmall)
+                        .text_color(theme::text()),
+                )
+                .when(!conversation.account.is_empty(), |this| {
+                    this.child(mono(conversation.account.clone(), theme::text()).text_size(px(11.)))
+                })
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(identity_tip.clone()).build(window, cx)
                 }),

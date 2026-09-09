@@ -46,7 +46,7 @@ pub enum UbiqIcon {
     HarnessCopilotCli,
     /// Google's Gemini CLI
     HarnessGeminiCli,
-    /// xAI's Grok CLI — implemented in `harness/grok.rs`, never drawn anywhere
+    /// xAI's Grok CLI
     HarnessGrok,
     /// opencode — its frame, with the block at the foot standing in for the logo's shadow
     HarnessOpencode,

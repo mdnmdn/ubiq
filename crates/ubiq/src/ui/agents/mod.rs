@@ -68,7 +68,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         } else {
             "Every agent is on the bench. Pick one in the list to open a column."
         };
-        empty::empty_page("No columns", note, IconName::Asterisk, None).into_any_element()
+        empty::empty_page("No columns", note, kit::UbiqIcon::HarnessAny, None).into_any_element()
     } else {
         columns(app, window, cx)
     };

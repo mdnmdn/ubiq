@@ -51,7 +51,7 @@ categories:
       goal: Google's Antigravity
       keywords: [antigravity, agy, google]
     harness-grok:
-      goal: xAI's Grok CLI — implemented in `harness/grok.rs`, never drawn anywhere
+      goal: xAI's Grok CLI
       keywords: [grok, xai]
     harness-any:
       goal: a harness with no mark of its own — every one we have not drawn yet lands here
