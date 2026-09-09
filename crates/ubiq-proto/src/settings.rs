@@ -222,9 +222,9 @@ pub struct SavedRemoteHost {
     /// written before the scheme was captured.
     #[serde(default)]
     pub scheme: RemoteScheme,
-    /// Only meaningful for `https`: skip chain validation and pin the leaf's
-    /// SHA-256 fingerprint on first connect instead. Never silent — the panel
-    /// shows it as untrusted until confirmed.
+    /// Only meaningful for `https`: skip chain validation. The panel shows it as
+    /// untrusted. Auto-reconnect does not apply this flag, so a later MITM is not
+    /// accepted without a click.
     #[serde(default)]
     pub trust_insecure: bool,
 }

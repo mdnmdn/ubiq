@@ -669,31 +669,33 @@ impl HostEntry {
 /// Build the host dropdown's rows: `Local`, then every remote this window is attached to, then
 /// every saved host with no live connection of its own.
 ///
-/// **A saved host already attached is not listed twice.** A live remote is only ever known by the
-/// address it was dialled under — [`RemoteConn::label`] — so a saved row is folded into the
-/// attached one it matches by address rather than drawn again underneath it; the alternative,
-/// showing both, would let the same host answer to two rows with two different fates for a pick.
+/// **A saved host already attached is not listed twice.** Fold by [`LiveRemote::save_id`] when
+/// both sides have one, and by [`LiveRemote::address`] otherwise — never by [`LiveRemote::label`],
+/// which is the saved name on a manager connect. Showing both would let the same host answer to
+/// two rows with two different fates for a pick.
 ///
 /// `failed` is the set of addresses a reconnect attempt from this list most recently ended in
 /// [`RemoteConnectStep::Failed`](crate::state::remote::RemoteConnectStep::Failed) for — cleared the
 /// moment that address attaches, so a stale failure never outlives the connection that fixed it.
 pub fn host_menu_rows(
-    remotes: &[(HostId, String)],
+    remotes: &[LiveRemote],
     saved: &[SavedRemoteHost],
     failed: &HashSet<String>,
 ) -> Vec<(HostEntry, HostStatus)> {
     let mut rows = vec![(HostEntry::Local, HostStatus::Attached)];
-    rows.extend(remotes.iter().map(|(host, label)| {
+    rows.extend(remotes.iter().map(|remote| {
         (
             HostEntry::Remote {
-                host: *host,
-                label: label.clone(),
+                host: remote.id,
+                label: remote.label.clone(),
             },
             HostStatus::Attached,
         )
     }));
     for host in saved {
-        if remotes.iter().any(|(_, label)| *label == host.address) {
+        if remotes.iter().any(|remote| {
+            (!host.id.is_empty() && remote.save_id == host.id) || remote.address == host.address
+        }) {
             continue;
         }
         let status = if failed.contains(&host.address) {
@@ -906,6 +908,17 @@ mod tests {
         }
     }
 
+    fn attached_row(id: HostId, label: &str, save_id: &str, address: &str) -> LiveRemote {
+        LiveRemote {
+            id,
+            label: label.to_string(),
+            save_id: save_id.to_string(),
+            address: address.to_string(),
+            scheme: RemoteScheme::Http,
+            status: ConnStatus::Attached,
+        }
+    }
+
     /// With nothing attached and nothing saved, the dropdown is `Local` alone.
     #[test]
     fn with_nothing_else_the_list_is_local_alone() {
@@ -924,7 +937,7 @@ mod tests {
 
         let saved = vec![a_saved_host("build box", "build.internal:7420")];
         let rows = host_menu_rows(
-            &[(remote, "10.0.0.4:7420".to_string())],
+            &[attached_row(remote, "10.0.0.4:7420", "", "10.0.0.4:7420")],
             &saved,
             &HashSet::new(),
         );
@@ -963,8 +976,38 @@ mod tests {
 
         let saved = vec![a_saved_host("office desktop", "10.0.0.4:7420")];
         let rows = host_menu_rows(
-            &[(remote, "10.0.0.4:7420".to_string())],
+            &[attached_row(remote, "10.0.0.4:7420", "", "10.0.0.4:7420")],
             &saved,
+            &HashSet::new(),
+        );
+
+        assert_eq!(rows.len(), 2);
+        assert!(
+            !rows
+                .iter()
+                .any(|(entry, _)| matches!(entry, HostEntry::Saved { .. }))
+        );
+    }
+
+    /// A live connection labelled with the saved name still folds the saved row — folding
+    /// by label==address would have listed it twice.
+    #[test]
+    fn a_named_attached_host_is_not_listed_twice() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _) =
+            test_remote(&mut bus, ubiq_proto::bus::detached().0, "office desktop");
+
+        let mut saved = a_saved_host("office desktop", "10.0.0.4:7420");
+        saved.id = "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string();
+        let rows = host_menu_rows(
+            &[attached_row(
+                remote,
+                "office desktop",
+                "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "10.0.0.4:7420",
+            )],
+            &[saved],
             &HashSet::new(),
         );
 

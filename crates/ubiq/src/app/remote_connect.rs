@@ -24,7 +24,7 @@
 //! without asking the user again.
 
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -226,21 +226,27 @@ fn dial(address: &str, token: &str) -> Result<Client, ConnectFailure> {
 }
 
 fn dial_with(params: &DialParams) -> Result<Client, ConnectFailure> {
-    let (reader, writer) = dial_raw(params)?;
+    let session = dial_raw(params)?;
     let (client, detached) = bus::detached();
-    spawn_pump(reader, writer, detached);
+    spawn_pump(session.reader, session.writer, session.closer, detached);
     Ok(client)
 }
 
-/// One side of [`dial_raw`]'s answer: the reader and the writer with no pumps behind them.
-type RawStreams = (Box<dyn Socket>, Box<dyn Socket>);
+/// One side of [`dial_raw`]'s answer: the two stream halves plus a TCP clone used only to
+/// `shutdown` the kernel socket when the writer gives up.
+struct RawSession {
+    reader: Box<dyn Socket>,
+    writer: Box<dyn Socket>,
+    closer: TcpStream,
+}
 
 /// Dial and run the HTTP upgrade, handing back the two stream halves with no pumps behind them.
 ///
 /// What `dial_with` attaches to the bus, and what the test button drives by hand: one `Stats`
-/// poll down the writer, one frame off the reader, then dropped. Split out so the test path
-/// never registers a `Client` nobody would drain.
-fn dial_raw(params: &DialParams) -> Result<RawStreams, ConnectFailure> {
+/// poll down the writer, frames off the reader until `Stats` (skipping the unsolicited
+/// `HostInfo` greeting), then dropped. Split out so the test path never registers a `Client`
+/// nobody would drain.
+fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
     // Before the socket, not after: a request that must not be sent is one this never builds.
     if !is_typable(&params.address) {
         return Err(ConnectFailure::Untypable("address"));
@@ -287,13 +293,17 @@ fn dial_raw(params: &DialParams) -> Result<RawStreams, ConnectFailure> {
             stream
                 .set_read_timeout(None)
                 .map_err(|error| ConnectFailure::Io(error.to_string()))?;
+            let closer = stream
+                .try_clone()
+                .map_err(|error| ConnectFailure::Io(error.to_string()))?;
             let reader = stream
                 .try_clone()
                 .map_err(|error| ConnectFailure::Io(error.to_string()))?;
-            Ok((
-                Box::new(reader) as Box<dyn Socket>,
-                stream as Box<dyn Socket>,
-            ))
+            Ok(RawSession {
+                reader: Box::new(reader) as Box<dyn Socket>,
+                writer: stream as Box<dyn Socket>,
+                closer,
+            })
         }
         RemoteScheme::Https => {
             let mut pair = tls_handshake(stream, &params.address, params.trust_insecure)?;
@@ -310,8 +320,16 @@ fn dial_raw(params: &DialParams) -> Result<RawStreams, ConnectFailure> {
                 other => return Err(ConnectFailure::Refused(format!("host answered {other}"))),
             }
             let _ = pair.sock.set_read_timeout(None);
+            let closer = pair
+                .sock
+                .try_clone()
+                .map_err(|error| ConnectFailure::Io(error.to_string()))?;
             let shared = SharedTls(Arc::new(Mutex::new(pair)));
-            Ok((Box::new(shared.clone()), Box::new(shared)))
+            Ok(RawSession {
+                reader: Box::new(shared.clone()),
+                writer: Box::new(shared),
+                closer,
+            })
         }
     }
 }
@@ -527,6 +545,7 @@ impl rustls::client::danger::ServerCertVerifier for TrustAny {
 fn spawn_pump(
     reader_stream: Box<dyn Socket>,
     writer_stream: Box<dyn Socket>,
+    closer: TcpStream,
     detached: bus::Detached,
 ) {
     // Flume's `Sender`/`Receiver` clone by sharing the same queue, so the two threads below can
@@ -557,8 +576,10 @@ fn spawn_pump(
                     Err(flume::RecvTimeoutError::Disconnected) => break,
                 }
             }
-            // Dropping the half is the whole of closing it — for TLS there is no `shutdown`
-            // to call, and for TCP the peer reads EOF either way.
+            // Shutdown the kernel socket while a handle still exists. Dropping a TLS
+            // `SharedTls` or one TCP clone does not send EOF while the reader holds the
+            // other half, so the host would never see `Gone` and would not reap panes.
+            let _ = closer.shutdown(Shutdown::Both);
             drop(writer_stream);
         })
         .expect("the remote client's writer thread");
@@ -898,6 +919,15 @@ impl AppState {
             return;
         }
         self.workbench.settings.failed_hosts.insert(address.clone());
+        // TrustAny accepts any certificate. Auto-reconnect would re-apply that without a
+        // prompt, so a later MITM on this address would succeed. A click on Connect still
+        // can, because that is the user saying so again.
+        if self
+            .saved_entry(&key)
+            .is_some_and(|host| host.trust_insecure)
+        {
+            return;
+        }
         self.start_reconnect(&key, cx);
     }
 
@@ -1048,22 +1078,9 @@ impl AppState {
         let outcome = cx.background_spawn(async move {
             match dial_raw(&params) {
                 Err(failure) => format!("unreachable: {failure}"),
-                Ok((mut reader, mut writer)) => {
-                    if wire::write_frame(&mut writer, &Message::ListStats).is_err() {
-                        return "connected, but the host would not answer".to_string();
-                    }
-                    match wire::read_frame(&mut reader) {
-                        Ok(Message::Stats { stats }) => {
-                            format!(
-                                "reachable — {} session{}, {} agents live",
-                                stats.sessions_count,
-                                if stats.sessions_count == 1 { "" } else { "s" },
-                                stats.agents_live
-                            )
-                        }
-                        Ok(_) => "connected, but the host answered oddly".to_string(),
-                        Err(_) => "connected, but the host went quiet".to_string(),
-                    }
+                Ok(mut session) => {
+                    let _ = session.closer.set_read_timeout(Some(CONNECT_TIMEOUT));
+                    probe_stats(&mut session.reader, &mut session.writer)
                 }
             }
         });
@@ -1076,6 +1093,44 @@ impl AppState {
             });
         })
         .detach();
+    }
+}
+
+/// One `ListStats` poll: skip the unsolicited `HostInfo` greeting `Hub::connect` sends, then
+/// take the first `Stats`. Anything else, or a quiet socket, is a failed probe.
+fn probe_stats(reader: &mut Box<dyn Socket>, writer: &mut Box<dyn Socket>) -> String {
+    if wire::write_frame(writer, &Message::ListStats).is_err() {
+        return "connected, but the host would not answer".to_string();
+    }
+    loop {
+        match wire::read_frame(reader) {
+            Ok(message) => match classify_probe_frame(&message) {
+                ProbeFrame::Skip => continue,
+                ProbeFrame::Reachable(report) => return report,
+                ProbeFrame::Odd => return "connected, but the host answered oddly".to_string(),
+            },
+            Err(_) => return "connected, but the host went quiet".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum ProbeFrame {
+    Skip,
+    Reachable(String),
+    Odd,
+}
+
+fn classify_probe_frame(message: &Message) -> ProbeFrame {
+    match message {
+        Message::HostInfo { .. } => ProbeFrame::Skip,
+        Message::Stats { stats } => ProbeFrame::Reachable(format!(
+            "reachable — {} session{}, {} agents live",
+            stats.sessions_count,
+            if stats.sessions_count == 1 { "" } else { "s" },
+            stats.agents_live
+        )),
+        _ => ProbeFrame::Odd,
     }
 }
 
@@ -1123,5 +1178,35 @@ mod tests {
     fn a_status_line_with_no_recognisable_code_parses_to_none() {
         assert_eq!(parse_status_code("not a status line"), None);
         assert_eq!(parse_status_code(""), None);
+    }
+
+    #[test]
+    fn a_hostinfo_greeting_is_not_a_failed_probe() {
+        assert_eq!(
+            classify_probe_frame(&Message::HostInfo {
+                config_root: String::new(),
+                is_default: false,
+                hostname: None,
+                os: None,
+                arch: None,
+                triplet: None,
+                cpu_count: None,
+                mem_total_bytes: None,
+            }),
+            ProbeFrame::Skip
+        );
+        let stats = ubiq_proto::stats::HostStats {
+            sessions_count: 1,
+            agents_live: 2,
+            ..ubiq_proto::stats::HostStats::default()
+        };
+        assert_eq!(
+            classify_probe_frame(&Message::Stats { stats }),
+            ProbeFrame::Reachable("reachable — 1 session, 2 agents live".to_string())
+        );
+        assert_eq!(
+            classify_probe_frame(&Message::ListProjects),
+            ProbeFrame::Odd
+        );
     }
 }

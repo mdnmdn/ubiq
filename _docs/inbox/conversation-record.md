@@ -12,7 +12,7 @@ depends_on: [backlog, tech-agent-manager, tech-architecture, tech-transport, fea
 # Proposal — one conversation record, four features
 
 Four capabilities read as separate features and are the same one. **Restart survival** (`G97`),
-**reattachment** from a window that did not start the conversation (`G190`), **fork** — a new agent
+**reattachment** from a window that did not start the conversation (`G208`), **fork** — a new agent
 seeded from an existing one's conversation — and **teleport**, moving a conversation to a host on
 another machine. Each is a replay of a conversation into a harness; they differ only in which
 `AgentId` receives it and on which host.
@@ -49,7 +49,7 @@ forwards each update. Every one of the four is then that record replayed:
 | Feature | The record, replayed into |
 |---|---|
 | Restart survival (`G97`, `G120`) | a fresh harness under the same `AgentId` |
-| Reattachment (`G190`) | a second window viewing the same `AgentId` |
+| Reattachment (`G208`) | a second window viewing the same `AgentId` |
 | Fork | a new `AgentId`, the source untouched |
 | Teleport | a new `AgentId` on another host |
 
@@ -186,7 +186,7 @@ Dependency order, and the first three touch no harness code.
 
 ## Related docs
 
-- [`backlog.md`](../backlog.md) — `G97`, `G116`, `G120`, `G164`, `G183`, `G190`, `G96`, `Q10`
+- [`backlog.md`](../backlog.md) — `G97`, `G116`, `G120`, `G164`, `G183`, `G208`, `G96`, `Q10`
 - [`tech/agent-manager.md`](../tech/agent-manager.md) — where a run's record is kept, and the
   library's session against Ubiq's
 - [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — unload against

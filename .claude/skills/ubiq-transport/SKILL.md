@@ -28,7 +28,7 @@ log.rs       the sink
 | Touching the listener, the dialer, `--serve`, or a saved host | `_docs/tech/architecture.md` ("Why the split is drawn before it is needed"), `_docs/tech/operations.md` |
 | Adding a log event or a subsystem | `_docs/features/logs.md` |
 | Arguing with a rule here | `_docs/tech/decisions.md` — `D24`, `D27`, `D28`, `D32`, `D53`, `D79`–`D82`, `D85` |
-| Wondering what is still missing | `_docs/backlog.md` — `G168` (no TLS), `G169` (saved hosts), `G188` (per-host menus), `G190` (no reconnect) |
+| Wondering what is still missing | `_docs/backlog.md` — `G168` (no TLS), `G169` (saved hosts), `G188` (per-host menus), `G189` (no keepalive) |
 
 Your change updates the documents it touched in the same commit. `just docs-touched` names them.
 

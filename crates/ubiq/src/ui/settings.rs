@@ -2409,7 +2409,7 @@ fn connectors(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// manage what is remembered.
 fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
-    let remotes = app.remote_hosts();
+    let remotes = app.live_remotes();
     let saved = app.workbench.settings.host.remote_hosts.clone();
     let rows = host_menu_rows(&remotes, &saved, &app.workbench.settings.failed_hosts);
     let items: Vec<String> = rows
@@ -2485,14 +2485,13 @@ fn hosts_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 None
             })
             .children(saved.iter().map(|host| {
-                // A live connection is labelled with the saved name when it was reconnected from
-                // here and with the address when it was dialled fresh, so a row matches on
-                // either — see `AppState::address_of_host`, which reads the same pairing back the
-                // other way round.
                 let attached = remotes
                     .iter()
-                    .find(|(_, label)| *label == host.name || *label == host.address)
-                    .map(|(id, _)| *id);
+                    .find(|remote| {
+                        (!host.id.is_empty() && remote.save_id == host.id)
+                            || remote.address == host.address
+                    })
+                    .map(|remote| remote.id);
                 let key = crate::app::host_secrets::key_for(&host.id, &host.address);
                 let reconnecting = app.workbench.settings.reconnects.contains_key(&key);
                 host_row(

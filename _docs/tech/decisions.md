@@ -1501,8 +1501,9 @@ to close, so a lost host leaves nothing of itself behind on either list.
 host was never recorded (`Bus::note_project` missed at the one place it is first announced) is
 either erased by the next host's answer or kept forever by every one of them. And a loss is
 destructive by design: a connection that drops for a second takes the window's remote panes with it,
-because there is no reconnect and nothing on the host side outlives the socket — `G189` and `G190`
-are what would make a blip survivable.
+because nothing on the host side outlives the socket — a reconnect re-registers under a new `HostId`
+and re-asks `ListProjects`, and `G189` (no keepalive) is what would notice a half-open socket
+before the next frame.
 
 ### D86 — An API provider's key lives in the OS keychain, and its record is the host's to write
 

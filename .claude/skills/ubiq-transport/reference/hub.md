@@ -273,8 +273,9 @@ close resolves to the absent host and is dropped, where forgetting it first woul
 
 `host_menu_rows(remotes, saved, failed)` builds the dropdown: `Local`, then live remotes, then
 saved hosts with nothing live behind them. **A saved host already attached is not listed twice** —
-folded into the attached row by address, because showing both would let one host answer to two
-rows with two different fates for a pick. `HostStatus` is `Attached` / `NotAttached` / `Failed`.
+folded into the attached row by `save_id` (and by address when ids are empty), because showing
+both would let one host answer to two rows with two different fates for a pick. `HostStatus` is
+`Attached` / `NotAttached` / `Failed`.
 
 ## `crates/ubiq/src/app/wire.rs` — the UI's dispatch
 
@@ -292,9 +293,10 @@ is offered it. The fall-through logs *"the window was sent a message only it may
 `disconnect_host(id, cx)` is one method for both ways a host is lost — the socket ending under
 `route_host`, and the Hosts section's Disconnect button. It closes every pane the host was running
 **before** anything about them is forgotten, then drops the connection, which tells the far side
-over `FromClient::Gone` that this window is no longer attached. It answers with the label. There
-is no reconnect (`G190`): the host reaps a pane when the client attaching it goes, so there is
-nothing to reattach to.
+over `FromClient::Gone` that this window is no longer attached. It answers with the label. A
+saved host then starts an unattended reconnect that re-registers under a new `HostId` and
+re-asks `ListProjects`; the host still reaps panes on `Gone`, so there is nothing to reattach
+those harnesses to.
 
 ### Catalogue merging
 

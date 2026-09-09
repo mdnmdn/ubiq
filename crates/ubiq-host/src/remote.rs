@@ -21,7 +21,7 @@
 //! host was started with `--tls-cert`/`--tls-key`, and `http` otherwise.
 
 use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -277,12 +277,19 @@ fn handle_accepted(
                 Ok(clone) => clone,
                 Err(_) => return,
             };
+            // A clone kept only so the writer can `shutdown` the kernel socket. Dropping one
+            // half does not send EOF while the reader still holds the other.
+            let closer = match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => return,
+            };
             handle_connection(
                 Box::new(reader),
                 Box::new(stream),
                 Box::new(move || {
                     let _ = clearer.set_read_timeout(None);
                 }),
+                closer,
                 hub,
                 &token,
             );
@@ -298,6 +305,10 @@ fn handle_accepted(
                     return;
                 }
             }
+            let closer = match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => return,
+            };
             let shared = SharedTls(Arc::new(Mutex::new(TlsPair { conn, sock: stream })));
             let clearer = shared.clone();
             handle_connection(
@@ -308,6 +319,7 @@ fn handle_accepted(
                         let _ = pair.sock.set_read_timeout(None);
                     }
                 }),
+                closer,
                 hub,
                 &token,
             );
@@ -324,6 +336,7 @@ fn handle_connection(
     mut reader: Box<dyn Socket>,
     mut writer: Box<dyn Socket>,
     on_upgrade: Box<dyn FnOnce() + Send>,
+    closer: TcpStream,
     hub: Hub,
     token: &str,
 ) {
@@ -344,7 +357,7 @@ fn handle_connection(
             // The deadline was the handshake's, not the session's: a client that says nothing for
             // an hour is an idle window, not a stalled peer.
             on_upgrade();
-            pump(reader, writer, hub);
+            pump(reader, writer, closer, hub);
         }
         Request::Root => {
             let _ = write_response(
@@ -503,7 +516,7 @@ const STOP_POLL: Duration = Duration::from_millis(200);
 /// writer's side would not notice the reader giving up (the coordinator has no reason to stop
 /// answering just because the socket died), so the writer polls `from_host` instead and checks
 /// `stopped`, which the reader sets on its way out.
-fn pump(reader: Box<dyn Socket>, writer: Box<dyn Socket>, hub: Hub) {
+fn pump(reader: Box<dyn Socket>, writer: Box<dyn Socket>, closer: TcpStream, hub: Hub) {
     let client = Arc::new(hub.connect());
     let stopped = Arc::new(AtomicBool::new(false));
 
@@ -530,8 +543,10 @@ fn pump(reader: Box<dyn Socket>, writer: Box<dyn Socket>, hub: Hub) {
                     Err(flume::RecvTimeoutError::Disconnected) => break,
                 }
             }
-            // Dropping the half is the whole of closing it — for TLS there is no `shutdown`
-            // to call, and for TCP the peer reads EOF either way.
+            // Shutdown the kernel socket while a handle still exists. Dropping a TLS
+            // `SharedTls` or one TCP clone does not send EOF while the reader holds the
+            // other half, so the host would never see `Gone` and would not reap panes.
+            let _ = closer.shutdown(Shutdown::Both);
             drop(writer_stream);
             drop(writer_client);
         })
