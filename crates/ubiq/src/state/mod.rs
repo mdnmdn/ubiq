@@ -8,6 +8,7 @@
 //! naming them at each use site is what keeps the dependency direction visible: a re-export would
 //! let `ui/` draw the domain without ever mentioning the contract it came across.
 
+pub mod a2ui;
 pub mod agents;
 pub mod board;
 pub mod chat;

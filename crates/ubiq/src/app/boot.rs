@@ -146,6 +146,27 @@ impl AppState {
             })
             .collect();
 
+        // The A2UI page's payload starts on the first example and is written over by the picker.
+        let a2ui_buffer = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(ui::editor::highlighter_language(
+                    crate::state::editor::FileLanguage::Json,
+                ))
+                .line_number(true)
+                .folding(true)
+                .show_whitespaces(false)
+                .tab_size(TabSize {
+                    tab_size: 2,
+                    ..Default::default()
+                })
+                .default_value(
+                    crate::state::a2ui::EXAMPLES
+                        .first()
+                        .map(|example| example.source)
+                        .unwrap_or_default(),
+                )
+        });
+
         let sink_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("a field, with nothing behind it")
@@ -938,6 +959,7 @@ impl AppState {
             project_exclude_input,
             project_path_input,
             sink_buffers,
+            a2ui_buffer,
             sink_input,
             sink_textarea,
             sink_modal_input,

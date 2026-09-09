@@ -1,0 +1,242 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "kitchen_sink",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "components": [
+      {
+        "id": "root",
+        "component": "Column",
+        "children": [
+          "header",
+          "media_row",
+          "listCard",
+          "tabsBlock",
+          "formCol",
+          "submitBtn"
+        ]
+      },
+      {
+        "id": "header",
+        "component": "Row",
+        "children": [
+          "icon1",
+          "titleText"
+        ],
+        "align": "center"
+      },
+      {
+        "id": "icon1",
+        "component": "Icon",
+        "name": "star"
+      },
+      {
+        "id": "titleText",
+        "component": "Text",
+        "text": "Kitchen Sink Demo"
+      },
+      {
+        "id": "media_row",
+        "component": "Row",
+        "children": [
+          "img1",
+          "vid1",
+          "aud1"
+        ]
+      },
+      {
+        "id": "img1",
+        "component": "Image",
+        "url": "https://picsum.photos/200",
+        "variant": "smallFeature"
+      },
+      {
+        "id": "vid1",
+        "component": "Video",
+        "url": "https://example.com/clip.mp4",
+        "posterUrl": "https://example.com/clip.png"
+      },
+      {
+        "id": "aud1",
+        "component": "AudioPlayer",
+        "url": "https://example.com/track.mp3",
+        "description": "Theme song"
+      },
+      {
+        "id": "listCard",
+        "component": "Card",
+        "child": "itemList"
+      },
+      {
+        "id": "itemList",
+        "component": "List",
+        "children": {
+          "path": "/items",
+          "componentId": "item_tpl"
+        }
+      },
+      {
+        "id": "item_tpl",
+        "component": "Text",
+        "text": {
+          "path": "name"
+        }
+      },
+      {
+        "id": "tabsBlock",
+        "component": "Tabs",
+        "tabs": [
+          {
+            "title": "Extra",
+            "child": "modal1"
+          }
+        ]
+      },
+      {
+        "id": "modal1",
+        "component": "Modal",
+        "trigger": "openIconBtn",
+        "content": "modalCol"
+      },
+      {
+        "id": "openIconBtn",
+        "component": "Button",
+        "child": "openIcon",
+        "action": {
+          "event": {
+            "name": "openModal"
+          }
+        }
+      },
+      {
+        "id": "openIcon",
+        "component": "Icon",
+        "name": "add"
+      },
+      {
+        "id": "modalCol",
+        "component": "Column",
+        "children": [
+          "divider1",
+          "closeIconBtn"
+        ]
+      },
+      {
+        "id": "divider1",
+        "component": "Divider"
+      },
+      {
+        "id": "closeIconBtn",
+        "component": "Button",
+        "child": "closeIcon",
+        "action": {
+          "event": {
+            "name": "closeModal"
+          }
+        }
+      },
+      {
+        "id": "closeIcon",
+        "component": "Icon",
+        "name": "close"
+      },
+      {
+        "id": "formCol",
+        "component": "Column",
+        "children": [
+          "nameField",
+          "agreeBox",
+          "choicePick",
+          "ratingSlider",
+          "dateInput"
+        ]
+      },
+      {
+        "id": "nameField",
+        "component": "TextField",
+        "label": "Name",
+        "value": {
+          "path": "/profile/name"
+        }
+      },
+      {
+        "id": "agreeBox",
+        "component": "CheckBox",
+        "label": "Agree to terms",
+        "value": {
+          "path": "/profile/agreed"
+        }
+      },
+      {
+        "id": "choicePick",
+        "component": "ChoicePicker",
+        "label": "Favorite color",
+        "options": [
+          {
+            "label": "Red",
+            "value": "red"
+          },
+          {
+            "label": "Blue",
+            "value": "blue"
+          }
+        ],
+        "value": {
+          "path": "/profile/color"
+        }
+      },
+      {
+        "id": "ratingSlider",
+        "component": "Slider",
+        "label": "Rating",
+        "min": 0,
+        "max": 10,
+        "value": {
+          "path": "/profile/rating"
+        }
+      },
+      {
+        "id": "dateInput",
+        "component": "DateTimeInput",
+        "label": "Birthday",
+        "enableDate": true,
+        "value": {
+          "path": "/profile/date"
+        }
+      },
+      {
+        "id": "submitBtn",
+        "component": "Button",
+        "child": "submitIcon",
+        "variant": "primary",
+        "action": {
+          "event": {
+            "name": "submit"
+          }
+        }
+      },
+      {
+        "id": "submitIcon",
+        "component": "Icon",
+        "name": "check"
+      }
+    ],
+    "dataModel": {
+      "items": [
+        {
+          "name": "First item"
+        },
+        {
+          "name": "Second item"
+        }
+      ],
+      "profile": {
+        "name": "",
+        "agreed": false,
+        "color": "",
+        "rating": 5,
+        "date": ""
+      }
+    }
+  }
+}

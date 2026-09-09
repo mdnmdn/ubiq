@@ -174,7 +174,14 @@ crates/ubiq/src/
 │   ├── image_edit.rs
 │   ├── remote.rs
 │   ├── notifications.rs
-│   └── new_agent.rs
+│   ├── new_agent.rs
+│   ├── a2ui/
+│   │   ├── checkable-inputs.json
+│   │   ├── contact-form.json
+│   │   ├── icons-and-text.json
+│   │   ├── kitchen-sink.json
+│   │   └── tabs-icons-buttons.json
+│   └── a2ui.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -226,7 +233,8 @@ crates/ubiq/src/
 │   │   ├── files.rs
 │   │   ├── project.rs
 │   │   ├── settings.rs
-│   │   └── messages.rs
+│   │   ├── messages.rs
+│   │   └── a2ui.rs
 │   ├── file_picker.rs
 │   ├── file_tab_menu.rs
 │   ├── orchestration/
@@ -261,7 +269,8 @@ crates/ubiq/src/
 │   ├── stats.rs
 │   ├── remote_connect.rs
 │   ├── notifications.rs
-│   └── new_agent.rs
+│   ├── new_agent.rs
+│   └── a2ui.rs
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -433,10 +442,12 @@ the documents in its row.
 | `crates/ubiq/src/app/remote_connect.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/shell.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/app/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/wire.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/stats.md`](../features/stats.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/state/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/board.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
@@ -477,6 +488,7 @@ the documents in its row.
 | `crates/ubiq/src/state/work.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/workbench.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/column.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/mod.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/sidebar.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -522,6 +534,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/ribbon.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq/src/ui/shell.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/sink/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/docs.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/files.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -543,6 +556,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/work.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/version.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/web_export/mod.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq/tests/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/agents.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/board.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/bookmarks.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -600,7 +614,6 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq/src/app/board.rs` |
 | `crates/ubiq/src/app/editor.rs` |
 | `crates/ubiq/src/app/explorer.rs` |
-| `crates/ubiq/src/app/sink.rs` |
 | `crates/ubiq/src/state/explorer/filter.rs` |
 | `crates/ubiq/src/state/explorer/keys.rs` |
 | `crates/ubiq/src/state/explorer/menu.rs` |

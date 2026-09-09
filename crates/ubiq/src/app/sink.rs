@@ -161,6 +161,12 @@ impl AppState {
         self.sink_buffers.get(key)
     }
 
+    /// The A2UI page's payload buffer. An `Option` for the same reason [`Self::sink_buffer`] is:
+    /// the page can be asked to draw in the frame before the window's buffers exist.
+    pub fn a2ui_buffer_state(&self) -> Option<&Entity<EditorState>> {
+        Some(&self.a2ui_buffer)
+    }
+
     pub fn toggle_sink_facet(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(facet) = self.sink.facets.get_mut(index) {
             *facet = !*facet;
@@ -193,6 +199,43 @@ impl AppState {
     pub fn pick_sink_menu(&mut self, index: usize, cx: &mut Context<Self>) {
         self.sink.picked = index;
         self.workbench.open_menu = None;
+        cx.notify();
+    }
+
+    /// The A2UI page's example picker. Choosing one replaces the editor's text, which is the only
+    /// place the drawn surface comes from — so the preview follows without anything caching it.
+    ///
+    /// The navigation inside the old surface goes with it: a tab index and a disclosed modal are
+    /// both keyed by a component id, and an id from the payload being replaced means nothing in
+    /// the one arriving.
+    pub fn pick_a2ui_example(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(example) = crate::state::a2ui::EXAMPLES.get(index) else {
+            return;
+        };
+        self.sink.a2ui.example = index;
+        self.sink.a2ui.tabs.clear();
+        self.sink.a2ui.modal = None;
+        self.workbench.open_menu = None;
+        self.a2ui_buffer
+            .update(cx, |state, cx| state.set_value(example.source, window, cx));
+        cx.notify();
+    }
+
+    /// Bring one tab of a drawn `Tabs` forward. Navigation inside the preview, not a value: it
+    /// writes nothing back into the payload.
+    pub fn select_a2ui_tab(&mut self, id: String, index: usize, cx: &mut Context<Self>) {
+        self.sink.a2ui.tabs.insert(id, index);
+        cx.notify();
+    }
+
+    /// Disclose a drawn `Modal`'s content, or fold the open one away. Only one is open at a time,
+    /// the same rule the window's own overlays follow.
+    pub fn toggle_a2ui_modal(&mut self, id: String, cx: &mut Context<Self>) {
+        self.sink.a2ui.modal = if self.sink.a2ui.modal.as_deref() == Some(id.as_str()) {
+            None
+        } else {
+            Some(id)
+        };
         cx.notify();
     }
 

@@ -1,0 +1,78 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "tabs_demo",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "components": [
+      {
+        "id": "root",
+        "component": "Tabs",
+        "tabs": [
+          {
+            "title": "Profile",
+            "child": "profile_tab"
+          },
+          {
+            "title": "Settings",
+            "child": "settings_tab"
+          }
+        ]
+      },
+      {
+        "id": "profile_tab",
+        "component": "Column",
+        "children": [
+          "profile_icon",
+          "profile_text"
+        ]
+      },
+      {
+        "id": "profile_icon",
+        "component": "Icon",
+        "name": "accountCircle"
+      },
+      {
+        "id": "profile_text",
+        "component": "Text",
+        "text": {
+          "path": "/tabInfo/message"
+        }
+      },
+      {
+        "id": "settings_tab",
+        "component": "Column",
+        "children": [
+          "settings_icon",
+          "save_button"
+        ]
+      },
+      {
+        "id": "settings_icon",
+        "component": "Icon",
+        "name": "settings"
+      },
+      {
+        "id": "save_button",
+        "component": "Button",
+        "child": "save_label",
+        "variant": "primary",
+        "action": {
+          "event": {
+            "name": "submit_deal",
+            "userMessage": "Saved deal"
+          }
+        }
+      },
+      {
+        "id": "save_label",
+        "component": "Text",
+        "text": "Save"
+      }
+    ],
+    "dataModel": {
+      "tabInfo": {
+        "message": "Welcome to your profile"
+      }
+    }
+  }
+}

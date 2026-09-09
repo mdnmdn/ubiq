@@ -638,6 +638,11 @@ pub struct AppState {
     /// them back — so their buffers sit here beside the window's other component-library state
     /// instead of on an `OpenFile`.
     sink_buffers: HashMap<&'static str, Entity<EditorState>>,
+    /// The A2UI page's payload. One buffer rather than one per example, because the page draws
+    /// whatever is in it — picking an example writes into this, and typing over the result is the
+    /// point of the page. It is also the surface's only source: nothing caches the parse, so the
+    /// preview cannot disagree with the text it came from.
+    pub a2ui_buffer: Entity<EditorState>,
     /// The style reference's two fields, and the one its form modal carries. Three rather than one,
     /// because the modal can be raised while the fields page is on screen and one state drawn twice
     /// is one field in two places.

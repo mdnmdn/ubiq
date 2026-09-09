@@ -1,0 +1,145 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "contact_form_1",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "components": [
+      {
+        "id": "root",
+        "component": "Card",
+        "child": "form_container"
+      },
+      {
+        "id": "form_container",
+        "component": "Column",
+        "children": [
+          "header_row",
+          "email_group",
+          "pref_group",
+          "divider_1",
+          "newsletter_checkbox",
+          "submit_button"
+        ]
+      },
+      {
+        "id": "header_row",
+        "component": "Row",
+        "children": [
+          "header_icon",
+          "header_text"
+        ],
+        "align": "center"
+      },
+      {
+        "id": "header_icon",
+        "component": "Icon",
+        "name": "mail"
+      },
+      {
+        "id": "header_text",
+        "component": "Text",
+        "text": "# Contact Us"
+      },
+      {
+        "id": "email_group",
+        "component": "Column",
+        "children": [
+          "email_label",
+          "email_field"
+        ]
+      },
+      {
+        "id": "email_label",
+        "component": "Text",
+        "text": "Email Address",
+        "variant": "caption"
+      },
+      {
+        "id": "email_field",
+        "component": "TextField",
+        "label": "Email",
+        "value": {
+          "path": "/contact/email"
+        },
+        "variant": "shortText"
+      },
+      {
+        "id": "pref_group",
+        "component": "Column",
+        "children": [
+          "pref_label",
+          "pref_picker"
+        ]
+      },
+      {
+        "id": "pref_label",
+        "component": "Text",
+        "text": "Preferred Contact Method",
+        "variant": "caption"
+      },
+      {
+        "id": "pref_picker",
+        "component": "ChoicePicker",
+        "variant": "mutuallyExclusive",
+        "options": [
+          {
+            "label": "Email",
+            "value": "email"
+          },
+          {
+            "label": "Phone",
+            "value": "phone"
+          },
+          {
+            "label": "SMS",
+            "value": "sms"
+          }
+        ],
+        "value": {
+          "path": "/contact/preference"
+        }
+      },
+      {
+        "id": "divider_1",
+        "component": "Divider",
+        "axis": "horizontal"
+      },
+      {
+        "id": "newsletter_checkbox",
+        "component": "CheckBox",
+        "label": "Subscribe to our newsletter",
+        "value": {
+          "path": "/contact/subscribe"
+        }
+      },
+      {
+        "id": "submit_button_label",
+        "component": "Text",
+        "text": "Send Message"
+      },
+      {
+        "id": "submit_button",
+        "component": "Button",
+        "child": "submit_button_label",
+        "variant": "primary",
+        "action": {
+          "event": {
+            "name": "submitContactForm",
+            "context": {
+              "formId": "contact_form_1"
+            }
+          }
+        }
+      }
+    ],
+    "dataModel": {
+      "contact": {
+        "email": "john.doe@example.com",
+        "preference": [
+          "email"
+        ],
+        "subscribe": true
+      }
+    }
+  }
+}

@@ -149,6 +149,8 @@ pub enum MenuId {
     /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
     /// looked at, and one menu in the window has to be openable with no project behind it.
     SinkPicker,
+    /// The A2UI page's example picker: which surface the preview draws.
+    SinkA2ui,
     /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
     SinkSettings,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.

@@ -41,10 +41,11 @@ pub enum SinkSection {
     Settings,
     Project,
     Messages,
+    A2ui,
 }
 
 impl SinkSection {
-    /// The nine, in the order the strip draws them.
+    /// The ten, in the order the strip draws them.
     pub fn all() -> &'static [SinkSection] {
         &[
             SinkSection::Editor,
@@ -56,6 +57,7 @@ impl SinkSection {
             SinkSection::Settings,
             SinkSection::Project,
             SinkSection::Messages,
+            SinkSection::A2ui,
         ]
     }
 
@@ -76,7 +78,7 @@ impl SinkSection {
 }
 
 /// The tab and the line under the title, one row per [`SinkSection`], in variant order.
-const SECTION_COPY: [(&str, &str); 9] = [
+const SECTION_COPY: [(&str, &str); 10] = [
     (
         "Editor",
         "The plain buffer: highlighting, line numbers, folding.",
@@ -109,6 +111,10 @@ const SECTION_COPY: [(&str, &str); 9] = [
     (
         "Messages",
         "One live conversation, beside the bus traffic behind it.",
+    ),
+    (
+        "A2UI",
+        "A surface an agent could send, drawn from the JSON beside it.",
     ),
 ];
 
@@ -832,6 +838,23 @@ pub fn picker_tree() -> Vec<PickerNode> {
 /// which modal is up, and the state the style reference's own controls carry.
 ///
 /// The demo fields are here rather than in the drawing code for the reason every other screen's
+/// The A2UI page: the example on show, and the navigation inside the surface it draws.
+///
+/// A drawn surface holds no value of its own — a text field, a checkbox and a slider all read
+/// straight from the payload — so the only state a preview needs is where the reader has navigated
+/// to: which tab of a `Tabs` is forward, and which `Modal` is disclosed. Both are keyed by
+/// component id, and both are cleared when the example changes, because an id from one payload
+/// means nothing in the next.
+#[derive(Default)]
+pub struct A2uiDemo {
+    /// Which example of [`crate::state::a2ui::EXAMPLES`] the picker last chose.
+    pub example: usize,
+    /// The tab forward in each `Tabs`, by component id. Absent means the first.
+    pub tabs: HashMap<String, usize>,
+    /// The `Modal` whose content is disclosed, if any.
+    pub modal: Option<String>,
+}
+
 /// are: a control that cannot hold a value is not being tested, and a value read out of the
 /// element tree is not state.
 pub struct SinkState {
@@ -860,6 +883,10 @@ pub struct SinkState {
     /// The messages page: which conversation is on the left, and what the tape on the right is
     /// showing.
     pub messages: MessagesDemo,
+    /// The A2UI page: which example the picker last chose, and the two pieces of navigation a
+    /// drawn surface owns. Neither is a value — the surface's own inputs are inert, because
+    /// nothing here holds a data model to write one back into.
+    pub a2ui: A2uiDemo,
 }
 
 impl Default for SinkState {
@@ -878,6 +905,7 @@ impl Default for SinkState {
             settings: SettingsDemo::default(),
             project: ProjectDemo::default(),
             messages: MessagesDemo::default(),
+            a2ui: A2uiDemo::default(),
         }
     }
 }

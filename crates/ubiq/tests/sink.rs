@@ -56,13 +56,14 @@ fn every_page_holds_a_document_or_is_one_of_the_drawn_pages() {
             | SinkSection::Files
             | SinkSection::Settings
             | SinkSection::Project
-            | SinkSection::Messages => {
+            | SinkSection::Messages
+            | SinkSection::A2ui => {
                 assert!(section.doc().is_none(), "{section:?} holds a document")
             }
             _ => assert!(section.doc().is_some(), "{section:?} holds nothing"),
         }
     }
-    assert_eq!(SinkSection::all().len(), 9);
+    assert_eq!(SinkSection::all().len(), 10);
 }
 
 /// The page and its viewer cannot disagree, because neither is written down twice: the document's

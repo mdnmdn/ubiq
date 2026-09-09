@@ -1,0 +1,161 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "checkable_demo",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "components": [
+      {
+        "id": "root",
+        "component": "Column",
+        "children": [
+          "tf1",
+          "cp1",
+          "sl1",
+          "cb1",
+          "dt1"
+        ]
+      },
+      {
+        "id": "tf1",
+        "component": "TextField",
+        "label": "Email",
+        "value": {
+          "path": "/formData/email"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "required",
+              "args": {
+                "value": {
+                  "path": "/formData/email"
+                }
+              }
+            },
+            "message": "Email is required"
+          },
+          {
+            "condition": {
+              "call": "email",
+              "args": {
+                "value": {
+                  "path": "/formData/email"
+                }
+              }
+            },
+            "message": "Must be valid email"
+          }
+        ]
+      },
+      {
+        "id": "cp1",
+        "component": "ChoicePicker",
+        "label": "Interests",
+        "variant": "multipleSelection",
+        "options": [
+          {
+            "label": "Code",
+            "value": "code"
+          },
+          {
+            "label": "Design",
+            "value": "design"
+          }
+        ],
+        "value": {
+          "path": "/formData/interests"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "length",
+              "args": {
+                "value": {
+                  "path": "/formData/interests"
+                },
+                "min": 1
+              }
+            },
+            "message": "Select at least one"
+          }
+        ]
+      },
+      {
+        "id": "sl1",
+        "component": "Slider",
+        "label": "Rating",
+        "min": 1,
+        "max": 5,
+        "value": {
+          "path": "/formData/rating"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "numeric",
+              "args": {
+                "value": {
+                  "path": "/formData/rating"
+                },
+                "min": 3
+              }
+            },
+            "message": "Rating must be > 3"
+          }
+        ]
+      },
+      {
+        "id": "cb1",
+        "component": "CheckBox",
+        "label": "I agree",
+        "value": {
+          "path": "/formData/agreed"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "required",
+              "args": {
+                "value": {
+                  "path": "/formData/agreed"
+                }
+              }
+            },
+            "message": "Must agree"
+          }
+        ]
+      },
+      {
+        "id": "dt1",
+        "component": "DateTimeInput",
+        "label": "Date",
+        "enableDate": true,
+        "value": {
+          "path": "/formData/date"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "required",
+              "args": {
+                "value": {
+                  "path": "/formData/date"
+                }
+              }
+            },
+            "message": "Date required"
+          }
+        ]
+      }
+    ],
+    "dataModel": {
+      "formData": {
+        "email": "",
+        "interests": [],
+        "rating": 3,
+        "agreed": false,
+        "date": ""
+      }
+    }
+  }
+}

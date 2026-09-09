@@ -1,0 +1,49 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "icons_text_demo",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "components": [
+      {
+        "id": "root",
+        "component": "Row",
+        "children": [
+          "icon_std",
+          "icon_custom",
+          "icon_bound",
+          "caption_text"
+        ]
+      },
+      {
+        "id": "icon_std",
+        "component": "Icon",
+        "name": "star"
+      },
+      {
+        "id": "icon_custom",
+        "component": "Icon",
+        "name": {
+          "svgPath": "M10 10 H 90 V 90 H 10 Z"
+        }
+      },
+      {
+        "id": "icon_bound",
+        "component": "Icon",
+        "name": {
+          "path": "/dynamic/iconName"
+        }
+      },
+      {
+        "id": "caption_text",
+        "component": "Text",
+        "text": "Caption text",
+        "variant": "caption"
+      }
+    ],
+    "dataModel": {
+      "dynamic": {
+        "iconName": "favorite"
+      }
+    }
+  }
+}

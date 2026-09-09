@@ -15,6 +15,7 @@
 //! the screen's and not a section's: exactly one may be up, and where it is asked for is not where
 //! it is painted.
 
+pub mod a2ui;
 pub mod docs;
 pub mod files;
 pub mod messages;
@@ -77,6 +78,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             SinkSection::Settings => settings::render(app, window, cx),
             SinkSection::Project => project::render(app, window, cx),
             SinkSection::Messages => messages::render(app, window, cx),
+            SinkSection::A2ui => a2ui::render(app, window, cx),
             // Every other page is one document, drawn by the viewer its name implies.
             other => match other.doc() {
                 Some(doc) => docs::render(app, doc, cx),
