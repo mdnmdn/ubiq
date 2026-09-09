@@ -93,6 +93,7 @@ pub(super) fn cmd_login(
             ephemeral: false, // persistent home — never auto-deleted
             // A capture writes the login; there is nothing seeded to harvest back.
             login_origin: None,
+            resume: None,
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };

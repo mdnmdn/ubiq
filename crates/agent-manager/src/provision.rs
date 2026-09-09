@@ -36,6 +36,11 @@ pub struct Provisioned {
     /// before `dir` is discarded. `None` when nothing was seeded (no login, or
     /// a profile overlay placed it and there is no single origin to name).
     pub login_origin: Option<Source>,
+    /// The conversation id this run resumes, when it resumes one — copied from
+    /// [`crate::spec::RunSpec::resume`]. Most harnesses put a resume in argv and
+    /// never read this; an ACP harness resumes over the wire (`session/load`), so
+    /// its bridge needs the id after provisioning has already happened.
+    pub resume: Option<String>,
     /// In-process MCP servers started for this run. Kept alive for the
     /// run's lifetime; dropping a `Provisioned` shuts them down. Only
     /// present when the `inproc-mcp` feature is enabled.
@@ -51,6 +56,7 @@ impl Clone for Provisioned {
             launch: self.launch.clone(),
             ephemeral: self.ephemeral,
             login_origin: self.login_origin.clone(),
+            resume: self.resume.clone(),
         }
     }
 }
@@ -98,6 +104,7 @@ pub fn provision(
             launch,
             ephemeral,
             login_origin,
+            resume: spec.resume.clone(),
             inproc_servers,
         })
     }
@@ -115,6 +122,7 @@ pub fn provision(
             launch,
             ephemeral,
             login_origin,
+            resume: spec.resume.clone(),
         })
     }
 }
@@ -292,6 +300,7 @@ impl Harness for AmbientDummyHarness {
             passthrough: false,
             structured: false,
             multi_turn: false,
+            acp: false,
         }
     }
     fn config_anchor(&self) -> crate::harness::ConfigAnchor {

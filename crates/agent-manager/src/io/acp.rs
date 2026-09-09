@@ -8,12 +8,15 @@
 //! while discriminator values stay snake_case**, and that every union is
 //! internally tagged with its payload flattened beside the tag.
 //!
-//! **This is still not an ACP endpoint.** What comes out is the `params` of a
-//! `session/update` notification, without the JSON-RPC envelope and without a
-//! `sessionId` — because an event carries no session identity, by design. A
-//! server built on this attaches both: it owns the connection and the table
-//! of live sessions, and the mapping stays untouched. That is the whole
-//! reason the identity is not on the event.
+//! **This is a projection, not an endpoint.** What comes out is the `params`
+//! of a `session/update` notification, without the JSON-RPC envelope and
+//! without a `sessionId` — because an event carries no session identity, by
+//! design. A server built on this attaches both: it owns the connection and
+//! the table of live sessions, and the mapping stays untouched. That is the
+//! whole reason the identity is not on the event. The crate does speak ACP
+//! for real, as a *client*: [`super::acp_client::AcpBridge`] owns a JSON-RPC
+//! connection to an ACP agent and calls [`from_acp`] on every
+//! `session/update` it reads.
 //!
 //! Three events are **not** session updates in ACP, and
 //! [`to_acp`] answers `None` for them, because they belong to the protocol
@@ -33,8 +36,9 @@
 use serde_json::{Map, Value, json};
 
 use super::model::{
-    AgentEvent, Content, StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind, ToolLocation,
-    ToolStatus,
+    AgentEvent, CommandInfo, ConfigChoice, ConfigOption, ConfigValue, Content, Cost, Origin,
+    PlanEntry, ResourceContents, StopReason, ToolCall, ToolCallUpdate, ToolContent, ToolKind,
+    ToolLocation, ToolStatus,
 };
 
 /// Project one [`AgentEvent`] onto one ACP `session/update` payload.
@@ -410,6 +414,371 @@ fn status(status: ToolStatus) -> &'static str {
     }
 }
 
+/// Map one ACP `session/update` params value back to an [`AgentEvent`].
+///
+/// The inverse of [`to_acp`], one `sessionUpdate` discriminant at a time.
+/// `params` is not a full JSON-RPC notification: no envelope, and
+/// `sessionId` (if present) is ignored, for the same reason [`to_acp`]
+/// produces neither — identity belongs to whoever holds the session table,
+/// never to the event.
+///
+/// Four of [`AgentEvent`]'s variants never come back out of here, mirroring
+/// the three [`to_acp`] never puts in, plus one it puts in but a bridge
+/// never sees on this side of the wire:
+///
+/// - [`AgentEvent::SessionStarted`], [`AgentEvent::PermissionRequest`] and
+///   [`AgentEvent::TurnEnded`] are protocol-level in ACP — the result of
+///   `session/new`, a `session/request_permission` request, and a
+///   `session/prompt` response — not a `session/update` payload.
+/// - [`AgentEvent::Log`] and [`AgentEvent::RateLimitUpdate`] have no ACP
+///   vocabulary at all.
+///
+/// An unrecognised or missing `sessionUpdate` answers `None`, same as any of
+/// those four. Everything else degrades rather than fails: a malformed or
+/// absent *subfield* falls back to that type's `Default`, so one bad key
+/// never drops the whole event.
+///
+/// The degradation is also where the mapping is inherently lossy, not
+/// buggy:
+/// - [`Origin`] is never on the wire, so every event that carries one comes
+///   back [`Origin::default`].
+/// - `UsageUpdate`'s `model` and `spend` are dropped by [`to_acp`], so they
+///   come back `None` here too.
+/// - [`super::model::ConfigChoice::group`] is never written, so it comes
+///   back `None`.
+/// - [`ToolKind::Delegate`] is already collapsed into [`ToolKind::Other`] by
+///   the time it reaches the wire (ACP names no delegation kind), and
+///   cannot un-collapse; [`StopReason::Failed`] is not reachable from here
+///   at all, since [`AgentEvent::TurnEnded`] is not a session update.
+pub fn from_acp(params: &Value) -> Option<AgentEvent> {
+    let update = params.get("sessionUpdate").and_then(Value::as_str)?;
+    match update {
+        "user_message_chunk" => Some(AgentEvent::UserMessageChunk {
+            content: from_content(params.get("content")?),
+            message_id: str_field(params, "messageId"),
+        }),
+        "agent_message_chunk" => Some(AgentEvent::AgentMessageChunk {
+            content: from_content(params.get("content")?),
+            message_id: str_field(params, "messageId"),
+            origin: Origin::default(),
+        }),
+        "agent_thought_chunk" => Some(AgentEvent::AgentThoughtChunk {
+            content: from_content(params.get("content")?),
+            message_id: str_field(params, "messageId"),
+            origin: Origin::default(),
+        }),
+
+        "tool_call" => Some(AgentEvent::ToolCall {
+            call: from_tool_call(params),
+        }),
+        "tool_call_update" => Some(AgentEvent::ToolCallUpdate {
+            update: from_tool_call_update(params),
+        }),
+
+        "plan" => Some(AgentEvent::Plan {
+            entries: params
+                .get("entries")
+                .and_then(Value::as_array)
+                .map(|entries| entries.iter().map(from_plan_entry).collect())
+                .unwrap_or_default(),
+        }),
+
+        "available_commands_update" => Some(AgentEvent::AvailableCommandsUpdate {
+            commands: params
+                .get("availableCommands")
+                .and_then(Value::as_array)
+                .map(|commands| commands.iter().map(from_command).collect())
+                .unwrap_or_default(),
+        }),
+
+        "current_mode_update" => Some(AgentEvent::CurrentModeUpdate {
+            // Upstream's prose example says `modeId`; the schema — what
+            // `to_acp` writes — says `currentModeId`. Accept both.
+            current_mode_id: str_field(params, "currentModeId")
+                .or_else(|| str_field(params, "modeId"))
+                .unwrap_or_default(),
+        }),
+
+        "config_option_update" => Some(AgentEvent::ConfigOptionUpdate {
+            options: params
+                .get("configOptions")
+                .and_then(Value::as_array)
+                .map(|options| options.iter().map(from_config_option).collect())
+                .unwrap_or_default(),
+        }),
+
+        "session_info_update" => Some(AgentEvent::SessionInfoUpdate {
+            title: str_field(params, "title"),
+            updated_at: str_field(params, "updatedAt"),
+        }),
+
+        "usage_update" => Some(AgentEvent::UsageUpdate {
+            used: params
+                .get("used")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            size: params
+                .get("size")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            cost: params.get("cost").map(from_cost),
+            model: None,
+            spend: None,
+            origin: Origin::default(),
+        }),
+
+        _ => None,
+    }
+}
+
+/// A JSON string field, or `None` if it is absent, null, or not a string.
+fn str_field(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).map(String::from)
+}
+
+fn from_content(value: &Value) -> Content {
+    match value.get("type").and_then(Value::as_str) {
+        Some("image") => Content::Image {
+            data: str_field(value, "data").unwrap_or_default(),
+            mime_type: str_field(value, "mimeType").unwrap_or_default(),
+            uri: str_field(value, "uri"),
+        },
+        Some("audio") => Content::Audio {
+            data: str_field(value, "data").unwrap_or_default(),
+            mime_type: str_field(value, "mimeType").unwrap_or_default(),
+        },
+        Some("resource_link") => Content::ResourceLink {
+            uri: str_field(value, "uri").unwrap_or_default(),
+            name: str_field(value, "name").unwrap_or_default(),
+            mime_type: str_field(value, "mimeType"),
+            title: str_field(value, "title"),
+            description: str_field(value, "description"),
+            size: value.get("size").and_then(Value::as_u64),
+        },
+        Some("resource") => Content::Resource {
+            resource: value
+                .get("resource")
+                .map(from_resource)
+                .unwrap_or(ResourceContents::Text {
+                    uri: String::new(),
+                    text: String::new(),
+                    mime_type: None,
+                }),
+        },
+        // "text", and the fallback for anything unrecognised.
+        _ => Content::Text {
+            text: str_field(value, "text").unwrap_or_default(),
+        },
+    }
+}
+
+fn from_resource(value: &Value) -> ResourceContents {
+    let uri = str_field(value, "uri").unwrap_or_default();
+    let mime_type = str_field(value, "mimeType");
+    // Untagged on the way out: discriminate on which body key is present.
+    match str_field(value, "text") {
+        Some(text) => ResourceContents::Text {
+            uri,
+            text,
+            mime_type,
+        },
+        None => ResourceContents::Blob {
+            uri,
+            blob: str_field(value, "blob").unwrap_or_default(),
+            mime_type,
+        },
+    }
+}
+
+fn from_contents(value: &Value) -> Vec<ToolContent> {
+    value
+        .as_array()
+        .map(|items| items.iter().map(from_tool_content).collect())
+        .unwrap_or_default()
+}
+
+fn from_tool_content(item: &Value) -> ToolContent {
+    match item.get("type").and_then(Value::as_str) {
+        Some("diff") => ToolContent::Diff {
+            path: str_field(item, "path").unwrap_or_default(),
+            // `to_acp` writes a literal `null` for "no previous text", never
+            // omits the key; treat null and absent alike.
+            old_text: item
+                .get("oldText")
+                .and_then(Value::as_str)
+                .map(String::from),
+            new_text: str_field(item, "newText").unwrap_or_default(),
+        },
+        Some("terminal") => ToolContent::Terminal {
+            terminal_id: str_field(item, "terminalId").unwrap_or_default(),
+        },
+        // "content", and the fallback for anything unrecognised.
+        _ => ToolContent::Content {
+            content: item
+                .get("content")
+                .map(from_content)
+                .unwrap_or(Content::Text {
+                    text: String::new(),
+                }),
+        },
+    }
+}
+
+fn from_locations(value: &Value) -> Vec<ToolLocation> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| ToolLocation {
+                    path: str_field(item, "path").unwrap_or_default(),
+                    line: item.get("line").and_then(Value::as_u64).map(|n| n as u32),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn from_tool_call(value: &Value) -> ToolCall {
+    ToolCall {
+        id: str_field(value, "toolCallId").unwrap_or_default(),
+        title: str_field(value, "title").unwrap_or_default(),
+        kind: value
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(from_kind)
+            .unwrap_or_default(),
+        status: value
+            .get("status")
+            .and_then(Value::as_str)
+            .map(from_status)
+            .unwrap_or_default(),
+        content: value.get("content").map(from_contents).unwrap_or_default(),
+        locations: value
+            .get("locations")
+            .map(from_locations)
+            .unwrap_or_default(),
+        raw_input: value.get("rawInput").cloned(),
+        raw_output: value.get("rawOutput").cloned(),
+        origin: Origin::default(),
+    }
+}
+
+fn from_tool_call_update(value: &Value) -> ToolCallUpdate {
+    ToolCallUpdate {
+        id: str_field(value, "toolCallId").unwrap_or_default(),
+        title: str_field(value, "title"),
+        kind: value.get("kind").and_then(Value::as_str).map(from_kind),
+        status: value.get("status").and_then(Value::as_str).map(from_status),
+        content: value.get("content").map(from_contents),
+        locations: value.get("locations").map(from_locations),
+        raw_input: value.get("rawInput").cloned(),
+        raw_output: value.get("rawOutput").cloned(),
+    }
+}
+
+fn from_plan_entry(value: &Value) -> PlanEntry {
+    PlanEntry {
+        content: str_field(value, "content").unwrap_or_default(),
+        priority: value
+            .get("priority")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default(),
+        status: value
+            .get("status")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default(),
+    }
+}
+
+fn from_command(value: &Value) -> CommandInfo {
+    CommandInfo {
+        name: str_field(value, "name").unwrap_or_default(),
+        description: str_field(value, "description").unwrap_or_default(),
+        input_hint: value
+            .get("input")
+            .and_then(|input| input.get("hint"))
+            .and_then(Value::as_str)
+            .map(String::from),
+    }
+}
+
+fn from_config_option(value: &Value) -> ConfigOption {
+    ConfigOption {
+        id: str_field(value, "id").unwrap_or_default(),
+        name: str_field(value, "name").unwrap_or_default(),
+        description: str_field(value, "description"),
+        category: value
+            .get("category")
+            .and_then(|v| serde_json::from_value(v.clone()).ok()),
+        value: match value.get("type").and_then(Value::as_str) {
+            Some("boolean") => ConfigValue::Boolean {
+                current_value: value
+                    .get("currentValue")
+                    .and_then(Value::as_bool)
+                    .unwrap_or_default(),
+            },
+            // "select", and the fallback for anything unrecognised.
+            _ => ConfigValue::Select {
+                current_value: str_field(value, "currentValue").unwrap_or_default(),
+                options: value
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .map(|items| items.iter().map(from_config_choice).collect())
+                    .unwrap_or_default(),
+            },
+        },
+    }
+}
+
+fn from_config_choice(value: &Value) -> ConfigChoice {
+    ConfigChoice {
+        value: str_field(value, "value").unwrap_or_default(),
+        name: str_field(value, "name").unwrap_or_default(),
+        description: str_field(value, "description"),
+        // `to_acp` never writes a group, so there is nothing to read back.
+        group: None,
+    }
+}
+
+fn from_cost(value: &Value) -> Cost {
+    Cost {
+        amount: value
+            .get("amount")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+        currency: str_field(value, "currency").unwrap_or_default(),
+    }
+}
+
+fn from_kind(value: &str) -> ToolKind {
+    match value {
+        "read" => ToolKind::Read,
+        "edit" => ToolKind::Edit,
+        "delete" => ToolKind::Delete,
+        "move" => ToolKind::Move,
+        "search" => ToolKind::Search,
+        "execute" => ToolKind::Execute,
+        "think" => ToolKind::Think,
+        "fetch" => ToolKind::Fetch,
+        "switch_mode" => ToolKind::SwitchMode,
+        // "other", and the fallback for anything unrecognised — including
+        // the "other" that `ToolKind::Delegate` collapses to on the way
+        // out, which cannot un-collapse.
+        _ => ToolKind::Other,
+    }
+}
+
+fn from_status(value: &str) -> ToolStatus {
+    match value {
+        "pending" => ToolStatus::Pending,
+        "in_progress" => ToolStatus::InProgress,
+        "completed" => ToolStatus::Completed,
+        "failed" => ToolStatus::Failed,
+        _ => ToolStatus::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::model::Origin;
@@ -540,5 +909,304 @@ mod tests {
         // client may drop the prompt from context, which a crash has not earned. `end_turn`
         // keeps that context intact.
         assert_eq!(stop_reason(&StopReason::Failed), "end_turn");
+    }
+
+    // ── from_acp ───────────────────────────────────────────────────────
+
+    use super::super::model::{ConfigCategory, PlanPriority, PlanStatus};
+
+    #[test]
+    fn a_user_message_chunk_round_trips() {
+        let ev = AgentEvent::UserMessageChunk {
+            content: Content::text("hi"),
+            message_id: Some("m1".to_string()),
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn an_agent_message_chunk_round_trips() {
+        let ev = AgentEvent::AgentMessageChunk {
+            content: Content::text("hello"),
+            message_id: Some("m1".to_string()),
+            origin: Origin::default(),
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn an_agent_thought_chunk_round_trips() {
+        let ev = AgentEvent::AgentThoughtChunk {
+            content: Content::text("thinking..."),
+            message_id: None,
+            origin: Origin::default(),
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn a_tool_call_round_trips() {
+        let mut call = ToolCall::new("t1", "Edit src/main.rs");
+        call.kind = ToolKind::SwitchMode;
+        call.status = ToolStatus::InProgress;
+        call.content = vec![ToolContent::Diff {
+            path: "/tmp/a.rs".to_string(),
+            old_text: Some("old".to_string()),
+            new_text: "new".to_string(),
+        }];
+        call.locations = vec![ToolLocation {
+            path: "/tmp/a.rs".to_string(),
+            line: Some(3),
+        }];
+        call.raw_input = Some(json!({"a": 1}));
+        call.raw_output = Some(json!({"b": 2}));
+        let ev = AgentEvent::ToolCall { call };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn a_tool_call_update_round_trips() {
+        let mut update = ToolCallUpdate::finished("t1", ToolStatus::Completed);
+        update.title = Some("Done".to_string());
+        update.kind = Some(ToolKind::Execute);
+        update.content = Some(vec![ToolContent::Terminal {
+            terminal_id: "term1".to_string(),
+        }]);
+        update.locations = Some(vec![ToolLocation {
+            path: "/tmp/b.rs".to_string(),
+            line: None,
+        }]);
+        update.raw_input = Some(json!({"a": 1}));
+        update.raw_output = Some(json!({"b": 2}));
+        let ev = AgentEvent::ToolCallUpdate { update };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn a_plan_round_trips() {
+        let ev = AgentEvent::Plan {
+            entries: vec![
+                PlanEntry {
+                    content: "step one".to_string(),
+                    priority: PlanPriority::High,
+                    status: PlanStatus::InProgress,
+                },
+                PlanEntry {
+                    content: "step two".to_string(),
+                    priority: PlanPriority::Low,
+                    status: PlanStatus::Pending,
+                },
+            ],
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn available_commands_round_trip() {
+        let ev = AgentEvent::AvailableCommandsUpdate {
+            commands: vec![
+                CommandInfo {
+                    name: "review".to_string(),
+                    description: "Review the diff".to_string(),
+                    input_hint: Some("[target]".to_string()),
+                },
+                CommandInfo {
+                    name: "help".to_string(),
+                    description: String::new(),
+                    input_hint: None,
+                },
+            ],
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn current_mode_round_trips() {
+        let ev = AgentEvent::CurrentModeUpdate {
+            current_mode_id: "plan".to_string(),
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn config_option_update_round_trips() {
+        let ev = AgentEvent::ConfigOptionUpdate {
+            options: vec![
+                ConfigOption {
+                    id: "model".to_string(),
+                    name: "Model".to_string(),
+                    description: Some("Which model to use".to_string()),
+                    category: Some(ConfigCategory::Model),
+                    value: ConfigValue::Select {
+                        current_value: "opus".to_string(),
+                        options: vec![ConfigChoice {
+                            value: "opus".to_string(),
+                            name: "Opus".to_string(),
+                            description: Some("The big one".to_string()),
+                            group: None,
+                        }],
+                    },
+                },
+                ConfigOption {
+                    id: "thinking".to_string(),
+                    name: "Thinking".to_string(),
+                    description: None,
+                    category: None,
+                    value: ConfigValue::Boolean {
+                        current_value: true,
+                    },
+                },
+            ],
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn session_info_update_round_trips() {
+        let ev = AgentEvent::SessionInfoUpdate {
+            title: Some("A conversation".to_string()),
+            updated_at: Some("2026-09-09T00:00:00Z".to_string()),
+        };
+        let value = to_acp(&ev).unwrap();
+        assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    #[test]
+    fn usage_update_round_trips_what_to_acp_keeps() {
+        let value = to_acp(&AgentEvent::UsageUpdate {
+            used: 100,
+            size: 200_000,
+            cost: Some(Cost {
+                amount: 0.5,
+                currency: "USD".to_string(),
+            }),
+            model: Some("claude-opus-5".to_string()),
+            spend: None,
+            origin: Origin::default(),
+        })
+        .unwrap();
+        // `model` and `spend` never made it onto the wire, so they cannot
+        // come back — this is the lossy point the doc comment names.
+        assert_eq!(
+            from_acp(&value),
+            Some(AgentEvent::UsageUpdate {
+                used: 100,
+                size: 200_000,
+                cost: Some(Cost {
+                    amount: 0.5,
+                    currency: "USD".to_string(),
+                }),
+                model: None,
+                spend: None,
+                origin: Origin::default(),
+            })
+        );
+    }
+
+    #[test]
+    fn from_acp_answers_none_for_an_unknown_session_update() {
+        assert_eq!(from_acp(&json!({"sessionUpdate": "something_new"})), None);
+    }
+
+    #[test]
+    fn from_acp_answers_none_for_a_missing_session_update() {
+        assert_eq!(
+            from_acp(&json!({"content": {"type": "text", "text": "hi"}})),
+            None
+        );
+    }
+
+    /// A patch's absent fields are "unchanged", not "reset to default" — so
+    /// they must come back `None`, never `Some(Default::default())`.
+    #[test]
+    fn an_update_with_omitted_keys_comes_back_none_not_default() {
+        let ev = from_acp(&json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "t1",
+            "status": "completed",
+        }))
+        .unwrap();
+        let AgentEvent::ToolCallUpdate { update } = ev else {
+            panic!("expected a ToolCallUpdate, got {ev:?}")
+        };
+        assert_eq!(update.id, "t1");
+        assert_eq!(update.status, Some(ToolStatus::Completed));
+        assert_eq!(update.title, None);
+        assert_eq!(update.kind, None);
+        assert_eq!(update.content, None);
+        assert_eq!(update.locations, None);
+    }
+
+    /// `to_acp` writes a literal `oldText: null` for "the file is being
+    /// created" rather than omitting the key; `from_acp` must read that the
+    /// same as an absent key.
+    #[test]
+    fn a_null_old_text_comes_back_none() {
+        let ev = from_acp(&json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "t1",
+            "title": "Write a.rs",
+            "kind": "edit",
+            "status": "pending",
+            "content": [{
+                "type": "diff",
+                "path": "/tmp/a.rs",
+                "oldText": null,
+                "newText": "fn main() {}",
+            }],
+        }))
+        .unwrap();
+        let AgentEvent::ToolCall { call } = ev else {
+            panic!("expected a ToolCall, got {ev:?}")
+        };
+        let ToolContent::Diff { old_text, .. } = &call.content[0] else {
+            panic!("expected a Diff, got {:?}", call.content[0]);
+        };
+        assert_eq!(*old_text, None);
+    }
+
+    /// Upstream's prose example says `modeId`; the schema `to_acp` writes
+    /// says `currentModeId`. `from_acp` accepts either.
+    #[test]
+    fn mode_id_is_accepted_as_a_fallback_for_current_mode_id() {
+        let ev = from_acp(&json!({
+            "sessionUpdate": "current_mode_update",
+            "modeId": "plan",
+        }))
+        .unwrap();
+        assert_eq!(
+            ev,
+            AgentEvent::CurrentModeUpdate {
+                current_mode_id: "plan".to_string(),
+            }
+        );
+    }
+
+    /// An enum string neither side recognises degrades to that type's
+    /// default rather than dropping the whole event.
+    #[test]
+    fn an_unknown_enum_string_degrades_to_default_rather_than_dropping_the_event() {
+        let ev = from_acp(&json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "t1",
+            "title": "Do a thing",
+            "kind": "teleport",
+            "status": "vibing",
+        }))
+        .unwrap();
+        let AgentEvent::ToolCall { call } = ev else {
+            panic!("expected a ToolCall, got {ev:?}")
+        };
+        assert_eq!(call.kind, ToolKind::Other);
+        assert_eq!(call.status, ToolStatus::Pending);
     }
 }

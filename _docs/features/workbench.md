@@ -186,6 +186,20 @@ a message the user really did write.
 **The persistence checkbox is disabled and always false.** An agent that survives a restart is not
 built (`G97`), and a checkbox that lied about it would be worse than one that says so plainly.
 
+**The opening prompt is the form's keyboard rest.** The form opens with the keyboard in it, which
+is also what puts the modal on the focus path — `⌘⏎` confirms the form from inside a field, and
+Escape reaches `AppState::cancel_dialog`, only because a focused element inside the modal is what
+the key is dispatched from. Every one of the form's lists takes the keyboard while it is open, for
+the `picker_search` field it shares with every other searchable list, and **hands it straight back
+to the prompt when it closes** — picked from, dismissed or peeled by Escape. That is not a nicety:
+the filter field is unmounted with the list, and a focus handle on an element nothing draws any
+more is a keyboard nobody owns, which is a form that has quietly stopped answering both keys.
+
+**An outside click while a list is down belongs to the list.** A dropdown inside the modal is
+painted above it and so lands outside its bounds — the modal section of the UI and design document
+says why — so the form ignores the outside click while one is open rather than dropping a
+half-filled form because a list was down. One gesture peels one layer, the same rule Escape obeys.
+
 **`Start` sends `StartConversation` at once**, carrying the model, the level and the mode the form
 answered, each of which outranks the profile's own record. The conversation's name is not the UI's
 to set: the host derives it from the harness's command, with a per-project counter from the second

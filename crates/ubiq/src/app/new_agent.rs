@@ -185,14 +185,19 @@ impl AppState {
         }
         self.default_new_agent_mode();
         self.probe_new_agent_catalogue(cx);
-        self.close_new_agent_list(cx);
+        self.close_new_agent_list(window, cx);
     }
 
     /// Pick the harness. Everything the harness owns goes with it: a mode, a model and a level
     /// named by the old one mean nothing to the new one, and an identity may not be signed in
     /// there at all.
-    pub fn pick_new_agent_harness(&mut self, agent_type: String, cx: &mut Context<Self>) {
-        self.pick_new_agent_pair(agent_type, None, cx)
+    pub fn pick_new_agent_harness(
+        &mut self,
+        agent_type: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pick_new_agent_pair(agent_type, None, window, cx)
     }
 
     /// Pick the harness **and** the identity, which are one question and so one control.
@@ -205,13 +210,14 @@ impl AppState {
         &mut self,
         agent_type: String,
         account: Option<String>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(form) = self.new_agent_form_mut() else {
             return;
         };
         if form.agent_type == agent_type && form.account == account {
-            self.close_new_agent_list(cx);
+            self.close_new_agent_list(window, cx);
             return;
         }
         form.agent_type = agent_type;
@@ -226,12 +232,17 @@ impl AppState {
         form.models.clear();
         self.default_new_agent_mode();
         self.probe_new_agent_catalogue(cx);
-        self.close_new_agent_list(cx);
+        self.close_new_agent_list(window, cx);
     }
 
     /// Pick the model. The level goes with it — the levels on offer are the model's own — and
     /// falls to whatever that model starts at.
-    pub fn pick_new_agent_model(&mut self, model: String, cx: &mut Context<Self>) {
+    pub fn pick_new_agent_model(
+        &mut self,
+        model: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(form) = self.new_agent_form_mut() {
             let level = form
                 .models
@@ -241,28 +252,43 @@ impl AppState {
             form.model = Some(model);
             form.thinking = level;
         }
-        self.close_new_agent_list(cx);
+        self.close_new_agent_list(window, cx);
     }
 
-    pub fn pick_new_agent_thinking(&mut self, thinking: Option<String>, cx: &mut Context<Self>) {
+    pub fn pick_new_agent_thinking(
+        &mut self,
+        thinking: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(form) = self.new_agent_form_mut() {
             form.thinking = thinking;
         }
-        self.close_new_agent_list(cx);
+        self.close_new_agent_list(window, cx);
     }
 
-    pub fn pick_new_agent_mode(&mut self, mode: Option<String>, cx: &mut Context<Self>) {
+    pub fn pick_new_agent_mode(
+        &mut self,
+        mode: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(form) = self.new_agent_form_mut() {
             form.mode = mode;
         }
-        self.close_new_agent_list(cx);
+        self.close_new_agent_list(window, cx);
     }
 
-    pub fn pick_new_agent_subagents(&mut self, max: Option<u8>, cx: &mut Context<Self>) {
+    pub fn pick_new_agent_subagents(
+        &mut self,
+        max: Option<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(form) = self.new_agent_form_mut() {
             form.max_subagents = max;
         }
-        self.close_new_agent_list(cx);
+        self.close_new_agent_list(window, cx);
     }
 
     /// Open one of the form's lists, or close it if it is the one already down — exactly one is
@@ -274,29 +300,40 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(form) = self.new_agent_form_mut() else {
+        let Some(open) = self.new_agent_form().map(|form| form.open) else {
             return;
         };
-        let opening = form.open != Some(list);
-        form.open = opening.then_some(list);
-        if opening {
-            let search = self.picker_search.clone();
-            search.update(cx, |state, cx| {
-                state.set_value("", window, cx);
-                state.focus(window, cx);
-            });
+        if open == Some(list) {
+            return self.close_new_agent_list(window, cx);
         }
+        if let Some(form) = self.new_agent_form_mut() {
+            form.open = Some(list);
+        }
+        let search = self.picker_search.clone();
+        search.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
         cx.notify();
     }
 
-    pub fn dismiss_new_agent_list(&mut self, cx: &mut Context<Self>) {
-        self.close_new_agent_list(cx);
+    pub fn dismiss_new_agent_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_new_agent_list(window, cx);
     }
 
-    fn close_new_agent_list(&mut self, cx: &mut Context<Self>) {
+    /// The list goes down and the keyboard comes back to the form.
+    ///
+    /// **Giving it back is not a nicety.** The filter field every list carries holds the keyboard
+    /// while the list is open, and it is unmounted with the list — a focus handle on an element
+    /// nothing draws any more is a keyboard nobody owns, and the window's own keys never arrive
+    /// at it: Escape stops closing the form and ⌘⏎ stops starting it. The opening prompt is the
+    /// form's keyboard rest, the same one [`Self::open_new_agent`] opens on.
+    fn close_new_agent_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(form) = self.new_agent_form_mut() {
             form.open = None;
         }
+        let prompt = self.new_agent_prompt.read(cx).focus_handle(cx);
+        window.focus(&prompt, cx);
         cx.notify();
     }
 

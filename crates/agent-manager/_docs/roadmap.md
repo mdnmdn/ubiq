@@ -2,7 +2,7 @@
 
 The implementation is rolled out in phases. Each phase is independently useful and is
 implemented across multiple sessions. **Phase 1, Phase 2, and Phase 3 are complete.**
-Next: OAuth MCP, web mode, and ACP server (see "Beyond").
+Next: OAuth MCP, web mode, and an ACP server (see "Beyond").
 
 ## Phase 1 — CLI wrapper with catalog injection ✅ (shipped)
 
@@ -66,6 +66,12 @@ normalized events. All three harnesses wrap and launch end-to-end.
   mappers (`crate::io::{to_acp, to_agui}`) over the neutral `AgentEvent` model — ACP's
   `session/update` vocabulary itself, so `to_acp` is a rename rather than a translation; `to_agui`
   covers the variants that translate cleanly to a single AG-UI event.
+- **ACP client:** `crate::io::AcpBridge` (`src/io/acp_client.rs`) drives an ACP v1 agent over
+  newline-delimited JSON-RPC on its stdio — handshake, `session/new` or `session/load`, prompts,
+  `fs/*` reads and writes confined to the session root, and `session/request_permission` answered
+  by the caller. It is harness-neutral and core: an ACP harness is a `harness_identity!` entry with
+  `acp: true` and a launch argv, not a new bridge. Grok CLI is the first (`grok agent stdio`).
+  This is the **client** direction; exposing `am` itself as an ACP server is still ahead.
 - **Hooks:** per-run hook selection (`--hooks a,b` / settings `[defaults].hooks`); wired into
   harness-native hook slots (Claude `settings.json`, Codex `hooks.json`; opencode no-op).
 - **MCP-as-skill:** schema + stepping stone only — `[[mcp]] expose = "tools" | "skill"` and `summary`
@@ -77,8 +83,9 @@ normalized events. All three harnesses wrap and launch end-to-end.
 - **OAuth MCP auth** — first-class OAuth flow for MCP servers that need it.
 - **Web mode** — run headless; UI over web/HTTP + WebSocket with xterm.js;
   expose the agent via **AG-UI**.
-- **Expose the agent via ACP** — make an `am`-wrapped agent an ACP server other
-  clients can connect to.
+- **Expose the agent via ACP** — make an `am`-wrapped agent an ACP **server** other
+  clients can connect to. The client half has shipped (`AcpBridge`, P3); the server half needs the
+  JSON-RPC envelope, the table of live sessions and the `sessionId` a bridge deliberately omits.
 
 ## Phase → responsibility map
 
@@ -99,5 +106,6 @@ Cross-reference with the responsibilities table in
 | Session history + resume           | P3 ✅ |
 | Hooks (wired into harness slots)   | P3 ✅ |
 | Output protocols (ACP / AG-UI)     | P3 ✅ |
+| ACP client (`AcpBridge`)           | P3 ✅ |
 | MCP-as-skill (schema + stepping stone) | P3 ✅ |
 | OAuth MCP / web mode / ACP server  | future|

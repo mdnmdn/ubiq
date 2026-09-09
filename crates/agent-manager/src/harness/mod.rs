@@ -216,6 +216,12 @@ pub struct IoSupport {
     /// [`crate::io::IoBridge::input`] answers once a bridge exists; this is
     /// the same fact available *before* one is spawned.
     pub multi_turn: bool,
+    /// The structured bridge speaks ACP (`crate::io::AcpBridge`) rather than a
+    /// harness-specific wire. Meaningless when `structured` is false. This is a
+    /// *capability declaration*, not a launch instruction: a caller that wants to
+    /// know "can I speak the standard protocol at this harness" asks here instead
+    /// of inferring it from the harness id.
+    pub acp: bool,
 }
 
 /// How a harness's native env lever relocates its config/credentials into a
@@ -676,10 +682,12 @@ pub trait Harness {
     /// Per-model reasoning catalogs, keyed by the same ids `discover_models` answers.
     ///
     /// Default empty — a harness with no reasoning concept. That is the truthful answer for
-    /// opencode, Copilot CLI and Grok CLI, and it is why they are not overridden: opencode's
-    /// levels are `run --variant` values that a local `opencode.json` can extend and that no
-    /// command lists; Copilot's `help config` block carries model ids and nothing about effort;
-    /// Grok's `models_cache.json` has no reasoning field.
+    /// Copilot CLI and Grok CLI, and it is why they are not overridden: Copilot's `help config`
+    /// block carries model ids and nothing about effort (verified: no reasoning-effort flag
+    /// exists in the CLI), and Grok's `models_cache.json` has no reasoning field. opencode *does*
+    /// have one and overrides this: `opencode models --verbose` lists each model's `variants`
+    /// map, and `run --variant <name>` is the flag that selects one — see
+    /// `Opencode::discover_thinking`.
     fn discover_thinking(&self) -> Result<std::collections::BTreeMap<String, ModelThinking>> {
         Ok(std::collections::BTreeMap::new())
     }
@@ -875,16 +883,16 @@ mod tests {
 
     #[test]
     fn structured_io_support_matches_landed_bridges() {
-        // Claude Code, Codex, and opencode have landed their structured
-        // bridges; Grok is passthrough-only for now (its `--format json`
-        // event field shapes aren't documented enough to build a faithful
-        // bridge yet — see `_docs/harness/grok.md`). This test pins that
-        // split so adding a bridge (or a new passthrough-only harness) is a
-        // deliberate, visible change.
+        // Every harness in the table has landed a structured bridge: Claude
+        // Code, Codex, opencode and Copilot on their own wires, Grok on ACP
+        // (`grok agent stdio`, driven by `crate::io::AcpBridge`). This test
+        // pins that so a new harness claiming `structured` without a bridge
+        // behind it — or a bridge landing without the flag — is a deliberate,
+        // visible change.
         for h in all() {
             let expected_structured = matches!(
                 h.id().as_str(),
-                "claude-code" | "codex" | "opencode" | "copilot"
+                "claude-code" | "codex" | "opencode" | "copilot" | "grok"
             );
             assert_eq!(
                 h.io_support().structured,
@@ -897,17 +905,17 @@ mod tests {
 
     #[test]
     fn multi_turn_io_support_matches_the_one_shot_split() {
-        // Claude Code and codex stay open across turns: one process takes
-        // further prompts, cancellations and permission answers. Copilot and
-        // opencode are one-shot — prompt in argv, one answer, exit — so a
-        // caller continues them by launching again with `RunSpec::resume`.
-        // Grok converses at all, so the question does not arise for it.
+        // Claude Code, codex and grok stay open across turns: one process
+        // takes further prompts, cancellations and permission answers (grok
+        // because ACP is inherently multi-turn). Copilot and opencode are
+        // one-shot — prompt in argv, one answer, exit — so a caller continues
+        // them by launching again with `RunSpec::resume`.
         //
         // Pinned here because a consumer reads this to decide whether a turn
         // is written to a running process or becomes the next launch's argv;
         // getting it wrong is a prompt that silently reaches nothing.
         for h in all() {
-            let expected_multi_turn = matches!(h.id().as_str(), "claude-code" | "codex");
+            let expected_multi_turn = matches!(h.id().as_str(), "claude-code" | "codex" | "grok");
             assert_eq!(
                 h.io_support().multi_turn,
                 expected_multi_turn,
@@ -917,6 +925,28 @@ mod tests {
             assert!(
                 !h.io_support().multi_turn || h.io_support().structured,
                 "{} claims multi-turn without a structured bridge to take the turn",
+                h.id()
+            );
+        }
+    }
+
+    #[test]
+    fn acp_io_support_matches_the_harnesses_whose_bridge_is_acp() {
+        // `acp` says the structured bridge is `crate::io::AcpBridge` rather
+        // than a harness-specific wire. Grok is the only one today. Pinned
+        // both ways: a harness that answers `acp` must have a structured
+        // bridge at all, since an ACP harness without one is incoherent.
+        for h in all() {
+            let expected_acp = matches!(h.id().as_str(), "grok");
+            assert_eq!(
+                h.io_support().acp,
+                expected_acp,
+                "{} ACP support mismatch",
+                h.id()
+            );
+            assert!(
+                !h.io_support().acp || h.io_support().structured,
+                "{} claims ACP without a structured bridge to speak it",
                 h.id()
             );
         }
@@ -949,6 +979,7 @@ mod tests {
                     passthrough: false,
                     structured: false,
                     multi_turn: false,
+                    acp: false,
                 }
             }
             fn provision(&self, _spec: &crate::spec::RunSpec, _dir: &Path) -> Result<Launch> {
@@ -968,6 +999,7 @@ mod tests {
             },
             ephemeral: true,
             login_origin: None,
+            resume: None,
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };
@@ -1004,6 +1036,7 @@ mod tests {
                 passthrough: true,
                 structured: false,
                 multi_turn: false,
+                acp: false,
             }
         }
         fn config_anchor(&self) -> ConfigAnchor {

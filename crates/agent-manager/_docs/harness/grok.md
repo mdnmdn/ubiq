@@ -95,6 +95,7 @@ override user settings per key.
 | Slash commands | partial | Built-in TUI commands only; no documented custom-command file format  |
 | Auth           | full    | `GROK_API_KEY` / `-k` / `apiKey`; `GROK_BASE_URL` for endpoint         |
 | Permissions    | partial | Workspace trust (`~/.grok/workspace-trust.json`) + sandbox flags; no allow/deny rule file |
+| Structured I/O | full    | ACP v1 over `grok agent stdio`; generic `AcpBridge`, multi-turn         |
 | Policies       | full    | `AGENTS.md` (always-on instruction content)                           |
 
 "Support" is the `agent-manager` view of how completely the feature is
@@ -398,6 +399,37 @@ If a coordinator needs the exact per-field JSON shape, capture a live
 `grok --prompt "..." --format json` run — the README documents the event
 **names** but not their full field layout as of 2026-07-09.
 
+### ACP mode (`grok agent stdio`)
+
+`grok agent stdio` starts Grok as an **Agent Client Protocol v1 endpoint** on
+its own stdio, speaking newline-delimited JSON-RPC 2.0. This is the launch
+`am` drives for every structured run of this harness, through the
+harness-neutral `AcpBridge` (`src/io/acp_client.rs`) rather than any
+Grok-specific wire — see [`../io-modes.md`](../io-modes.md).
+
+Structured argv is exactly:
+
+```
+grok agent stdio [passthrough_args...]
+```
+
+Nothing else is on the command line. There is no `--prompt`, because the
+prompt is a `session/prompt` request over the wire; no `--session`, because a
+resume is `session/load` against the id the previous run reported; and no
+`-m`, because the model is expected to be a `session/set_config_option` with
+`category: "model"`. Passthrough argv is unchanged by any of this.
+
+The `--format json` NDJSON stream above stays **unused**. Its event names are
+documented but its per-field shapes are not, and inventing them is guesswork
+a coordinator would then depend on. ACP's shapes are specified, which is the
+reason this harness went to ACP rather than to a Grok-specific NDJSON bridge.
+
+**None of this is verified against the installed binary.** `grok agent stdio`
+is a reported subcommand rather than a captured one, the handshake and every
+frame are written to `_docs/references/acp-protocol.md`, and whether this mode
+accepts `--model` at all is unknown. Pinning it against a live run belongs in
+[`../test-runs/`](../test-runs/).
+
 ### Model & reasoning at launch
 
 - Model: `-m` / `--model <id>`, or `GROK_MODEL` env. No separate
@@ -429,7 +461,9 @@ No on-stream approval handshake and no auto-approve flag are documented.
 Keep runs unattended by pre-trusting the workspace
 (`~/.grok/workspace-trust.json`) and/or using `--batch-api`. There is no
 documented `control_request`/`control_response` protocol on the JSON
-stream as of 2026-07-09.
+stream as of 2026-07-09. ACP mode is where an approval does reach the
+caller: `session/request_permission` is an agent-to-client request, and
+`AcpBridge` parks it until the caller answers.
 
 ### Process lifecycle
 
@@ -532,10 +566,10 @@ stream as of 2026-07-09.
    `<workdir>/.grok/`, `<workdir>/AGENTS.md`, and
    `<workdir>/.agents/skills/`.
 
-Because there is **no structured `control_request` approval handshake**
-and **no per-run MCP flag**, the Grok renderer is closer to a
-"materialise files + passthrough" model than the flag-driven CodeBuddy
-renderer.
+Because there is **no per-run MCP flag** and no approval handshake on the
+`--format json` stream, the Grok renderer is closer to a "materialise
+files + passthrough" model than the flag-driven CodeBuddy renderer. A
+structured run sidesteps both by going through ACP instead.
 
 ## Sources
 

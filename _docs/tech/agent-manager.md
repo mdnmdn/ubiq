@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-09
 verified: 2026-09-09
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp_client.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -176,11 +176,11 @@ dropped, and reaping is still the bridge's own teardown.
 
 **Every harness the library returns a structured bridge for can hold a conversation; not every one
 of those keeps its process alive across turns.** `IoSupport::structured` is the first question —
-`Agents::converses` answers it, and a harness that fails it (Grok) is refused as a conversation
+`Agents::converses` answers it, and a harness that fails it is refused as a conversation
 outright, with a message naming the reason, and left out of the chat-start menus by
 `AgentTypeInfo::chat` on the wire. `IoSupport::multi_turn` is the second, narrower question, and
 `Agents::multi_turn` answers it: whether one process takes a second prompt over the bridge's own
-`AgentInputSink`, true for Claude Code and codex. A **one-shot** harness (opencode, Copilot) answers
+`AgentInputSink`, true for Claude Code, codex and Grok. A **one-shot** harness (opencode, Copilot) answers
 `multi_turn: false` and still converses — its prompt is argv rather than a pipe write, one process
 answers exactly once and exits, and that exit is a turn ending, not the conversation's. The
 coordinator starts a one-shot harness's pump `quiet`, so it never announces `ConversationEnded`
@@ -192,6 +192,25 @@ relaunches the harness with that id as `RunSpec::resume` and the new text as
 `RunSpec::initial.prompt` — `ConverseOptions` in `crates/ubiq-host/src/agent.rs` carries both
 through `Agents::converse`. A harness that names no session id is relaunched anyway and answers with
 no memory of the turn before it, which is `G95`.
+
+**One bridge covers every harness that speaks ACP.** `agent_manager::io::AcpBridge`
+(`crates/agent-manager/src/io/acp_client.rs`) is an Agent Client Protocol v1 client: it drives the
+child over newline-delimited JSON-RPC on its stdio, handshakes with `initialize` and `session/new`,
+sends each turn as `session/prompt`, and serves the `fs/read_text_file` and `fs/write_text_file`
+requests the agent makes back, confined to the session root. It names no harness, so adding an
+ACP-speaking one is a `harness_identity!` entry and a launch argv rather than a second bridge.
+`IoSupport::acp` is that declaration — the structured bridge speaks ACP rather than a
+harness-specific wire — and it says nothing when `structured` is false. Two consequences reach this
+side. `Provisioned::resume` carries the harness's own conversation id through provisioning, because
+an ACP harness resumes with `session/load` over the wire rather than a flag in argv, and argv is the
+only thing most harnesses need. And Grok, whose structured launch is `grok agent stdio`, is a
+conversable harness with no interface code of its own: `AgentTypeInfo::chat` is
+`harness.io_support().structured`, Grok answers it `true`, and
+`WorkbenchState::harness_choices` keeps it, so the start form draws it. Permissions are the one thing this bridge
+answers back on rather than resolving itself: `session/request_permission` blocks the agent, so it is
+parked by request id and released by an `AgentInput::AnswerPermission` from the caller. Nothing here
+is pinned against a live ACP agent — `crates/agent-manager/_docs/harness/grok.md` says what is
+reported rather than captured, and `../backlog.md` carries the capture.
 
 **One file knows both vocabularies.** `map_event()` in the same module is the only place that names
 `agent_manager::io::AgentEvent` and `ubiq_proto::conversation::ConvUpdate` together. Both are the
@@ -208,7 +227,7 @@ pane is confined unless the host settings say otherwise** — the policy grants 
 and that directory, and denies the rest of the machine. Which harnesses opt out, which layers a
 confined run stacks, and which of them are unusable stays the library's: it has the layered shape
 for that, and a second one here would be two places to look. See `D52`. A conversation follows the
-same setting as a pane, and what the bridge still owns alone is tool approval: it answers each
+same setting as a pane, and what most bridges still own alone is tool approval: each answers the
 request itself, because it holds its child's descriptors. That is `G92` in
 [`../backlog.md`](../backlog.md).
 

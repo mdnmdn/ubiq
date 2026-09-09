@@ -25,7 +25,7 @@ pub use model::{
 };
 
 pub mod acp;
-pub use acp::to_acp;
+pub use acp::{from_acp, to_acp};
 
 pub mod agui;
 pub use agui::to_agui;
@@ -38,6 +38,9 @@ pub use jsonl::JsonlBridge;
 
 pub mod codex;
 pub use codex::CodexBridge;
+
+pub mod acp_client;
+pub use acp_client::AcpBridge;
 
 pub mod opencode;
 pub use opencode::OpencodeBridge;

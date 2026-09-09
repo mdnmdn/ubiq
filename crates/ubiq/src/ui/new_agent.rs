@@ -76,7 +76,20 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         "New agent",
         body(app, window, cx),
         footer,
-        handler(&view, |this, _, cx| this.close_new_agent(cx)),
+        handler(&view, |this, _, cx| {
+            // A picker's list is painted above this modal but *outside* its subtree, so a click
+            // inside the list — the filter field most of all — reads to the modal as a click
+            // outside itself. While a list is down it is the layer the click belongs to: the list
+            // dismisses itself against its own bounds, and the form under it stays up. One
+            // gesture peels one layer, which is what Escape does here too.
+            if this
+                .new_agent_form()
+                .is_some_and(|form| form.open.is_some())
+            {
+                return;
+            }
+            this.close_new_agent(cx)
+        }),
         window,
     );
 
@@ -228,7 +241,9 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
             live,
             window,
             cx,
-            |this, (agent_type, account), _, cx| this.pick_new_agent_pair(agent_type, account, cx),
+            |this, (agent_type, account), window, cx| {
+                this.pick_new_agent_pair(agent_type, account, window, cx)
+            },
         ));
     }
 
@@ -261,7 +276,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         live && !form.probing,
         window,
         cx,
-        |this, model, _, cx| this.pick_new_agent_model(model, cx),
+        |this, model, window, cx| this.pick_new_agent_model(model, window, cx),
     ));
 
     // The reasoning level and the permission mode are **always drawn**, even where this model has
@@ -295,7 +310,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         live && !form.probing && !levels.is_empty(),
         window,
         cx,
-        |this, thinking, _, cx| this.pick_new_agent_thinking(thinking, cx),
+        |this, thinking, window, cx| this.pick_new_agent_thinking(thinking, window, cx),
     ));
 
     let modes = harness.map(|it| it.modes.as_slice()).unwrap_or_default();
@@ -320,7 +335,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         live && !modes.is_empty(),
         window,
         cx,
-        |this, mode, _, cx| this.pick_new_agent_mode(mode, cx),
+        |this, mode, window, cx| this.pick_new_agent_mode(mode, window, cx),
     ));
     rows = rows.child(engine);
 
@@ -359,7 +374,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         live,
         window,
         cx,
-        |this, max, _, cx| this.pick_new_agent_subagents(max, cx),
+        |this, max, window, cx| this.pick_new_agent_subagents(max, window, cx),
     ));
 
     // 7 ─ the opening words. The one control too tall to sit beside its label, so its label sits
@@ -577,7 +592,9 @@ fn picker_of<T: Clone + PartialEq + 'static>(
                     pick(this, value, window, cx);
                 }
             }))
-            .on_dismiss(handler(view, |this, _, cx| this.dismiss_new_agent_list(cx)));
+            .on_dismiss(handler(view, |this, window, cx| {
+                this.dismiss_new_agent_list(window, cx)
+            }));
     }
     picker
 }

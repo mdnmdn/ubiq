@@ -281,3 +281,98 @@ fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppC
         "the picker is in the window's state and not in its tree — `ui::shell` lost the mount"
     );
 }
+
+/// A list going down inside the New agent form gives the keyboard back to the form.
+///
+/// The filter field every one of the form's lists carries holds the keyboard while that list is
+/// open, and it is unmounted with the list. Leaving the focus on it left the keyboard with an
+/// element nothing draws any more — and a window key dispatched from there reaches nothing, so
+/// Escape stopped closing the form and ⌘⏎ stopped starting it. This drives a **real keystroke**
+/// rather than `cancel_dialog`, because the whole failure was in the dispatch and not in the peel
+/// order the first test asserts.
+#[gpui::test]
+fn a_list_going_down_gives_the_form_the_keyboard(cx: &mut gpui::TestAppContext) {
+    use gpui::{AppContext as _, Focusable, VisualTestContext};
+    use std::ops::Deref as _;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| state.open_new_agent(window, cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let mut cx = VisualTestContext::from_window(*handle.deref(), cx);
+    let prompt_focused = |cx: &mut VisualTestContext| {
+        handle
+            .update(cx, |_, window, cx| {
+                state
+                    .read(cx)
+                    .new_agent_prompt
+                    .read(cx)
+                    .focus_handle(cx)
+                    .is_focused(window)
+            })
+            .expect("the window is open")
+    };
+    assert!(
+        prompt_focused(&mut cx),
+        "the form opens with the keyboard in the opening prompt"
+    );
+
+    // A list down, and then picked from — the filter field takes the keyboard on the way in and
+    // has to hand it back on the way out.
+    handle
+        .update(&mut cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.toggle_new_agent_list(OpenList::Target, window, cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    handle
+        .update(&mut cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.dismiss_new_agent_list(window, cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    assert!(
+        prompt_focused(&mut cx),
+        "the list handed the keyboard back to the prompt"
+    );
+
+    // Which is what makes the key work: dispatched from the prompt, not from a handle nothing
+    // draws.
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    state.read_with(&cx, |state, _| {
+        assert!(
+            state.workbench.new_agent.is_none(),
+            "Escape closed the form"
+        );
+    });
+}

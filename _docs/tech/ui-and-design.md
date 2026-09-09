@@ -253,6 +253,15 @@ dropdown is, so the two behave the same way and neither uses the scrim as a clic
 scrim occludes the mouse**, so nothing behind a modal can be clicked while it is up. It sits above
 the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
 
+**A layer painted above a modal is outside it**, and the modal that raised the layer is what has to
+know. `on_mouse_down_out` is a capture-phase handler over the panel's own bounds, and a dropdown
+opened with `Picker::above_modal` is painted at a higher priority but tested against those bounds
+all the same — so a click in the list, its filter field included, reads as a click outside the
+modal, and no `stop_propagation` from the layer above can take it back, because capture runs back to
+front. A modal with its own dropdowns therefore ignores the outside click while one is down: the
+list dismisses itself against its own bounds and the form under it stays, which is one gesture
+peeling one layer, exactly as Escape does. `ui/new_agent.rs` is the one that reads.
+
 **Escape is the window's, not the modal's.** A `kit::overlay` modal is a function returning an
 element: it holds no focus, so a key never arrives at it, and a `key_context` per modal would be one
 more answer to a question the window answers. The key is bound once — `Workbench` and `Input`,
@@ -564,7 +573,10 @@ The same is true of a transformation: rotate and scale are a matrix on the cache
 the element's own centre.
 
 Hence the spec — `0 0 24 24`, `currentColor` at `stroke-width` 2, all ink inside 1.5-22.5, at most
-four shapes, and none of `<text> <use> <defs> <style> <mask>`, the gradients or `<animate>`.
+four shapes, and none of `<text> <use> <defs> <style> <mask>`, the gradients or `<animate>`. Three
+of those apply only to what we draw: a harness's mark follows its owner's shape, and an icon adopted
+from `gpui-component` came out of a coherent family, so the shape count, the ink envelope
+and the two-decimal rule are lifted for both — `sun` is nine shapes, `github` fills the box.
 `just icons-check` enforces the mechanical half; `just icons-sheet` and `just icons-audit` render
 the review sheets an icon is judged on, at 16, 24 and 64px in both palettes, against a frozen canon
 strip. The rules and the drawing loop are the `ubiq-icons` skill.

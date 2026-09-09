@@ -94,6 +94,33 @@ impl Harness for Opencode {
         Ok(out)
     }
 
+    /// `opencode models --verbose` (verified against opencode 1.18.28) prints, for each model,
+    /// an `<provider>/<id>` header line followed by that model's full metadata as pretty-printed
+    /// JSON — not a single JSON document, so [`parse_verbose_models`] splits on the header lines
+    /// rather than parsing the whole stream as one value. Each entry's `variants` object maps a
+    /// variant name (the value `--variant <name>` takes, per `opencode run --help`) to a
+    /// provider-specific detail blob; an empty `variants` object is the honest "no reasoning
+    /// knob" case and is skipped, same convention as Codex's `discover_thinking`.
+    fn discover_thinking(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
+        let output = std::process::Command::new("opencode")
+            .args(["models", "--verbose"])
+            .output()
+            .with_context(
+                || "running `opencode models --verbose` (is the opencode binary on PATH?)",
+            )?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "`opencode models --verbose` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_verbose_models(&stdout)
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // Ensure the target directory exists.
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -147,6 +174,14 @@ impl Harness for Opencode {
                 if let Some(model) = &spec.model {
                     structured_args.push("--model".to_string());
                     structured_args.push(model.clone());
+                }
+                // Reasoning effort: `--variant <name>` (verified in `opencode run --help`,
+                // e.g. "low", "medium", "high" — provider-specific, see `discover_thinking`).
+                // Only added when set, so runs without a thinking level keep byte-identical
+                // argv.
+                if let Some(thinking) = &spec.thinking {
+                    structured_args.push("--variant".to_string());
+                    structured_args.push(thinking.clone());
                 }
                 // Resume: `--session <id>` is only meaningful for the
                 // structured `opencode run` form; only added when a resume
@@ -278,6 +313,70 @@ impl Harness for Opencode {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
         Ok(Box::new(crate::io::opencode::OpencodeBridge::new(child)?))
     }
+}
+
+/// Parse `opencode models --verbose` stdout into a reasoning-level catalog keyed by
+/// `provider/model-id`. The stream is not one JSON document: each model prints a bare
+/// `provider/id` header line at column 0, followed by that model's metadata as pretty-printed
+/// JSON (also starting and ending at column 0). This walks the lines, treats any column-0 line
+/// that isn't `{` or `}` as a header, and re-joins the balanced-brace block that follows it into
+/// one JSON value.
+fn parse_verbose_models(
+    stdout: &str,
+) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut lines = stdout.lines();
+    while let Some(header) = lines.next() {
+        let header = header.trim();
+        if header.is_empty() {
+            continue;
+        }
+        let mut buf = String::new();
+        let mut depth = 0i32;
+        let mut started = false;
+        for line in lines.by_ref() {
+            buf.push_str(line);
+            buf.push('\n');
+            for ch in line.chars() {
+                match ch {
+                    '{' => {
+                        depth += 1;
+                        started = true;
+                    }
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if started && depth == 0 {
+                break;
+            }
+        }
+        let Ok(model) = serde_json::from_str::<Value>(&buf) else {
+            continue;
+        };
+        let Some(variants) = model.get("variants").and_then(|v| v.as_object()) else {
+            continue;
+        };
+        if variants.is_empty() {
+            continue;
+        }
+        let levels: Vec<super::ThinkingLevel> = variants
+            .keys()
+            .map(|name| super::ThinkingLevel {
+                value: name.clone(),
+                label: super::effort_label(name),
+                description: None,
+            })
+            .collect();
+        out.insert(
+            header.to_string(),
+            super::ModelThinking {
+                levels,
+                default_level: None,
+            },
+        );
+    }
+    Ok(out)
 }
 
 /// Render one [`McpServer`] into the JSON shape opencode's `opencode.json`
@@ -769,6 +868,80 @@ mod tests {
         let launch = opencode.provision(&spec, config_dir.path()).unwrap();
 
         assert!(!launch.args.contains(&"--session".to_string()));
+    }
+
+    #[test]
+    fn provision_structured_thinking_appends_variant_flag() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+        spec.thinking = Some("high".to_string());
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        let idx = launch
+            .args
+            .iter()
+            .position(|a| a == "--variant")
+            .expect("--variant present");
+        assert_eq!(launch.args.get(idx + 1), Some(&"high".to_string()));
+    }
+
+    #[test]
+    fn provision_structured_no_thinking_omits_variant_flag() {
+        use crate::spec::ConfigStrategy;
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = crate::spec::IoModes::Structured;
+
+        let opencode = Opencode::new();
+        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"--variant".to_string()));
+    }
+
+    #[test]
+    fn parse_verbose_models_reads_variants_and_skips_empty() {
+        // A trimmed excerpt of real `opencode models --verbose` output (1.18.28):
+        // one model with no reasoning knob (empty `variants`), one with three.
+        let stdout = r#"opencode/big-pickle
+{
+  "id": "big-pickle",
+  "providerID": "opencode",
+  "variants": {}
+}
+opencode/gpt-5
+{
+  "id": "gpt-5",
+  "providerID": "opencode",
+  "variants": {
+    "low": {
+      "reasoningEffort": "low"
+    },
+    "medium": {
+      "reasoningEffort": "medium"
+    },
+    "high": {
+      "reasoningEffort": "high"
+    }
+  }
+}
+"#;
+        let catalog = super::parse_verbose_models(stdout).unwrap();
+
+        assert!(
+            !catalog.contains_key("opencode/big-pickle"),
+            "a model with an empty variants map must be absent from the catalog"
+        );
+        let gpt5 = catalog
+            .get("opencode/gpt-5")
+            .expect("opencode/gpt-5 present");
+        assert_eq!(gpt5.levels.len(), 3);
+        assert!(gpt5.levels.iter().any(|l| l.value == "high"));
     }
 
     #[test]

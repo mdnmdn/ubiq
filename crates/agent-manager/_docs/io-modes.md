@@ -55,6 +55,7 @@ harness's bridge speaks":
 | **codex**        | JSON-RPC over `codex app-server`: launch the `app-server` subcommand and exchange JSON-RPC requests/notifications over its stdio. See [`./harness/codex.md`](./harness/codex.md). |
 | **opencode**     | NDJSON one-shot: launch `opencode run --format json`, which streams one NDJSON event per line and exits. See [`./harness/opencode.md`](./harness/opencode.md). |
 | **GitHub Copilot** | NDJSON one-shot: launch headless (`-p --output-format json`), which streams one NDJSON event per line and exits. See [`./harness/copilot.md`](./harness/copilot.md). |
+| **Grok CLI**     | ACP over `grok agent stdio`: launch the ACP endpoint and speak newline-delimited JSON-RPC 2.0 at it — the generic `AcpBridge`, not a Grok-specific wire. See [`./harness/grok.md`](./harness/grok.md). |
 
 Input mode is picked to match the harness — you cannot drive one harness's
 bridge with another's wire format. `Harness::io_support()` reports whether a
@@ -64,8 +65,8 @@ harness.
 
 **Some harnesses take no second turn.** opencode and Copilot deliver the
 prompt once, at launch (via argv), and run to completion; there is nothing
-left to send once the process is up. Claude Code and codex, by contrast, stay
-open for further prompts, cancellation, and permission answers across the
+left to send once the process is up. Claude Code, codex and Grok, by contrast,
+stay open for further prompts, cancellation, and permission answers across the
 life of the process. `IoBridge::input` (below) is where this distinction
 becomes a type-level signal rather than a fact a caller has to already know.
 
@@ -96,6 +97,12 @@ stream-json on stdin.
 than a translation: the neutral model *is* ACP's `session/update` vocabulary
 (see below), so mapping is moving the discriminant from `type` to
 `sessionUpdate` and re-casing keys to camelCase, not reshaping data.
+`from_acp`, beside it in the same module, is the inverse — one ACP
+`session/update` params value to one `AgentEvent` — and `AcpBridge` is its
+only caller, so the pair is the mapping the round trip actually runs through
+rather than a projection nothing reads back. What it loses is what `to_acp`
+never puts on the wire in the first place, and `src/io/acp.rs`'s module doc
+names each point.
 `to_agui` is a genuine translation onto a different schema, and stays a
 stateless, one-event-in → one-value-out mapping: it does not emit AG-UI's
 full run lifecycle framing (`TEXT_MESSAGE_START`/`END`, `RUN_STARTED`'s
@@ -442,11 +449,18 @@ leaves `trace` out until someone asks for it by name.
   trait + `spawn_piped` helper are **core**; `IoModes::Structured` is wired
   through the CLI as `--io structured`. Concrete per-harness bridges exist
   for Claude Code (`src/io/jsonl.rs`), codex (`src/io/codex.rs`), opencode
-  (`src/io/opencode.rs`), and GitHub Copilot (`src/io/copilot.rs`).
-- **Output adapters** — `to_acp`/`to_agui` (`src/io/acp.rs`, `src/io/agui.rs`)
-  project `AgentEvent` onto ACP `session/update` values and AG-UI event
-  values respectively, selectable via `--output acp`/`--output agui`. Both
-  are stateless, one-event-in → one-value-out mappers; a fuller, stateful
-  adapter that tracks message/tool-call lifecycles and emits full protocol
-  framing (JSON-RPC envelopes for a real ACP server, AG-UI's run/thread
-  lifecycle events) is future work.
+  (`src/io/opencode.rs`), and GitHub Copilot (`src/io/copilot.rs`), plus the
+  harness-neutral `AcpBridge` (`src/io/acp_client.rs`) any ACP-speaking
+  harness uses.
+- **ACP, both directions** — `to_acp`/`from_acp` (`src/io/acp.rs`) are
+  inverses over one ACP `session/update` params value: `to_acp` projects an
+  `AgentEvent` out, selectable via `--output acp`, and `from_acp` reads one
+  back in for `AcpBridge`. So ACP is a wire `am` speaks as a client as well
+  as a shape it emits. What is still absent is the server direction — an `am`
+  process other ACP clients connect to, owning the JSON-RPC envelope and the
+  table of live sessions.
+- **AG-UI output adapter** — `to_agui` (`src/io/agui.rs`) projects
+  `AgentEvent` onto AG-UI event values, selectable via `--output agui`. It is
+  a stateless, one-event-in → one-value-out mapper; a stateful adapter that
+  tracks message/tool-call lifecycles and emits AG-UI's run/thread lifecycle
+  framing is future work.

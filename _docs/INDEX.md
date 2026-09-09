@@ -90,7 +90,7 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
-| [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-08 |
+| [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-09 |
 | [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-09 |
 | [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-08 |
 | [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-08 |
@@ -124,8 +124,8 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [agent-login-note.md](./wip/agent-login-note.md) | — | — |
-| [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver. | 2026-09-08 |
-| [The conversation vocabulary, the chat surface and the login sandbox](./wip/agent-vocabulary.md) | What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests. | 2026-09-08 |
+| [Wiring a real agent into the agent pane](./wip/agent-setup.md) | The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver. | 2026-09-09 |
+| [The conversation vocabulary, the chat surface and the login sandbox](./wip/agent-vocabulary.md) | What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests. | 2026-09-09 |
 | [Cloning a project](./wip/clone-a-project.md) | How a repository becomes a project — a connection's listing or a pasted URL, a branch, a destination, and the throwaway clone that is deleted when it closes. The clone half is built and covered by tests; the named OAuth registrations the connect flow picks from are built and never exercised against a live provider, which is the gap this document exists to record. | 2026-09-06 |
 | [Indexing a project](./wip/indexing.md) | What Ubiq keeps about a project so a search need not re-read it — a per-project level defaulting from an application setting, and a full-text index that selects candidate files for the existing content search rather than answering it. The full-text half is built; the symbol half the `full` level names is not, which is the gap this document exists to record. | 2026-09-08 |
 | [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check now passes but docs-lint — whose open question is what that lint should apply to, since 156 of its 161 failures are inbox documents. | — |

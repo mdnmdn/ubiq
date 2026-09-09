@@ -46,11 +46,21 @@
 //! Grok has no non-invasive always-on memory slot (its `AGENTS.md` is
 //! merged from the git root down to cwd — the user's real project, which a
 //! run must not write to), so `--instructions` is folded into the seeded
-//! `--prompt` rather than written to a memory file. Structured I/O is not
-//! implemented yet: `grok --format json` emits an NDJSON event stream, but
-//! its per-field shapes are not documented enough to build a faithful bridge
-//! (see `grok.md` §"Output stream protocol"), so this harness is
-//! passthrough-only for now.
+//! `--prompt` rather than written to a memory file.
+//!
+//! Structured I/O goes through ACP, not through Grok's own event stream:
+//! `grok agent stdio` is an Agent Client Protocol endpoint, so the structured
+//! seam is the generic [`crate::io::AcpBridge`] and this harness contributes
+//! no wire code of its own. The NDJSON stream behind `grok --format json`
+//! stays deliberately unused — its per-field event shapes are not documented
+//! enough to build a faithful bridge (see `grok.md` §"Output stream
+//! protocol"), which is precisely why the structured path went to ACP
+//! instead.
+//!
+//! **This has not been verified against the installed binary.** Grok is not
+//! installed on the machine this was written on, so `grok agent stdio` is a
+//! reported rather than a captured fact: the first live capture may correct
+//! the argv (and the model-selection call noted in `provision`).
 
 use std::path::Path;
 
@@ -59,7 +69,7 @@ use serde_json::{Value, json};
 
 use crate::Result;
 use crate::config::{McpServer, McpTransport};
-use crate::spec::{McpRef, RunSpec};
+use crate::spec::{IoModes, McpRef, RunSpec};
 
 use super::{ConfigAnchor, Harness, Launch, SeedFile};
 
@@ -75,17 +85,21 @@ impl Grok {
 }
 
 impl Harness for Grok {
-    // Passthrough only: Grok's `--format json` NDJSON stream exists but its
-    // per-field event shapes aren't documented enough to build a faithful
-    // structured bridge yet (see `_docs/harness/grok.md`).
+    // Grok's structured seam is `grok agent stdio` — an ACP endpoint, driven
+    // by the generic `crate::io::AcpBridge`, so nothing harness-specific is
+    // parsed here. The `--format json` NDJSON stream is deliberately NOT
+    // used: its per-field event shapes aren't documented enough to build a
+    // faithful bridge (see `_docs/harness/grok.md`), which is why this went
+    // to ACP instead.
     super::shared::harness_identity! {
         id: "grok",
         display_name: "Grok CLI",
         command: "grok",
         aliases: [],
         passthrough: true,
-        structured: false,
-        multi_turn: false,
+        structured: true,
+        multi_turn: true,
+        acp: true,
     }
 
     /// Class C: Grok has **no config-dir lever** — its only relocation seam is
@@ -202,25 +216,52 @@ impl Harness for Grok {
         // memory file (its `AGENTS.md` lives in the user's real project, which
         // a run must not write to), so `spec.initial.instructions` is folded
         // into the prompt text rather than written to disk.
-        let mut args = spec.passthrough_args.clone();
-        // Model selection: `-m <id>` (Grok also honors `GROK_MODEL`). Only
-        // added when a model is set, so runs without `--model` keep
-        // byte-identical argv.
-        if let Some(model) = &spec.model {
-            args.push("-m".to_string());
-            args.push(model.clone());
-        }
-        // Resume: `--session <id>` (Grok also accepts `--session latest`).
-        // Only added when a resume id is set, so resumeless runs keep
-        // byte-identical argv.
-        if let Some(id) = &spec.resume {
-            args.push("--session".to_string());
-            args.push(id.clone());
-        }
-        if let Some(prompt_text) = seeded_prompt(spec) {
-            args.push("--prompt".to_string());
-            args.push(prompt_text);
-        }
+        let args = match spec.io {
+            IoModes::Structured => {
+                // Structured mode: `grok agent stdio [args...]` — an ACP
+                // endpoint, driven by `crate::io::AcpBridge`. Everything a
+                // passthrough run puts in argv moves onto the wire here: the
+                // prompt is a `session/prompt`, and a resume is a
+                // `session/load` (from `Provisioned::resume`), so neither
+                // `--prompt` nor `--session` belongs on this argv.
+                let mut structured_args = vec!["agent".to_string(), "stdio".to_string()];
+                // NOTE: no `-m <model>` here. Whether `grok agent stdio`
+                // accepts the model flag is unverified against the real
+                // binary; the model is expected to be a
+                // `session/set_config_option` with `category: "model"`
+                // instead. Needs a live capture to confirm.
+                structured_args.extend(spec.passthrough_args.clone());
+                if seeded_prompt(spec).is_some() {
+                    tracing::debug!(
+                        "grok structured mode ignores the seeded prompt/instructions in argv; \
+                         it arrives over the wire as session/prompt instead"
+                    );
+                }
+                structured_args
+            }
+            IoModes::Passthrough => {
+                let mut args = spec.passthrough_args.clone();
+                // Model selection: `-m <id>` (Grok also honors `GROK_MODEL`).
+                // Only added when a model is set, so runs without `--model`
+                // keep byte-identical argv.
+                if let Some(model) = &spec.model {
+                    args.push("-m".to_string());
+                    args.push(model.clone());
+                }
+                // Resume: `--session <id>` (Grok also accepts
+                // `--session latest`). Only added when a resume id is set, so
+                // resumeless runs keep byte-identical argv.
+                if let Some(id) = &spec.resume {
+                    args.push("--session".to_string());
+                    args.push(id.clone());
+                }
+                if let Some(prompt_text) = seeded_prompt(spec) {
+                    args.push("--prompt".to_string());
+                    args.push(prompt_text);
+                }
+                args
+            }
+        };
 
         // 4. Account: inject credential *references* into the child's env.
         // Grok authenticates with a single xAI API key via `GROK_API_KEY`
@@ -299,6 +340,19 @@ impl Harness for Grok {
             },
             credential_files: vec![std::path::PathBuf::from(".grok/auth.json")],
         })
+    }
+
+    fn structured_bridge(
+        &self,
+        provisioned: &crate::provision::Provisioned,
+        cwd: &Path,
+    ) -> Result<Box<dyn crate::io::IoBridge>> {
+        let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
+        Ok(Box::new(crate::io::AcpBridge::new(
+            child,
+            cwd,
+            provisioned.resume.as_deref(),
+        )?))
     }
 }
 
@@ -747,10 +801,36 @@ mod tests {
     }
 
     #[test]
-    fn grok_is_passthrough_only() {
+    fn grok_supports_passthrough_and_an_acp_structured_bridge() {
         let grok = Grok::new();
         let support = grok.io_support();
         assert!(support.passthrough);
-        assert!(!support.structured);
+        assert!(support.structured);
+        assert!(support.multi_turn);
+        assert!(support.acp);
+    }
+
+    #[test]
+    fn provision_structured_is_agent_stdio_without_prompt_session_or_model() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = IoModes::Structured;
+        spec.model = Some("grok-4".to_string());
+        spec.resume = Some("sess-1".to_string());
+        spec.initial = Some(Instructions {
+            instructions: None,
+            prompt: Some("summarize the repo".to_string()),
+        });
+
+        let grok = Grok::new();
+        let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+        assert_eq!(launch.args[0], "agent");
+        assert_eq!(launch.args[1], "stdio");
+        // The prompt, the resume and the model all travel over the wire.
+        assert!(!launch.args.contains(&"--prompt".to_string()));
+        assert!(!launch.args.contains(&"--session".to_string()));
+        assert!(!launch.args.contains(&"-m".to_string()));
     }
 }

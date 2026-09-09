@@ -10,6 +10,10 @@
 /// Every harness answers these with string literals and three booleans; the
 /// bodies are otherwise identical. Invoke it as the first item inside
 /// `impl Harness for X`.
+///
+/// `acp:` is an optional trailing field defaulting to `false` — the short form
+/// forwards to the long one with `acp: false`, so a harness that does not
+/// speak ACP says nothing about it.
 macro_rules! harness_identity {
     (
         id: $id:literal,
@@ -19,6 +23,27 @@ macro_rules! harness_identity {
         passthrough: $passthrough:literal,
         structured: $structured:literal,
         multi_turn: $multi_turn:literal $(,)?
+    ) => {
+        $crate::harness::shared::harness_identity! {
+            id: $id,
+            display_name: $display_name,
+            command: $command,
+            aliases: [$($alias),*],
+            passthrough: $passthrough,
+            structured: $structured,
+            multi_turn: $multi_turn,
+            acp: false,
+        }
+    };
+    (
+        id: $id:literal,
+        display_name: $display_name:literal,
+        command: $command:literal,
+        aliases: [$($alias:literal),* $(,)?],
+        passthrough: $passthrough:literal,
+        structured: $structured:literal,
+        multi_turn: $multi_turn:literal,
+        acp: $acp:literal $(,)?
     ) => {
         fn id(&self) -> $crate::spec::HarnessId {
             $id.to_string()
@@ -41,6 +66,7 @@ macro_rules! harness_identity {
                 passthrough: $passthrough,
                 structured: $structured,
                 multi_turn: $multi_turn,
+                acp: $acp,
             }
         }
     };

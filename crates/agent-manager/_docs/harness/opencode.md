@@ -928,7 +928,7 @@ Canonical mapping: assistant text = `text`; tool call/result = `tool_use` (carri
 ### Model & reasoning at launch
 
 - Model: `--model <provider/model-id>` (e.g. `anthropic/claude-sonnet-4-5`).
-- Reasoning effort: `--variant <name>`. The valid variant names per model come from `opencode models --verbose` (each model's `variants` map); custom names declared in `opencode.json` are also valid.
+- Reasoning effort: `--variant <name>`. The valid variant names per model come from `opencode models --verbose` (each model's `variants` map); custom names declared in `opencode.json` are also valid. **Implemented**: `Opencode::discover_thinking()` in `src/harness/opencode.rs` shells out to `opencode models --verbose` (verified against 1.18.28) and parses each model's `variants` map into a reasoning-level catalog; `Opencode::provision()` passes `--variant <value>` in the structured (`opencode run`) form whenever `RunSpec::thinking` is set. A model with an empty `variants` map (most of them) has no reasoning knob and is absent from the catalog rather than listed with zero levels.
 
 ### MCP at launch
 

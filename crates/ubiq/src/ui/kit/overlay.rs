@@ -13,6 +13,14 @@
 //! the panel answers `on_mouse_down_out`, exactly as the dropdown does, so the two dismiss the same
 //! way. The scrim occludes the mouse, so nothing behind a modal can be clicked while it is up.
 //!
+//! **A layer painted above a modal is outside it.** `on_mouse_down_out` is a capture-phase
+//! handler over the panel's own bounds, and a picker's list — `Picker::above_modal` — is painted
+//! at a higher priority but tests against those bounds all the same: a click in the list, its
+//! filter field included, reads as a click outside the modal, and no `stop_propagation` from a
+//! layer above can undo it, because capture runs back to front. A modal that raises its own list
+//! therefore says so in the closure it hands here: while the list is down, an outside click is the
+//! list's, not the modal's. `ui::new_agent` is where that reads.
+//!
 //! **Escape is not here, deliberately.** A modal in this module is a function returning an
 //! element: it owns no focus, so a key never arrives at it, and a `key_context` per modal would be
 //! one more answer to a question the window already answers. Escape is bound once, at the window

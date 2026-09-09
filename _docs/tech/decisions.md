@@ -1701,6 +1701,22 @@ reformats its echo shows the directive in the transcript once — the preamble i
 which bounds the damage to one turn rather than every one. And a directive is not a flag: an agent
 may ignore the subagent ceiling, which no launch option would have let it do.
 
+### D93 — The ACP client is synchronous and hand-rolled
+
+`agent_manager::io::AcpBridge` speaks Agent Client Protocol v1 over the child's stdio with its own
+newline-delimited JSON-RPC 2.0 plumbing: a reader thread that is the sole drainer of stdout, a
+writer thread so a reply never blocks behind an update burst, and request ids correlated by hand.
+The official `agent-client-protocol` crate was rejected, and so was any futures runtime. Every
+other bridge in the crate is core and compiles under `--no-default-features`, and that discipline
+is what lets an embedder take the library without inheriting an executor; one bridge that needed
+async would end the property for all of them.
+
+**Cost:** the JSON-RPC layer is ours to maintain and ours to get wrong — framing, id correlation,
+the guarantee that every inbound request gets exactly one reply on every path. The SDK's own
+conformance to the specification is not inherited, so a protocol revision is a hand edit here
+rather than a version bump. Blocking calls need their own timeouts, which is why `initialize` is
+bounded at thirty seconds rather than by a runtime's cancellation.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

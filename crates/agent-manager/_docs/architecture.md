@@ -119,7 +119,8 @@ did not choose** — that seam is documented per-harness in
 |--------------|---------------------------------------------------------------------------|
 | Claude Code  | a temp workdir with `.claude/skills/…` + `CLAUDE.md`, `--mcp-config <file>` + `--strict-mcp-config`, `--append-system-prompt`; account via `env`/`CLAUDE_CONFIG_DIR` / a private `HOME`. |
 | Codex        | `AGENTS.md` + `agents/…` in the workdir, MCP via its config file, account via env. |
-| opencode     | `AGENTS.md` + `agent/…`, MCP + skills in `opencode.json`, ACP launch mode. |
+| opencode     | `AGENTS.md` + `agent/…`, MCP + skills in `opencode.json`, `run --format json` NDJSON launch mode. |
+| Grok CLI     | `AGENTS.md` + `.agents/skills/…` and `mcpServers` under a relocated `HOME`, `grok agent stdio` ACP launch mode. |
 
 The provisioner therefore emits three things from a `RunSpec`, per harness:
 
@@ -178,7 +179,8 @@ src/
 │   ├── codex.rs      #   Codex JSON-RPC app-server bridge           (core)
 │   ├── opencode.rs   #   opencode NDJSON one-shot bridge            (core)
 │   ├── copilot.rs    #   GitHub Copilot CLI NDJSON one-shot bridge  (core)
-│   ├── acp.rs        #   ACP session/update projection (rename, not translation)
+│   ├── acp.rs        #   to_acp/from_acp session/update mapping pair (rename, not translation)
+│   ├── acp_client.rs #   generic ACP v1 client bridge, any ACP harness  (core)
 │   └── agui.rs       #   AG-UI event adapter (stateless mapper)
 ├── mcp/              # in-process MCP hosting (feature: inproc-mcp)
 │   ├── mod.rs        #   McpService trait for embedders    (core, P2)
