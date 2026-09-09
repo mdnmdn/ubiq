@@ -28,6 +28,7 @@ pub mod outline;
 pub mod project_menu;
 pub mod rail;
 pub mod remote_connect;
+pub mod remote_hosts;
 pub mod ribbon;
 pub mod search;
 pub mod settings;

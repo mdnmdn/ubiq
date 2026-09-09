@@ -161,7 +161,7 @@ impl AppState {
                             name: None,
                             colour: None,
                             custom_colour: None,
-                            temporary: false,
+                            temporary: !browse.persistent,
                         },
                     );
                 }

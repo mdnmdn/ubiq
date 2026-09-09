@@ -210,3 +210,11 @@ ulid_id! {
     /// no longer holding is discarded by id, the same discipline [`SearchId`] buys for a search.
     SuggestId
 }
+
+ulid_id! {
+    /// One saved remote-host entry in the interface's settings. Minted UI-side when a
+    /// connection is first saved, stable across renames and address edits — the name and the
+    /// address are the user's, this is what the secret store and the live-connection table
+    /// reference.
+    HostSaveId
+}

@@ -156,14 +156,14 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
                 .child(
                     icon_button(
-                        "remote-connect",
+                        "remote-hosts",
                         IconName::Network,
-                        app.workbench.remote_connect.is_some(),
-                        cx.listener(|this, _, window, cx| this.open_remote_connect(window, cx)),
+                        app.workbench.remote_manager.open,
+                        cx.listener(|this, _, _, cx| this.open_remote_manager(cx)),
                     )
                     .h_full()
                     .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new("Connect to a remote host")
+                        gpui_component::tooltip::Tooltip::new("Remote hosts")
                             .build(window, cx)
                     }),
                 )

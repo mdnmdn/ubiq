@@ -394,6 +394,10 @@ impl AppState {
         let settings = &self.workbench.settings;
         if self.workbench.remote_connect.is_some() {
             self.cancel_remote_connect(window, cx);
+        } else if self.workbench.remote_manager.renaming.is_some() {
+            self.cancel_rename_remote_host(cx);
+        } else if self.workbench.remote_manager.open {
+            self.close_remote_manager(cx);
         } else if matches!(self.workbench.file_dialog, Some(FileDialog::PasteImage)) {
             // Escape takes the text file: the keystroke's own meaning.
             self.decline_paste_image(cx);

@@ -154,14 +154,36 @@ pub fn run(boot: Boot) {
 
     // After the coordinator, so a client that attaches in the same breath has something to talk to,
     // and instead of the first window: a `--serve` run keeps the terminal it was started in.
-    if let Some(bind) = serve {
-        match ubiq_host::remote::serve(hub, bind) {
-            Ok(serving) => announce(&serving),
-            // The user asked for a server. Falling through into a window would leave them with
-            // something that looks like it worked and is not listening to anything.
-            Err(error) => {
-                eprintln!("ubiq: could not listen on {bind}: {error}");
-                std::process::exit(2);
+    if let Some(serve) = serve {
+        match serve.tls {
+            None => match ubiq_host::remote::serve(hub, serve.bind) {
+                Ok(serving) => announce(&serving),
+                // The user asked for a server. Falling through into a window would leave them
+                // with something that looks like it worked and is not listening to anything.
+                Err(error) => {
+                    eprintln!("ubiq: could not listen on {}: {error}", serve.bind);
+                    std::process::exit(2);
+                }
+            },
+            Some((cert_path, key_path)) => {
+                let cert_pem = std::fs::read(&cert_path).unwrap_or_else(|error| {
+                    eprintln!(
+                        "ubiq: could not read --tls-cert {}: {error}",
+                        cert_path.display()
+                    );
+                    std::process::exit(2);
+                });
+                let key_pem = std::fs::read(&key_path).unwrap_or_else(|error| {
+                    eprintln!("ubiq: could not read --tls-key {}: {error}", key_path.display());
+                    std::process::exit(2);
+                });
+                match ubiq_host::remote::serve_tls(hub, serve.bind, &cert_pem, &key_pem) {
+                    Ok(serving) => announce(&serving),
+                    Err(error) => {
+                        eprintln!("ubiq: could not serve TLS on {}: {error}", serve.bind);
+                        std::process::exit(2);
+                    }
+                }
             }
         }
         // The listener and the coordinator each hold a thread of their own; this one has nothing
@@ -260,7 +282,13 @@ pub fn run(boot: Boot) {
 }
 
 /// The flags that take a value, so a token following one of them is that value and never a path.
-const VALUE_FLAGS: [&str; 3] = ["--config-root", "--bind", "--port"];
+const VALUE_FLAGS: [&str; 5] = [
+    "--config-root",
+    "--bind",
+    "--port",
+    "--tls-cert",
+    "--tls-key",
+];
 
 /// Positional arguments as paths — `ubiq .`, `ubiq some/file` — reaching the same place a Finder
 /// open would. Only [`VALUE_FLAGS`] and their values are spoken for; anything else that looks like
@@ -286,7 +314,7 @@ fn argv_paths(mut args: impl Iterator<Item = String>, cwd: &Path) -> Vec<PathBuf
 /// The port a served run with no port of its own lands on.
 const SERVE_PORT: u16 = 7420;
 
-/// Where the host should listen, or `None` when serving was not asked for.
+/// Where and how the host should listen, or `None` when serving was not asked for.
 ///
 /// Three flags ask for it, and any of them alone is enough — a `--port` with no `--serve` is not a
 /// window that happens to know a port. `--serve` on its own binds every interface, which is the
@@ -294,30 +322,48 @@ const SERVE_PORT: u16 = 7420;
 /// tunnel-only setup is spelled. `--bind <addr>` and `--port <n>` set the two halves separately and
 /// win over a `--serve` value, so `--serve --port 9000` is the common case spelled the short way.
 ///
-/// `--serve` takes its value attached with `=` and never separated by a space; `--bind` and
-/// `--port` accept either form, because they are consumed by name in `argv_paths` and so cannot
-/// swallow a project path the way a separated `--serve=` value would.
-fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<SocketAddr> {
+/// `--tls-cert <pem>` with `--tls-key <pem>` wraps the listener in TLS, and the banner prints an
+/// `https://` string for it. One without the other is refused — a certificate without its key, or
+/// the reverse, listens to nothing a UI could reach.
+///
+/// `--serve` takes its value attached with `=` and never separated by a space; `--bind`, `--port`,
+/// `--tls-cert` and `--tls-key` accept either form, because they are consumed by name in
+/// `argv_paths` and so cannot swallow a project path the way a separated `--serve=` value would.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ServeOptions {
+    bind: SocketAddr,
+    tls: Option<(PathBuf, PathBuf)>,
+}
+
+fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<ServeOptions> {
     let mut asked = false;
     let mut bind: Option<SocketAddr> = None;
     let mut ip: Option<IpAddr> = None;
     let mut port: Option<u16> = None;
+    let mut tls_cert: Option<PathBuf> = None;
+    let mut tls_key: Option<PathBuf> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--serve" => asked = true,
-            "--bind" | "--port" => {
+            "--bind" | "--port" | "--tls-cert" | "--tls-key" => {
                 asked = true;
                 let given = args.next().unwrap_or_else(|| {
                     eprintln!("ubiq: {arg} wants a value");
                     std::process::exit(2);
                 });
-                if arg == "--port" {
-                    port = Some(parse_port(&given));
-                } else {
-                    let (given_ip, given_port) = parse_address(&given);
-                    ip = Some(given_ip);
-                    port = given_port.or(port);
+                // A certificate is only servable, never windowed: asking for TLS is asking for
+                // a server the same way `--port` alone is.
+                match arg.as_str() {
+                    "--port" => port = Some(parse_port(&given)),
+                    "--bind" => {
+                        let (given_ip, given_port) = parse_address(&given);
+                        ip = Some(given_ip);
+                        port = given_port.or(port);
+                    }
+                    "--tls-cert" => tls_cert = Some(PathBuf::from(given)),
+                    "--tls-key" => tls_key = Some(PathBuf::from(given)),
+                    _ => unreachable!(),
                 }
             }
             _ => {
@@ -335,17 +381,36 @@ fn serve_bind(mut args: impl Iterator<Item = String>) -> Option<SocketAddr> {
                     let (given_ip, given_port) = parse_address(given);
                     ip = Some(given_ip);
                     port = given_port.or(port);
+                } else if let Some(given) = arg.strip_prefix("--tls-cert=") {
+                    asked = true;
+                    tls_cert = Some(PathBuf::from(given));
+                } else if let Some(given) = arg.strip_prefix("--tls-key=") {
+                    asked = true;
+                    tls_key = Some(PathBuf::from(given));
                 }
             }
         }
     }
 
-    asked.then(|| {
-        SocketAddr::new(
+    match (&tls_cert, &tls_key) {
+        (Some(_), None) => {
+            eprintln!("ubiq: --tls-cert wants --tls-key beside it");
+            std::process::exit(2);
+        }
+        (None, Some(_)) => {
+            eprintln!("ubiq: --tls-key wants --tls-cert beside it");
+            std::process::exit(2);
+        }
+        _ => {}
+    }
+
+    asked.then(|| ServeOptions {
+        bind: SocketAddr::new(
             ip.or(bind.map(|bind| bind.ip()))
                 .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
             port.or(bind.map(|bind| bind.port())).unwrap_or(SERVE_PORT),
-        )
+        ),
+        tls: tls_cert.zip(tls_key),
     })
 }
 
@@ -411,17 +476,22 @@ fn advertised_ip(addr: SocketAddr) -> IpAddr {
 fn announce(serving: &ubiq_host::remote::Serving) {
     let addr = serving.addr;
     let ip = advertised_ip(addr);
+    let scheme = if serving.tls { "https" } else { "http" };
     println!("ubiq host listening on {addr}");
     println!();
     println!("  token  {}", serving.token);
     println!(
-        "  connect  http://{ip}:{}?token={}",
+        "  connect  {scheme}://{ip}:{}?token={}",
         addr.port(),
         serving.token
     );
     println!();
     println!("Anyone who reaches this port with that token gets a terminal on this machine.");
-    println!("The connection is not encrypted — tunnel it if the network is not trusted.");
+    if serving.tls {
+        println!("The connection is encrypted; the UI verifies the certificate unless told to trust it.");
+    } else {
+        println!("The connection is not encrypted — tunnel it if the network is not trusted.");
+    }
 }
 
 /// A `file://` URL as Finder or a dock-icon drop hands it over, decoded back to a path. macOS
@@ -517,41 +587,42 @@ mod tests {
     /// The bare flag is the one that binds every interface — that is what the flag is for.
     #[test]
     fn the_bare_flag_binds_every_interface_on_the_default_port() {
-        let bind = serve_bind(argv(&["--serve"])).expect("a bind");
-        assert!(bind.ip().is_unspecified());
-        assert_eq!(bind.port(), SERVE_PORT);
+        let serve = serve_bind(argv(&["--serve"])).expect("a bind");
+        assert!(serve.bind.ip().is_unspecified());
+        assert_eq!(serve.bind.port(), SERVE_PORT);
+        assert_eq!(serve.tls, None);
     }
 
     /// The three shapes a value may take, including the loopback one a tunnel-only setup uses.
     #[test]
     fn a_value_may_be_a_port_an_address_or_both() {
         assert_eq!(
-            serve_bind(argv(&["--serve=9000"])).map(|b| b.port()),
+            serve_bind(argv(&["--serve=9000"])).map(|b| b.bind.port()),
             Some(9000)
         );
         let loopback = serve_bind(argv(&["--serve=127.0.0.1:7420"])).expect("a bind");
-        assert!(loopback.ip().is_loopback());
-        assert_eq!(loopback.port(), 7420);
+        assert!(loopback.bind.ip().is_loopback());
+        assert_eq!(loopback.bind.port(), 7420);
         let bare_ip = serve_bind(argv(&["--serve=127.0.0.1"])).expect("a bind");
-        assert!(bare_ip.ip().is_loopback());
-        assert_eq!(bare_ip.port(), SERVE_PORT);
+        assert!(bare_ip.bind.ip().is_loopback());
+        assert_eq!(bare_ip.bind.port(), SERVE_PORT);
     }
 
     /// `--bind` and `--port` set the two halves, in either spelling, and win over a `--serve` value.
     #[test]
     fn bind_and_port_set_the_address_and_the_port() {
-        let bind = serve_bind(argv(&["--serve", "--port", "9000"])).expect("a bind");
-        assert!(bind.ip().is_unspecified());
-        assert_eq!(bind.port(), 9000);
+        let serve = serve_bind(argv(&["--serve", "--port", "9000"])).expect("a bind");
+        assert!(serve.bind.ip().is_unspecified());
+        assert_eq!(serve.bind.port(), 9000);
 
-        let bind = serve_bind(argv(&["--bind=127.0.0.1", "--port=9001"])).expect("a bind");
-        assert!(bind.ip().is_loopback());
-        assert_eq!(bind.port(), 9001);
+        let serve = serve_bind(argv(&["--bind=127.0.0.1", "--port=9001"])).expect("a bind");
+        assert!(serve.bind.ip().is_loopback());
+        assert_eq!(serve.bind.port(), 9001);
 
         // A port on `--bind` is honoured, and a later `--port` still wins.
-        let bind = serve_bind(argv(&["--bind", "127.0.0.1:8080"])).expect("a bind");
-        assert_eq!(bind.port(), 8080);
-        let bind = serve_bind(argv(&[
+        let serve = serve_bind(argv(&["--bind", "127.0.0.1:8080"])).expect("a bind");
+        assert_eq!(serve.bind.port(), 8080);
+        let serve = serve_bind(argv(&[
             "--serve=0.0.0.0:1",
             "--bind",
             "127.0.0.1",
@@ -559,8 +630,31 @@ mod tests {
             "2",
         ]))
         .expect("a bind");
-        assert!(bind.ip().is_loopback());
-        assert_eq!(bind.port(), 2);
+        assert!(serve.bind.ip().is_loopback());
+        assert_eq!(serve.bind.port(), 2);
+    }
+
+    /// A certificate alone asks for a server too, and lands beside the bind it narrows.
+    #[test]
+    fn tls_flags_ask_for_a_server_and_land_beside_the_bind() {
+        let serve = serve_bind(argv(&[
+            "--tls-cert",
+            "cert.pem",
+            "--tls-key",
+            "key.pem",
+            "--port",
+            "9000",
+        ]))
+        .expect("a bind");
+        assert_eq!(serve.bind.port(), 9000);
+        assert_eq!(
+            serve.tls,
+            Some((PathBuf::from("cert.pem"), PathBuf::from("key.pem")))
+        );
+        let serve = serve_bind(argv(&["--serve", "--tls-cert=cert.pem", "--tls-key=key.pem"]))
+            .expect("a bind");
+        assert_eq!(serve.bind.port(), SERVE_PORT);
+        assert!(serve.tls.is_some());
     }
 
     /// Either flag alone asks for a server: nothing else in Ubiq has a port to set.

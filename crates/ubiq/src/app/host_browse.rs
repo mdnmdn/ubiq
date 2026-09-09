@@ -56,6 +56,11 @@ pub struct HostBrowseState {
     /// successful answer, on the same rule the project picker's own banner clears on an
     /// `AddProject` that succeeds.
     pub error: Option<String>,
+    /// Whether the picked folder joins the remote catalogue durably. Checked by default: a
+    /// project left working on a remote host outlives this window, and reconnecting later finds
+    /// it still there. Unchecked is `AddProject.temporary` — the host keeps it in memory only,
+    /// and it is gone at the next launch there.
+    pub persistent: bool,
 }
 
 /// What one arriving answer, tagged with the [`HostRef`] it came from and the path it named,
@@ -88,6 +93,7 @@ impl HostBrowseState {
             pending_roots: HashSet::new(),
             pending_folders: HashSet::new(),
             error: None,
+            persistent: true,
         }
     }
 
@@ -208,6 +214,15 @@ impl AppState {
         .count(PickerCount::Single)
         .commit(Commit::OnButton);
         self.open_file_picker(request, Vec::new(), PickerView::Tree, window, cx);
+    }
+
+    /// Flip whether a folder picked from a remote host joins its catalogue durably. The
+    /// picker's footer checkbox owns this; the commit reads it.
+    pub fn toggle_host_project_persistent(&mut self, cx: &mut Context<Self>) {
+        if let Some(browse) = &mut self.host_browse {
+            browse.persistent = !browse.persistent;
+        }
+        cx.notify();
     }
 
     /// Walk the tree's root up to its parent, re-fetching from there. A no-op with nothing to walk
@@ -357,14 +372,27 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ubiq_proto::settings::RemoteScheme;
 
     /// Two distinct hosts, the way `Bus::register_remote` mints them — `HostId`'s field is private
     /// even to this module, so a real `Bus` is the only way to get one to test against.
     fn two_hosts() -> (HostId, HostId) {
         let (local, _local_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (a, _) = bus.register_remote(ubiq_proto::bus::detached().0, "host-a".to_string());
-        let (b, _) = bus.register_remote(ubiq_proto::bus::detached().0, "host-b".to_string());
+        let (a, _) = bus.register_remote(
+            ubiq_proto::bus::detached().0,
+            "host-a".to_string(),
+            String::new(),
+            "host-a".to_string(),
+            RemoteScheme::Http,
+        );
+        let (b, _) = bus.register_remote(
+            ubiq_proto::bus::detached().0,
+            "host-b".to_string(),
+            String::new(),
+            "host-b".to_string(),
+            RemoteScheme::Http,
+        );
         (a, b)
     }
 

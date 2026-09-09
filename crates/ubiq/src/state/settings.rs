@@ -525,9 +525,30 @@ pub struct SettingsState {
     /// the moment it attaches, so the dropdown never shows a stale failure for a host that is now
     /// up.
     pub failed_hosts: HashSet<String>,
+    /// Reconnects still running for saved remote hosts, keyed by the keychain key
+    /// (`host_secrets::key_for`). The socket dropped and the loop below owns the retries —
+    /// manual `Reconnect` bumps the generation and dials at once, `Disconnect`/`Forget` removes
+    /// the entry and every scheduled retry aborts on the missing key.
+    pub reconnects: HashMap<String, ReconnectState>,
     /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
     /// user acts: opens a dialog, starts a login, or dismisses it.
     pub error: Option<String>,
+}
+
+/// One saved host the interface is trying to get back to without being asked again.
+///
+/// Kept beside `failed_hosts` rather than on the `Bus`: the connection is gone, so there is no
+/// `HostId` to key it by — only the saved entry it dials from. `generation` invalidates timers
+/// a manual retry or a stop left behind: a scheduled wake for an older generation does nothing.
+#[derive(Clone, Debug)]
+pub struct ReconnectState {
+    /// Attempts since the drop, starting at 0. The delay before the next one backs off from it.
+    pub attempt: u32,
+    /// What the last try said. Shown in the manager panel; empty before the first try.
+    pub error: String,
+    /// Bumped by every manual retry and every stop, so a timer scheduled earlier aborts instead
+    /// of dialling twice.
+    pub generation: u64,
 }
 
 impl SettingsState {
@@ -577,6 +598,7 @@ impl Default for SettingsState {
             ai_remove: None,
             host_picker_open: false,
             failed_hosts: HashSet::new(),
+            reconnects: HashMap::new(),
             error: None,
         }
     }

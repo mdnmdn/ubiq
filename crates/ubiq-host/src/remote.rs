@@ -14,10 +14,16 @@
 //! reading and writing raw length-prefixed frames on it. That needs the socket itself, not a
 //! library built around request/response. Do not "simplify" this to `tiny_http` later — it cannot
 //! do the upgrade this needs.
+//!
+//! **TLS is the same handshake inside a session.** `serve_tls` wraps each accepted socket in a
+//! rustls server session first; everything past the handshake — the HTTP upgrade, the pumps —
+//! runs over a [`Socket`] that does not know which it is. A UI dials `https` exactly when the
+//! host was started with `--tls-cert`/`--tls-key`, and `http` otherwise.
 
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -38,11 +44,12 @@ const MAX_HEADER: usize = 8 * 1024;
 /// is idle between frames by design.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// What starting the listener hands back: where it ended up bound, and the token a client must
-/// present to attach.
+/// What starting the listener hands back: where it ended up bound, the token a client must
+/// present to attach, and whether the socket speaks TLS.
 pub struct Serving {
     pub addr: SocketAddr,
     pub token: String,
+    pub tls: bool,
 }
 
 /// Start the listener on a thread of its own and return immediately.
@@ -57,10 +64,75 @@ pub fn serve(hub: Hub, bind: SocketAddr) -> io::Result<Serving> {
 
     thread::Builder::new()
         .name("ubiq-remote-listen".to_string())
-        .spawn(move || accept_loop(listener, hub, accept_token))
+        .spawn(move || accept_loop(listener, hub, accept_token, None))
         .expect("the remote listener thread");
 
-    Ok(Serving { addr, token })
+    Ok(Serving {
+        addr,
+        token,
+        tls: false,
+    })
+}
+
+/// Start the listener with TLS: every accepted socket runs its handshake before the HTTP
+/// upgrade, and a plaintext dial against it reads nothing but TLS bytes.
+///
+/// `cert_pem` is the chain, leaf first; `key_pem` the private key — PEM, as `--tls-cert` and
+/// `--tls-key` hand them over. A key that matches none of the parsed private-key shapes, or a
+/// chain with no certificate in it, refuses here rather than after binding.
+pub fn serve_tls(
+    hub: Hub,
+    bind: SocketAddr,
+    cert_pem: &[u8],
+    key_pem: &[u8],
+) -> io::Result<Serving> {
+    let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut &*cert_pem)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "could not read --tls-cert"))?;
+    if certs.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--tls-cert holds no certificate",
+        ));
+    }
+    let key = rustls_pemfile::private_key(&mut &*key_pem)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "could not read --tls-key"))?
+        .ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "--tls-key holds no private key")
+        })?;
+    let config = rustls::ServerConfig::builder_with_provider(tls_provider())
+        .with_safe_default_protocol_versions()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+
+    let listener = TcpListener::bind(bind)?;
+    let addr = listener.local_addr()?;
+    let token = generate_token();
+    let accept_token = token.clone();
+
+    thread::Builder::new()
+        .name("ubiq-remote-listen".to_string())
+        .spawn(move || accept_loop(listener, hub, accept_token, Some(Arc::new(config))))
+        .expect("the remote listener thread");
+
+    Ok(Serving {
+        addr,
+        token,
+        tls: true,
+    })
+}
+
+/// The crypto provider, named rather than inherited — the connector family's `tls::provider`
+/// names `ring` for the same reason, and two halves of one handshake must not disagree about it.
+fn tls_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    use std::sync::OnceLock;
+    static PROVIDER: OnceLock<Arc<rustls::crypto::CryptoProvider>> = OnceLock::new();
+    PROVIDER
+        .get_or_init(|| Arc::new(rustls::crypto::ring::default_provider()))
+        .clone()
 }
 
 /// 256 bits, rendered URL-safe with no padding — long enough to paste into a connection string and
@@ -111,10 +183,60 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// A socket half the pumps can own: anything readable, writable and sendable across threads.
+///
+/// An accepted TCP socket hands over itself and its `try_clone`; a TLS session hands over two
+/// handles to the same session behind a lock, because rustls has no `try_clone`.
+trait Socket: Read + Write + Send + 'static {}
+
+impl<T: Read + Write + Send + 'static> Socket for T {}
+
+/// The TLS half of an accepted connection: one session, shared by the reader and writer pumps
+/// behind a lock. Same shape as the dialer's `SharedTls`, mirrored — see that type for why the
+/// lock is per call rather than per direction.
+#[derive(Clone)]
+struct SharedTls(Arc<Mutex<TlsPair>>);
+
+struct TlsPair {
+    conn: rustls::ServerConnection,
+    sock: TcpStream,
+}
+
+impl Read for SharedTls {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut pair = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let TlsPair { conn, sock } = &mut *pair;
+        rustls::Stream::new(conn, sock).read(buf)
+    }
+}
+
+impl Write for SharedTls {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut pair = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let TlsPair { conn, sock } = &mut *pair;
+        rustls::Stream::new(conn, sock).write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut pair = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let TlsPair { conn, sock } = &mut *pair;
+        rustls::Stream::new(conn, sock).flush()
+    }
+}
+
 /// Accept connections until the listener itself fails (the process is going down). One hostile or
 /// slow peer is confined to its own thread, per the loop body below, so it can never block this
 /// one or the coordinator behind `hub`.
-fn accept_loop(listener: TcpListener, hub: Hub, token: String) {
+///
+/// With a TLS config, each socket runs its handshake on its connection thread before anything is
+/// read from it — a plaintext dial against a TLS listener stalls there until the handshake
+/// deadline, then is dropped, having read nothing it could mistake for an answer.
+fn accept_loop(
+    listener: TcpListener,
+    hub: Hub,
+    token: String,
+    tls: Option<Arc<rustls::ServerConfig>>,
+) {
     for incoming in listener.incoming() {
         let stream = match incoming {
             Ok(stream) => stream,
@@ -125,19 +247,87 @@ fn accept_loop(listener: TcpListener, hub: Hub, token: String) {
         };
         let hub = hub.clone();
         let token = token.clone();
+        let tls = tls.clone();
         thread::Builder::new()
             .name("ubiq-remote-conn".to_string())
-            .spawn(move || handle_connection(stream, hub, &token))
+            .spawn(move || handle_accepted(stream, hub, token, tls))
             .ok();
     }
 }
 
 /// One accepted socket, from the handshake through the life of the session.
-fn handle_connection(mut stream: TcpStream, hub: Hub, token: &str) {
+fn handle_accepted(
+    stream: TcpStream,
+    hub: Hub,
+    token: String,
+    tls: Option<Arc<rustls::ServerConfig>>,
+) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
 
-    let request = match read_request(&mut stream) {
+    match tls {
+        None => {
+            let reader = match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => return,
+            };
+            // Clearing the deadline on any clone clears it for all of them: socket timeouts
+            // are set on the socket, not the file descriptor.
+            let clearer = match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => return,
+            };
+            handle_connection(
+                Box::new(reader),
+                Box::new(stream),
+                Box::new(move || {
+                    let _ = clearer.set_read_timeout(None);
+                }),
+                hub,
+                &token,
+            );
+        }
+        Some(config) => {
+            let mut conn = match rustls::ServerConnection::new(config) {
+                Ok(conn) => conn,
+                Err(_) => return,
+            };
+            let mut stream = stream;
+            while conn.is_handshaking() {
+                if conn.complete_io(&mut stream).is_err() {
+                    return;
+                }
+            }
+            let shared = SharedTls(Arc::new(Mutex::new(TlsPair { conn, sock: stream })));
+            let clearer = shared.clone();
+            handle_connection(
+                Box::new(shared.clone()),
+                Box::new(shared),
+                Box::new(move || {
+                    if let Ok(pair) = clearer.0.lock() {
+                        let _ = pair.sock.set_read_timeout(None);
+                    }
+                }),
+                hub,
+                &token,
+            );
+        }
+    }
+}
+
+/// One connection, from the HTTP upgrade through the life of the session.
+///
+/// `on_upgrade` runs the moment the `101` is written: the handshake deadline was the
+/// handshake's, not the session's, and a client that says nothing for an hour is an idle
+/// window, not a stalled peer.
+fn handle_connection(
+    mut reader: Box<dyn Socket>,
+    mut writer: Box<dyn Socket>,
+    on_upgrade: Box<dyn FnOnce() + Send>,
+    hub: Hub,
+    token: &str,
+) {
+    let request = match read_request(&mut reader) {
         Ok(request) => request,
         Err(_) => return,
     };
@@ -145,30 +335,30 @@ fn handle_connection(mut stream: TcpStream, hub: Hub, token: &str) {
     match request {
         Request::Attach { token: presented } => {
             if !constant_time_eq(presented.as_bytes(), token.as_bytes()) {
-                let _ = write_response(&mut stream, 401, "Unauthorized", "bad or missing token");
+                let _ = write_response(&mut writer, 401, "Unauthorized", "bad or missing token");
                 return;
             }
-            if write_response_line(&mut stream, "101 Switching Protocols").is_err() {
+            if write_response_line(&mut writer, "101 Switching Protocols").is_err() {
                 return;
             }
             // The deadline was the handshake's, not the session's: a client that says nothing for
             // an hour is an idle window, not a stalled peer.
-            let _ = stream.set_read_timeout(None);
-            pump(stream, hub);
+            on_upgrade();
+            pump(reader, writer, hub);
         }
         Request::Root => {
             let _ = write_response(
-                &mut stream,
+                &mut writer,
                 200,
                 "OK",
                 "this is a Ubiq host. attach at /attach?token=<token>.",
             );
         }
         Request::Other => {
-            let _ = write_response(&mut stream, 404, "Not Found", "not found");
+            let _ = write_response(&mut writer, 404, "Not Found", "not found");
         }
         Request::TooLarge => {
-            let _ = write_response(&mut stream, 400, "Bad Request", "header too large");
+            let _ = write_response(&mut writer, 400, "Bad Request", "header too large");
         }
     }
 }
@@ -194,7 +384,7 @@ enum Request {
 /// must leave on the socket for [`pump`] to read, not swallow into a buffer that is about to be
 /// dropped. One byte per syscall is a one-time cost on a connection that then runs for a whole
 /// session.
-fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
+fn read_request(stream: &mut dyn Read) -> io::Result<Request> {
     let mut total = 0usize;
     let mut lines = Vec::new();
     loop {
@@ -253,7 +443,7 @@ fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
 /// Read one line, refusing to grow the buffer past `budget` bytes. `Ok(None)` is "ran out of
 /// budget before a newline"; `Ok(Some(0))` is a clean EOF with nothing read at all.
 fn read_capped_line(
-    reader: &mut TcpStream,
+    reader: &mut dyn Read,
     line: &mut String,
     budget: usize,
 ) -> io::Result<Option<usize>> {
@@ -277,7 +467,7 @@ fn read_capped_line(
     }
 }
 
-fn write_response(stream: &mut TcpStream, code: u16, reason: &str, body: &str) -> io::Result<()> {
+fn write_response(stream: &mut dyn Write, code: u16, reason: &str, body: &str) -> io::Result<()> {
     let response = format!(
         "HTTP/1.1 {code} {reason}\r\n\
          Content-Type: text/plain; charset=utf-8\r\n\
@@ -290,7 +480,7 @@ fn write_response(stream: &mut TcpStream, code: u16, reason: &str, body: &str) -
     stream.write_all(response.as_bytes())
 }
 
-fn write_response_line(stream: &mut TcpStream, status: &str) -> io::Result<()> {
+fn write_response_line(stream: &mut dyn Write, status: &str) -> io::Result<()> {
     stream.write_all(
         format!("HTTP/1.1 {status}\r\nUpgrade: ubiq\r\nConnection: Upgrade\r\n\r\n").as_bytes(),
     )
@@ -313,15 +503,12 @@ const STOP_POLL: Duration = Duration::from_millis(200);
 /// writer's side would not notice the reader giving up (the coordinator has no reason to stop
 /// answering just because the socket died), so the writer polls `from_host` instead and checks
 /// `stopped`, which the reader sets on its way out.
-fn pump(stream: TcpStream, hub: Hub) {
+fn pump(reader: Box<dyn Socket>, writer: Box<dyn Socket>, hub: Hub) {
     let client = Arc::new(hub.connect());
     let stopped = Arc::new(AtomicBool::new(false));
 
-    let mut reader_stream = match stream.try_clone() {
-        Ok(clone) => clone,
-        Err(_) => return,
-    };
-    let mut writer_stream = stream;
+    let mut reader_stream = reader;
+    let mut writer_stream = writer;
 
     let writer_client = client.clone();
     let writer_stopped = stopped.clone();
@@ -343,7 +530,9 @@ fn pump(stream: TcpStream, hub: Hub) {
                     Err(flume::RecvTimeoutError::Disconnected) => break,
                 }
             }
-            let _ = writer_stream.shutdown(Shutdown::Both);
+            // Dropping the half is the whole of closing it — for TLS there is no `shutdown`
+            // to call, and for TCP the peer reads EOF either way.
+            drop(writer_stream);
             drop(writer_client);
         })
         .expect("the remote writer thread");

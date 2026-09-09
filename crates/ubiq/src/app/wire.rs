@@ -194,15 +194,11 @@ impl AppState {
                 }
             }
             if let HostRef::Remote(id) = host {
+                // The socket failed rather than the user asking for this. Panes close the same
+                // way a manual disconnect closes them, and a connection with a saved entry
+                // behind it starts the reconnect loop — see `remote_socket_lost`.
                 let _ = this.update(cx, |this, cx| {
-                    let label = this.disconnect_host(id, cx);
-                    // The socket failed rather than the user asking for this, so the Hosts
-                    // section has to say the connection to that address is no longer good — the
-                    // same mark a failed dial leaves, and cleared the same way, by reaching it.
-                    if let Some(address) = this.address_of_host(&label) {
-                        this.workbench.settings.failed_hosts.insert(address);
-                    }
-                    tracing::warn!("remote host {label} disconnected");
+                    this.remote_socket_lost(id, cx);
                 });
             }
         })
@@ -221,11 +217,13 @@ impl AppState {
     /// `CloseWorkspace` that has to resolve to this host to be dropped rather than misdelivered,
     /// and forgets the pane itself as it goes. See [`Bus::drop_remote`].
     pub fn disconnect_host(&mut self, id: HostId, cx: &mut Context<Self>) -> String {
-        let label = self
+        let saved = self
             .bus
-            .remotes()
-            .find(|(host, _)| *host == id)
-            .map(|(_, label)| label.to_string())
+            .remote(id)
+            .map(|remote| (remote.save_id.clone(), remote.address.clone(), remote.label.clone()));
+        let label = saved
+            .as_ref()
+            .map(|(_, _, label)| label.clone())
             .unwrap_or_default();
         for pane_id in self.bus.drop_remote(id) {
             self.close_pane(pane_id, cx);
@@ -233,6 +231,12 @@ impl AppState {
             // has not necessarily forgotten it. Nothing may stay recorded under a host that is
             // gone.
             self.bus.forget_pane(pane_id);
+        }
+        // Asked for, not dropped: the reconnect loop stops with it rather than dialling back a
+        // host the user just let go of.
+        if let Some((save_id, address, _)) = saved {
+            let key = crate::app::host_secrets::key_for(&save_id, &address);
+            self.workbench.settings.reconnects.remove(&key);
         }
         cx.notify();
         label
@@ -243,7 +247,7 @@ impl AppState {
     /// A remote is labelled with the saved host's name when it was reconnected from the Hosts
     /// section and with the bare address when it was dialled fresh, so both are tried — the
     /// address is what `failed_hosts` and every other saved-host lookup is keyed by.
-    fn address_of_host(&self, label: &str) -> Option<String> {
+    pub(super) fn address_of_host(&self, label: &str) -> Option<String> {
         self.workbench
             .settings
             .host
@@ -1165,13 +1169,15 @@ impl AppState {
             // answers replace those lists whole. The menus name what can be started on *this*
             // machine; a remote's belong to a per-host set of them that does not exist yet.
             Message::HostInfo {
-                config_root,
+                ref config_root,
                 is_default,
+                ..
             } => {
                 if host != HostRef::Local {
+                    self.bus.note_remote_info(host, &message);
                     return None;
                 }
-                self.workbench.config_root = Some(config_root);
+                self.workbench.config_root = Some(config_root.clone());
                 self.workbench.config_root_is_default = is_default;
                 // The new-pane menu offers what this machine has, and only the host can say what
                 // that is. Asked on attach so the first menu is not empty, and again on every
@@ -1199,7 +1205,11 @@ impl AppState {
             // merged: every field is a sample taken at the same moment, and half of an old
             // reading beside half of a new one is a picture of no moment at all.
             Message::Stats { stats } => {
-                self.stats.host = Some(stats);
+                if host != HostRef::Local {
+                    self.bus.note_remote_stats(host, &stats);
+                } else {
+                    self.stats.host = Some(stats);
+                }
                 cx.notify();
             }
 

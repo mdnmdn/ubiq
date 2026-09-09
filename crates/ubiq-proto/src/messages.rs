@@ -105,9 +105,23 @@ pub enum Message {
 
     /// What the host is, said once to each window as it attaches. The interface cannot read disk,
     /// so this is the only way it learns its own config root is not the usual one.
+    /// Machine facts ride along so a remote-hosts panel can name OS, triplet, resources and
+    /// hostname without a second round trip; all are best-effort (`None` = unavailable).
     HostInfo {
         config_root: String,
         is_default: bool,
+        #[serde(default)]
+        hostname: Option<String>,
+        #[serde(default)]
+        os: Option<String>,
+        #[serde(default)]
+        arch: Option<String>,
+        #[serde(default)]
+        triplet: Option<String>,
+        #[serde(default)]
+        cpu_count: Option<u64>,
+        #[serde(default)]
+        mem_total_bytes: Option<u64>,
     },
 
     /// Which shells this machine actually has. Answered with [`Message::ShellList`].

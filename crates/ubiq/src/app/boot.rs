@@ -221,6 +221,8 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("192.168.1.5:7420"));
         let remote_token_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
+        let remote_rename_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("A name for this host\u{2026}"));
 
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
@@ -949,6 +951,7 @@ impl AppState {
             ai_smart_search,
             remote_address_input,
             remote_token_input,
+            remote_rename_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,

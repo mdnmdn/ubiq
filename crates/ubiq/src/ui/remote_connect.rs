@@ -11,7 +11,10 @@ use gpui_component::input::Input;
 use crate::app::AppState;
 use crate::state::remote::RemoteConnectStep;
 use crate::theme;
-use crate::ui::kit::{field, ghost_button, label_block, modal, modal_note, primary_button};
+use crate::ui::kit::{
+    check_box, field, ghost_button, label_block, modal, modal_note, primary_button, toggle_pill,
+};
+use ubiq_proto::settings::RemoteScheme;
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(state) = &app.workbench.remote_connect else {
@@ -89,8 +92,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     )
 }
 
-/// Both fields: an address — which absorbs a whole pasted connection string, see
-/// `AppState::apply_remote_address_input` — and a token.
+/// Both fields plus the protocol: an address — which absorbs a whole pasted connection
+/// string, see `AppState::apply_remote_address_input` — a token, and whether the dial wraps the
+/// socket in TLS first.
 fn editing_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let address_focused = app
         .remote_address_input
@@ -102,6 +106,18 @@ fn editing_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
         .read(cx)
         .focus_handle(cx)
         .is_focused(window);
+    let scheme = app
+        .workbench
+        .remote_connect
+        .as_ref()
+        .map(|state| state.scheme)
+        .unwrap_or(RemoteScheme::Http);
+    let trust_insecure = app
+        .workbench
+        .remote_connect
+        .as_ref()
+        .map(|state| state.trust_insecure)
+        .unwrap_or(false);
 
     div()
         .flex()
@@ -141,6 +157,64 @@ fn editing_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
                         .px_2()
                         .child(Input::new(&app.remote_token_input).appearance(false)),
                 ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Protocol",
+                    "Plaintext unless the host was started with `--tls-cert` and `--tls-key`.",
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(toggle_pill(
+                            "remote-connect-scheme-http",
+                            "http",
+                            theme::accent(),
+                            scheme == RemoteScheme::Http,
+                            cx.listener(|this, _, _, cx| {
+                                this.set_remote_scheme(RemoteScheme::Http, cx)
+                            }),
+                        ))
+                        .child(toggle_pill(
+                            "remote-connect-scheme-https",
+                            "https",
+                            theme::accent(),
+                            scheme == RemoteScheme::Https,
+                            cx.listener(|this, _, _, cx| {
+                                this.set_remote_scheme(RemoteScheme::Https, cx)
+                            }),
+                        )),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(check_box(
+                    "remote-connect-trust",
+                    trust_insecure,
+                    cx.listener(|this, _, _, cx| {
+                        let trust = this
+                            .workbench
+                            .remote_connect
+                            .as_ref()
+                            .map(|state| !state.trust_insecure)
+                            .unwrap_or(false);
+                        this.set_remote_trust(trust, cx)
+                    }),
+                ))
+                .child(label_block(
+                    "Trust certificate",
+                    "Skip verification for a self-signed host certificate. Only ever needed \
+                     with https, and shown on the saved entry afterwards.",
+                )),
         )
         .into_any_element()
 }

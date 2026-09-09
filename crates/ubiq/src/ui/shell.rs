@@ -12,7 +12,7 @@ use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Wind
 use crate::app::{AppState, FocusFileFilter, ImageRedo, ImageUndo, SubmitSearch, ZoomIn, ZoomOut};
 use crate::theme;
 use crate::ui::sink::project as project_settings;
-use crate::ui::{rail, remote_connect, ribbon, settings, status_bar, titlebar};
+use crate::ui::{rail, remote_connect, remote_hosts, ribbon, settings, status_bar, titlebar};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -254,6 +254,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .new_agent_menu
                 .is_some()
                 .then(|| crate::ui::agents::new_agent_menu(app, cx)),
+        )
+        // The remote-hosts manager, raised from the titlebar — painted here on the same terms
+        // as the clone modal just above. The connect modal paints after it, so "New
+        // connection" from the panel lands on top, and Escape peels them the other way up.
+        .children(
+            app.workbench
+                .remote_manager
+                .open
+                .then(|| remote_hosts::render(app, window, cx)),
         )
         // The remote-connect modal, raised from the titlebar rather than from settings — painted
         // here on the same terms as the clone modal just above.

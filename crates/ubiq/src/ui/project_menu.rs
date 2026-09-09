@@ -19,7 +19,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::ProjectSnapshot;
 
-use crate::app::{AppState, focus_window, open_project_window};
+use crate::app::{AppState, HostRef, focus_window, open_project_window};
 use crate::state::{MenuId, RowAction, when};
 use crate::theme;
 use crate::ui::kit::{field, mono, section_label};
@@ -275,6 +275,11 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
         .child(div().size(px(8.)).flex_none().rounded_full().bg(colour))
+        // A project reported by a remote host carries that host's mark: a network icon for
+        // the fact of remote, and the OS letter for which kind of machine it is — with the
+        // whole of what the host has said as the tooltip. Local projects carry nothing: the
+        // local machine is the default, and marking every row would mark nothing.
+        .children(host_badge(app, project))
         // The name takes the room the row has, and carries the whole path as its tooltip whether
         // or not the row was wide enough to print the folder beside it.
         .child(
@@ -392,6 +397,50 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     });
 
     line.on_click(click).into_any_element()
+}
+
+/// A remote project's host mark: the network icon plus the OS letter, or nothing for a local
+/// project. The tooltip is everything the host has said about itself — hostname, OS and
+/// triplet, resources — or the honest admission that nothing has arrived yet.
+fn host_badge(app: &AppState, project: ProjectId) -> Option<AnyElement> {
+    let host = app.project_host(project);
+    if host == HostRef::Local {
+        return None;
+    }
+    let (letter, tooltip) = match app.remote_host_meta(host) {
+        Some(meta) => (os_letter(meta.os.as_deref()), meta.tooltip()),
+        None => (
+            "R".to_string(),
+            "a remote host Ubiq has not heard from yet".to_string(),
+        ),
+    };
+    Some(
+        div()
+            .id(ElementId::Name(format!("project-host-{project}").into()))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(
+                Icon::new(IconName::Network)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+            .child(mono(letter, theme::text_faint()).text_size(px(10.5)))
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            })
+            .into_any_element(),
+    )
+}
+
+/// One letter for an OS: the first character, uppercased — `macos` reads `M`, `linux` `L`,
+/// `windows` `W`. Unknown reads `?`, which is a fact about the host not having said, not a
+/// guess about what it runs.
+fn os_letter(os: Option<&str>) -> String {
+    os.and_then(|os| os.chars().next())
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "?".to_string())
 }
 
 /// The last component of a path, with a leading `.../` when the path has a parent. A picker row

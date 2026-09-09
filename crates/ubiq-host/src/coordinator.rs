@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -32,6 +33,7 @@ use crate::conversation::{Conversation, UsageMeter};
 use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
+use crate::host_meta::{self, HostMeta};
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
 use crate::reply::Reply;
@@ -168,6 +170,9 @@ struct Coordinator {
     /// Which project each pane belongs to, so a pane opening or ending changes a count the picker
     /// draws.
     pane_projects: HashMap<PaneId, ProjectId>,
+    /// Which session each pane belongs to, so `stats()` can count live sessions. Ubiq's sense of
+    /// session — a named grouping of panes — not the harness library's resumable conversation.
+    pane_sessions: HashMap<PaneId, SessionId>,
     panes: HashMap<PaneId, Pty>,
     /// Which window owns which pane, recorded when the pane is spawned. This is the whole routing
     /// table: everything a pane emits goes to its owner, and nobody else may drive it.
@@ -208,6 +213,10 @@ struct Coordinator {
     /// What the agents have spent. `None` when the database could not be opened — an unwritable
     /// config root costs the user their token history, never their session.
     usage: Option<Arc<Usage>>,
+    /// Machine facts for `HostInfo` / `Stats`, refreshed by the metadata sampler thread every
+    /// twenty seconds (`crate::host_meta`). Shared rather than copied because the sampler owns
+    /// the write half; both readers take the lock for one clone and never hold it.
+    meta: Arc<Mutex<HostMeta>>,
 }
 
 /// A conversation the window asked for and the harness has not yet answered — registered so the
@@ -643,6 +652,9 @@ impl Coordinator {
             .map(Arc::new)
             .inspect_err(|error| tracing::warn!("the usage meter is not available: {error}"))
             .ok();
+        // Machine facts start sampling now so the first attach already has them; the thread keeps
+        // them fresh every twenty seconds after that (`crate::host_meta`).
+        let meta = host_meta::start(root.path.clone());
 
         Self {
             host,
@@ -665,6 +677,7 @@ impl Coordinator {
             watchers: HashMap::new(),
             pending,
             pane_projects: HashMap::new(),
+            pane_sessions: HashMap::new(),
             panes: HashMap::new(),
             owners: HashMap::new(),
             focused: HashMap::new(),
@@ -675,12 +688,13 @@ impl Coordinator {
             started: Instant::now(),
             agents_this_run: 0,
             usage,
+            meta,
         }
     }
 
-    /// One reading of the host, taken because a window asked. Every field is sampled here and
-    /// now: nothing is accumulated on the coordinator's behalf, which is why the interface polls
-    /// rather than being told.
+    /// One reading of the host, taken because a window asked. Counts and usage are sampled here
+    /// and now; machine resources come from the metadata sampler's cached snapshot
+    /// (`crate::host_meta`), refreshed every twenty seconds and never realtime.
     ///
     /// The two usage vectors come back empty when the meter is absent *or* when reading it fails,
     /// and a failure is a log line. A screen that reports how healthy the host is must never be
@@ -694,6 +708,7 @@ impl Coordinator {
             }
             None => Vec::new(),
         };
+        let meta = self.meta.lock().ok().map(|guard| guard.clone());
 
         HostStats {
             rss_bytes: memory_stats::memory_stats().map(|m| m.physical_mem as u64),
@@ -701,6 +716,15 @@ impl Coordinator {
             open_projects: self.projects.open_count(),
             agents_live: self.conversations.len(),
             agents_this_run: self.agents_this_run,
+            sessions_count: self
+                .pane_sessions
+                .values()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            cpu_load_pct: meta.as_ref().and_then(|meta| meta.cpu_load_pct),
+            mem_free_bytes: meta.as_ref().and_then(|meta| meta.mem_free_bytes),
+            mem_total_bytes: meta.as_ref().and_then(|meta| meta.mem_total_bytes),
+            disk_free_bytes: meta.as_ref().and_then(|meta| meta.disk_free_bytes),
             this_run: read("this run's", self.usage.as_ref().map(|u| u.this_run())),
             // Everything ever recorded. Bounding the window is the interface's to ask for once it
             // has an opinion about how far back a chart goes.
@@ -752,11 +776,18 @@ impl Coordinator {
     /// say before there was anybody to say it to.
     fn client_here(&mut self, client: ClientId) {
         tracing::debug!("{client} attached");
+        let meta = self.meta.lock().ok().map(|guard| guard.clone());
         self.host.send(
             To::Client(client),
             Message::HostInfo {
                 config_root: self.root.path.to_string_lossy().into_owned(),
                 is_default: self.root.is_default(),
+                hostname: meta.as_ref().and_then(|meta| meta.hostname.clone()),
+                os: meta.as_ref().map(|meta| meta.os.clone()),
+                arch: meta.as_ref().map(|meta| meta.arch.clone()),
+                triplet: meta.as_ref().map(|meta| meta.triplet.clone()),
+                cpu_count: meta.as_ref().map(|meta| meta.cpu_count),
+                mem_total_bytes: meta.as_ref().and_then(|meta| meta.mem_total_bytes),
             },
         );
         for reply in std::mem::take(&mut self.pending) {
@@ -874,6 +905,7 @@ impl Coordinator {
         // count below both find nothing — what it owns is the answer to whether it captured
         // anything, and this is the only moment that answer exists.
         self.login_gone(client, pane_id);
+        self.pane_sessions.remove(&pane_id);
         if let Some(project_id) = self.pane_projects.remove(&pane_id) {
             let replies = self.projects.pane_closed(project_id);
             self.answer(client, replies);
@@ -2629,6 +2661,7 @@ impl Coordinator {
         // The picker's terminal count, and the confirmation it puts in front of a close, are only
         // real because of this.
         self.pane_projects.insert(pane_id, project_id);
+        self.pane_sessions.insert(pane_id, session_id);
         let replies = self.projects.pane_opened(project_id);
         self.answer(client, replies);
 
