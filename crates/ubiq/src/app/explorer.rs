@@ -782,6 +782,19 @@ impl AppState {
                 window.remove_window();
                 return;
             }
+            // Names a tab rather than a path in a project, so it is answered here alongside the
+            // other two questions a project has nothing to do with.
+            FileDialog::RenameTab { kind, .. } => {
+                let typed = self.file_name.read(cx).value().trim().to_string();
+                self.close_file_dialog(cx);
+                if typed.is_empty() {
+                    self.tab_names.remove(&kind);
+                } else {
+                    self.tab_names.insert(kind, typed.into());
+                }
+                cx.notify();
+                return;
+            }
             _ => {}
         }
         let Some(project) = self.project(cx) else {
@@ -849,7 +862,8 @@ impl AppState {
             // Answered above, before the project was looked up.
             FileDialog::DiscardChanges { .. }
             | FileDialog::CloseWindow { .. }
-            | FileDialog::CloseProject { .. } => {}
+            | FileDialog::CloseProject { .. }
+            | FileDialog::RenameTab { .. } => {}
         }
         self.close_file_dialog(cx);
     }

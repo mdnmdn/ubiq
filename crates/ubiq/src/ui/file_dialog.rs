@@ -62,6 +62,21 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 cx,
             )
         }
+        Some(FileDialog::RenameTab { .. }) => prompt_modal(
+            "app-tab-rename",
+            "Rename tab",
+            None,
+            "Name",
+            &app.file_name,
+            "Rename",
+            !typed.is_empty(),
+            crate::ui::handler(&view, |this, window, cx| {
+                this.confirm_file_dialog(window, cx)
+            }),
+            crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+            window,
+            cx,
+        ),
         Some(FileDialog::SaveAs { .. }) => prompt_modal(
             "app-file-save-as",
             "Save as",

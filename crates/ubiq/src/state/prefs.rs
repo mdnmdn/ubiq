@@ -40,27 +40,16 @@ pub struct ModeLayout {
 }
 
 impl ModeLayout {
-    /// The arrangement a mode opens on when it has never been arranged. The side panels are IDE
-    /// furniture, so every other mode starts with the window's centre alone; the bottom region is
-    /// open in the IDE and available-but-closed everywhere else, the way the titlebar's switch
-    /// claims.
-    pub fn default_for(mode: RailMode) -> Self {
-        if mode.is_ide() {
-            Self {
-                show_left: true,
-                // The pane region is not furniture: it opens empty, and what puts it on screen is
-                // a pane, the console, or the switch that asks for one — see `feat-panes`.
-                show_bottom: false,
-                show_right: true,
-                layout: None,
-            }
-        } else {
-            Self {
-                show_left: false,
-                show_bottom: false,
-                show_right: false,
-                layout: None,
-            }
+    /// The arrangement a mode opens on when it has never been arranged: the centre alone, in every
+    /// mode. No region is furniture — a window that opens onto a tree, a chat and a pane region
+    /// nobody asked for is three switches the user has to undo before the first frame is legible.
+    /// Each region comes back the moment it is asked for, and is remembered from then on.
+    pub fn default_for(_mode: RailMode) -> Self {
+        Self {
+            show_left: false,
+            show_bottom: false,
+            show_right: false,
+            layout: None,
         }
     }
 }
@@ -122,6 +111,15 @@ impl Default for InterfacePrefs {
     }
 }
 
+/// An untitled tab's text, kept by name rather than by path: nothing on disk is what makes it
+/// untitled in the first place, so the key `open_files` uses for every other tab names nothing
+/// here to reopen.
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
+pub struct Scratch {
+    pub name: String,
+    pub text: String,
+}
+
 /// What belongs to one project: how its window was arranged, and what it was looking at.
 ///
 /// Every field added after the first release is `#[serde(default)]`, so a blob written by an
@@ -154,8 +152,19 @@ pub struct ViewPrefs {
     /// names both. An unprefixed key *is* the path, which is what the file itself opens under.
     #[serde(default)]
     pub open_files: Vec<String>,
-    /// Which of `open_files` was in front. A key rather than an index, because a file that fails
-    /// to open must not shift what "active" meant.
+    /// Untitled buffers, kept by name and text rather than as `open_files` keys: an untitled tab
+    /// names nothing on disk, so a real project file's unsaved edits still close for good — only
+    /// what has no path to reread from is worth carrying past a close.
+    #[serde(default)]
+    pub scratch: Vec<Scratch>,
+    /// The open files protected from close, as the same tab keys `open_files` uses. A tab key is
+    /// the one tab identity that survives a restart — a pane dies with its process and a chat tab
+    /// gets a fresh id every run, so only a file's pin is worth writing down; see
+    /// `OpenFile::pinned`.
+    #[serde(default)]
+    pub pinned_files: Vec<String>,
+    /// Which of `open_files` or `scratch` was in front. A key rather than an index, because a
+    /// file that fails to open must not shift what "active" meant.
     #[serde(default)]
     pub active_file: Option<String>,
     /// The folders the explorer had open, so a tree comes back as it was left rather than shut.
@@ -206,6 +215,8 @@ impl Default for ViewPrefs {
             rail_mode: RailMode::Ide,
             modes: std::collections::HashMap::new(),
             open_files: Vec::new(),
+            scratch: Vec::new(),
+            pinned_files: Vec::new(),
             active_file: None,
             expanded: Vec::new(),
             selected: None,

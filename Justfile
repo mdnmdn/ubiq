@@ -133,6 +133,10 @@ diagram SOURCE:
 icons-check:
     uv run _tools/icons.py check
 
+# Write crates/ubiq/src/ui/kit/icons.rs from the registry — `icons-check` fails if it is stale
+icons-gen:
+    uv run _tools/icons.py codegen
+
 # A review sheet: `just icons-sheet pane-thinking`, or `just icons-sheet --category pane`
 icons-sheet *ARGS:
     uv run _tools/icons.py sheet {{ARGS}}

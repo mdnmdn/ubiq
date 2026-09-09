@@ -73,8 +73,41 @@ impl AppState {
                 continue;
             }
             let (path, subject) = from_tab_key(key);
-            open.editor.open.push(OpenFile::pending_on(&path, subject));
+            let mut file = OpenFile::pending_on(&path, subject);
+            file.pinned = view.pinned_files.iter().any(|pinned| pinned == key);
+            open.editor.open.push(file);
         }
+
+        // Untitled buffers have no path to reread, so they are replayed through the same
+        // machinery ⌘N uses: a name and bytes handed straight to the arrival queue, no host round
+        // trip. A name already open is not opened twice.
+        let scratch: Vec<prefs::Scratch> = view
+            .scratch
+            .iter()
+            .filter(|s| open.editor.index_of(&s.name).is_none())
+            .cloned()
+            .collect();
+        for scratch in scratch {
+            let len = scratch.text.len() as u64;
+            self.push_untitled(
+                project,
+                scratch.name,
+                FileContents {
+                    bytes: scratch.text.into_bytes(),
+                    len,
+                    truncated: false,
+                    is_binary: false,
+                    version: None,
+                },
+                cx,
+            );
+        }
+
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        // `push_untitled` above moved `active` to whichever scratch tab it opened last; the saved
+        // active file — real or scratch — is what belongs in front.
         if let Some(active) = &view.active_file
             && let Some(at) = index_of_key(&open.editor, active)
         {
@@ -85,11 +118,14 @@ impl AppState {
 
         // Each tab is a panel. A saved arrangement usually carries them and the queued edits are
         // then no-ops, but one that was discarded — a stale version, an unreadable blob — must
-        // still leave the files somewhere to be drawn.
+        // still leave the files somewhere to be drawn. Untitled tabs are excluded: `push_untitled`
+        // above already queued their panel and their bytes, and a `ReadProjectFile` here would ask
+        // the host for a path that names nothing on disk.
         let tabs: Vec<(String, String, Subject)> = open
             .editor
             .open
             .iter()
+            .filter(|file| !file.untitled)
             .map(|file| (file.key(), file.path.clone(), file.subject))
             .collect();
         for (key, rel_path, subject) in tabs {
@@ -296,7 +332,9 @@ impl AppState {
     }
 
     /// Close the tabs the filter names, from the highest index down (so removal never shifts an
-    /// index still to come). Dirty ones are only asked for, by [`Self::close_editor_tab`].
+    /// index still to come). Dirty ones are only asked for, by [`Self::close_editor_tab`]. A
+    /// pinned tab is never in the set at all — every bulk close routes through here, so this is
+    /// the one place that has to know a pin blocks a close.
     pub(super) fn close_editor_tabs_filtered(
         &mut self,
         keep: impl Fn(usize, &str) -> bool + Copy,
@@ -311,8 +349,8 @@ impl AppState {
             };
             (0..open.editor.open.len())
                 .filter(|&ix| {
-                    let key = open.editor.open[ix].key();
-                    keep(ix, &key)
+                    let file = &open.editor.open[ix];
+                    !file.pinned && keep(ix, &file.key())
                 })
                 .collect::<Vec<_>>()
         };
@@ -379,49 +417,112 @@ impl AppState {
         cx.notify();
     }
 
-    /// Open the right-click menu on a file tab, anchored where the button went down.
+    /// Open the right-click menu on a tab, anchored where the button went down.
     ///
-    /// The dock's tab bar draws the tab whose key this is and hands the click across the renderer
-    /// seam; the menu itself is painted here, over the window, so it is a fact about `AppState`
-    /// rather than about the dock.
-    pub fn open_file_tab_menu(&mut self, key: &str, at: (f32, f32), cx: &mut Context<Self>) {
+    /// The dock's tab bar draws the tab whose kind this is and hands the click across the
+    /// renderer seam; the menu itself is painted here, over the window, so it is a fact about
+    /// `AppState` rather than about the dock.
+    pub fn open_tab_menu(&mut self, kind: PanelKind, at: (f32, f32), cx: &mut Context<Self>) {
         if self.workbench.open_menu != Some(MenuId::Explorer) && self.workbench.open_menu.is_some()
         {
             self.close_menu(cx);
         }
-        self.workbench.open_menu = Some(MenuId::FileTab);
-        self.workbench.file_tab_menu = Some((key.to_string(), at));
+        self.workbench.open_menu = Some(MenuId::Tab);
+        self.workbench.tab_menu = Some((kind, at));
         cx.notify();
     }
 
-    /// Act on one row of the open file-tab menu, by the row's index.
-    pub fn pick_file_tab_menu(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((key, _)) = self.workbench.file_tab_menu.clone() else {
+    /// Act on one row of the open tab menu, by the row's index.
+    ///
+    /// The row at that index is read off `ui::tab_menu::rows(&kind, pinned)` — the same call the
+    /// frame drew from — rather than a hardcoded position, because Pin/Unpin and the suppressed
+    /// Close row mean two tabs of the same kind can offer different-length menus; a literal index
+    /// table would have to know that shape twice.
+    pub fn pick_tab_menu(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((kind, _)) = self.workbench.tab_menu.clone() else {
             return;
         };
         self.workbench.open_menu = None;
-        self.workbench.file_tab_menu = None;
-        match index {
-            0 => {
-                self.close_editor_tab_at_key(&key, cx);
+        self.workbench.tab_menu = None;
+        let pinned = self.tab_pinned(&kind, cx);
+        let Some(&row) = ui::tab_menu::rows(&kind, pinned).get(index) else {
+            return;
+        };
+        match &kind {
+            PanelKind::File(key) => {
+                let key = key.clone();
+                match row {
+                    "Close" => self.close_editor_tab_at_key(&key, cx),
+                    "Close Others" => self.close_editor_tabs_except(&key, cx),
+                    "Close Left" => self.close_editor_tabs_left(&key, cx),
+                    "Close Right" => self.close_editor_tabs_right(&key, cx),
+                    "Close All" => self.close_all_editor_tabs(cx),
+                    "Copy Full Path" => self.copy_full_path_for_tab(&key, cx),
+                    "Copy link" => self.copy_link_for_tab(&key, cx),
+                    "Open in Finder" => self.open_in_finder_for_tab(&key, cx),
+                    "Save" => self.save_file(&key, window, cx),
+                    "Word Wrap" => self.toggle_editor_wrap(window, cx),
+                    "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
+                    _ => {}
+                }
             }
-            1 => self.close_editor_tabs_except(&key, cx),
-            2 => self.close_editor_tabs_left(&key, cx),
-            3 => self.close_editor_tabs_right(&key, cx),
-            4 => self.close_all_editor_tabs(cx),
-            5 => self.copy_full_path_for_tab(&key, cx),
-            6 => self.copy_link_for_tab(&key, cx),
-            7 => self.open_in_finder_for_tab(&key, cx),
-            8 => self.save_file(&key, window, cx),
-            9 => self.toggle_editor_wrap(window, cx),
+            // Terminal and chat tabs share the same menu: name it, close it the way its own ×
+            // does, or pin it against that close.
+            PanelKind::Terminal(_) | PanelKind::Chat(_) => match row {
+                "Rename…" => self.open_rename_tab(kind, window, cx),
+                "Close" => self.close_tab_panel(&kind, window, cx),
+                "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
+                _ => {}
+            },
             _ => {}
         }
         cx.notify();
+    }
+
+    /// Raise the rename dialog on a terminal or a chat tab, seeded with its current label.
+    fn open_rename_tab(&mut self, kind: PanelKind, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.tab_current_name(&kind, cx);
+        self.open_file_dialog(
+            FileDialog::RenameTab {
+                kind,
+                current: current.clone(),
+            },
+            &current,
+            window,
+            cx,
+        );
+    }
+
+    /// What a terminal or a chat tab is called right now, typed override included — the same
+    /// label `ui::dock::WorkbenchPanel::tab` would compute before it is truncated for the strip.
+    fn tab_current_name(&self, kind: &PanelKind, cx: &App) -> String {
+        if let Some(name) = self.tab_name(kind) {
+            return name.to_string();
+        }
+        match kind {
+            PanelKind::Terminal(pane_id) => self
+                .pane(*pane_id)
+                .map(|pane| pane.title.clone())
+                .unwrap_or_else(|| "pane".to_string()),
+            PanelKind::Chat(id) => {
+                let attached = self
+                    .open_project(cx)
+                    .and_then(|open| open.chats.iter().find(|tab| tab.id == *id))
+                    .and_then(|tab| tab.attached);
+                attached
+                    .and_then(|agent| self.work(cx)?.agent(agent))
+                    .map(|agent| agent.name.clone())
+                    .unwrap_or_else(|| "New chat".to_string())
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Close a terminal or a chat tab from the rename menu, the same action its own × takes.
+    fn close_tab_panel(&mut self, kind: &PanelKind, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(panel) = self.panels.get(kind).cloned() {
+            dock::close_panel(&panel, window, cx);
+        }
     }
 
     /// Copy the file a tab names, resolved against the project root, to the clipboard.
@@ -543,6 +644,52 @@ impl AppState {
         cx.notify();
     }
 
+    /// Open the titlebar's overflow chevron menu, anchored where the button went down.
+    ///
+    /// What it offers — remote connect, web export, window capture, settings — used to be four
+    /// separate controls on the strip; folding them behind a chevron is the same trade
+    /// [`Self::open_new_pane_menu`] makes for the dock's own.
+    pub fn open_overflow_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::Overflow);
+        self.workbench.overflow_menu = Some(at);
+        cx.notify();
+    }
+
+    /// Act on one row of the open overflow menu, by the row's index.
+    pub fn pick_overflow_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.open_menu = None;
+        self.workbench.overflow_menu = None;
+        let has_project = self.project(cx).is_some();
+        let capture_offered = self.capture_offered(cx);
+        match self
+            .workbench
+            .overflow_rows(has_project, capture_offered)
+            .get(index)
+        {
+            Some(OverflowRow::RemoteConnect) => self.open_remote_connect(window, cx),
+            Some(OverflowRow::WebExport) => self.open_web_export(window, cx),
+            Some(OverflowRow::CaptureWindow) => self.capture_window(&CaptureWindow, window, cx),
+            Some(OverflowRow::Settings) => self.toggle_settings(cx),
+            None => {}
+        }
+        cx.notify();
+    }
+
+    /// Dismiss the overflow menu — an outside click, or a pick already taken it.
+    pub fn dismiss_overflow_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.overflow_menu = None;
+        cx.notify();
+    }
+
     /// Open the search panel and bring it into focus.
     pub fn open_search(&mut self, _: &OpenSearch, window: &mut Window, cx: &mut Context<Self>) {
         self.reveal_search(window, cx);
@@ -632,10 +779,10 @@ impl AppState {
         ))
     }
 
-    /// Dismiss the file tab's menu — an outside click, or a pick already taken it.
-    pub fn dismiss_file_tab_menu(&mut self, cx: &mut Context<Self>) {
+    /// Dismiss the tab's menu — an outside click, or a pick already taken it.
+    pub fn dismiss_tab_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
-        self.workbench.file_tab_menu = None;
+        self.workbench.tab_menu = None;
         cx.notify();
     }
 

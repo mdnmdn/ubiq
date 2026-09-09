@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-09
 verified: 2026-09-09
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -902,21 +902,33 @@ flag beside it. A region the user empties — closing its last panel, or draggin
 region — is closed the same way the switch would: the switch reads it as closed because it *is*
 closed, not merely because it looks it. The
 left and right switches are drawn only in IDE mode, because the side regions are IDE furniture and
-hide in place in every other mode; the bottom switch is offered in every rail mode. **Opening an
+hide in place in every other mode; the bottom switch is offered in every rail mode. **No region opens
+by default, in any mode** — `D94`. A mode or a project never arranged before opens on the centre
+alone: no explorer, no chat, no pane region. Each comes back the moment it is asked for, and stays
+remembered from then on, the same posture the pane region has always taken. **Opening an
 edge region with nothing in it fills it**: the bottom starts a pane, a fresh chat tab opens in the right, and a
 switch that gave the user a bar of nothing would not have answered what was asked. The left is the
-exception — its only furniture, the explorer, is already on screen in every IDE window, so an empty
-left is the user's own doing and the switch leaves it be. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
+exception, not because it opens by default but because it is never genuinely empty: the explorer
+panel is already in the tree the moment IDE mode is entered, so opening a closed left reveals it
+rather than spawning anything. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
 group that holds a terminal or the console, in the pane region even when it holds neither, and only
 while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
 machine has, and a row that puts the console on screen. What the rows are and what a click does is
-`feat-panes`'s. Past a divider, the titlebar offers search (a stub), the notification bell, a
-network button that raises the "Connect to a remote host" modal, a browser button, a capture button,
-a gear that raises application
-settings, and the theme switch. The gear lights while settings are up; the network button lights
-while its modal is up; the bell lights while its list is up, carries a badge of what has not been
-read, and flashes when something arrives — [`notifications.md`](./notifications.md) owns all of it.
+`feat-panes`'s. Past a divider, the titlebar offers search (a stub), then two shortcuts that need a
+project the same reason the pane region's own `+` does: **New agent** (`IconName::Bot`) raises the
+New agent form directly, picking the chat strip as its surface in IDE mode and the agents screen
+everywhere else — the same aim the `+` menu's own first row makes, with that menu's first stage
+skipped; **New terminal** (`IconName::SquareTerminal`) opens the bottom region if it is shut and
+spawns exactly one pane, never two, whether the region was already open or had to be opened onto
+panes still in it. Then the notification bell, then a chevron gathering four controls reached
+occasionally rather than every session — Connect to a remote host, Explore the project in browser
+(needing a project), Capture this window (needing a project and captures offered on this platform),
+and Settings — each row left off whole rather than drawn disabled when its condition fails, in that
+order. Finally the theme switch. The overflow chevron lights while its own menu is open, the rule
+every menu-raising control in this strip follows; the bell lights while its list is up, carries a
+badge of what has not been read, and flashes when something arrives —
+[`notifications.md`](./notifications.md) owns all of it.
 Settings are interface-wide, so the overlay opens with no project.
 
 **The network button's modal takes a pasted connection string or an address and token typed
@@ -1614,12 +1626,29 @@ whose bytes are not text says so instead of drawing them.
 second one discards the edit. Bringing the tab forward again withdraws the question. The panel comes
 back to its group to ask, because the dock takes a closed tab out before the window hears about it.
 
-**A right-click on a file tab raises a menu over the window.** Close, Close Others, Close Left, Close
-Right, Close All, Copy Full Path, Open in Finder, Save and Word Wrap — the two *closes* and the
-surround closes anchoring on the tab that was clicked, Copy Full Path copying the file's project
-path to the clipboard, Open in Finder revealing it (or its folder) in the system's file manager,
-Save writing the file behind one tab rather than only the active one, and a dirty
-tab in a bulk close still asked for rather than silently closed. The menu is the window's one open
+**A right-click on a tab raises a menu over the window — a file's, a terminal's or a chat's.** A
+file's is Close, Close Others, Close Left, Close Right, Close All, Copy Full Path, Copy link, Open
+in Finder, Save, Word Wrap and Pin (or Unpin) — the two *closes* and the surround closes anchoring
+on the tab that was clicked, Copy Full Path copying the file's project path to the clipboard, Open
+in Finder revealing it (or its folder) in the system's file manager, Save writing the file behind
+one tab rather than only the active one, and a dirty tab in a bulk close still asked for rather than
+silently closed. A terminal's or a chat's is shorter: Rename…, Close and Pin (or Unpin) — Rename
+raises the same single-field prompt every other rename in the window uses, seeded with the tab's
+current label, and the typed name is never written down: a pane's id dies with its process and a
+chat's is reminted every run, so a saved name would only ever point at nothing.
+
+**Pin means protected from close, and nothing else.** A pinned tab's × is withheld and its Close row
+is left off the menu — file, terminal or chat alike — rather than drawn and disabled, and every bulk
+close a file's menu offers skips a pinned file outright. A pinned tab draws a small pin glyph before
+its label, in the accent colour, and pinning changes nothing about what the tab does: it still
+resizes, still loses focus, still updates. A pinned file is written down — the one tab identity that
+survives a restart is a file's own tab key — and a pinned terminal or chat is not, for the same
+reason a typed-over name is not: nothing a saved id would name is still there to restart onto.
+**Pinned tabs are not moved to the front of the strip** — the component library's dock exposes no
+tab-reorder call — so pinning changes whether a tab can close and nothing about where it sits;
+`G216` names the gap.
+
+The menu is the window's one open
 menu, painted at the window root because the dock's skin cannot name `AppState`, and it is dismissed
 by a click outside it or by escape.
 
@@ -1678,15 +1707,23 @@ displayed — the rail mode, the files open in the centre with which of them was
 the explorer had expanded and the row it had selected all belong to a project; the palette belongs
 to the interface. Both are stored by the host, which keeps them as an opaque blob it never reads, so
 the schema stays the interface's own. The arrangement is remembered **per rail mode**: each mode
-keeps its own record of which regions were on screen and its own dock blob, so the IDE's side
-panels are not undone by a visit to the sink, and a visit back does not summon them where the sink
-was arranging. A mode with no record of its own opens on its defaults — the IDE with its two side
-regions on and the pane region put away, every other mode with all three off — and **so does a
-project that has never been arranged in the mode it is entered in**, so a project reached from
-another one does not inherit that one's edges and then have them written down as its own. A blob it
-cannot parse is discarded and the window opens on defaults. Which mode the window is in is written
-down when the mode is chosen rather than when the arrangement next changes, so two modes that
-arrange nothing between them still reopen in the right one.
+keeps its own record of which regions were on screen and its own dock blob, so a visit to the sink
+does not undo the IDE's side panels and a visit back does not summon them where the sink was
+arranging. A mode with no record of its own opens on its defaults — the centre alone, no region
+open, in every mode — and **so does a project that has never been arranged in the mode it is
+entered in**: entering a mode forces its regions to those defaults rather than leaving whatever was
+on screen, so a project reached from another one never inherits that one's edges and has them
+written down as its own. A blob it cannot parse is discarded and the window opens on defaults. Which
+mode the window is in is written down when the mode is chosen rather than when the arrangement next
+changes, so two modes that arrange nothing between them still reopen in the right one.
+
+**Two panels belong to the window, not to any project, and a project switch takes them with it.**
+The log console and the search panel can be opened from any project, but neither names one: entering
+a different project takes both out of the tree and resets the search field before the incoming
+project's own arrangement installs, rather than carrying one project's results or its open console
+into a screen that has never seen either. A saved arrangement that names them puts them straight
+back — that is the difference between *remembered* and *inherited*. When the incoming project has no
+saved arrangement at all, the region they just vacated is collapsed rather than left as an empty bar.
 
 **Layout persists; harnesses do not.** The arrangement carries a version of its own, and one written
 for another version is discarded whole for the default arrangement rather than half-applied. A saved
@@ -1705,6 +1742,17 @@ the layout its viewer was left in, a terminal panel carries its pane's id, and n
 a parsed scene, a computed diff or a rendered diagram. Each of those is a function of bytes: the host will send the file again, and the
 scene, the diff and the picture are made from it again, the last of them off the workarea's cache. Every other panel is
 its name and nothing more.
+
+**An untitled buffer with real text in it survives a project close; a real file's unsaved edits do
+not.** A tab has no path to reread, so an untitled buffer is kept by its display name and the
+buffer's own text rather than by the tab key every other file uses — an untitled *image* capture has
+no buffer and is dropped, since there is no text to carry. Reopening the project replays each one
+through the same machinery `⌘N` uses, no host round trip, before the saved `active_file` is
+reapplied; a tab on a real project file is unchanged, its unsaved edits still gone the moment it
+closes. **A pinned file persists the same way its tab key does**, because a tab key is the
+one tab identity that survives a restart at all; a pinned terminal or a pinned chat tab does not,
+and neither does a typed-over tab name, because a pane's id dies with its process and a chat's is
+reminted every run — a saved name or pin would only ever point at nothing.
 
 **A project closed and reopened in one session comes back as it was left**, without asking the host.
 The window keeps what a project left behind when it went, so reopening it restores the tabs and the
@@ -1996,7 +2044,9 @@ project is open in one window at a time.
 ## Implementation
 
 `AppState` in `crates/ubiq/src/app/mod.rs` is the root view. It owns the window's own state — the dock
-and the panels in it, the console, the emulators, the component library's `TextareaState`
+and the panels in it, a typed-over name and a pin for any non-file tab (`tab_names`, `pinned_tabs`
+— a file's own name and pin live on the `OpenFile` instead, since they are the tab keys that
+persist), the console, the emulators, the component library's `TextareaState`
 and `InputState` entities and the subscriptions that keep them mirrored — and a map of `OpenProject`
 keyed by `ProjectId` holding everything that belongs to a project, chat tabs among them. Every
 mutator ends in
@@ -2008,7 +2058,11 @@ each new one, and calls `enter_project()` when the active project changed. It ru
 `observe_global` subscription rather than from each call site, so a project taken by *another* window
 reaches this one down the same path as a local change. `enter_project()` is where a project's
 furniture reaches the window — the rail mode it was left in and that mode's arrangement — and it
-starts no pane, which is why a window opening on nothing starts no harness.
+starts no pane, which is why a window opening on nothing starts no harness. It also sets
+`reset_furniture`, consumed at the top of `settle_layout()`: the two panels that are the window's
+own rather than any project's — `Logs` and `Search` — are taken out of the tree and `SearchState`
+is reset before the incoming arrangement installs, and `collapse_empty_regions()` puts away the
+region they just vacated when the entering project has no saved layout to fill it back in.
 
 Accessors read through the active project and tolerate its absence: `open_project()`, `explorer()`,
 `editor()`, `work()`, `agents()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
@@ -2019,9 +2073,16 @@ text size (or `theme::EDITOR_FONT_SIZE`), and `set_ui_font_size()` and `nudge_ui
 the two ways it changes — the former reconfiguring every already-open emulator through
 `ui::terminal::config()` as well as writing the value down, so a zoom reaches panes that are on
 screen. `toggle_editor_wrap()` flips a project's wrap and brings every open buffer into line, and
-`remember()` writes the explorer's filter down with the rest of the view prefs. The file-tab
-context menu's handlers are `open_file_tab_menu()`, `pick_file_tab_menu()`, the four
-`close_editor_tabs*` helpers, `save_file()` and `dismiss_file_tab_menu()`.
+`remember()` writes the explorer's filter down with the rest of the view prefs, alongside a
+project's untitled buffers as `prefs::Scratch` entries — by display name and the buffer's own text,
+an untitled image capture dropped rather than carried — and its pinned files' tab keys;
+`restore_files()` replays each scratch entry through `push_untitled()`, the same machinery `⌘N`
+uses, before reapplying `active_file`. The tab menu's handlers are `open_tab_menu()`,
+`pick_tab_menu()`, the four `close_editor_tabs*` helpers — each of which skips a pinned file
+outright, at the one place every bulk close routes through — `save_file()`, `open_rename_tab()`,
+`toggle_tab_pin()` and `dismiss_tab_menu()`. `ui::tab_menu::rows(kind, pinned)` is read by both the
+frame that draws the menu and the pick that resolves it, so Pin/Unpin and a suppressed Close row
+never disagree about what row an index means.
 
 `state/git.rs` is the Git screen's view of one project's repository, held on `OpenProject` beside
 the graph's and the board's: which sidebar sections are shut, which ref and which commit are
@@ -2073,10 +2134,13 @@ way the host does.
 `state/when.rs` renders a row's relative time at draw time from `last_opened_at`, and
 `state/prefs.rs` is the schema inside the opaque blob the host stores — one `ModeLayout` per rail
 mode in the `ViewPrefs::modes` map, each carrying that mode's region flags and a dock blob of its
-own, beside the files and folders a project reopens with, the point size its text is read at
-(`ui_font_size`), whether its editors wrap (`editor_wrap`) and the text in its explorer's filter
-(`file_filter`) — each new field `#[serde(default)]`, so a field costs the schema nothing. The
-number is `3`, because one value in the blob carries a meaning that moves with the build: a
+own, beside the files and folders a project reopens with, its untitled buffers (`scratch:
+Vec<Scratch>`, a display name and the buffer's text) and pinned files (`pinned_files`), the point
+size its text is read at (`ui_font_size`), whether its editors wrap (`editor_wrap`) and the text in
+its explorer's filter (`file_filter`) — each new field `#[serde(default)]`, so a field costs the
+schema nothing, `scratch` and `pinned_files` included. `ModeLayout::default_for` is what a mode with
+no entry opens on: every region flag `false`, in every mode, because no region is furniture — `D94`.
+The number is `3`, because one value in the blob carries a meaning that moves with the build: a
 `rail_mode` of `Agents` names the column screen, and an older blob wrote it for the graph. That is
 the one case a default cannot rescue — nothing is missing, and the value means something else — so
 the blob is discarded whole, and `ui::dock::LAYOUT_VERSION` follows the number so the arrangement
@@ -2085,8 +2149,8 @@ inside it goes with it.
 `crates/ubiq/src/ui/shell.rs` assembles the frame and nothing more: the mark and the titlebar in one
 row, then the rail beside `AppState::dock()`, then the status bar, and — when one is up — the
 project-settings overlay, the application-settings overlay, the login modal, or one of the window's
-own menus over all of it: the file-tab menu, the new-pane menu and the new-agent menu. Those last
-three are painted here rather than by the surface that opened them, because more than one surface
+own menus over all of it: the tab menu, the new-pane menu, the new-agent menu and the titlebar's
+overflow menu. Those are painted here rather than by the surface that opened them, because more than one surface
 opens them and what there is to offer is the window's answer, not a page's — the new-agent menu is
 `ui::agents::new_agent_menu`, raised by the agents screen's `+`, the IDE chat strip's and the
 kitchen sink's bench alike. The New agent modal is painted here too, on the same terms and above
@@ -2124,19 +2188,25 @@ control is the `NewPane` value `AppState::for_project` hands the skin: one closu
 third — `AppState::is_pane_region()` — that answers whether a group is the pane region's, because a
 group says which node it is and nothing about where it sits, and the control has to stay on the
 strip of a region the user has emptied. The `+` is drawn only while that window holds a project. The
-chevron crosses the same seam the file tab's right-click does, and for the same reason. A file tab's right-click crosses the same seam through
-the `with_file_tab_menu` builder and its `FileTabMenuRun` type: the skin cannot name `AppState`, so
-the tab's key and the click's point are handed across, and the window paints the menu over the dock.
-Ubiq writes no drag, no drop geometry and no layout
-serialisation.
+chevron crosses the same seam a tab's right-click does, and for the same reason: a tab's right-click
+crosses it through the `with_tab_menu` builder and its `TabMenuRun` type, in
+`crates/ubiq/src/ui/tab_menu.rs` — the one module every kind of tab's menu is painted from. The
+skin cannot name `AppState`, so the tab's `PanelKind` and the click's point are handed across rather
+than a file's key alone, and the window paints the menu over the dock. Ubiq writes no drag, no drop
+geometry and no layout serialisation.
 
 `AppState` holds the dock's half of that. `dock()` hands it to the shell; `regions_open()` and
 `toggle_region()` are the titlebar's three switches, both going through the dock rather than a flag
 beside it; `panel()` builds a kind's panel the first time it is asked for. Opening an empty region
 is the gesture that fills it: the bottom starts a pane and a fresh chat tab opens in the right, because a
 region that opens onto a bar of nothing is not what the switch was asked for — the left is the
-exception, since the explorer is already on screen in every IDE window and an empty left is the
-user's own doing. A panel reaches the dock
+exception, since the explorer panel is already in the tree the moment IDE mode is entered, so
+opening a closed left reveals it rather than spawning anything. `new_terminal()` is the titlebar's
+own New terminal shortcut: it calls `toggle_region()` when the bottom is shut, and spawns a pane
+itself only when the region was already open or was reopened onto panes still in it, so opening
+onto true emptiness is never given two panes by two different callers. `open_new_agent_direct()` is
+the titlebar's New agent shortcut, making the same `aim_start()` call `pick_new_agent_menu()` makes
+for the `+` menu's first row, with that menu's own first stage skipped. A panel reaches the dock
 through a `Window` and a message does not come with one, so both halves of a panel's life queue and
 are drained in `render`: `settle_visibility()` builds each panel's `Visibility` and pushes
 `is_drawn()` into it, along with the layout a file panel writes into its payload — pushed rather
@@ -2157,6 +2227,16 @@ installed is final and an open region it left empty is one the project on screen
 `set_rail_mode()` writes the outgoing mode's arrangement down through `remember_view()`, then hands
 the incoming mode's saved blob to `pending_layout`, or — for a mode never arranged — queues its
 `ModeLayout::default_for` flags as `pending_regions`, which `settle_mode()` forces on the frame.
+
+**The titlebar's overflow chevron is one more menu on the same `MenuId` device.**
+`WorkbenchState::overflow_menu` holds the point it opened at, exactly as the new-pane and tab menus
+hold theirs, and `WorkbenchState::overflow_rows(has_project, capture_offered)` builds the row list a
+project and a capture backend narrow: remote host, then web export and capture when a project is
+open (capture only when the platform offers it too), then settings always. `AppState::open_overflow_menu`,
+`pick_overflow_menu` and `dismiss_overflow_menu` are the same three-verb shape every menu in the
+window follows, and `crate::ui::overflow_menu` paints it from the window root beside the tab menu
+and the new-pane menu, for the same reason: the titlebar draws the chevron but does not own what the
+menu offers.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
 `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/` and
@@ -2223,8 +2303,7 @@ launcher, `marked_target()` reads the marker line, and `state()` is the answer a
 share. Its tests cover the three things that would be silent if they broke — the script is written
 marked and executable, a bundle is launched through `open -a` where a bare binary is exec'd, and
 remove takes Ubiq's own file and leaves a foreign `ubiq` alone. Shared primitives are in `ui/kit/`;
-the conventions behind that split are in
-[`../tech/ui-and-design.md`](../tech/ui-and-design.md).
+the conventions behind that split are `tech/ui-and-design.md`'s.
 
 The providers under the Assistance row are `ai_providers()`, one `ai_provider_row()` each: the name
 and the kind, a badge saying whether a key is filed and another saying no model is chosen, and Test,
@@ -2277,11 +2356,12 @@ the component's undo stack is not reachable, so those two go back out as its own
 
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
 project settings dialog, the application settings overlay, what was typed into the picker's and the
-explorer's filters, and the two menus that came later — `MenuId::FontSize` for the status bar's
-text-size dropdown, `MenuId::FileTab` with the tab's key and anchor in
-`WorkbenchState::file_tab_menu` for the file tab's right-click, and `MenuId::NewPane` with its anchor
+explorer's filters, and the menus that came later — `MenuId::FontSize` for the status bar's
+text-size dropdown, `MenuId::Tab` with the tab's `PanelKind` and anchor in
+`WorkbenchState::tab_menu` for a tab's right-click, `MenuId::NewPane` with its anchor
 in `WorkbenchState::new_pane_menu` and its rows in `WorkbenchState::shells` for the new-pane
-control's chevron; `settings.rs` for the Ui-layer
+control's chevron, and `MenuId::Overflow` with its anchor in `WorkbenchState::overflow_menu` and its
+rows in `WorkbenchState::overflow_rows` for the titlebar's own chevron; `settings.rs` for the Ui-layer
 schema, the overlay's nav, and how a blob is read;
 `explorer.rs` for the tree, the list, the keyboard and the right-click menu, drawing through the
 shared chrome in `ui/kit/files.rs`; `editor.rs`
@@ -2848,7 +2928,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 - [`stats.md`](./stats.md) — the Control screen the rail fills the centre with, and the usage meter behind it
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the component conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — who owns which state, and why the interface asks
-- [`../tech/decisions.md`](../tech/decisions.md) — `D47`, why the agents and the work are two screens, and `D42`, the dock they are panels in
+- [`../tech/decisions.md`](../tech/decisions.md) — `D47`, why the agents and the work are two screens, `D42`, the dock they are panels in, and `D94`, why no region opens by default
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the project, file, git and work families in full
 - [`../backlog.md`](../backlog.md) — what the shell still lacks
 

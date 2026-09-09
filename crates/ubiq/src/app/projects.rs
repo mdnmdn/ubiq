@@ -680,8 +680,35 @@ impl AppState {
         // The file set is the project's own whether or not anyone is looking at it, so it is read
         // back from the project every time. Tab keys rather than paths, because a file and its diff
         // are two tabs and a path names both.
+        //
+        // An untitled tab names nothing on disk, so its key is not a path `open_files` could ever
+        // reread — it goes to `scratch` instead, by name and by the buffer's own text. Everything
+        // else here keeps today's rule unchanged: a real file's unsaved edits are not carried past
+        // a close, only reread from what is on disk.
         if let Some(open) = self.projects.get_mut(&project) {
-            open.prefs.open_files = open.editor.open.iter().map(|file| file.key()).collect();
+            let mut open_files = Vec::new();
+            let mut scratch = Vec::new();
+            let mut pinned_files = Vec::new();
+            for file in &open.editor.open {
+                if file.untitled {
+                    // An untitled image capture has no buffer — `OpenFile::buffer` answers `None`
+                    // for it — and is dropped rather than remembered: there is no text to carry.
+                    if let Some(buffer) = file.buffer() {
+                        scratch.push(prefs::Scratch {
+                            name: file.path.clone(),
+                            text: buffer.read(cx).value().to_string(),
+                        });
+                    }
+                    continue;
+                }
+                if file.pinned {
+                    pinned_files.push(file.key());
+                }
+                open_files.push(file.key());
+            }
+            open.prefs.open_files = open_files;
+            open.prefs.scratch = scratch;
+            open.prefs.pinned_files = pinned_files;
             open.prefs.active_file = open.editor.active_file().map(|file| file.key());
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();

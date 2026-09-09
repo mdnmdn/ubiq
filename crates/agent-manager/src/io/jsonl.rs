@@ -6,6 +6,14 @@
 //! object per line on stdout (events), one JSON object per line on stdin
 //! (prompts and `control_response` answers).
 //!
+//! **This bridge is not superseded by ACP and is not to be deleted** — `D95`. The `claude-code-acp`
+//! harness is a sibling that speaks [`super::AcpBridge`]; this is the path with no adapter process
+//! and no npm dependency between Ubiq and the model, and it states three things no ACP adapter
+//! does: the per-model context window (`result.modelUsage[model].contextWindow`, reconciled through
+//! `canonical`), a delegate's spend subtracted out of the turn's so a subagent never moves the
+//! parent's ring (`subagent_spend`), and the full five-field [`super::Spend`] breakdown alongside
+//! rate-limit windows. Removing it would cost all three.
+//!
 //! This is **core** (always compiled, no feature gate): only `std::process`,
 //! `std::sync`, `std::thread`, `serde_json` and `tracing` are used, matching
 //! [`super::structured`]'s "no pty, no clap" discipline so a lib-mode

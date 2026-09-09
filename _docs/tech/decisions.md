@@ -1717,6 +1717,49 @@ conformance to the specification is not inherited, so a protocol revision is a h
 rather than a version bump. Blocking calls need their own timeouts, which is why `initialize` is
 bounded at thirty seconds rather than by a runtime's cancellation.
 
+### D95 — Claude Code keeps its native stream-json bridge, whatever else moves to ACP
+
+`agent_manager::io::JsonlBridge` and the `claude-code` harness that uses it are not replaced by
+`claude-code-acp`, are not deprecated by it, and are not to be deleted. ACP is how a *new* harness
+is integrated — `D93` and the five ACP harnesses are that — but Claude Code is the one harness whose
+native wire is richer than the protocol, and the ACP variant is a sibling, not a successor. Both ids
+stay in `harness::all()`, both bridges stay in `crates/agent-manager/src/io/`.
+
+**Why:** three things reach the interface over `stream-json` that no ACP adapter states. The bridge
+reads `result.modelUsage[model].contextWindow` and reconciles `canonicalModel`, so the context ring
+has a real denominator per model; it splits a delegate's spend out of the turn's (`subagent_spend`
+subtracted from the turn delta) so a subagent's tokens never move the parent's ring; and it carries
+the full five-field `Spend` breakdown plus rate-limit windows, where ACP offers `used`/`size` and a
+cumulative cost. It also asks a human properly, via `--permission-prompt-tool stdio`. An ACP adapter
+is additionally a second process and a global npm install between Ubiq and the model — a dependency
+the native path does not have, on an upstream nobody here controls.
+
+**Cost:** two bridges for one harness, so a conversation-vocabulary change is two edits and two test
+suites rather than one, and `map_event` has to keep answering both. That is accepted deliberately:
+the native path is the one that works today and the one with no external dependency, so it is the
+one that must not regress while the ACP path matures.
+
+### D94 — No region is furniture: every edge region opens empty, and is remembered from the first time it is asked for
+
+`ModeLayout::default_for` answers every region flag `false`, in every rail mode, replacing a rule
+that opened the IDE's left and right regions with the window. A mode or a project never arranged
+before opens on the centre alone — no explorer, no chat, no pane region — and `settle_mode()` forces
+those defaults on every entry rather than leaving whatever tree the last mode or project happened to
+have on screen. This generalises `D50`'s reasoning, which gave the pane region alone this posture, to
+the two regions that were still exempt from it.
+
+**Why:** an explorer and a chat tab nobody asked for are switches to undo before the first frame is
+legible, on every project a window has never arranged — which is every project, the first time it is
+opened, not an edge case. A region earns its place by being asked for, the same posture `D50` gave
+the pane region for the same reason; carrying it only that far left two of three edges still opening
+uninvited. Forcing a mode's defaults on every entry, rather than letting an empty region inherit
+whatever the last screen had open, closes the gap the backlog carried as `G88`.
+
+**Cost:** an IDE window's first look is barer than the target layout
+(`_docs/design/ubiq-layout.png`, `D16`) shows, until the user reaches for a region — a real change to
+the first impression a project makes, traded for a window that never opens onto furniture nobody
+asked for.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

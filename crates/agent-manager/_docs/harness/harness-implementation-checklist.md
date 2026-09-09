@@ -241,23 +241,25 @@ no-op here — a fidelity gap, not a user mistake").
       leave `io_support().structured = false` and don't override
       `structured_bridge()`; a passthrough-only harness is a legitimate,
       honest end state, not an unfinished one.
-- [ ] If in scope, add `src/io/<id>.rs` implementing `IoBridge`. Pick the
-      right template based on the wire shape:
-  - One-shot NDJSON, prompt delivered via argv, no stdin interaction needed
-    (opencode, Copilot) → mirror `src/io/opencode.rs`: reader thread drains
-    stdout, `send()`'s `Prompt`/`AnswerPermission` are no-ops (already
-    delivered at launch / auto-approved via a headless flag), `Cancel` is a
-    best-effort kill, and `input()` stays at the trait default (`None`) —
-    there is no second turn to hand a caller a sink for.
+- [ ] If in scope, pick the right template based on the wire shape:
+  - **Agent Client Protocol** (Grok's `agent stdio`, opencode's `acp`,
+    Copilot's `--acp`) → contribute no harness-specific bridge at all: drive
+    the launch through the harness-neutral `AcpBridge`
+    (`src/io/acp_client.rs`), the same way `structured_bridge()` does in
+    `src/harness/grok.rs`, `opencode.rs` and `copilot.rs`. The prompt is a
+    `session/prompt`, resume is `session/load`, permissions are real
+    `session/request_permission` round trips — no `src/io/<id>.rs` to write.
   - Bidirectional NDJSON with an approval handshake over stdin (Claude Code)
-    → mirror `src/io/jsonl.rs`.
-  - JSON-RPC (Codex's `app-server`) → mirror `src/io/codex.rs`.
+    → add `src/io/<id>.rs` implementing `IoBridge`, mirroring `src/io/jsonl.rs`.
+  - JSON-RPC, harness-specific envelope (Codex's `app-server`) → add
+    `src/io/<id>.rs`, mirroring `src/io/codex.rs`.
   - Map only event types/fields the doc actually documents. If a step in
     the protocol (e.g. a tool-call *start* event) isn't documented — only
     its *completion* is — don't synthesize one; emit what's real and say so
-    in a one-line comment (Copilot's `tool.execution_complete`-only mapping
-    is the precedent).
-  - Register in `src/io/mod.rs` (`pub mod <id>; pub use <id>::<Id>Bridge;`).
+    in a one-line comment.
+  - Register in `src/io/mod.rs` (`pub mod <id>; pub use <id>::<Id>Bridge;`) —
+    only for a harness-specific bridge; an ACP harness needs no entry beyond
+    what's already there for `AcpBridge`.
   - Wire `Harness::structured_bridge()` to `spawn_piped` +
     `<Id>Bridge::new(child)`.
   - Write `map_event` as a pure function tested directly against hand-built

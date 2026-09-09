@@ -12,7 +12,7 @@ use ubiq_proto::notifications::{Level, UbiqLink};
 
 use crate::app::{AppState, NavBack, NavForward};
 use crate::theme;
-use crate::ui::kit::{badge, field, icon_button, mono};
+use crate::ui::kit::{UbiqIcon, badge, field, icon_button, mono};
 use crate::ui::navigator;
 use crate::ui::project_menu;
 
@@ -99,7 +99,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     this.child(
                         icon_button(
                             "toggle-left",
-                            IconName::PanelLeft,
+                            UbiqIcon::TitlebarPanelLeft,
                             left,
                             cx.listener(|this, _, window, cx| {
                                 this.toggle_region(crate::state::Region::Left, window, cx)
@@ -111,7 +111,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .child(
                     icon_button(
                         "toggle-bottom",
-                        IconName::PanelBottom,
+                        UbiqIcon::TitlebarPanelBottom,
                         bottom,
                         cx.listener(|this, _, window, cx| {
                             this.toggle_region(crate::state::Region::Bottom, window, cx)
@@ -123,7 +123,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     this.child(
                         icon_button(
                             "toggle-right",
-                            IconName::PanelRight,
+                            UbiqIcon::TitlebarPanelRight,
                             right,
                             cx.listener(|this, _, window, cx| {
                                 this.toggle_region(crate::state::Region::Right, window, cx)
@@ -140,80 +140,71 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         .flex_none()
                         .bg(theme::border()),
                 )
+                // The two shortcuts a project offers: a fresh conversation and a fresh shell. Both
+                // need a folder to run in, the same reason the new-pane control does.
+                .when(has_project, |this| {
+                    this.child(
+                        icon_button(
+                            "new-agent",
+                            IconName::Bot,
+                            false,
+                            cx.listener(|this, _, window, cx| {
+                                this.open_new_agent_direct(window, cx)
+                            }),
+                        )
+                        .h_full()
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new("New agent").build(window, cx)
+                        }),
+                    )
+                    .child(
+                        icon_button(
+                            "new-terminal",
+                            IconName::SquareTerminal,
+                            false,
+                            cx.listener(|this, _, window, cx| this.new_terminal(window, cx)),
+                        )
+                        .h_full()
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new("New terminal").build(window, cx)
+                        }),
+                    )
+                })
                 .child(
                     icon_button(
                         "search",
-                        IconName::Search,
+                        UbiqIcon::TitlebarSearch,
                         false,
                         cx.listener(|this, _, window, cx| this.reveal_search(window, cx)),
                     )
                     .h_full(),
                 )
                 .child(bell(app, cx))
+                // Remote connect, web export, window capture and settings: reached occasionally
+                // rather than every session, so they live behind a chevron instead of standing on
+                // the strip permanently. See `ui::overflow_menu`.
                 .child(
                     icon_button(
-                        "remote-connect",
-                        IconName::Network,
-                        app.workbench.remote_connect.is_some(),
-                        cx.listener(|this, _, window, cx| this.open_remote_connect(window, cx)),
+                        "overflow-menu",
+                        IconName::ChevronDown,
+                        app.workbench.overflow_menu.is_some(),
+                        cx.listener(|this, event: &ClickEvent, _window, cx| {
+                            let at = event.position();
+                            this.open_overflow_menu((at.x.into(), at.y.into()), cx);
+                        }),
                     )
                     .h_full()
                     .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new("Connect to a remote host")
-                            .build(window, cx)
-                    }),
-                )
-                .when(has_project, |this| {
-                    this.child(
-                        icon_button(
-                            "web-export",
-                            IconName::Globe,
-                            false,
-                            cx.listener(|this, _, window, cx| this.open_web_export(window, cx)),
-                        )
-                        .h_full()
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Explore the project in browser")
-                                .build(window, cx)
-                        }),
-                    )
-                })
-                .when(has_project && app.capture_offered(cx), |this| {
-                    this.child(
-                        icon_button(
-                            "capture-window",
-                            IconName::Frame,
-                            false,
-                            cx.listener(|this, _, window, cx| {
-                                this.capture_window(&crate::app::CaptureWindow, window, cx)
-                            }),
-                        )
-                        .h_full()
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Capture this window")
-                                .build(window, cx)
-                        }),
-                    )
-                })
-                .child(
-                    icon_button(
-                        "settings",
-                        IconName::Settings2,
-                        app.workbench.settings.open,
-                        cx.listener(|this, _, _, cx| this.toggle_settings(cx)),
-                    )
-                    .h_full()
-                    .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new("Settings").build(window, cx)
+                        gpui_component::tooltip::Tooltip::new("More").build(window, cx)
                     }),
                 )
                 .child(
                     icon_button(
                         "theme",
                         if app.workbench.theme_id == crate::theme::ThemeId::Dark {
-                            IconName::Sun
+                            UbiqIcon::TitlebarThemeLight
                         } else {
-                            IconName::Moon
+                            UbiqIcon::TitlebarThemeDark
                         },
                         false,
                         cx.listener(|this, _, _, cx| this.toggle_theme(cx)),
@@ -237,7 +228,7 @@ fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
         .flex_none()
         .gap_2()
         .child(
-            Icon::new(IconName::Search)
+            Icon::new(UbiqIcon::TitlebarSearch)
                 .with_size(Size::XSmall)
                 .text_color(theme::text_faint()),
         )
@@ -340,7 +331,7 @@ fn bell(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(
             icon_button(
                 "bell",
-                IconName::Bell,
+                UbiqIcon::TitlebarNotifications,
                 state.open,
                 cx.listener(|this, _, window, cx| this.toggle_notifications(window, cx)),
             )
@@ -354,7 +345,7 @@ fn bell(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                         .justify_center()
                         .size_full()
                         .child(
-                            Icon::new(IconName::Bell)
+                            Icon::new(UbiqIcon::TitlebarNotifications)
                                 .with_size(Size::Small)
                                 .text_color(colour),
                         ),
@@ -408,9 +399,12 @@ fn repo_link(app: &AppState, cx: &App) -> Option<impl IntoElement> {
     let url = ubiq_proto::git::web_url(&remote.url)?;
     let label: gpui::SharedString = format!("Open {url}").into();
     Some(
-        icon_button("repo-link", IconName::Globe, false, move |_, _, cx| {
-            cx.open_url(&url)
-        })
+        icon_button(
+            "repo-link",
+            UbiqIcon::TitlebarBrowser,
+            false,
+            move |_, _, cx| cx.open_url(&url),
+        )
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
         }),

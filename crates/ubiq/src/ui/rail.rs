@@ -9,12 +9,12 @@ use gpui::{
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
     px,
 };
-use gpui_component::{Icon, IconName, Sizable as _, Size};
+use gpui_component::{Icon, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
-use crate::ui::kit::section_label;
+use crate::ui::kit::{UbiqIcon, section_label};
 
 /// The mark's two files: the white logo reads on a dark swatch, the blue on a light one. They are
 /// the only assets Ubiq ships, so they are baked in next to the code that draws them.
@@ -36,17 +36,18 @@ const BADGE_HEIGHT: f32 = theme::RAIL_WIDTH - 1.0;
 /// What an unselected badge keeps clear of the rail's edges, and how thick its ring is.
 const BADGE_MARGIN: f32 = 3.0;
 
-/// The rail's glyph for a mode. Icons come from the component library's bundle; Ubiq ships none.
-pub fn mode_icon(mode: RailMode) -> IconName {
+/// The rail's glyph for a mode — the `mode:` registry category, one row per mode.
+pub fn mode_icon(mode: RailMode) -> Icon {
     match mode {
-        RailMode::Control => IconName::LayoutDashboard,
-        RailMode::Ide => IconName::SquareTerminal,
-        RailMode::Git => IconName::GalleryVerticalEnd,
-        RailMode::Agents => IconName::Asterisk,
-        RailMode::Orchestration => IconName::Network,
-        RailMode::Kb => IconName::BookOpen,
-        RailMode::Tasks => IconName::CircleCheck,
-        RailMode::Sink => IconName::Palette,
+        RailMode::Control => Icon::new(UbiqIcon::ModeControl),
+        RailMode::Ide => Icon::new(UbiqIcon::ModeIde),
+        RailMode::Git => Icon::new(UbiqIcon::ModeGit),
+        // Generic, so it may not borrow the asterisk — that is Claude's own mark.
+        RailMode::Agents => Icon::new(UbiqIcon::ModeAgents),
+        RailMode::Orchestration => Icon::new(UbiqIcon::ModeTeams),
+        RailMode::Kb => Icon::new(UbiqIcon::ModeKb),
+        RailMode::Tasks => Icon::new(UbiqIcon::ModeTasks),
+        RailMode::Sink => Icon::new(UbiqIcon::ModeSink),
     }
 }
 

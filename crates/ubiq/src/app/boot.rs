@@ -333,10 +333,10 @@ impl AppState {
         };
         let dock = cx.new(|cx| {
             let menu_app = app.clone();
-            let file_tab_menu: crate::ui::dock::skin::FileTabMenuRun =
-                Rc::new(move |key, x, y, _window, cx| {
+            let tab_menu: crate::ui::dock::skin::TabMenuRun =
+                Rc::new(move |kind, x, y, _window, cx| {
                     if let Some(this) = menu_app.upgrade() {
-                        this.update(cx, |this, cx| this.open_file_tab_menu(key, (x, y), cx));
+                        this.update(cx, |this, cx| this.open_tab_menu(kind, (x, y), cx));
                     }
                 });
             let promote_app = app.clone();
@@ -361,7 +361,7 @@ impl AppState {
                 crate::ui::dock::skin::Skin::new()
                     .with_new_pane(new_pane)
                     .with_new_chat(new_chat)
-                    .with_file_tab_menu(file_tab_menu)
+                    .with_tab_menu(tab_menu)
                     .with_file_tab_promote(file_tab_promote),
             )
         });
@@ -903,9 +903,12 @@ impl AppState {
             pending_goto: None,
             dock,
             panels,
+            tab_names: HashMap::new(),
+            pinned_tabs: HashSet::new(),
             pending_panels: Vec::new(),
             closing: false,
             pending_layout: None,
+            reset_furniture: false,
             pending_regions: None,
             region_had_content: (false, false, false),
             workbench: WorkbenchState::default(),

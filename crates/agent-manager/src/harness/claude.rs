@@ -39,26 +39,99 @@ const ENV_HYGIENE: &[&str] = &[
 const MANAGED_BEGIN: &str = "<!-- agent-manager:begin -->";
 const MANAGED_END: &str = "<!-- agent-manager:end -->";
 
+/// The npm bin the ACP variant launches — `@agentclientprotocol/claude-agent-acp`, the Agent
+/// Client Protocol org's adapter for the Claude Agent SDK. It drives the same `claude` the
+/// native variant does (and honours the same `CLAUDE_CONFIG_DIR`), so everything provisioning
+/// writes into the ephemeral dir still reaches the model; only the wire differs.
+///
+/// Chosen over Zed's `claude-code-acp`, which is the other adapter for the same job, because
+/// this one carries the two things a column needs and that one drops: it sends real
+/// `usage_update` notifications (`used`, `size` from the model's context window, and a
+/// cumulative `cost`) and it speaks the native subagent-session extension, where Zed's
+/// flattens a delegate's output into the main transcript with no marker at all.
+const ACP_COMMAND: &str = "claude-agent-acp";
+
 /// The Claude Code harness provisioner.
+///
+/// One provisioner, two harnesses. `acp` picks which wire a *structured* run speaks: the
+/// native `-p --output-format stream-json` NDJSON stream ([`crate::io::JsonlBridge`]) or the
+/// Agent Client Protocol ([`crate::io::AcpBridge`]) by way of [`ACP_COMMAND`]. Everything else
+/// — the config-dir relocation, skills, MCP, memory, accounts, login, model discovery and the
+/// whole passthrough argv — is the same harness and is shared rather than duplicated.
 #[derive(Debug, Clone, Default)]
-pub struct Claude;
+pub struct Claude {
+    /// A structured run speaks ACP through the adapter rather than Claude Code's own stream.
+    acp: bool,
+}
 
 impl Claude {
     /// Construct the Claude Code harness descriptor.
     pub fn new() -> Self {
-        Claude
+        Claude { acp: false }
+    }
+
+    /// Construct the ACP-speaking Claude Code harness descriptor (`claude-code-acp`).
+    pub fn new_acp() -> Self {
+        Claude { acp: true }
     }
 }
 
 impl Harness for Claude {
-    super::shared::harness_identity! {
-        id: "claude-code",
-        display_name: "Claude Code",
-        command: "claude",
-        aliases: ["claude"],
-        passthrough: true,
-        structured: true,
-        multi_turn: true,
+    fn id(&self) -> crate::spec::HarnessId {
+        if self.acp {
+            "claude-code-acp"
+        } else {
+            "claude-code"
+        }
+        .to_string()
+    }
+
+    fn display_name(&self) -> &str {
+        if self.acp {
+            "Claude Code (ACP)"
+        } else {
+            "Claude Code"
+        }
+    }
+
+    fn command(&self) -> &str {
+        if self.acp { ACP_COMMAND } else { "claude" }
+    }
+
+    fn aliases(&self) -> &[&str] {
+        if self.acp {
+            &["claude-acp"]
+        } else {
+            &["claude"]
+        }
+    }
+
+    fn io_support(&self) -> super::IoSupport {
+        super::IoSupport {
+            passthrough: true,
+            structured: true,
+            multi_turn: true,
+            acp: self.acp,
+        }
+    }
+
+    /// `claude --version`, for both variants. The ACP adapter has no version flag — it reads
+    /// JSON-RPC off stdin the moment it starts, so probing it would hang — and it is a shim over
+    /// the same binary anyway, so the installed Claude Code's version is the honest cache key.
+    fn version(&self) -> Result<String> {
+        let output = Command::new("claude")
+            .arg("--version")
+            .output()
+            .context("running `claude --version` (is it on PATH?)")?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "`claude --version` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(stdout.lines().next().unwrap_or_default().trim().to_string())
     }
 
     /// Class A: `CLAUDE_CONFIG_DIR` relocates the entire config — credentials
@@ -256,6 +329,16 @@ impl Harness for Claude {
         // bridge rather than a trailing positional argument; passthrough
         // mode keeps the interactive argv shape from P1.
         let structured = spec.io == crate::spec::IoModes::Structured;
+        // The ACP variant's *structured* launch is the adapter, and the adapter takes no argv at
+        // all: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`) and everything else it needs it reads from `CLAUDE_CONFIG_DIR`
+        // below, exactly as the native variant's child does. A passthrough run is unchanged —
+        // `claude-code-acp` is not a TUI, so a pane still gets the real `claude`.
+        // ponytail: no model, no thinking level and no `--mcp-config` reach the adapter — it
+        // takes those on `session/new`'s `_meta.claudeCode.options`, which the generic ACP
+        // bridge does not send. Skills, settings and memory still arrive through the config dir.
+        // Wire `_meta` options only if per-run model choice is wanted here.
+        let acp = self.acp && structured;
 
         let mut args = Vec::new();
         if structured {
@@ -367,9 +450,18 @@ impl Harness for Claude {
             }
         }
 
+        // 7. The wire. The ACP variant's structured launch is the adapter, and the adapter
+        // takes no argv: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`), and the rest it reads out of `CLAUDE_CONFIG_DIR` exactly as
+        // the native child does. A passthrough run is unchanged either way — `claude-code-acp`
+        // is not a TUI, so a pane still gets the real `claude`.
         Ok(Launch {
-            program: "claude".to_string(),
-            args,
+            program: if acp { ACP_COMMAND } else { "claude" }.to_string(),
+            args: if acp {
+                spec.passthrough_args.clone()
+            } else {
+                args
+            },
             env,
             env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
             env_clear: false,
@@ -416,6 +508,13 @@ impl Harness for Claude {
         cwd: &Path,
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
+        if self.acp {
+            return Ok(Box::new(crate::io::AcpBridge::new(
+                child,
+                cwd,
+                provisioned.resume.as_deref(),
+            )?));
+        }
         Ok(Box::new(crate::io::JsonlBridge::new(child)?))
     }
 
@@ -848,7 +947,10 @@ mod tests {
         std::fs::write(&transcript, b"{}\n").unwrap();
         std::fs::write(project.join("notes.txt"), b"not a transcript").unwrap();
 
-        assert_eq!(Claude.transcripts(config_dir.path()), vec![transcript]);
+        assert_eq!(
+            Claude::new().transcripts(config_dir.path()),
+            vec![transcript]
+        );
     }
 
     #[test]

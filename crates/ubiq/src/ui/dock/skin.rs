@@ -44,12 +44,13 @@ pub type NewPaneRun = Rc<dyn Fn(&mut Window, &mut App)>;
 /// paints the menu over the window. The same crossing the pane `+`'s chevron already makes.
 pub type NewChatRun = Rc<dyn Fn(f32, f32, &mut Window, &mut App)>;
 
-/// The right-click on a file tab, handed across the renderer seam.
+/// The right-click on a tab, handed across the renderer seam.
 ///
-/// The tab bar knows which tab and where the click went down; `AppState` knows what to offer on a
-/// file. The name of the file is the tab key, and the menu itself is painted over the window by
-/// `AppState` rather than here, so the skin only has to say a menu was wanted and on which file.
-pub type FileTabMenuRun = Rc<dyn Fn(&str, f32, f32, &mut Window, &mut App)>;
+/// The tab bar knows which tab and where the click went down; `AppState` knows what to offer on
+/// it. The kind is the tab's own — a file, a terminal or a chat — and the menu itself is painted
+/// over the window by `AppState` rather than here, so the skin only has to say a menu was wanted
+/// and on which panel.
+pub type TabMenuRun = Rc<dyn Fn(PanelKind, f32, f32, &mut Window, &mut App)>;
 
 /// The double-click on a file tab, handed across the renderer seam.
 ///
@@ -142,9 +143,9 @@ pub struct Skin {
     /// harness, the other opens a second view of conversations that already exist — and a group
     /// may hold chats and panes at once, in which case the strip honestly offers both.
     new_chat: Option<NewChatRun>,
-    /// The file-tab right-click, so a tab can ask for its context menu. `None` where the skin has
-    /// no project-facing window to hand the click to.
-    file_tab_menu: Option<FileTabMenuRun>,
+    /// The tab right-click, so a tab can ask for its context menu. `None` where the skin has no
+    /// project-facing window to hand the click to.
+    tab_menu: Option<TabMenuRun>,
     /// The file-tab double-click, so a preview tab can be promoted to permanent. `None` where the
     /// skin has no project-facing window to hand the click to.
     file_tab_promote: Option<FileTabPromoteRun>,
@@ -156,7 +157,7 @@ impl Default for Skin {
             resizing: Rc::new(RefCell::new(None)),
             new_pane: None,
             new_chat: None,
-            file_tab_menu: None,
+            tab_menu: None,
             file_tab_promote: None,
         }
     }
@@ -183,10 +184,10 @@ impl Skin {
         })
     }
 
-    /// Attach the file-tab right-click handler to the IDE's file tabs.
-    pub fn with_file_tab_menu(self: &Rc<Self>, run: FileTabMenuRun) -> Rc<Self> {
+    /// Attach the tab right-click handler to the dock's tabs.
+    pub fn with_tab_menu(self: &Rc<Self>, run: TabMenuRun) -> Rc<Self> {
         Rc::new(Self {
-            file_tab_menu: Some(run),
+            tab_menu: Some(run),
             ..(**self).clone()
         })
     }
@@ -416,6 +417,14 @@ impl TabGroupRenderer for Skin {
                     });
                 }
 
+                if info.pinned {
+                    tab = tab.child(
+                        Icon::new(crate::ui::kit::UbiqIcon::TabPin)
+                            .with_size(Size::Size(px(10.)))
+                            .text_color(theme::accent()),
+                    );
+                }
+
                 tab = tab.child(info.label.clone());
 
                 if info.bookmarks > 0 {
@@ -472,23 +481,24 @@ impl TabGroupRenderer for Skin {
                             })
                         })
                     })
-                    // A file tab's right-click asks `AppState` for its context menu. The menu is
-                    // painted over the window by the window that owns the tab, so this only has to
-                    // say a menu was wanted — the key names the file, the point anchors the menu.
-                    .when_some(self.file_tab_menu.clone(), |this, run| {
-                        let key = file_key_of(panel, cx);
+                    // A tab's right-click asks `AppState` for its context menu. The menu is painted
+                    // over the window by the window that owns the tab, so this only has to say a
+                    // menu was wanted — the kind names the panel, the point anchors the menu.
+                    .when_some(self.tab_menu.clone(), |this, run| {
+                        let kind = tab_kind_of(panel, cx);
                         let run = run.clone();
-                        this.when_some(key, move |this, key| {
+                        this.when_some(kind, move |this, kind| {
                             this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
                                 let at = fence(event.position);
-                                run(&key, at.0, at.1, window, cx);
+                                run(kind.clone(), at.0, at.1, window, cx);
                             })
                         })
                     })
                     // A file tab's double-click promotes a preview to permanent, the same gesture as
                     // on the explorer row that opened it as a preview.
                     .when_some(self.file_tab_promote.clone(), |this, run| {
-                        let key = file_key_of(panel, cx);
+                        let key = tab_kind_of(panel, cx)
+                            .and_then(|kind| kind.tab_key().map(|key| key.to_string()));
                         this.when_some(key, move |this, key| {
                             this.on_double_click(move |_, window, cx| run(&key, window, cx))
                         })
@@ -810,15 +820,17 @@ impl TilesRenderer for Skin {
     }
 }
 
-/// The file a tab names, or `None` for a panel that is not a file. Only a file tab gets a
-/// right-click menu, so the skin's right-click begs the question of the panel kind.
-fn file_key_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> Option<String> {
+/// The kind a tab's right-click menu is asked about, or `None` for a panel with no menu at all —
+/// only a file, a terminal or a chat tab offers one.
+fn tab_kind_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> Option<PanelKind> {
     panel
         .view()
         .downcast::<WorkbenchPanel>()
         .ok()
         .and_then(|panel| match panel.read(cx).kind() {
-            PanelKind::File(key) => Some(key.clone()),
+            kind @ (PanelKind::File(_) | PanelKind::Terminal(_) | PanelKind::Chat(_)) => {
+                Some(kind.clone())
+            }
             _ => None,
         })
 }

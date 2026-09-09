@@ -26,6 +26,16 @@ fn a_blob_survives_the_round_trip() {
         )]
         .into(),
         open_files: Vec::new(),
+        // A tab key rather than a path, the same identity `open_files` uses: it is the one thing
+        // about a tab that survives a restart, which is why a pinned *file* is remembered and a
+        // pinned pane or chat tab is not.
+        pinned_files: vec!["src/main.rs".to_string()],
+        // A buffer that was never written anywhere travels with the blob, because there is nowhere
+        // else for it to come back from.
+        scratch: vec![prefs::Scratch {
+            name: "untitled-1".to_string(),
+            text: "half a thought".to_string(),
+        }],
         active_file: None,
         expanded: Vec::new(),
         hidden_modes: Vec::new(),
@@ -119,10 +129,9 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     // each mode the way a fresh one does.
     assert!(view.modes.is_empty());
     let arranged = ModeLayout::default_for(RailMode::Ide);
-    // The IDE's two side regions are furniture and open with the window; the pane region is not,
-    // and opens empty and put away.
-    assert!(arranged.show_left && arranged.show_right);
-    assert!(!arranged.show_bottom);
+    // No region is furniture: a mode that has never been arranged opens on the centre alone, and
+    // each region comes back the moment it is asked for.
+    assert!(!arranged.show_left && !arranged.show_right && !arranged.show_bottom);
 
     assert!(view.open_files.is_empty());
     assert_eq!(view.active_file, None);
@@ -255,7 +264,7 @@ fn the_arrangement_may_be_absent() {
 
     assert!(view.modes.is_empty());
     let fresh = ModeLayout::default_for(RailMode::Ide);
-    assert!(fresh.show_left && fresh.show_right && !fresh.show_bottom);
+    assert!(!fresh.show_left && !fresh.show_right && !fresh.show_bottom);
 }
 
 /// A blob may carry more than this build names — a newer build's field, or an edition's own

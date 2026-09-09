@@ -26,8 +26,8 @@ use crate::state::{InspectorTab, Selection};
 use crate::theme;
 use crate::ui::indexed;
 use crate::ui::kit::{
-    Tab, field, ghost_button, icon_button, mono, panel, pill, progress_ring, section_label,
-    state_chip, tab_strip,
+    Tab, UbiqIcon, field, ghost_button, icon_button, mono, panel, pill, progress_ring,
+    section_label, state_chip, tab_strip,
 };
 use crate::ui::work::{activity_colour, bucket_colour, role_mark};
 
@@ -141,7 +141,7 @@ fn session_view(app: &AppState, id: SessionId, cx: &mut Context<AppState>) -> gp
                         .h(px(24.))
                         .px_2()
                         .child(
-                            Icon::new(IconName::Network)
+                            Icon::new(UbiqIcon::GitBranch)
                                 .with_size(Size::XSmall)
                                 .text_color(theme::text_faint()),
                         )

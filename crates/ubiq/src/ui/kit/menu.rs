@@ -438,6 +438,9 @@ pub struct ContextItem {
     /// A hairline instead of a row. It still occupies an index, because a menu's rows and the
     /// actions behind them are matched by position.
     pub separator: bool,
+    /// A glyph drawn before the row's label, from either icon set. The label is drawn either
+    /// way: the icon anchors a row, it never stands in for its name.
+    pub icon: Option<Icon>,
 }
 
 impl ContextItem {
@@ -446,6 +449,7 @@ impl ContextItem {
             label: label.into(),
             enabled: true,
             separator: false,
+            icon: None,
         }
     }
 
@@ -455,12 +459,20 @@ impl ContextItem {
         self
     }
 
+    /// Give this row a glyph before its name, for a menu whose commands are easier to pick out by
+    /// picture than by reading down the column.
+    pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
+        self.icon = Some(icon.into());
+        self
+    }
+
     /// The line between two groups of rows — what tells "start this" from "show me that".
     pub fn separator() -> Self {
         Self {
             label: SharedString::default(),
             enabled: false,
             separator: true,
+            icon: None,
         }
     }
 }
@@ -525,8 +537,17 @@ pub fn context_panel(
                     theme::text()
                 } else {
                     theme::text_faint()
-                })
-                .child(item.label);
+                });
+            // The glyph sits *before* the name rather than instead of it: these rows were moved
+            // off an icon strip precisely so they would read as words, and a column of unlabelled
+            // glyphs is that strip again with the names hidden behind a hover.
+            if let Some(icon) = item.icon {
+                row = row.gap_2().child(
+                    icon.with_size(Size::Size(px(14.)))
+                        .text_color(theme::text_muted()),
+                );
+            }
+            row = row.child(item.label);
 
             if enabled {
                 row = row

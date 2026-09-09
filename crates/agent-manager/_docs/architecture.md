@@ -118,8 +118,8 @@ did not choose** — that seam is documented per-harness in
 | Harness      | Injection seam the provisioner writes to                                  |
 |--------------|---------------------------------------------------------------------------|
 | Claude Code  | a temp workdir with `.claude/skills/…` + `CLAUDE.md`, `--mcp-config <file>` + `--strict-mcp-config`, `--append-system-prompt`; account via `env`/`CLAUDE_CONFIG_DIR` / a private `HOME`. |
-| Codex        | `AGENTS.md` + `agents/…` in the workdir, MCP via its config file, account via env. |
-| opencode     | `AGENTS.md` + `agent/…`, MCP + skills in `opencode.json`, `run --format json` NDJSON launch mode. |
+| Codex        | `AGENTS.md` + `agents/…` in the workdir, MCP via its config file, account via env; `codex-acp` ACP launch mode shares the same seam. |
+| opencode     | `AGENTS.md` + `agent/…`, MCP + skills in `opencode.json`, `opencode acp` ACP launch mode. |
 | Grok CLI     | `AGENTS.md` + `.agents/skills/…` and `mcpServers` under a relocated `HOME`, `grok agent stdio` ACP launch mode. |
 
 The provisioner therefore emits three things from a `RunSpec`, per harness:
@@ -166,7 +166,7 @@ src/
 ├── harness/          # per-harness knowledge (Harness trait + impls)
 │   ├── mod.rs        #   Harness trait, HarnessId, all()/by_id()
 │   ├── claude.rs     #   Claude Code (P1)
-│   ├── codex.rs      #   Codex (P2)
+│   ├── codex.rs      #   Codex (P2); also provisions `codex-acp`, its ACP-speaking sibling
 │   └── opencode.rs   #   opencode (P2)
 ├── provision.rs      # RunSpec -> ephemeral config dir + argv + env (per harness)
 ├── run.rs            # spawn + supervise the child; owns the process lifecycle
@@ -177,8 +177,6 @@ src/
 │   ├── structured.rs #   spawn_piped, shared by every bridge        (core)
 │   ├── jsonl.rs      #   Claude stream-json bridge                  (core)
 │   ├── codex.rs      #   Codex JSON-RPC app-server bridge           (core)
-│   ├── opencode.rs   #   opencode NDJSON one-shot bridge            (core)
-│   ├── copilot.rs    #   GitHub Copilot CLI NDJSON one-shot bridge  (core)
 │   ├── acp.rs        #   to_acp/from_acp session/update mapping pair (rename, not translation)
 │   ├── acp_client.rs #   generic ACP v1 client bridge, any ACP harness  (core)
 │   └── agui.rs       #   AG-UI event adapter (stateless mapper)
@@ -191,10 +189,11 @@ src/
 
 Phase 1 needs `spec`, `resolve`, `settings`, `registry`, `harness` (claude),
 `provision`, `run`, and `io/passthrough`. Phase 2 adds `account`, `harness`
-(codex/opencode), `io/{model,structured,jsonl,codex,opencode}`, and `mcp`.
-Phase 3 completes the set with `session`, `isolate`, `io/{acp,agui}`, and
-`cli/session`; `harness::copilot` and `io::copilot` land alongside them,
-completing the structured-I/O harness set.
+(codex/opencode), `io/{model,structured,jsonl,codex}`, and `mcp`. Phase 3
+completes the set with `session`, `isolate`, `io/{acp,agui,acp_client}`, and
+`cli/session`; `harness::copilot` lands alongside them, completing the
+structured-I/O harness set — opencode and copilot both speak ACP through the
+shared `AcpBridge` rather than a bridge of their own.
 
 ## The `Harness` trait
 

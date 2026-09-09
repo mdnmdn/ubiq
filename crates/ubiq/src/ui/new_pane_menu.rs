@@ -2,7 +2,7 @@
 //!
 //! The "+" itself opens the platform's default shell and needs no menu. This is what else can be
 //! started here — every agent harness and shell the host found on the machine, the default shell
-//! marked — painted over the window for the reason [`super::file_tab_menu`] is: the dock's skin
+//! marked — painted over the window for the reason [`super::tab_menu`] is: the dock's skin
 //! does not name `AppState`, so it says a menu was wanted and the window draws it.
 //!
 //! The rows are the agent harnesses in the order the host listed them, then a separator, then the

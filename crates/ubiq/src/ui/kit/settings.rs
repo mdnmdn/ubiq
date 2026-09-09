@@ -137,7 +137,7 @@ pub fn label_block(label: &str, note: &str) -> AnyElement {
 
 pub fn nav_item(
     id: impl Into<ElementId>,
-    icon: IconName,
+    icon: impl Into<Icon>,
     label: &str,
     count: Option<usize>,
     selected: bool,

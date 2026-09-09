@@ -167,6 +167,9 @@ pub fn tool_call_value(call: &ToolCall) -> Map<String, Value> {
     if let Some(raw) = &call.raw_output {
         object.insert("rawOutput".to_string(), raw.clone());
     }
+    if matches!(call.kind, ToolKind::Delegate) {
+        object.insert("_meta".to_string(), json!({ "toolKind": "delegate" }));
+    }
     object
 }
 
@@ -195,6 +198,9 @@ pub fn tool_call_update_value(update: &ToolCallUpdate) -> Map<String, Value> {
     }
     if let Some(raw) = &update.raw_output {
         object.insert("rawOutput".to_string(), raw.clone());
+    }
+    if matches!(update.kind, Some(ToolKind::Delegate)) {
+        object.insert("_meta".to_string(), json!({ "toolKind": "delegate" }));
     }
     object
 }
@@ -399,7 +405,8 @@ fn kind(kind: ToolKind) -> &'static str {
         ToolKind::Fetch => "fetch",
         ToolKind::SwitchMode => "switch_mode",
         // ACP names no delegation kind, so it travels as the fallback rather than as a word the
-        // other end would have to guess at.
+        // other end would have to guess at — with `_meta.toolKind` beside it (see
+        // [`tool_call_value`]) so the collapse is recoverable.
         ToolKind::Delegate => "other",
         ToolKind::Other => "other",
     }
@@ -440,16 +447,25 @@ fn status(status: ToolStatus) -> &'static str {
 ///
 /// The degradation is also where the mapping is inherently lossy, not
 /// buggy:
-/// - [`Origin`] is never on the wire, so every event that carries one comes
-///   back [`Origin::default`].
+/// - [`Origin`] has no ACP vocabulary, so it is read out of `_meta` (see
+///   [`meta_string`]) where the agent stamped one, and comes back
+///   [`Origin::default`] where it did not. [`to_acp`] writes none — an event
+///   carries no identity on the way out, same as `sessionId`. Attributing an
+///   unstamped chunk to the delegate that is open needs state this pure
+///   function does not have; that heuristic lives in
+///   [`super::acp_client`].
 /// - `UsageUpdate`'s `model` and `spend` are dropped by [`to_acp`], so they
-///   come back `None` here too.
+///   come back `None` here too; `cost` comes back exactly as sent, which for
+///   a real agent is the session's **cumulative** figure rather than the
+///   per-report delta [`AgentEvent::UsageUpdate`] contracts for — the
+///   subtraction also needs state, and also lives in
+///   [`super::acp_client`].
 /// - [`super::model::ConfigChoice::group`] is never written, so it comes
 ///   back `None`.
-/// - [`ToolKind::Delegate`] is already collapsed into [`ToolKind::Other`] by
-///   the time it reaches the wire (ACP names no delegation kind), and
-///   cannot un-collapse; [`StopReason::Failed`] is not reachable from here
-///   at all, since [`AgentEvent::TurnEnded`] is not a session update.
+/// - [`ToolKind::Delegate`] travels as `kind: "other"` (ACP names no
+///   delegation kind) with `_meta.toolKind` beside it, and un-collapses from
+///   that marker; [`StopReason::Failed`] is not reachable from here at all,
+///   since [`AgentEvent::TurnEnded`] is not a session update.
 pub fn from_acp(params: &Value) -> Option<AgentEvent> {
     let update = params.get("sessionUpdate").and_then(Value::as_str)?;
     match update {
@@ -460,12 +476,12 @@ pub fn from_acp(params: &Value) -> Option<AgentEvent> {
         "agent_message_chunk" => Some(AgentEvent::AgentMessageChunk {
             content: from_content(params.get("content")?),
             message_id: str_field(params, "messageId"),
-            origin: Origin::default(),
+            origin: origin_from_meta(params),
         }),
         "agent_thought_chunk" => Some(AgentEvent::AgentThoughtChunk {
             content: from_content(params.get("content")?),
             message_id: str_field(params, "messageId"),
-            origin: Origin::default(),
+            origin: origin_from_meta(params),
         }),
 
         "tool_call" => Some(AgentEvent::ToolCall {
@@ -524,10 +540,34 @@ pub fn from_acp(params: &Value) -> Option<AgentEvent> {
             cost: params.get("cost").map(from_cost),
             model: None,
             spend: None,
-            origin: Origin::default(),
+            origin: origin_from_meta(params),
         }),
 
         _ => None,
+    }
+}
+
+/// A `_meta` string under any of `keys`, flat or nested one vendor object deep.
+///
+/// ACP v1 names neither a subagent nor a delegation tool kind, so `_meta` —
+/// present on the `session/update` notification *and* on every update payload
+/// — is the only legal carrier for either. Both shapes are read: flat
+/// (`_meta.parentToolCallId`) and namespaced under one vendor object
+/// (`_meta.claudeCode.toolName`, which is what
+/// `@zed-industries/claude-code-acp` actually emits). Flat wins.
+pub(crate) fn meta_string(value: &Value, keys: &[&str]) -> Option<String> {
+    let meta = value.get("_meta")?;
+    let pick = |m: &Value| keys.iter().find_map(|key| str_field(m, key));
+    pick(meta).or_else(|| meta.as_object()?.values().find_map(pick))
+}
+
+/// The [`Origin`] an agent stamped into an update's `_meta`, if any.
+pub(crate) fn origin_from_meta(value: &Value) -> Origin {
+    Origin {
+        parent_tool_use_id: meta_string(value, &["parentToolCallId", "parentToolUseId"]),
+        subagent_type: meta_string(value, &["subagentType", "subagent"]),
+        model: meta_string(value, &["model"]),
+        thinking: meta_string(value, &["thinking"]),
     }
 }
 
@@ -643,11 +683,15 @@ fn from_tool_call(value: &Value) -> ToolCall {
     ToolCall {
         id: str_field(value, "toolCallId").unwrap_or_default(),
         title: str_field(value, "title").unwrap_or_default(),
-        kind: value
-            .get("kind")
-            .and_then(Value::as_str)
-            .map(from_kind)
-            .unwrap_or_default(),
+        kind: if is_delegate_meta(value) {
+            ToolKind::Delegate
+        } else {
+            value
+                .get("kind")
+                .and_then(Value::as_str)
+                .map(from_kind)
+                .unwrap_or_default()
+        },
         status: value
             .get("status")
             .and_then(Value::as_str)
@@ -660,7 +704,7 @@ fn from_tool_call(value: &Value) -> ToolCall {
             .unwrap_or_default(),
         raw_input: value.get("rawInput").cloned(),
         raw_output: value.get("rawOutput").cloned(),
-        origin: Origin::default(),
+        origin: origin_from_meta(value),
     }
 }
 
@@ -668,7 +712,11 @@ fn from_tool_call_update(value: &Value) -> ToolCallUpdate {
     ToolCallUpdate {
         id: str_field(value, "toolCallId").unwrap_or_default(),
         title: str_field(value, "title"),
-        kind: value.get("kind").and_then(Value::as_str).map(from_kind),
+        kind: if is_delegate_meta(value) {
+            Some(ToolKind::Delegate)
+        } else {
+            value.get("kind").and_then(Value::as_str).map(from_kind)
+        },
         status: value.get("status").and_then(Value::as_str).map(from_status),
         content: value.get("content").map(from_contents),
         locations: value.get("locations").map(from_locations),
@@ -762,11 +810,18 @@ fn from_kind(value: &str) -> ToolKind {
         "think" => ToolKind::Think,
         "fetch" => ToolKind::Fetch,
         "switch_mode" => ToolKind::SwitchMode,
-        // "other", and the fallback for anything unrecognised — including
-        // the "other" that `ToolKind::Delegate` collapses to on the way
-        // out, which cannot un-collapse.
+        // "other", and the fallback for anything unrecognised. The "other"
+        // that `ToolKind::Delegate` collapses to on the way out un-collapses
+        // from `_meta.toolKind`, before this is reached.
         _ => ToolKind::Other,
     }
+}
+
+/// Whether `_meta` marks this tool call as a delegation — the marker
+/// [`tool_call_value`] writes beside `kind: "other"`, since ACP names no
+/// delegation kind of its own.
+fn is_delegate_meta(value: &Value) -> bool {
+    meta_string(value, &["toolKind"]).as_deref() == Some("delegate")
 }
 
 fn from_status(value: &str) -> ToolStatus {
@@ -985,6 +1040,85 @@ mod tests {
         let ev = AgentEvent::ToolCallUpdate { update };
         let value = to_acp(&ev).unwrap();
         assert_eq!(from_acp(&value), Some(ev));
+    }
+
+    /// [`ToolKind::Delegate`] travels as `kind: "other"` — ACP names no
+    /// delegation kind — with `_meta.toolKind` beside it, so it survives the
+    /// round trip the UI's subagent switcher depends on.
+    #[test]
+    fn a_delegate_tool_call_round_trips_through_meta() {
+        let mut call = ToolCall::new("t1", "Explore the tree");
+        call.kind = ToolKind::Delegate;
+        let value = to_acp(&AgentEvent::ToolCall { call: call.clone() }).unwrap();
+        assert_eq!(value["kind"], "other");
+        assert_eq!(value["_meta"]["toolKind"], "delegate");
+        assert_eq!(
+            from_acp(&value),
+            Some(AgentEvent::ToolCall { call: call.clone() })
+        );
+
+        let update = ToolCallUpdate {
+            kind: Some(ToolKind::Delegate),
+            ..ToolCallUpdate::finished("t1", ToolStatus::Completed)
+        };
+        let value = to_acp(&AgentEvent::ToolCallUpdate {
+            update: update.clone(),
+        })
+        .unwrap();
+        assert_eq!(value["_meta"]["toolKind"], "delegate");
+        assert_eq!(
+            from_acp(&value),
+            Some(AgentEvent::ToolCallUpdate { update })
+        );
+    }
+
+    /// ACP v1 has no subagent vocabulary, so `_meta` is where an agent states
+    /// an [`Origin`] — flat, or namespaced under one vendor object, which is
+    /// what `@zed-industries/claude-code-acp` does with everything it adds.
+    #[test]
+    fn a_meta_marked_chunk_carries_an_origin() {
+        let flat = from_acp(&json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "hi"},
+            "_meta": {"parentToolCallId": "t1", "subagentType": "explorer"},
+        }));
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = flat else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("t1"));
+        assert_eq!(origin.subagent_type.as_deref(), Some("explorer"));
+
+        let namespaced = from_acp(&json!({
+            "sessionUpdate": "agent_thought_chunk",
+            "content": {"type": "text", "text": "hmm"},
+            "_meta": {"claudeCode": {"parentToolUseId": "t2", "model": "claude-haiku-4-5"}},
+        }));
+        let Some(AgentEvent::AgentThoughtChunk { origin, .. }) = namespaced else {
+            panic!("expected a thought");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("t2"));
+        assert_eq!(origin.model.as_deref(), Some("claude-haiku-4-5"));
+
+        // Usage and tool calls read the same marker.
+        let usage = from_acp(&json!({
+            "sessionUpdate": "usage_update",
+            "used": 1, "size": 2,
+            "_meta": {"parentToolCallId": "t3"},
+        }));
+        let Some(AgentEvent::UsageUpdate { origin, .. }) = usage else {
+            panic!("expected usage");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("t3"));
+
+        // And an unmarked update stays the conversation's own.
+        let bare = from_acp(&json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "hi"},
+        }));
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = bare else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin, Origin::default());
     }
 
     #[test]

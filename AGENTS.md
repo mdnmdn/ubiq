@@ -55,6 +55,11 @@ document; file it instead.
   default tools, use them, if it's better or safer using bash or script use them, if an operation is batched or complex
   evaulate to create a new `_tools`
 - USE THE DEFAULT TOOLS for targeted updates, do not run scripts
+- **NEVER edit code with a script for a single edit.** No `python3 - <<'EOF'`, no `sed -i`, no
+  `perl -pi`, no heredoc rewriting a file to change one place. Use Edit/Write.
+  A script *is* the smart approach for many edits at once — several hunks across a file, or the same
+  change across many files — and a batched tree-wide operation belongs in `_tools`.
+  This applies to subagents too: say it in their prompt.
 - If you have a technical problem compiling or other automated task notify it and envetually do other remaing activities, don't use
 - be breif
 
@@ -77,6 +82,11 @@ document; file it instead.
 - **Ubiq never names a harness config path and never hard-codes how to launch one.**
   `crates/agent-manager` owns all of that, and Ubiq embeds it. New harness support is a change
   there, not here.
+- **Claude Code's native `stream-json` bridge is never removed.** `io/jsonl.rs` and the
+  `claude-code` harness stay, whatever else moves to ACP: `claude-code-acp` is a sibling, not a
+  successor, and the native path is the one with no adapter process and no npm dependency between
+  Ubiq and the model. It also states three things no ACP adapter does — the per-model context
+  window, a delegate's spend split out of the turn's, and the full token breakdown. See `D95`.
 - **`crates/agent-manager` keeps no UI dependency** and must keep building with
   `--no-default-features` — `just core` is that check.
 

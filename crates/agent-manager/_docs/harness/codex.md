@@ -687,6 +687,33 @@ A coordinator drives Codex headlessly by speaking JSON-RPC 2.0 over stdio to the
 - I/O is newline-framed JSON-RPC on stdin/stdout; one JSON object per line.
 - Spawn in its own process group (`setpgrp` / `os/exec` `SysProcAttr.Setpgid`) so the entire tree can be killed as a unit on cancel.
 
+### ACP mode (`codex-acp`)
+
+`codex-acp` (npm package `@agentclientprotocol/codex-acp`, installed with
+`npm install -g @agentclientprotocol/codex-acp` or `npx -y @agentclientprotocol/codex-acp`) starts
+an **Agent Client Protocol** endpoint on its own stdio, speaking newline-delimited JSON-RPC 2.0,
+and drives the same `codex` binary underneath — the same `$CODEX_HOME` relocation, `config.toml`,
+skills and account/login handling as the native `codex` harness above; only the wire differs. `am`
+drives it through the harness-neutral `AcpBridge` (`src/io/acp_client.rs`) rather than the
+app-server protocol documented below — see [`../io-modes.md`](../io-modes.md).
+
+Structured argv is exactly:
+
+```
+codex-acp [passthrough_args...]
+```
+
+Nothing else is on the command line: no `app-server --listen stdio://`, no `-m`/`--model`, no
+resume flag. The prompt is a `session/prompt` request over the wire, a resume is `session/load`
+against the id the previous run reported, and the model/reasoning effort still reach the run
+through `config.toml` under `CODEX_HOME` (written exactly as for the native `codex` harness — see
+"Model & reasoning at launch" below). Passthrough argv is unchanged by any of this: `codex-acp` is
+not a TUI, so a pane still gets the real, interactive `codex`.
+
+Verified against `@agentclientprotocol/codex-acp` 1.10.0: the bin is named `codex-acp`, and unlike
+Claude's `claude-agent-acp` it answers `--version` directly (prints `<name> <version>`, exits 0),
+so no version-probe override is needed.
+
 ### Output stream protocol
 
 JSON-RPC 2.0 over stdio. Handshake sequence (client → server unless noted):
@@ -753,6 +780,9 @@ The app-server issues server→client approval requests; auto-accept all of them
 ### Process lifecycle
 
 - **Framing:** newline-delimited JSON-RPC in both directions over stdio.
+- **Framing (`codex-acp`):** also newline-delimited JSON-RPC over stdio, but ACP's own methods
+  (`session/prompt`, `session/load`, …) rather than the app-server's `thread/*` / `turn/*` — see
+  "ACP mode" above.
 - **Interrupting a turn:** the `turn/interrupt` request, which aborts the running turn and leaves
   the thread — and the process — alive for the next `turn/start`. Params are
   `{"threadId": "<id>", "turnId": "<id>"}`, both required; the response is an empty object, and the

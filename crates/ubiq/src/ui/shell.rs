@@ -241,12 +241,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|picker| crate::ui::file_picker::render(app, picker, window, cx)),
         )
-        // The file-tab context menu, named a file and a point by a right-click in the dock. It
-        // lives at the window root rather than in a panel, so it stays on screen whether a file
-        // closes or a panel moves.
+        // The tab context menu, named a panel and a point by a right-click in the dock. It lives
+        // at the window root rather than in a panel, so it stays on screen whether a tab closes or
+        // a panel moves.
         .children(
-            (app.workbench.open_menu == Some(crate::state::MenuId::FileTab))
-                .then(|| crate::ui::file_tab_menu::overlay(app, window, cx)),
+            (app.workbench.open_menu == Some(crate::state::MenuId::Tab))
+                .then(|| crate::ui::tab_menu::overlay(app, window, cx)),
         )
         // The new-pane control's chevron menu, named a point by a click on the bottom region's tab
         // bar. It is painted here for the same reason the file tab's menu is: the skin that drew
@@ -254,6 +254,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .children(
             (app.workbench.open_menu == Some(crate::state::MenuId::NewPane))
                 .then(|| crate::ui::new_pane_menu::overlay(app, window, cx)),
+        )
+        // The titlebar's overflow chevron menu, named a point by a click on the chevron itself.
+        // Painted here for the same reason the new-pane menu just above is.
+        .children(
+            (app.workbench.open_menu == Some(crate::state::MenuId::Overflow))
+                .then(|| crate::ui::overflow_menu::overlay(app, window, cx)),
         )
         // The `+` menu, named a point by whichever surface asked — the agents screen's control,
         // the IDE chat strip's `+`, or the sink's bench. It is painted here rather than from any

@@ -48,7 +48,9 @@ control's clothes.
 on which model, at which reasoning level and under which permission mode are all one question,
 asked together, and *The workbench* is where the form is described. The flattened
 harness-and-identity list this control used to carry above its conversations is gone with the row
-that started from it: it launched with every question but the first skipped.
+that started from it: it launched with every question but the first skipped. The titlebar carries
+its own shortcut to the same start — `AppState::open_new_agent_direct` aims at the chat surface in
+IDE mode the way this row does, the `+` menu's first stage skipped either way.
 
 **An attached tab is offered the start too.** Starting from a tab already showing a conversation
 would once have left the first with no view; the conversation it leaves is on this very list, one
@@ -101,7 +103,10 @@ chat tab is no exception: closing the only open one leaves nothing behind but a 
 nothing in it, which the region then puts itself away rather than sit empty. Opening the right
 region again — the titlebar's switch, or the `+` past the last group's tab strip — mints a fresh
 tab, attached to nothing, because that is the one place the window has to decide *which* instance an
-empty region opens onto.
+empty region opens onto. A *pinned* tab is the one exception: pinning is protection from close and
+nothing else, so the shared tab menu's Pin (or Rename) still work but its Close row is gone, the
+same as any other tab — `AppState::tab_names` and `AppState::pinned_tabs`, in memory only, because a
+`ChatId` is reminted every run and a saved name or pin would point at nothing.
 
 **Every chat tab draws from the same shared conversation view.** What a tab shows for its attachment
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer

@@ -336,6 +336,11 @@ bookmarks section is a `kit::disclosure` over plain rows; and a bookmark that ha
 draws in `warning()`. **No token was added for any of this** — `accent_soft()` is the fill behind a
 selected row and `warning()` is what a thing that went wrong but still works is drawn in.
 
+**A pinned tab's mark is an icon, not a token — the one case that needed a new one.**
+`assets/icons/tab-pin.svg` sits before the label on any pinned tab, file, terminal or chat alike,
+tinted `theme::accent()` through the same `Window::paint_svg` path every icon takes: the colour is
+what accent means on every other surface, so the addition is a shape, not a shade.
+
 **The outline panel parses the buffer a second time.** The component library's `SyntaxHighlighter`
 holds a tree-sitter tree, with a public `tree()` accessor, but the instance sits inside a
 private `TreeSitterInputHighlighter` behind `Box<dyn InputHighlighter>` with no downcast, and

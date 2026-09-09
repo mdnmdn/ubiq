@@ -329,14 +329,12 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
   ```
 
   **A `None` from `input()` is a real capability signal, not a gap to work
-  around.** `JsonlBridge` (Claude Code) and `CodexBridge` answer `Some` —
-  both harnesses stay open for a second prompt. `OpencodeBridge` and
-  `CopilotBridge` answer `None`, because both harnesses are one-shot: the
-  prompt is delivered via argv at launch and there is no second turn to send
-  into. An embedder that gets `None` learns this from the type — a chat box
-  greyed out after the first turn, say — rather than by sending into a bridge
-  that silently drops everything after the first prompt. See
-  [io-modes.md](./io-modes.md) for the full model.
+  around.** `JsonlBridge` (Claude Code), `CodexBridge` and `AcpBridge` (grok,
+  opencode, GitHub Copilot) all answer `Some` — every structured harness
+  stays open for a second prompt. An embedder that got `None` would learn
+  this from the type — a chat box greyed out after the first turn, say —
+  rather than by sending into a bridge that silently drops everything after
+  the first prompt. See [io-modes.md](./io-modes.md) for the full model.
 - **`harness::Harness`** — the trait for adding a new harness entirely
   (`id`, `command`, `provision`, `config_anchor`, `templates`, `io_support`).
   Not a storage seam, but the other axis to extend along. See

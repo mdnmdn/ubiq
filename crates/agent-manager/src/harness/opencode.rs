@@ -36,6 +36,9 @@ impl Opencode {
 }
 
 impl Harness for Opencode {
+    // opencode's structured seam is `opencode acp` — an ACP endpoint, driven
+    // by the generic `crate::io::AcpBridge`, so nothing harness-specific is
+    // parsed here (see `structured_bridge` below).
     super::shared::harness_identity! {
         id: "opencode",
         display_name: "opencode",
@@ -43,7 +46,8 @@ impl Harness for Opencode {
         aliases: ["opencode"],
         passthrough: true,
         structured: true,
-        multi_turn: false,
+        multi_turn: true,
+        acp: true,
     }
 
     /// Class A-clean: `OPENCODE_CONFIG_DIR` relocates the config tier and
@@ -162,38 +166,18 @@ impl Harness for Opencode {
         // 4. Build the launch: different argv for structured vs passthrough.
         let args = match spec.io {
             IoModes::Structured => {
-                // Structured mode: `opencode run --format json --dangerously-skip-permissions [args...] [prompt]`
-                let mut structured_args = vec![
-                    "run".to_string(),
-                    "--format".to_string(),
-                    "json".to_string(),
-                    "--dangerously-skip-permissions".to_string(),
-                ];
-                // Model selection: `--model <provider/model-id>`. Only added
-                // when set, so runs without `--model` keep byte-identical argv.
-                if let Some(model) = &spec.model {
-                    structured_args.push("--model".to_string());
-                    structured_args.push(model.clone());
-                }
-                // Reasoning effort: `--variant <name>` (verified in `opencode run --help`,
-                // e.g. "low", "medium", "high" — provider-specific, see `discover_thinking`).
-                // Only added when set, so runs without a thinking level keep byte-identical
-                // argv.
-                if let Some(thinking) = &spec.thinking {
-                    structured_args.push("--variant".to_string());
-                    structured_args.push(thinking.clone());
-                }
-                // Resume: `--session <id>` is only meaningful for the
-                // structured `opencode run` form; only added when a resume
-                // id is set, so resumeless runs keep byte-identical argv.
-                if let Some(id) = &spec.resume {
-                    structured_args.push("--session".to_string());
-                    structured_args.push(id.clone());
-                }
+                // Structured mode: `opencode acp [args...]` — an ACP
+                // endpoint, driven by `crate::io::AcpBridge`. Everything a
+                // passthrough run puts in argv moves onto the wire here: the
+                // prompt is a `session/prompt`, a resume is a `session/load`
+                // (from `Provisioned::resume`), and the model is a
+                // `session/set_config_option`, so none of `--dangerously-skip-permissions`,
+                // `--model`, `--variant`, `--session` or the prompt belongs
+                // on this argv. Permissions are now real
+                // `session/request_permission` round trips instead of
+                // `--dangerously-skip-permissions` auto-approval.
+                let mut structured_args = vec!["acp".to_string()];
                 structured_args.extend(spec.passthrough_args.clone());
-                if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-                    structured_args.push(prompt.clone());
-                }
                 structured_args
             }
             IoModes::Passthrough => {
@@ -311,7 +295,11 @@ impl Harness for Opencode {
         cwd: &Path,
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
-        Ok(Box::new(crate::io::opencode::OpencodeBridge::new(child)?))
+        Ok(Box::new(crate::io::AcpBridge::new(
+            child,
+            cwd,
+            provisioned.resume.as_deref(),
+        )?))
     }
 }
 
@@ -812,12 +800,25 @@ mod tests {
     }
 
     #[test]
-    fn provision_structured_mode_builds_correct_argv() {
+    fn opencode_supports_passthrough_and_an_acp_structured_bridge() {
+        let opencode = Opencode::new();
+        let support = opencode.io_support();
+        assert!(support.passthrough);
+        assert!(support.structured);
+        assert!(support.multi_turn);
+        assert!(support.acp);
+    }
+
+    #[test]
+    fn provision_structured_is_acp_without_prompt_session_model_or_variant() {
         use crate::spec::ConfigStrategy;
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.io = crate::spec::IoModes::Structured;
+        spec.model = Some("anthropic/claude".to_string());
+        spec.thinking = Some("high".to_string());
+        spec.resume = Some("abc".to_string());
         spec.initial = Some(Instructions {
             instructions: None,
             prompt: Some("hello world".to_string()),
@@ -826,82 +827,18 @@ mod tests {
         let opencode = Opencode::new();
         let launch = opencode.provision(&spec, config_dir.path()).unwrap();
 
-        // Structured mode should have "run", "--format", "json", "--dangerously-skip-permissions"
-        assert!(launch.args.len() >= 4);
-        assert_eq!(launch.args[0], "run");
-        assert_eq!(launch.args[1], "--format");
-        assert_eq!(launch.args[2], "json");
-        assert_eq!(launch.args[3], "--dangerously-skip-permissions");
-        // Prompt should be the final positional argument
-        assert_eq!(launch.args.last(), Some(&"hello world".to_string()));
-    }
-
-    #[test]
-    fn provision_structured_resume_appends_session_flag() {
-        use crate::spec::ConfigStrategy;
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.io = crate::spec::IoModes::Structured;
-        spec.resume = Some("abc".to_string());
-
-        let opencode = Opencode::new();
-        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
-
-        let idx = launch
-            .args
-            .iter()
-            .position(|a| a == "--session")
-            .expect("--session present");
-        assert_eq!(launch.args.get(idx + 1), Some(&"abc".to_string()));
-    }
-
-    #[test]
-    fn provision_structured_no_resume_omits_session_flag() {
-        use crate::spec::ConfigStrategy;
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.io = crate::spec::IoModes::Structured;
-
-        let opencode = Opencode::new();
-        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
-
-        assert!(!launch.args.contains(&"--session".to_string()));
-    }
-
-    #[test]
-    fn provision_structured_thinking_appends_variant_flag() {
-        use crate::spec::ConfigStrategy;
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.io = crate::spec::IoModes::Structured;
-        spec.thinking = Some("high".to_string());
-
-        let opencode = Opencode::new();
-        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
-
-        let idx = launch
-            .args
-            .iter()
-            .position(|a| a == "--variant")
-            .expect("--variant present");
-        assert_eq!(launch.args.get(idx + 1), Some(&"high".to_string()));
-    }
-
-    #[test]
-    fn provision_structured_no_thinking_omits_variant_flag() {
-        use crate::spec::ConfigStrategy;
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.io = crate::spec::IoModes::Structured;
-
-        let opencode = Opencode::new();
-        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
-
+        assert_eq!(launch.args[0], "acp");
+        // The prompt, the resume, the model and the variant all travel over the wire.
+        assert!(!launch.args.contains(&"run".to_string()));
+        assert!(
+            !launch
+                .args
+                .contains(&"--dangerously-skip-permissions".to_string())
+        );
+        assert!(!launch.args.contains(&"--model".to_string()));
         assert!(!launch.args.contains(&"--variant".to_string()));
+        assert!(!launch.args.contains(&"--session".to_string()));
+        assert!(!launch.args.contains(&"hello world".to_string()));
     }
 
     #[test]

@@ -32,26 +32,63 @@ use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
 const MCP_MANAGED_BEGIN: &str = "# BEGIN managed mcp_servers";
 const MCP_MANAGED_END: &str = "# END managed mcp_servers";
 
+/// The npm bin the ACP variant launches — `@agentclientprotocol/codex-acp`, the Agent Client
+/// Protocol org's adapter for Codex. It drives the same `codex` the native variant does (and
+/// honours the same `CODEX_HOME`), so everything provisioning writes into the ephemeral dir
+/// still reaches the model; only the wire differs. Unlike Claude's `claude-agent-acp`, this
+/// binary answers `--version` directly (verified against 1.10.0), so [`Harness::version`]'s
+/// default (`<command> --version`) needs no override here.
+const ACP_COMMAND: &str = "codex-acp";
+
 /// The Codex harness provisioner.
+///
+/// One provisioner, two harnesses. `acp` picks which wire a *structured* run speaks: the
+/// native `app-server --listen stdio://` JSON-RPC bridge ([`crate::io::codex::CodexBridge`]) or
+/// the Agent Client Protocol ([`crate::io::AcpBridge`]) by way of [`ACP_COMMAND`]. Everything
+/// else — config.toml, skills, AGENTS.md, hooks, accounts, login and the whole passthrough
+/// argv — is the same harness and is shared rather than duplicated.
 #[derive(Debug, Clone, Default)]
-pub struct Codex;
+pub struct Codex {
+    /// A structured run speaks ACP through the adapter rather than the native `app-server`.
+    acp: bool,
+}
 
 impl Codex {
     /// Construct the Codex harness descriptor.
     pub fn new() -> Self {
-        Codex
+        Codex { acp: false }
+    }
+
+    /// Construct the ACP-speaking Codex harness descriptor (`codex-acp`).
+    pub fn new_acp() -> Self {
+        Codex { acp: true }
     }
 }
 
 impl Harness for Codex {
-    super::shared::harness_identity! {
-        id: "codex",
-        display_name: "Codex",
-        command: "codex",
-        aliases: ["codex"],
-        passthrough: true,
-        structured: true,
-        multi_turn: true,
+    fn id(&self) -> crate::spec::HarnessId {
+        if self.acp { "codex-acp" } else { "codex" }.to_string()
+    }
+
+    fn display_name(&self) -> &str {
+        if self.acp { "Codex (ACP)" } else { "Codex" }
+    }
+
+    fn command(&self) -> &str {
+        if self.acp { ACP_COMMAND } else { "codex" }
+    }
+
+    fn aliases(&self) -> &[&str] {
+        if self.acp { &["codex-acp"] } else { &["codex"] }
+    }
+
+    fn io_support(&self) -> super::IoSupport {
+        super::IoSupport {
+            passthrough: true,
+            structured: true,
+            multi_turn: true,
+            acp: self.acp,
+        }
     }
 
     /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included
@@ -205,6 +242,16 @@ impl Harness for Codex {
         // trailing positional argument; passthrough mode keeps the
         // interactive argv shape from P1.
         let structured = spec.io == crate::spec::IoModes::Structured;
+        // The ACP variant's *structured* launch is the adapter, and the adapter takes no argv
+        // at all: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`), and everything else it needs it reads from `CODEX_HOME`
+        // below, exactly as the native variant's child does. A passthrough run is unchanged —
+        // `codex-acp` is not a TUI, so a pane still gets the real `codex`.
+        // ponytail: the native structured argv (`app-server --listen stdio://`) has nowhere to
+        // go here — the adapter speaks ACP directly over its own stdio, not the app-server
+        // JSON-RPC wire. Model and reasoning effort still reach the run through `config.toml`
+        // under `CODEX_HOME` (see `build_config_toml`), same as the native variant.
+        let acp = self.acp && structured;
 
         let mut args = Vec::new();
         if structured {
@@ -261,9 +308,18 @@ impl Harness for Codex {
             }
         }
 
+        // The wire. The ACP variant's structured launch is the adapter, and the adapter takes
+        // no argv: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`), and the rest it reads out of `CODEX_HOME` exactly as the
+        // native child does. A passthrough run is unchanged either way — `codex-acp` is not a
+        // TUI, so a pane still gets the real `codex`.
         Ok(Launch {
-            program: "codex".to_string(),
-            args,
+            program: if acp { ACP_COMMAND } else { "codex" }.to_string(),
+            args: if acp {
+                spec.passthrough_args.clone()
+            } else {
+                args
+            },
             env,
             env_remove: Vec::new(),
             env_clear: false,
@@ -319,6 +375,13 @@ impl Harness for Codex {
         cwd: &Path,
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
+        if self.acp {
+            return Ok(Box::new(crate::io::AcpBridge::new(
+                child,
+                cwd,
+                provisioned.resume.as_deref(),
+            )?));
+        }
         Ok(Box::new(crate::io::codex::CodexBridge::new(child, cwd)?))
     }
 }

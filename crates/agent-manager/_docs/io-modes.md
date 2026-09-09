@@ -414,13 +414,12 @@ which is exactly the shape this seam is for; see
 [am-as-library.md](./am-as-library.md) §6 for the embedder-facing pattern.
 
 **A `None` from `input()` is a real capability signal, not an omission.**
-Today `JsonlBridge` (Claude Code) and `CodexBridge` answer `Some` — both
-harnesses stay open for a second prompt, so a caller can keep the process
-and feed it more. `OpencodeBridge` and `CopilotBridge` answer `None`,
-inherited from the trait default, because both harnesses are one-shot: the
-prompt goes in via argv at launch, and there is no second turn to send into.
-A caller that gets `None` learns this from the type rather than by writing
-into a bridge that silently drops everything after the first prompt.
+Today `JsonlBridge` (Claude Code), `CodexBridge` and `AcpBridge` (grok,
+opencode, GitHub Copilot) all answer `Some` — every structured harness stays
+open for a second prompt, so a caller can keep the process and feed it more.
+A caller that gets `None` (the trait default, inherited by nothing today)
+would learn this from the type rather than by writing into a bridge that
+silently drops everything after the first prompt.
 
 `crate::io::spawn_piped` (also core) is the shared entry point every
 structured bridge uses to start its process: it builds a
@@ -448,10 +447,10 @@ leaves `trace` out until someone asks for it by name.
 - **Structured** — the neutral `AgentInput`/`AgentEvent` model + `IoBridge`
   trait + `spawn_piped` helper are **core**; `IoModes::Structured` is wired
   through the CLI as `--io structured`. Concrete per-harness bridges exist
-  for Claude Code (`src/io/jsonl.rs`), codex (`src/io/codex.rs`), opencode
-  (`src/io/opencode.rs`), and GitHub Copilot (`src/io/copilot.rs`), plus the
-  harness-neutral `AcpBridge` (`src/io/acp_client.rs`) any ACP-speaking
-  harness uses.
+  for Claude Code (`src/io/jsonl.rs`) and codex (`src/io/codex.rs`), plus the
+  harness-neutral `AcpBridge` (`src/io/acp_client.rs`) that grok, opencode
+  and GitHub Copilot all use — none of the three contribute harness-specific
+  wire code of their own.
 - **ACP, both directions** — `to_acp`/`from_acp` (`src/io/acp.rs`) are
   inverses over one ACP `session/update` params value: `to_acp` projects an
   `AgentEvent` out, selectable via `--output acp`, and `from_acp` reads one

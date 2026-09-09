@@ -1231,34 +1231,25 @@ fn command_outcome(
 mod tests {
     use super::*;
 
-    /// The two questions the coordinator asks before it spawns anything, and the three answers
-    /// they have between them. Both are the library's facts, read here rather than restated —
-    /// a list of harness names in this crate is the bug `G95` was.
+    /// The two questions the coordinator asks before it spawns anything, and the answer they share
+    /// today. Both are the library's facts, read here rather than restated — a list of harness
+    /// names in this crate is the bug `G95` was.
     ///
     /// `converses` decides whether a conversation may start at all; `multi_turn` decides whether
-    /// a turn is written to a running process or becomes the next launch's argv. A harness can
-    /// be neither (Grok — a pane is all it does), conversable but one-shot (Copilot, opencode),
-    /// or both (Claude Code, codex).
+    /// a turn is written to a running process or becomes the next launch's argv. Every structured
+    /// harness answers both `true` today: Copilot and opencode used to be conversable but one-shot,
+    /// until ACP (`copilot --acp`, `opencode acp`) made them multi-turn like Claude Code, codex and
+    /// Grok.
     #[test]
     fn converses_and_multi_turn_read_the_librarys_three_answers() {
         let agents = Agents::new(std::env::temp_dir().join("ubiq-test-agents"), false);
 
-        for id in ["claude-code", "codex"] {
+        // copilot and opencode now speak ACP like claude-code, codex and grok, and ACP is
+        // inherently multi-turn — so all five converse and all five take a second turn.
+        for id in ["claude-code", "codex", "copilot", "opencode", "grok"] {
             assert!(agents.converses(id), "{id} should converse");
             assert!(agents.multi_turn(id), "{id} should take a second turn");
         }
-        for id in ["copilot", "opencode"] {
-            assert!(agents.converses(id), "{id} should converse");
-            assert!(
-                !agents.multi_turn(id),
-                "{id} is one-shot: its turn is its argv"
-            );
-        }
-        assert!(
-            !agents.converses("grok"),
-            "grok has no structured bridge, so there is nothing to converse with"
-        );
-        assert!(!agents.multi_turn("grok"));
     }
 
     /// An id the library does not know converses no more than one it knows cannot. Refusing is

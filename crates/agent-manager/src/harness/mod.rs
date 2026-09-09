@@ -818,7 +818,13 @@ pub trait Harness {
 pub fn all() -> Vec<Box<dyn Harness>> {
     vec![
         Box::new(Claude::new()),
+        // Same harness, second wire: `claude-code-acp` provisions Claude Code exactly as
+        // `claude-code` does and speaks ACP for a structured run. One provisioner, two ids.
+        Box::new(Claude::new_acp()),
         Box::new(Codex::new()),
+        // Same harness, second wire: `codex-acp` provisions Codex exactly as `codex` does and
+        // speaks ACP for a structured run. One provisioner, two ids.
+        Box::new(Codex::new_acp()),
         Box::new(Copilot::new()),
         Box::new(Grok::new()),
         Box::new(Opencode::new()),
@@ -892,7 +898,13 @@ mod tests {
         for h in all() {
             let expected_structured = matches!(
                 h.id().as_str(),
-                "claude-code" | "codex" | "opencode" | "copilot" | "grok"
+                "claude-code"
+                    | "claude-code-acp"
+                    | "codex"
+                    | "codex-acp"
+                    | "opencode"
+                    | "copilot"
+                    | "grok"
             );
             assert_eq!(
                 h.io_support().structured,
@@ -905,17 +917,16 @@ mod tests {
 
     #[test]
     fn multi_turn_io_support_matches_the_one_shot_split() {
-        // Claude Code, codex and grok stay open across turns: one process
-        // takes further prompts, cancellations and permission answers (grok
-        // because ACP is inherently multi-turn). Copilot and opencode are
-        // one-shot — prompt in argv, one answer, exit — so a caller continues
-        // them by launching again with `RunSpec::resume`.
+        // The one-shot split is now empty: copilot and opencode used to be
+        // one-shot (prompt in argv, one answer, exit), but both now speak ACP
+        // like claude-code, codex and grok, and ACP is inherently multi-turn.
+        // So every structured harness today is multi_turn.
         //
         // Pinned here because a consumer reads this to decide whether a turn
         // is written to a running process or becomes the next launch's argv;
         // getting it wrong is a prompt that silently reaches nothing.
         for h in all() {
-            let expected_multi_turn = matches!(h.id().as_str(), "claude-code" | "codex" | "grok");
+            let expected_multi_turn = h.io_support().structured;
             assert_eq!(
                 h.io_support().multi_turn,
                 expected_multi_turn,
@@ -933,11 +944,18 @@ mod tests {
     #[test]
     fn acp_io_support_matches_the_harnesses_whose_bridge_is_acp() {
         // `acp` says the structured bridge is `crate::io::AcpBridge` rather
-        // than a harness-specific wire. Grok is the only one today. Pinned
-        // both ways: a harness that answers `acp` must have a structured
-        // bridge at all, since an ACP harness without one is incoherent.
+        // than a harness-specific wire. Grok, copilot, opencode and the ACP
+        // variants of Claude Code and Codex speak it today — and
+        // `claude-code-acp`/`codex-acp` are why this is read off `io_support()`
+        // and never off the id: the same provisioner answers it both ways.
+        // Pinned both ways: a harness that answers `acp` must have a
+        // structured bridge at all, since an ACP harness without one is
+        // incoherent.
         for h in all() {
-            let expected_acp = matches!(h.id().as_str(), "grok");
+            let expected_acp = matches!(
+                h.id().as_str(),
+                "grok" | "copilot" | "opencode" | "claude-code-acp" | "codex-acp"
+            );
             assert_eq!(
                 h.io_support().acp,
                 expected_acp,

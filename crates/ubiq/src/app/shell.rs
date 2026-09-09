@@ -164,6 +164,7 @@ impl AppState {
             saved.show_bottom,
             saved.show_right,
         ));
+        self.reset_furniture = true;
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
         // The field is the window's and the query in it is the project's, so a switch brings back
@@ -462,8 +463,9 @@ impl AppState {
 
     pub fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
-        self.workbench.file_tab_menu = None;
+        self.workbench.tab_menu = None;
         self.workbench.new_pane_menu = None;
+        self.workbench.overflow_menu = None;
         self.workbench.conversation_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);

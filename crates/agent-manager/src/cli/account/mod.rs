@@ -328,19 +328,31 @@ mod tests {
 
     #[test]
     fn effective_harnesses_detects_multiple_harnesses_sharing_one_home() {
-        // A shared home dir (one account id, captured for two harnesses):
+        // A shared home dir (one account id, captured for several harnesses):
         // each harness's primary credential file laid out at its own
         // harness-specific relative subpath, exactly as `login()` writes it —
-        // no collision, both detected.
+        // no collision, all detected.
+        //
+        // `claude-code-acp` comes along with `claude-code`, and `codex-acp`
+        // comes along with `codex`, and that is the right answer, not a leak:
+        // each pair is one harness behind two wires sharing a config anchor,
+        // so one captured login logs in both.
         let home = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(home.path().join(".claude")).unwrap();
         std::fs::write(home.path().join(".claude/.credentials.json"), "{}").unwrap();
+        std::fs::write(home.path().join("auth.json"), "{}").unwrap();
         std::fs::write(home.path().join("config.json"), "{}").unwrap();
 
         let captured = effective_harnesses(home.path());
         assert_eq!(
             captured,
-            vec!["claude-code".to_string(), "copilot".to_string()]
+            vec![
+                "claude-code".to_string(),
+                "claude-code-acp".to_string(),
+                "codex".to_string(),
+                "codex-acp".to_string(),
+                "copilot".to_string()
+            ]
         );
     }
 

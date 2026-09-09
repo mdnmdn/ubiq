@@ -1092,6 +1092,34 @@ Argv: `copilot -p "<prompt>" --output-format json --allow-all --no-ask-user [--m
 - `--allow-all` auto-approves every tool; `--no-ask-user` suppresses interactive questions.
 - On Windows the invocation must be routed through PowerShell to avoid `cmd.exe` argument mangling.
 
+**This is Copilot CLI's own headless mode, not the one `am` drives.** `am`'s
+structured runs use `copilot --acp` instead (see below) — the NDJSON stream
+below stays documented for reference but unused by this harness.
+
+### ACP mode (`copilot --acp`)
+
+`copilot --acp` starts Copilot CLI as an **Agent Client Protocol v1 endpoint**
+on its own stdio, speaking newline-delimited JSON-RPC 2.0 (`copilot --help`
+describes the flag as "Start as Agent Client Protocol server"). This is the
+launch `am` drives for every structured run of this harness, through the
+harness-neutral `AcpBridge` (`src/io/acp_client.rs`) rather than a
+harness-specific NDJSON bridge — see [`../io-modes.md`](../io-modes.md).
+
+Structured argv is exactly:
+
+```
+copilot --acp [passthrough_args...]
+```
+
+Nothing else is on the command line. There is no `-p <prompt>`,
+`--output-format json`, `--allow-all`, `--no-ask-user`, `--model` or
+`--resume=`: the prompt is a `session/prompt` request over the wire, a
+resume is `session/load` against the id the previous run reported, and the
+model is a `session/set_config_option`. Permissions are now real
+`session/request_permission` round trips instead of
+`--allow-all`/`--no-ask-user` auto-approval. Passthrough argv is unchanged by
+any of this.
+
 ### Output stream protocol
 
 Newline-delimited JSON on stdout, one event per line. Event shapes:
@@ -1115,7 +1143,7 @@ Canonical mapping:
 
 ### Model & reasoning at launch
 
-- Model: `--model <id>`. Available models depend on the GitHub plan (cross-reference Authentication).
+- Model: `--model <id>` in Copilot CLI's own headless mode. Available models depend on the GitHub plan (cross-reference Authentication). `am`'s `copilot --acp` runs select the model over the wire, via `session/set_config_option`, rather than `--model` argv.
 - No dedicated reasoning-effort flag is exposed by the CLI; reasoning text, when present, arrives as `assistant.reasoning` events.
 
 ### MCP at launch
@@ -1128,14 +1156,15 @@ A coordinator materialises skills into `<workdir>/.github/skills/<name>/SKILL.md
 
 ### Tool approval in headless mode
 
-`--allow-all` + `--no-ask-user` make the run fully unattended: tools execute without confirmation and clarifying questions are suppressed. There is no on-stream approval handshake to answer (unlike the stream-json control protocol of some harnesses). For finer control, `PreToolUse` hooks (see Permissions → Layer 3) can still deny individual calls.
+`--allow-all` + `--no-ask-user` make Copilot CLI's own headless mode fully unattended: tools execute without confirmation and clarifying questions are suppressed. `am`'s `copilot --acp` runs are the opposite: permissions are real `session/request_permission` round trips, same as an attended session's Layer-1/Layer-2 approval (see Permissions). `PreToolUse` hooks (Layer 3) still apply to either mode.
 
 ### Process lifecycle
 
-- Framing: prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
-- Cancellation: close the stdout reader on cancel and collect the process exit status; the `result` event's `exitCode` is the authoritative outcome.
-- Session resume: pass `--resume <session-id>` (value from a prior `session.start` event) to continue a previous session.
-- Minimum version: the `--output-format json` envelope is stable from **Copilot CLI ≥ 1.0.0**.
+- Framing (Copilot CLI's own headless mode): prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
+- Framing (`am`, ACP mode): JSON-RPC 2.0 over stdio, both directions; the prompt is a `session/prompt` request rather than argv.
+- Cancellation: close the stdout reader on cancel and collect the process exit status; the `result` event's `exitCode` is the authoritative outcome in the CLI's own mode.
+- Session resume: `--resume <session-id>` (value from a prior `session.start` event) in Copilot CLI's own headless mode; `session/load` over ACP for `am`.
+- Minimum version: the `--output-format json` envelope is stable from **Copilot CLI ≥ 1.0.0**; `--acp` support was confirmed on this machine's installed binary (`copilot --help`).
 
 ### Model discovery & selection (agent-manager)
 
@@ -1143,7 +1172,7 @@ A coordinator materialises skills into `<workdir>/.github/skills/<name>/SKILL.md
 > selects one. Facts verified against the installed binary on 2026-07-10.
 
 - **Discover (list models):** `copilot help config` → `` `model`: `` setting lists available models (depends on GitHub plan; static list in help docs). Needs network/auth: no (list shown in help without auth). **This section's original assessment held up on re-verification (2026-07-19, 1.0.69) and is now actually implemented**, not just documented: `Copilot::discover_models()` in `src/harness/copilot.rs` shells out to `copilot help config` and parses the quoted bullet list under the `` `model`: `` entry — a stable, machine-parseable block, confirmed by scraping it live.
-- **Select at launch (passthrough):** `--model <id>` CLI flag, or `COPILOT_MODEL` environment variable.
+- **Select at launch (passthrough):** `--model <id>` CLI flag, or `COPILOT_MODEL` environment variable. `am`'s structured (ACP) runs select the model over the wire, via `session/set_config_option`, rather than `--model` argv.
 - **Model id format:** Bare model name (e.g., `gpt-5.4`, `claude-sonnet-4.5`) or optional qualified form `<name> (<vendor>)`.
 - **Example ids (re-verified 2026-07-19, 1.0.69 — the live list is larger and grows over time; don't hardcode it):** `claude-fable-5`, `claude-haiku-4.5`, `claude-opus-4.5`, `claude-opus-4.6`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-sonnet-4.5`, `claude-sonnet-4.6`, `claude-sonnet-5`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`, `kimi-k2.7-code`.
 - **Default model:** Resolved per precedence (highest first): `COPILOT_MODEL` env → `--model` flag → `~/.copilot/settings.json` → `model` key → last selected model in session.

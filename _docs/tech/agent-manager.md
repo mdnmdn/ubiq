@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-09
 verified: 2026-09-09
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp_client.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -180,18 +180,20 @@ of those keeps its process alive across turns.** `IoSupport::structured` is the 
 outright, with a message naming the reason, and left out of the chat-start menus by
 `AgentTypeInfo::chat` on the wire. `IoSupport::multi_turn` is the second, narrower question, and
 `Agents::multi_turn` answers it: whether one process takes a second prompt over the bridge's own
-`AgentInputSink`, true for Claude Code, codex and Grok. A **one-shot** harness (opencode, Copilot) answers
-`multi_turn: false` and still converses — its prompt is argv rather than a pipe write, one process
-answers exactly once and exits, and that exit is a turn ending, not the conversation's. The
-coordinator starts a one-shot harness's pump `quiet`, so it never announces `ConversationEnded`
-on its own; when the process exits, `finish_one_shot_turn` in `crates/ubiq-host/src/coordinator.rs`
-carries the transcript's sequence counter forward, keeps the harness's own session id off
-`Conversation::session_id()` (populated from `AgentEvent::SessionStarted` as the pump sees it), and
-puts the conversation back into `pending_conversations` rather than ending it. The next prompt
-relaunches the harness with that id as `RunSpec::resume` and the new text as
-`RunSpec::initial.prompt` — `ConverseOptions` in `crates/ubiq-host/src/agent.rs` carries both
-through `Agents::converse`. A harness that names no session id is relaunched anyway and answers with
-no memory of the turn before it, which is `G95`.
+`AgentInputSink`, true for every structured harness today — Claude Code, codex, Grok, opencode and
+Copilot all answer `multi_turn: true`, the last two because they now speak ACP instead of taking
+their prompt as one-shot argv. The **one-shot** path — a harness whose prompt is argv rather than a
+pipe write, answering exactly once and exiting, with that exit a turn ending rather than the
+conversation's — has no harness exercising it today, but the mechanism stays live in
+`crates/ubiq-host/src/coordinator.rs`'s `finish_one_shot_turn` for a future harness that needs it: the
+coordinator starts such a harness's pump `quiet` so it never announces `ConversationEnded` on its own;
+when the process exits, `finish_one_shot_turn` carries the transcript's sequence counter forward,
+keeps the harness's own session id off `Conversation::session_id()` (populated from
+`AgentEvent::SessionStarted` as the pump sees it), and puts the conversation back into
+`pending_conversations` rather than ending it. The next prompt would relaunch the harness with that
+id as `RunSpec::resume` and the new text as `RunSpec::initial.prompt` — `ConverseOptions` in
+`crates/ubiq-host/src/agent.rs` carries both through `Agents::converse`. A harness that names no
+session id is relaunched anyway and answers with no memory of the turn before it, which is `G95`.
 
 **One bridge covers every harness that speaks ACP.** `agent_manager::io::AcpBridge`
 (`crates/agent-manager/src/io/acp_client.rs`) is an Agent Client Protocol v1 client: it drives the
@@ -203,10 +205,56 @@ ACP-speaking one is a `harness_identity!` entry and a launch argv rather than a 
 harness-specific wire — and it says nothing when `structured` is false. Two consequences reach this
 side. `Provisioned::resume` carries the harness's own conversation id through provisioning, because
 an ACP harness resumes with `session/load` over the wire rather than a flag in argv, and argv is the
-only thing most harnesses need. And Grok, whose structured launch is `grok agent stdio`, is a
-conversable harness with no interface code of its own: `AgentTypeInfo::chat` is
-`harness.io_support().structured`, Grok answers it `true`, and
-`WorkbenchState::harness_choices` keeps it, so the start form draws it. Permissions are the one thing this bridge
+only thing most harnesses need. And Grok (`grok agent stdio`), opencode (`opencode acp`) and Copilot
+(`copilot --acp`) are conversable harnesses with no interface code of their own: `AgentTypeInfo::chat`
+is `harness.io_support().structured`, all three answer it `true`, and
+`WorkbenchState::harness_choices` keeps them, so the start form draws them. Claude Code and Codex
+each speak ACP a second way instead: one provisioner, a second id — `claude-code-acp` and
+`codex-acp` — sharing every non-wire concern (config dir, skills, MCP, account/login) with its
+native sibling and only swapping `structured_bridge` for `AcpBridge` over `claude-agent-acp` /
+`codex-acp`. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
+mapping, so the pieces of the `AgentEvent::UsageUpdate` and `Origin` contracts that need memory live
+in `AcpBridge`'s reader instead. ACP states `cost.amount` as a session-cumulative figure while
+`UsageUpdate.cost` is contractually a per-report delta, so the reader subtracts the running total —
+the shape `io/jsonl.rs` already uses for Claude's cumulative figure — and fills `model` from the
+`category: "model"` config option, since ACP puts no model on a usage report. `spend` comes off the
+`session/prompt` *response*, which is the only place any ACP agent states a token count at all —
+`usage_update` carries occupancy and cost and nothing else. `turn_spend` reads it from `result.usage`
+(`claude-code-acp`, `copilot`) or `result._meta.usage` (`grok`) and reports it beside the
+`TurnEnded`, restating the last occupancy seen so the ring does not read as a window that just
+emptied. `totalTokens` is the authority and `input` is derived by subtracting the separately-reported
+parts from it: the adapters disagree on whether `inputTokens` already includes cached reads (`copilot`
+and `grok` count them inside it, `claude-code-acp` does not), so summing the reported fields would
+make `Spend::total()`, the figure the interface prints, wrong for two of the three. Deriving equals
+the agent's own `totalTokens` by construction, with no per-harness branch. And ACP v1 has no subagent vocabulary whatever, so `_meta` is the only carrier: an agent that
+stamps `parentToolCallId`/`parentToolUseId`, `subagentType` or `model` there — flat, or namespaced
+under one vendor object, which is what `claude-code-acp` does with everything it adds — gets exact
+attribution, and `_meta` on the notification counts the same as `_meta` on the update. An agent that
+stamps nothing leaves only the shape of the traffic, which is enough for a heuristic: while a
+`Task`/`Agent` tool call is open the main agent is blocked on it, so every unattributed chunk,
+thought, tool call and usage report is that delegate's. `ToolKind::Delegate` travels as
+`kind: "other"` with `_meta.toolKind: "delegate"` beside it, which is what the chat panel's subagent
+tabs read. That heuristic is now the fallback, not the primary path. The adapters Ubiq launches —
+`@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp` — implement the ACP
+subagent draft (PR #1992) behind a client capability, so `initialize_params` advertises it at
+`clientCapabilities._meta.jetbrains.air` (`version: 1`, `capabilities: ["nativeSubagentSessions"]`),
+the vendor namespace the draft is carried under until it lands in ACP proper. With it, a
+`subagent_spawned` update names a `subagentSessionId` and a `name`, and the child's own output then
+arrives as ordinary `session/update` notifications whose envelope `sessionId` *is* that id — exact
+attribution rather than a guess. `track_subagent` keeps that registry and, beside it, synthesises the
+anchor the transcript hangs the subagent's tab off: a `ToolKind::Delegate` call in progress, id the
+`subagentSessionId`, title the `name`, the spawn's `task` under `raw_input.description` — the same
+shape `io/jsonl.rs` gives a Claude `Task` block, so the extension path and the heuristic fallback
+converge on one transcript shape and the chat panel needs no second rendering path. The anchor
+bypasses `attribute`, because a spawn belongs to whoever opened it. Every state the draft defines is
+terminal, so `subagent_state_update` forgets the session and closes the call — `completed` completed,
+`failed`/`cancelled`/`disconnected` failed, `ToolStatus` having no cancelled variant. `attribute`'s precedence is an explicit `_meta` origin, then the
+child session id, then the heuristic — and the cumulative-cost memo is keyed by envelope `sessionId`,
+so a child's context window and spend cannot move the parent's ring. `G212` names the heuristic's
+ceiling, which now only applies to an adapter that ignores the capability: two delegates open at once
+collapse onto the most recent one.
+
+Permissions are the one thing this bridge
 answers back on rather than resolving itself: `session/request_permission` blocks the agent, so it is
 parked by request id and released by an `AgentInput::AnswerPermission` from the caller. Nothing here
 is pinned against a live ACP agent — `crates/agent-manager/_docs/harness/grok.md` says what is

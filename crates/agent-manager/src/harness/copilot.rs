@@ -97,6 +97,9 @@ impl Copilot {
 }
 
 impl Harness for Copilot {
+    // Copilot's structured seam is `copilot --acp` — an ACP endpoint, driven
+    // by the generic `crate::io::AcpBridge`, so nothing harness-specific is
+    // parsed here (see `structured_bridge` below).
     super::shared::harness_identity! {
         id: "copilot",
         display_name: "GitHub Copilot",
@@ -104,7 +107,8 @@ impl Harness for Copilot {
         aliases: [],
         passthrough: true,
         structured: true,
-        multi_turn: false,
+        multi_turn: true,
+        acp: true,
     }
 
     /// Class A: `COPILOT_HOME` relocates the CLI's entire config/state tree —
@@ -206,28 +210,22 @@ impl Harness for Copilot {
         // there is no bare positional-prompt seam); `--model`/`--resume` are
         // general flags valid in either mode; `--resume` takes its value via
         // `=` (an optional-value option, not a separate argv token).
-        let structured = spec.io == crate::spec::IoModes::Structured;
-
-        let mut args = Vec::new();
-        if structured {
-            if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-                args.push("-p".to_string());
-                args.push(prompt.clone());
-            }
-            args.push("--output-format".to_string());
-            args.push("json".to_string());
-            args.push("--allow-all".to_string());
-            args.push("--no-ask-user".to_string());
-            if let Some(model) = &spec.model {
-                args.push("--model".to_string());
-                args.push(model.clone());
-            }
-            if let Some(id) = &spec.resume {
-                args.push(format!("--resume={id}"));
-            }
-            args.extend(spec.passthrough_args.iter().cloned());
+        let args = if spec.io == crate::spec::IoModes::Structured {
+            // Structured mode: `copilot --acp [args...]` — an ACP endpoint,
+            // driven by `crate::io::AcpBridge`. Everything a passthrough run
+            // puts in argv moves onto the wire here: the prompt is a
+            // `session/prompt`, a resume is a `session/load` (from
+            // `Provisioned::resume`), and the model is a
+            // `session/set_config_option`, so none of `-p`, `--output-format
+            // json`, `--allow-all`, `--no-ask-user`, `--model` or
+            // `--resume=` belongs on this argv. Permissions are now real
+            // `session/request_permission` round trips instead of
+            // `--allow-all`/`--no-ask-user` auto-approval.
+            let mut structured_args = vec!["--acp".to_string()];
+            structured_args.extend(spec.passthrough_args.iter().cloned());
+            structured_args
         } else {
-            args = spec.passthrough_args.clone();
+            let mut args = spec.passthrough_args.clone();
             if let Some(model) = &spec.model {
                 args.push("--model".to_string());
                 args.push(model.clone());
@@ -239,7 +237,8 @@ impl Harness for Copilot {
                 args.push("-i".to_string());
                 args.push(prompt.clone());
             }
-        }
+            args
+        };
 
         // 6. Account: inject credential *references* into the child's env.
         let mut env = vec![("COPILOT_HOME".to_string(), dir.display().to_string())];
@@ -319,7 +318,11 @@ impl Harness for Copilot {
         cwd: &Path,
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
-        Ok(Box::new(crate::io::copilot::CopilotBridge::new(child)?))
+        Ok(Box::new(crate::io::AcpBridge::new(
+            child,
+            cwd,
+            provisioned.resume.as_deref(),
+        )?))
     }
 }
 
@@ -711,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn provision_structured_builds_headless_argv() {
+    fn provision_structured_is_acp_without_prompt_resume_or_model() {
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
@@ -726,17 +729,15 @@ mod tests {
         let copilot = Copilot::new();
         let launch = copilot.provision(&spec, config_dir.path()).unwrap();
 
-        assert_eq!(launch.args.first(), Some(&"-p".to_string()));
-        assert_eq!(launch.args.get(1), Some(&"say hello world".to_string()));
-        assert!(launch.args.contains(&"--output-format".to_string()));
-        assert!(launch.args.contains(&"json".to_string()));
-        assert!(launch.args.contains(&"--allow-all".to_string()));
-        assert!(launch.args.contains(&"--no-ask-user".to_string()));
-        let model_idx = launch.args.iter().position(|a| a == "--model").unwrap();
-        assert_eq!(launch.args.get(model_idx + 1), Some(&"gpt-5.4".to_string()));
-        // --resume takes its value via `=` (an optional-value option), not a
-        // separate argv token.
-        assert!(launch.args.contains(&"--resume=sess-123".to_string()));
+        assert_eq!(launch.args[0], "--acp");
+        // The prompt, the resume and the model all travel over the wire.
+        assert!(!launch.args.contains(&"-p".to_string()));
+        assert!(!launch.args.contains(&"--output-format".to_string()));
+        assert!(!launch.args.contains(&"--allow-all".to_string()));
+        assert!(!launch.args.contains(&"--no-ask-user".to_string()));
+        assert!(!launch.args.contains(&"--model".to_string()));
+        assert!(!launch.args.contains(&"--resume=sess-123".to_string()));
+        assert!(!launch.args.contains(&"say hello world".to_string()));
     }
 
     #[test]
@@ -820,10 +821,12 @@ mod tests {
     }
 
     #[test]
-    fn copilot_supports_passthrough_and_structured() {
+    fn copilot_supports_passthrough_and_an_acp_structured_bridge() {
         let copilot = Copilot::new();
         let support = copilot.io_support();
         assert!(support.passthrough);
         assert!(support.structured);
+        assert!(support.multi_turn);
+        assert!(support.acp);
     }
 }

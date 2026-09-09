@@ -72,6 +72,8 @@ impl AppState {
         self.terminals.remove(&pane_id);
         // After the send above, which still needed to know which host owned it.
         self.bus.forget_pane(pane_id);
+        self.tab_names.remove(&PanelKind::Terminal(pane_id));
+        self.pinned_tabs.remove(&PanelKind::Terminal(pane_id));
 
         let showing = self.project(cx);
         // The keyboard only moves for the project on screen: a pane closed in a background

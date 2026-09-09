@@ -60,7 +60,7 @@ use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
     ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, LogState, MenuId,
-    NewAgentMenu, NewAgentSurface, NewPaneRow, OpenFile, PanelKind, ProjectSettings,
+    NewAgentMenu, NewAgentSurface, NewPaneRow, OpenFile, OverflowRow, PanelKind, ProjectSettings,
     ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState,
     prefs,
 };
@@ -69,8 +69,9 @@ use crate::ui;
 use crate::ui::dock::{self as dock, WorkbenchPanel};
 use gpui::{
     App, Bounds, Context, Entity, FocusHandle, Focusable, Global, Image, ImageFormat, IntoElement,
-    PathPromptOptions, Pixels, Render, ScrollHandle, Subscription, UniformListScrollHandle,
-    WeakEntity, Window, WindowBounds, WindowId, WindowOptions, point, prelude::*, px, size,
+    PathPromptOptions, Pixels, Render, ScrollHandle, SharedString, Subscription,
+    UniformListScrollHandle, WeakEntity, Window, WindowBounds, WindowId, WindowOptions, point,
+    prelude::*, px, size,
 };
 use gpui_component::dock::{DockArea, DockEvent, PanelId};
 use gpui_component::input::{
@@ -438,6 +439,19 @@ pub struct AppState {
     /// One panel per kind, so a panel is looked up rather than rebuilt. A terminal's key carries
     /// its pane id, which is what makes "the panel for this pane" a map read.
     panels: HashMap<PanelKind, Entity<WorkbenchPanel>>,
+    /// The names the user has typed over a tab's own, by the panel it belongs to.
+    ///
+    /// Window-scoped and in memory on purpose, never written to `ViewPrefs`: a pane dies with its
+    /// process and a `ChatId` is minted fresh every run, so a saved name would only ever wait for
+    /// an id that no longer exists. Cleared as the panel itself goes, in `closed_chat_tab` and
+    /// `close_pane`, so a window that opens and closes tabs all day does not grow this forever.
+    tab_names: HashMap<PanelKind, SharedString>,
+    /// A terminal or a chat tab pinned against close, by the panel it belongs to. A file's pin is
+    /// not here — it is the one that survives a restart, so it lives on `OpenFile` itself and in
+    /// `ViewPrefs::pinned_files` instead. A separate set rather than folded into `tab_names`,
+    /// because a rename and a pin are two different gestures set and cleared independently; they
+    /// only happen to share a key and a cleanup site.
+    pinned_tabs: HashSet<PanelKind>,
     /// Panels waiting for the frame that can put them in the dock or take them out of it.
     pending_panels: Vec<PanelEdit>,
     /// Whether the close question has already been answered yes, so the close that follows it is
@@ -446,6 +460,15 @@ pub struct AppState {
     /// A saved arrangement waiting for the same frame. Restoring one needs a window, and it
     /// arrives from the host on a message.
     pending_layout: Option<serde_json::Value>,
+    /// Set when the window is pointed at another project: the frame that installs the incoming
+    /// project's arrangement first takes the **window furniture** — the logs and the search — back
+    /// out of the tree.
+    ///
+    /// Both are one panel per window, so without this they ride along: the project being left had
+    /// them on screen, the incoming one never asked for them, and its bottom region opens onto the
+    /// last project's search results. A blob that names them puts them back, which is the whole
+    /// difference between remembered and inherited.
+    reset_furniture: bool,
     /// A rail-mode switch whose mode had no arrangement to restore: which edge regions that mode's
     /// defaults put on screen, for the frame that has a window to force them with.
     pending_regions: Option<(bool, bool, bool)>,

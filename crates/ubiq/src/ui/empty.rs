@@ -15,7 +15,7 @@ use crate::ui::kit::{ghost_button, mono};
 pub fn empty_page(
     title: &str,
     note: &str,
-    icon: IconName,
+    icon: impl Into<Icon>,
     footer: Option<AnyElement>,
 ) -> impl IntoElement {
     div()

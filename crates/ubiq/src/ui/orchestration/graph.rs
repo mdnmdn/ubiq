@@ -35,7 +35,7 @@ use crate::state::{Held, Selection};
 use crate::theme;
 use crate::ui::eid;
 use crate::ui::kit::canvas::{self, Link};
-use crate::ui::kit::{card, ghost_button, mono, state_chip};
+use crate::ui::kit::{UbiqIcon, card, ghost_button, mono, state_chip};
 use crate::ui::work::{activity_colour, role_mark};
 
 /// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
@@ -370,7 +370,7 @@ fn agent_card(
                 .items_center()
                 .gap(px(5.0 * zoom))
                 .child(
-                    Icon::new(IconName::Network)
+                    Icon::new(UbiqIcon::GitBranch)
                         .with_size(Size::XSmall)
                         .text_color(theme::text_faint()),
                 )

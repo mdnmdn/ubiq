@@ -911,6 +911,33 @@ Argv: `opencode run --format json --dangerously-skip-permissions [--dir <cwd>] [
 - Set `PWD=<cwd>` in the child env to override opencode's working-directory discovery.
 - On Windows, resolve the real `opencode.exe` inside the npm package to bypass the `.cmd` shim.
 
+**This is opencode's own headless mode, not the one `am` drives.** `am`'s
+structured runs use `opencode acp` instead (see below) — the NDJSON stream
+below stays documented for reference but unused by this harness.
+
+### ACP mode (`opencode acp`)
+
+`opencode acp` starts opencode as an **Agent Client Protocol v1 endpoint** on
+its own stdio, speaking newline-delimited JSON-RPC 2.0. This is the launch
+`am` drives for every structured run of this harness, through the
+harness-neutral `AcpBridge` (`src/io/acp_client.rs`) rather than a
+harness-specific NDJSON bridge — see [`../io-modes.md`](../io-modes.md).
+
+Structured argv is exactly:
+
+```
+opencode acp [passthrough_args...]
+```
+
+Nothing else is on the command line. There is no `--dangerously-skip-
+permissions`, `--model`, `--variant`, `--session` or trailing prompt: the
+prompt is a `session/prompt` request over the wire, a resume is `session/load`
+against the id the previous run reported, and the model/variant are a
+`session/set_config_option`. Permissions are now real
+`session/request_permission` round trips instead of
+`--dangerously-skip-permissions` auto-approval. Passthrough argv is
+unchanged by any of this.
+
 ### Output stream protocol
 
 Newline-delimited JSON on stdout, one event per line. Event shapes:
@@ -928,7 +955,7 @@ Canonical mapping: assistant text = `text`; tool call/result = `tool_use` (carri
 ### Model & reasoning at launch
 
 - Model: `--model <provider/model-id>` (e.g. `anthropic/claude-sonnet-4-5`).
-- Reasoning effort: `--variant <name>`. The valid variant names per model come from `opencode models --verbose` (each model's `variants` map); custom names declared in `opencode.json` are also valid. **Implemented**: `Opencode::discover_thinking()` in `src/harness/opencode.rs` shells out to `opencode models --verbose` (verified against 1.18.28) and parses each model's `variants` map into a reasoning-level catalog; `Opencode::provision()` passes `--variant <value>` in the structured (`opencode run`) form whenever `RunSpec::thinking` is set. A model with an empty `variants` map (most of them) has no reasoning knob and is absent from the catalog rather than listed with zero levels.
+- Reasoning effort: `--variant <name>` in opencode's own headless mode. The valid variant names per model come from `opencode models --verbose` (each model's `variants` map); custom names declared in `opencode.json` are also valid. **Implemented**: `Opencode::discover_thinking()` in `src/harness/opencode.rs` shells out to `opencode models --verbose` (verified against 1.18.28) and parses each model's `variants` map into a reasoning-level catalog. `am`'s structured runs go through `opencode acp` instead, where the variant travels as a `session/set_config_option`, not `--variant` argv. A model with an empty `variants` map (most of them) has no reasoning knob and is absent from the catalog rather than listed with zero levels.
 
 ### MCP at launch
 
@@ -940,13 +967,14 @@ A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.
 
 ### Tool approval in headless mode
 
-`--dangerously-skip-permissions` runs every tool without confirmation; there is no on-stream approval handshake to answer. (For attended use, the `permission` block — see Permissions — gates tools instead.)
+`--dangerously-skip-permissions` runs every tool without confirmation in opencode's own `run --format json` mode; there is no on-stream approval handshake to answer there. `am`'s `opencode acp` runs are the opposite: permissions are real `session/request_permission` round trips, same as an attended session's `permission` block (see Permissions).
 
 ### Process lifecycle
 
-- Framing: prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
+- Framing (opencode's own headless mode): prompt in argv, events out on stdout (NDJSON), diagnostics on stderr.
+- Framing (`am`, ACP mode): JSON-RPC 2.0 over stdio, both directions; the prompt is a `session/prompt` request rather than argv.
 - Cancellation: send `SIGTERM` to the process group, wait ~5 s, then `SIGKILL` the group; close the stdout reader afterward.
-- Session resume: pass `--session <id>` to continue a prior session.
+- Session resume: `--session <id>` in opencode's own headless mode; `session/load` over ACP for `am`.
 
 ### Model discovery & selection (agent-manager)
 
@@ -958,8 +986,9 @@ A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.
   model's `variants` map). Needs network/auth: **partial** — reflects the
   providers configured for the current login. Output: plain text, one id/line.
   `am` shells out to it and takes each non-empty line as a model id.
-- **Select at launch (passthrough):** `--model <provider/model-id>` (injected
-  into both the interactive launch and the structured `opencode run` form).
+- **Select at launch (passthrough):** `--model <provider/model-id>`. `am`'s
+  structured (ACP) runs select the model over the wire, via
+  `session/set_config_option`, rather than `--model` argv.
 - **Model id format:** `provider/model-id` (provider prefix required).
 - **Example ids (verified):** `anthropic/claude-sonnet-4-5`, `openai/gpt-5`,
   `google/gemini-2.5-pro`.

@@ -164,9 +164,13 @@ impl WorkbenchPanel {
         match &self.kind {
             PanelKind::Terminal(pane_id) => {
                 let pane = app.pane(*pane_id);
-                let title = pane
-                    .map(|pane| pane.title.clone())
-                    .unwrap_or_else(|| "pane".to_string());
+                let title = app.tab_name(&self.kind).map_or_else(
+                    || {
+                        pane.map(|pane| pane.title.clone())
+                            .unwrap_or_else(|| "pane".to_string())
+                    },
+                    |name| name.to_string(),
+                );
                 let dot = match pane.map(|pane| pane.running) {
                     Some(true) => theme::success(),
                     _ => theme::text_faint(),
@@ -176,6 +180,7 @@ impl WorkbenchPanel {
                     label,
                     dot_colour: Some(dot),
                     tooltip,
+                    pinned: app.tab_pinned(&self.kind, cx),
                     ..TabInfo::default()
                 }
             }
@@ -219,9 +224,17 @@ impl WorkbenchPanel {
                 let tooltip = agent
                     .and_then(|agent| agent.summary.clone())
                     .map(SharedString::from);
+                // A typed-over name replaces the label and, like a terminal's overlong title, is
+                // run through the same truncation — the field that seeded it puts no ceiling on
+                // its length.
+                let (label, tooltip) = match app.tab_name(&self.kind) {
+                    Some(name) => truncate_tab_title(&name),
+                    None => (SharedString::from(label), tooltip),
+                };
                 TabInfo {
-                    label: label.into(),
+                    label,
                     tooltip,
+                    pinned: app.tab_pinned(&self.kind, cx),
                     ..TabInfo::default()
                 }
             }
@@ -243,6 +256,7 @@ impl WorkbenchPanel {
                         temporary: file.temporary,
                         tooltip: None,
                         bookmarks: app.bookmark_count(key, cx),
+                        pinned: file.pinned,
                     }
                 }
                 // The tab of a file this window no longer holds. It is hidden rather than drawn,
@@ -325,6 +339,9 @@ pub struct TabInfo {
     /// How many bookmarks the file holds, so a tab says so while their lines are off screen.
     /// Zero everywhere else, and zero is drawn as nothing.
     pub bookmarks: usize,
+    /// Protected from close. Drawn as a small glyph before the label; `false` for every kind that
+    /// offers no pin at all.
+    pub pinned: bool,
 }
 
 impl Default for TabInfo {
@@ -336,6 +353,7 @@ impl Default for TabInfo {
             temporary: false,
             tooltip: None,
             bookmarks: 0,
+            pinned: false,
         }
     }
 }
@@ -352,8 +370,14 @@ impl BasePanel for WorkbenchPanel {
         self.visible
     }
 
-    fn closable(&self, _: &App) -> bool {
-        self.kind.closable()
+    /// Pinned is what suppresses a tab's × — the pin is read through the weak `app` handle, the
+    /// way an overridden label is, since it is a fact this panel does not keep itself.
+    fn closable(&self, cx: &App) -> bool {
+        let pinned = self
+            .app
+            .upgrade()
+            .is_some_and(|app| app.read(cx).tab_pinned(&self.kind, cx));
+        self.kind.closable() && !pinned
     }
 
     /// The dock is where focus is decided, and `AppState` learns it from here rather than the other

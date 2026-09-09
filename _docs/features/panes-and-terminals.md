@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-07
-verified: 2026-09-08
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
+updated: 2026-09-09
+verified: 2026-09-09
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -47,11 +47,18 @@ for — so what it gives the window is its size and its tab strip. Bringing it o
 titlebar's switch starts a pane in it, the platform's default shell, because a region that exists to
 hold panes and opens onto a bar of nothing has not answered what the switch was asked for. Closing
 the last pane in it — or dragging it out to the centre — closes the region itself; see
-`AppState::hide_emptied_regions()` in [`feat-workbench`](./workbench.md).
+`AppState::hide_emptied_regions()` in [`feat-workbench`](./workbench.md). The titlebar carries a
+second way to the same result: its own New terminal shortcut brings the region on screen first, if
+it was shut, and spawns exactly one pane either way — it defers to the switch's own spawn when
+opening lands on true emptiness, rather than handing the user two panes for one click.
 
 **A pane's tab is its program and a number.** `zsh 1`, `zsh 2`, `fish 1` — each program numbered in
 its own sequence, per project, from the lowest number no pane of that program is using. Closing
-`zsh 2` gives that name back to the next one rather than counting upwards for ever.
+`zsh 2` gives that name back to the next one rather than counting upwards for ever. **A typed-over
+name replaces this until the pane closes.** The tab's right-click menu offers Rename…, the same
+single-field prompt every other rename in the window uses, seeded with the tab's current label; the
+name is kept in memory only, never written down, because a pane's id dies with its own process — the
+workbench document has the menu in full.
 
 **The `+` opens the platform's default shell; the chevron beside it says what else can run
 here.** A bare click starts `$SHELL` — the newest PowerShell on the machine on Windows
@@ -105,6 +112,12 @@ tab on the agents screen is a different tab: its close benches the agent and the
 running. A
 panel displaced by a whole arrangement being installed over it has not been closed and its harness
 is untouched.
+
+**A pinned pane cannot be closed, and that is the whole of what pinning changes.** Its tab's × is
+withheld and its Close row is left off the right-click menu rather than drawn and refused; Rename
+and Unpin still work from the same menu. Unpinning is the only way back to a closable pane — nothing
+else about the pane is different, and the harness ending on its own still closes it exactly as it
+would an unpinned one.
 
 **The keyboard belongs to the focused panel.** Exactly one panel in the dock holds it. When that
 panel is a terminal, keystrokes go to that pane's emulator — a terminal panel's focus handle *is*

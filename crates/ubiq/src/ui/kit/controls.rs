@@ -164,9 +164,12 @@ pub fn badge(text: &str, color: Rgba) -> impl IntoElement {
 }
 
 /// A square icon button. `active` is what the titlebar's panel toggles use to show a panel is open.
+///
+/// The icon is anything that converts into one, so a `gpui-component` variant and one of Ubiq's
+/// own [`super::UbiqIcon`] rows both pass without the kit knowing which set it is drawing from.
 pub fn icon_button(
     id: impl Into<ElementId>,
-    icon: IconName,
+    icon: impl Into<Icon>,
     active: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {

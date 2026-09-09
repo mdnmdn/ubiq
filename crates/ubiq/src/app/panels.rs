@@ -17,6 +17,46 @@ impl AppState {
         )
     }
 
+    /// The name the user has typed over a tab's own, if any. `WorkbenchPanel::tab` reads this to
+    /// override the label it would otherwise compute.
+    pub fn tab_name(&self, kind: &PanelKind) -> Option<SharedString> {
+        self.tab_names.get(kind).cloned()
+    }
+
+    /// Whether a tab is pinned — protected from close. A file's lives on the file itself, since
+    /// it is the one pin that is written down; a terminal or a chat tab's is `pinned_tabs`.
+    pub fn tab_pinned(&self, kind: &PanelKind, cx: &App) -> bool {
+        match kind {
+            PanelKind::File(key) => self.file(key, cx).is_some_and(|file| file.pinned),
+            _ => self.pinned_tabs.contains(kind),
+        }
+    }
+
+    /// Flip whether a tab is pinned, the rename menu's Pin/Unpin row.
+    pub fn toggle_tab_pin(&mut self, kind: PanelKind, cx: &mut Context<Self>) {
+        match &kind {
+            PanelKind::File(key) => {
+                let Some(project) = self.project(cx) else {
+                    return;
+                };
+                let Some(open) = self.projects.get_mut(&project) else {
+                    return;
+                };
+                let Some(file) = open.editor.find_key_mut(key) else {
+                    return;
+                };
+                file.pinned = !file.pinned;
+                self.remember(project, cx);
+            }
+            _ => {
+                if !self.pinned_tabs.remove(&kind) {
+                    self.pinned_tabs.insert(kind);
+                }
+            }
+        }
+        cx.notify();
+    }
+
     /// Whether a tab group is one of the pane region's.
     ///
     /// The new-pane control has to stay on the strip of a region the user has emptied, and the
@@ -61,6 +101,28 @@ impl AppState {
             }
         }
         cx.notify();
+    }
+
+    /// The titlebar's "New terminal" shortcut: bring the bottom region on screen if the user had
+    /// put it away, then start a fresh pane in it.
+    ///
+    /// `toggle_region` already starts a pane on its own when opening the bottom onto nothing — the
+    /// case where the region was closed with no panels left in it — so that case is left to it
+    /// rather than spawning a second pane on top. Every other case — already open, or reopened onto
+    /// panes still in it — has no pane of `toggle_region`'s own coming, so this spawns the one the
+    /// shortcut promised.
+    pub fn new_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let placement = dock::placement_of(Region::Bottom);
+        let (was_open, was_empty) = {
+            let dock = self.dock.read(cx);
+            (dock.is_dock_open(placement), dock.is_empty(placement, cx))
+        };
+        if !was_open {
+            self.toggle_region(Region::Bottom, window, cx);
+        }
+        if was_open || !was_empty {
+            self.spawn_pane(None, Vec::new(), cx);
+        }
     }
 
     /// Close a region the user just emptied — by closing its last panel or dragging it elsewhere —
@@ -256,7 +318,24 @@ impl AppState {
     /// A layout this build cannot use — a stale version, or one whose panels it has all lost — is
     /// discarded for the arrangement a fresh window opens in, rather than half-applied.
     pub(super) fn settle_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The window furniture goes before anything is installed over it — see `reset_furniture`.
+        // The search results go with the panel: they are one project's hits, and the next project
+        // is not the one they are about.
+        let reset = std::mem::take(&mut self.reset_furniture);
+        if reset {
+            for kind in [PanelKind::Search, PanelKind::Logs] {
+                if let Some(panel) = self.panels.remove(&kind) {
+                    dock::remove(&self.dock.clone(), &panel, window, cx);
+                }
+            }
+            self.search.reset();
+        }
         let Some(saved) = self.pending_layout.take() else {
+            // A project with nothing written down keeps the tree it arrived on, so the region the
+            // furniture just left has to be put away rather than left as an empty bar.
+            if reset {
+                self.collapse_empty_regions(window, cx);
+            }
             return;
         };
         let dock = self.dock.clone();

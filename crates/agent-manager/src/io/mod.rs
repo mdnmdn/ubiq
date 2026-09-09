@@ -42,12 +42,6 @@ pub use codex::CodexBridge;
 pub mod acp_client;
 pub use acp_client::AcpBridge;
 
-pub mod opencode;
-pub use opencode::OpencodeBridge;
-
-pub mod copilot;
-pub use copilot::CopilotBridge;
-
 #[cfg(feature = "pty")]
 mod passthrough;
 #[cfg(feature = "pty")]

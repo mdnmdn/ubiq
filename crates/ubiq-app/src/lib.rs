@@ -32,6 +32,37 @@ pub mod handoff;
 
 actions!(ubiq, [Quit]);
 
+/// Everything GPUI can be asked to load: Ubiq's own icons first, then what `gpui-component` ships.
+///
+/// GPUI takes exactly one asset source, and both halves of the icon set are addressed as
+/// `icons/<name>.svg` — ours because it is the registry key, theirs because that is how the
+/// component library names its own. Ours is consulted first because it is the smaller, closed set,
+/// and every name in it is category-prefixed, so the two cannot collide. The fonts the component
+/// library needs come through the fallback like any other path.
+struct Assets;
+
+impl gpui::AssetSource for Assets {
+    fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if let Some(bytes) = ubiq::ui::kit::icons::bytes(path) {
+            return Ok(Some(std::borrow::Cow::Borrowed(bytes)));
+        }
+        gpui::AssetSource::load(&gpui_component_assets::Assets, path)
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<gpui::SharedString>> {
+        let mut paths: Vec<_> = ubiq::ui::kit::icons::ALL
+            .iter()
+            .map(|icon| gpui_component::IconNamed::path(*icon))
+            .filter(|p| p.starts_with(path))
+            .collect();
+        paths.extend(gpui::AssetSource::list(
+            &gpui_component_assets::Assets,
+            path,
+        )?);
+        Ok(paths)
+    }
+}
+
 /// Where the four subsystems keep what they own.
 ///
 /// Each is already a boxed trait with a file and a memory implementation, so this struct adds no
@@ -183,7 +214,7 @@ pub fn run(boot: Boot) {
     // `on_open_urls` and `on_reopen` are `Application`'s, not `App`'s, so they have to go on
     // before `run` — and both take `&self`, so this cannot be one chain with `run`, which takes
     // `self`.
-    let app = application().with_assets(gpui_component_assets::Assets);
+    let app = application().with_assets(Assets);
 
     app.on_open_urls(move |urls| {
         path_tx

@@ -1,0 +1,217 @@
+# Every icon Ubiq draws.
+#
+# A key is the file name (`assets/icons/<key>.svg`), the icon's name in the registry and the
+# variant name in Rust — one spelling, kebab-case, no synonyms. The value is the icon's *goal*:
+# what a reader has to understand from it, in one line. Write the goal before drawing anything;
+# an icon whose goal you cannot state in a line is a concept that is not settled yet.
+#
+# Longer entries take a mapping instead of the bare string:
+#   source:   one of three.
+#             `custom` (the default) — we drew it.
+#             `lucide:<Variant>` — gpui-component ships it and we take it as it comes: no file
+#             here and nothing to lint. The row freezes the mapping so nobody redraws it.
+#             `adopted:<Variant>` — it started as gpui-component's and now lives here, rewritten
+#             on our root by `just icons-adopt`. For the sets whose look we own and expect to
+#             tune: the rail's badges and the titlebar's controls. The provenance stays in the
+#             row, so the origin is never a guess.
+#   keywords: what someone would search for. Grep these before drawing a new icon; a hit means
+#             the icon exists under another name.
+#
+# `canon` is the frozen reference strip. Those icons are approved and never redrawn: every review
+# sheet carries them so a new icon is judged against a fixed point, not against the last batch.
+# It stays empty until a human has approved a first pass.
+#
+# `just icons-check` keeps this file and the directory honest. A row with no file yet is a
+# worklist entry, not a failure.
+
+canon: []
+
+categories:
+  # A harness's mark is not an icon in the family sense: it follows its owner's shape, not our
+  # grid, and it is exempt from the coherence judgement — but not from the spec, because GPUI
+  # still draws it as a single-colour mask. Today every harness draws the same `IconName::Asterisk`
+  # or `HARNESS_GLYPH` (`ui/kit/mod.rs`), which is the placeholder these replace.
+  #
+  # The asterisk is not a neutral placeholder: it is Claude's own mark. Using it for *any* agent
+  # says Claude where nothing said Claude, so nothing generic may borrow it — `harness-any`,
+  # `family-agents` and `role-manager` are drawn rather than borrowed for that reason alone.
+  # Five of these are Simple Icons' own paths (CC0), which is why they are filled rather than
+  # stroked and why their geometry fills the box: they are their owners' marks, not our drawings.
+  # `just icons-check` exempts this category from the ink envelope and the decimal rule for that
+  # reason, and only for that reason.
+  harness:
+    harness-claude-code: Anthropic's Claude Code, told apart from the other marks at a glance
+    harness-codex: OpenAI's Codex CLI
+    harness-gemini-cli: Google's Gemini CLI
+    harness-opencode:
+      goal: opencode — its frame, with the block at the foot standing in for the logo's shadow
+      keywords: [opencode]
+    harness-copilot-cli: GitHub's Copilot CLI
+    harness-antigravity:
+      goal: Google's Antigravity
+      keywords: [antigravity, agy, google]
+    harness-grok:
+      goal: xAI's Grok CLI — implemented in `harness/grok.rs`, never drawn anywhere
+      keywords: [grok, xai]
+    harness-any:
+      goal: a harness with no mark of its own — every one we have not drawn yet lands here
+      keywords: [generic, placeholder, any, agent, module]
+
+  # `Lifecycle` (`ui/conversation/mod.rs`) has seven states and is drawn today as a `status_dot`
+  # colour plus a tooltip. Colour alone is enough for the three quiet ones — Starting, Ready, Idle
+  # keep the dot. These four are the states a reader acts on, so they get a shape.
+  pane:
+    pane-thinking: the harness is working, with no measurable progress to report
+    pane-awaiting:
+      goal: the harness has stopped and is waiting for the reader to answer
+      keywords: [permission, prompt, blocked, question, waiting]
+    pane-ended:
+      goal: the harness exited and took its pane with it
+      source: "lucide:CircleX"
+      keywords: [exited, dead, closed, gone]
+    pane-unloaded:
+      goal: a conversation that exists but has no process behind it
+      keywords: [detached, cold, resumable, suspended]
+
+  # ACP's `ToolKind`, eleven of them, collapsed today into six colours and no shape at all
+  # (`tool_colour`, `ui/conversation/mod.rs`). Most are already in Lucide; four are not.
+  tool:
+    # Read and edit are the same open book, and the pen is the only difference between them —
+    # which is the whole story of the pair. The plain book is already shipped, so only the
+    # penned one is drawn.
+    tool-read: {goal: the harness read a file, source: "lucide:BookOpen"}
+    tool-search: {goal: the harness searched, source: "lucide:Search"}
+    tool-fetch: {goal: the harness fetched something over the network, source: "lucide:Globe"}
+    tool-edit:
+      goal: the harness changed a file in place — a page and the pen that changed it
+      keywords: [edit, write, patch, modify, pen]
+    tool-delete: {goal: the harness removed something, source: "lucide:Delete"}
+    tool-execute: {goal: the harness ran a command, source: "lucide:Play"}
+    tool-move:
+      goal: the harness moved or renamed a path
+      keywords: [rename, relocate, mv]
+    tool-think:
+      goal: the harness reasoned without touching anything
+      keywords: [reasoning, thought, plan]
+    tool-delegate:
+      goal: the harness handed the work to a subagent
+      keywords: [subagent, spawn, handoff, child]
+    tool-switch-mode:
+      goal: the harness changed its own permission mode mid-turn
+      keywords: [mode, escalate, permission]
+
+  # `Family` (`ui/sink/style.rs`) is text-only today. Two of the six would land on variants that
+  # are already carrying several meanings, so they are drawn rather than borrowed.
+  family:
+    family-ubiq: a notification from the application itself
+    family-files: {goal: a notification about files, indexing or the watch, source: "lucide:Folder"}
+    family-host: {goal: a notification from the headless host, source: "lucide:Cpu"}
+    family-agents:
+      goal: a notification from a harness, whichever one it was
+      source: "lucide:Bot"
+      keywords: [agent, harness, conversation]
+    family-terminal:
+      goal: a notification about a pane's terminal
+      source: "lucide:SquareTerminal"
+    family-connectors:
+      goal: a notification from a connector
+      keywords: [integration, provider, oauth, connection]
+
+  # The single letters in `state/git.rs` (A/M/D/R/T/U) are what these replace. They are the
+  # smallest marks in the set — a path's status, tinted by a status colour, in a list — so the
+  # family is abstract single-weight marks and not pictograms, and `+` and `-` stay the plus and
+  # the minus a diff already uses. `dupes` reports both against an icon from a surface they never
+  # share: the plus against Gemini's four-pointed mark, the minus against the three dots of
+  # `pane-thinking`. Both are accepted, and the alternative — bending a diff's own two marks out
+  # of shape to satisfy a mask comparison — is worse.
+  git:
+    git-added: a path that is new in this change
+    git-modified: a path whose contents changed
+    git-deleted: a path this change removes
+    git-renamed: a path that moved, its old name shown beside it
+    git-type-change: a path whose kind changed — file to link, or link to file
+    git-untracked: a path git has never been told about
+    git-branch:
+      goal: a branch, told apart from a remote host
+      keywords: [ref, head, checkout]
+
+  # `role_icon` (`ui/work.rs`) maps four role names onto variants that mean something else
+  # elsewhere, and everything outside that list falls through to the IDE's own icon.
+  orchestration:
+    role-manager:
+      goal: the node that plans and hands out work
+      keywords: [manager, coordinator, planner, pm]
+    role-analyst:
+      goal: the node that investigates and reports, without the search field's icon
+      keywords: [investigator, research, analyst]
+    role-verifier:
+      goal: the node that checks another node's work
+      keywords: [review, check, verify, qa]
+    role-docs: {goal: the node that writes the documents, source: "lucide:BookOpen"}
+    role-worker:
+      goal: a node whose role has no icon of its own — the honest fallback
+      keywords: [generic, other, fallback]
+
+  # The rail's mode badges (`mode_icon`, `ui/rail.rs`). They are read at rail width — smaller than
+  # anywhere else in the window — so they carry less detail than an icon elsewhere would.
+  # `Control`, `Teams`, `KB` and `Git` are settled. `IDE`, `Sink` and `Agents` are drawn: the
+  # first two because the borrowed variant names a part of the mode rather than the mode, and
+  # `Agents` because the asterisk is Claude's mark and cannot stand for every harness.
+  mode:
+    mode-control: {goal: the application's own dashboard, source: "adopted:LayoutDashboard"}
+    mode-teams:
+      goal: the orchestration graph of agents working together
+      source: "adopted:Network"
+    mode-kb: {goal: the project's knowledge base, source: "adopted:BookOpen"}
+    mode-git: {goal: the project's git state, source: "adopted:GalleryVerticalEnd"}
+    mode-ide:
+      goal: the editor and its panels — the mode, not the terminal inside it
+      keywords: [ide, editor, code, explorer]
+    mode-sink:
+      goal: the style reference, where every primitive is looked at side by side
+      keywords: [sink, style, primitives, gallery, appearance]
+    mode-agents:
+      goal: the columns of agent conversations, no harness named
+      keywords: [agents, conversations, columns, chat]
+    mode-tasks:
+      goal: work items that leave the board once done — a square whose corner is open and a tick
+        on its way out through it
+      keywords: [tasks, todo, done, board, complete]
+
+  # The titlebar's right-hand cluster (`ui/titlebar.rs`), adopted so the row of controls can be
+  # tuned as one. The remote-host button is `host-remote` in `workbench` below, because sharing
+  # `Network` with the orchestration graph is exactly the collision that row exists to break.
+  titlebar:
+    titlebar-panel-left: {goal: show or hide the left region, source: "adopted:PanelLeft"}
+    titlebar-panel-bottom: {goal: show or hide the bottom region, source: "adopted:PanelBottom"}
+    titlebar-panel-right: {goal: show or hide the right region, source: "adopted:PanelRight"}
+    titlebar-search: {goal: search the project, source: "adopted:Search"}
+    titlebar-browser:
+      goal: open the project in a browser
+      source: "adopted:Globe"
+    titlebar-settings: {goal: the settings screen, source: "adopted:Settings2"}
+    titlebar-theme-light: {goal: switch to the light palette, source: "adopted:Sun"}
+    titlebar-theme-dark: {goal: switch to the dark palette, source: "adopted:Moon"}
+    titlebar-notifications: {goal: the notification centre, source: "adopted:Bell"}
+
+  # Collisions the inventory turned up: one variant carrying two unrelated meanings, where the
+  # cheaper fix is a second icon rather than two tooltips.
+  workbench:
+    host-remote:
+      goal: a host on another machine, told apart from a branch and from a connector
+      keywords: [remote, machine, ssh, connect]
+    isolation:
+      goal: a harness running inside a sandbox, told apart from capturing the window
+      keywords: [sandbox, isolate, container, jail]
+    capture-window:
+      goal: photograph this window into an editable tab — the picture, not just a frame
+      keywords: [capture, screenshot, snapshot, camera, photo]
+    view-tree:
+      goal: files arranged as a tree, told apart from toggling the left region
+      keywords: [tree, hierarchy, nested]
+    view-list:
+      goal: files arranged as a flat list, told apart from the keyboard settings page
+      keywords: [list, flat, rows]
+    tab-pin:
+      goal: a tab protected from close, drawn before its label
+      keywords: [pin, pinned, protect, lock, keep]

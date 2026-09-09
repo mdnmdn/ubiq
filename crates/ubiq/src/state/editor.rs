@@ -314,6 +314,10 @@ pub struct OpenFile {
     /// A temporary preview tab: not yet promoted. The first edit or an explicit open makes it
     /// permanent, and opening another temp tab closes the one before it.
     pub temporary: bool,
+    /// Protected from close — the tab's × is suppressed and a bulk close skips it. The tab key is
+    /// a stable identity across a restart, so this is the one pin that is written down; see
+    /// `ViewPrefs::pinned_files`.
+    pub pinned: bool,
     /// A file dropped in from outside every open project: read-only, hosted by the active project
     /// rather than its own. Exists so the tab can be drawn differently; `savable` — not this — is
     /// what actually refuses the write.
@@ -367,6 +371,7 @@ impl OpenFile {
             body: FileBody::Loading,
             save: SaveState::Idle,
             temporary: false,
+            pinned: false,
             guest: false,
             untitled: false,
             frontmatter_open: false,

@@ -12,6 +12,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::work::{Activity, Bucket};
 
 use crate::theme;
+use crate::ui::kit::UbiqIcon;
 
 /// What an activity reads as. The four buckets share the four status tokens, and the three ways of
 /// working share the one that means "moving", so no screen asks the user to learn a colour that
@@ -29,15 +30,16 @@ pub fn bucket_colour(bucket: Bucket) -> Rgba {
     }
 }
 
-/// The glyph a role wears. Ubiq ships no icon set, so a role borrows the nearest thing in the
-/// component library's bundle.
-pub fn role_icon(role: &str) -> IconName {
+/// The glyph a role wears. Four names carry a shape of their own — drawn rather than borrowed, so
+/// nothing generic reads as Claude's asterisk — and everything else falls through to the honest
+/// fallback.
+pub fn role_icon(role: &str) -> Icon {
     match role.to_lowercase().as_str() {
-        "project manager" | "activity coordinator" => IconName::Asterisk,
-        "analyst" | "investigator" => IconName::Search,
-        "verifier" => IconName::CircleCheck,
-        "documentation" => IconName::BookOpen,
-        _ => IconName::SquareTerminal,
+        "project manager" | "activity coordinator" => Icon::new(UbiqIcon::RoleManager),
+        "analyst" | "investigator" => Icon::new(UbiqIcon::RoleAnalyst),
+        "verifier" => Icon::new(UbiqIcon::RoleVerifier),
+        "documentation" => Icon::new(IconName::BookOpen),
+        _ => Icon::new(UbiqIcon::RoleWorker),
     }
 }
 
@@ -50,9 +52,5 @@ pub fn role_mark(role: &str, colour: Rgba, side: f32) -> impl IntoElement {
         .items_center()
         .justify_center()
         .bg(theme::surface_raised())
-        .child(
-            Icon::new(role_icon(role))
-                .with_size(Size::XSmall)
-                .text_color(colour),
-        )
+        .child(role_icon(role).with_size(Size::XSmall).text_color(colour))
 }

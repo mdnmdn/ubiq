@@ -23,6 +23,7 @@ pub const HARNESS_GLYPH: &str = "*";
 pub mod canvas;
 pub mod controls;
 pub mod files;
+pub mod icons;
 pub mod menu;
 pub mod overlay;
 pub mod panel;
@@ -36,6 +37,7 @@ pub use controls::{
 pub use files::{
     ROW_FONT, file_row, filter_bar, kind_icon, row_height, row_indent, twisty, view_switch,
 };
+pub use icons::UbiqIcon;
 pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};
 pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};

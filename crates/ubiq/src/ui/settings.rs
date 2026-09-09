@@ -10,8 +10,8 @@ use gpui::{
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
     deferred, div, point, px,
 };
-use gpui_component::IconName;
 use gpui_component::input::Input;
+use gpui_component::{Icon, IconName};
 use ubiq_proto::assist::{AiProviderInfo, AiProviderKind, AssistProvider, ModelRole};
 use ubiq_proto::connectors::{
     AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
@@ -30,9 +30,9 @@ use crate::state::settings::{
 };
 use crate::theme;
 use crate::ui::kit::{
-    badge, card, check_box, choice_pill, column, confirm_modal, elided, field, ghost_button,
-    heading, icon_button, label_block, menu::Picker, modal, modal_note, modal_sized, mono,
-    nav_item, primary_button, prompt_modal, removable_tag, section_label, setting_row, slab,
+    UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
+    ghost_button, heading, icon_button, label_block, menu::Picker, modal, modal_note, modal_sized,
+    mono, nav_item, primary_button, prompt_modal, removable_tag, section_label, setting_row, slab,
     state_chip, status_dot,
 };
 
@@ -150,18 +150,20 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-fn nav_icon(item: SettingsSection) -> IconName {
+fn nav_icon(item: SettingsSection) -> Icon {
     match item {
-        SettingsSection::Appearance => IconName::Palette,
-        SettingsSection::FileExplorer => IconName::Folder,
-        SettingsSection::Editor => IconName::File,
-        SettingsSection::Search => IconName::Search,
-        SettingsSection::Harnesses => IconName::Asterisk,
-        SettingsSection::Isolation => IconName::Frame,
-        SettingsSection::Assist => IconName::Cpu,
-        SettingsSection::Connectors => IconName::Globe,
-        SettingsSection::Hosts => IconName::Network,
-        SettingsSection::CommandLine => IconName::SquareTerminal,
+        SettingsSection::Appearance => IconName::Palette.into(),
+        SettingsSection::FileExplorer => IconName::Folder.into(),
+        SettingsSection::Editor => IconName::File.into(),
+        SettingsSection::Search => IconName::Search.into(),
+        // The asterisk is Claude's own mark — a generic "Harnesses" section wears the honest
+        // fallback instead.
+        SettingsSection::Harnesses => UbiqIcon::HarnessAny.into(),
+        SettingsSection::Isolation => UbiqIcon::Isolation.into(),
+        SettingsSection::Assist => IconName::Cpu.into(),
+        SettingsSection::Connectors => UbiqIcon::FamilyConnectors.into(),
+        SettingsSection::Hosts => UbiqIcon::HostRemote.into(),
+        SettingsSection::CommandLine => IconName::SquareTerminal.into(),
     }
 }
 

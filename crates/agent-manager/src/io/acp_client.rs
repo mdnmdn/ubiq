@@ -189,8 +189,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::{
-    AgentEvent, AgentInput, AgentInputSink, ConfigSetting, Content, IoBridge, PermissionKind,
-    PermissionOption, PermissionOutcome, StopReason, ToolCallUpdate,
+    AgentEvent, AgentInput, AgentInputSink, ConfigSetting, Content, IoBridge, Origin,
+    PermissionKind, PermissionOption, PermissionOutcome, Spend, StopReason, ToolCall,
+    ToolCallUpdate, ToolKind, ToolStatus,
 };
 
 /// How long the handshake waits for `initialize` / `session/new` /
@@ -246,6 +247,38 @@ struct PromptCaps {
     embedded_context: bool,
 }
 
+/// What the reader thread has to remember across notifications, because ACP
+/// does not carry it on the wire.
+///
+/// All three fields exist for the same reason: [`super::from_acp`] is a pure
+/// per-notification mapping, and these are the pieces of the
+/// [`AgentEvent::UsageUpdate`] and [`Origin`] contracts that only a stateful
+/// reader can honour.
+#[derive(Debug, Default)]
+struct ReaderState {
+    /// Open `Task`/`Agent` tool calls, oldest first: `toolCallId` and the
+    /// subagent type its `rawInput` named.
+    delegates: Vec<(String, Option<String>)>,
+    /// Live subagent sessions from the ACP subagent extension (draft PR
+    /// #1992): the child's `sessionId` and the `name` it was spawned under.
+    /// Exact attribution, where `delegates` only guesses.
+    subagents: HashMap<String, String>,
+    /// The last `cost.amount` seen, per session id — ACP states it as a
+    /// session-cumulative figure, subtracted to get the per-report delta the
+    /// event contracts for. Keyed because a subagent session reports its own
+    /// window and must not move the parent's memo.
+    cost_totals: HashMap<String, f64>,
+    /// The `category: "model"` config option's current value, so a usage
+    /// report can name a model ACP never puts on the report itself.
+    model: Option<String>,
+    /// The last `used`/`size` a `usage_update` reported, so the turn's own
+    /// spend report can state the same occupancy rather than reading as a
+    /// context window that just emptied. `(0, 0)` until one arrives — which
+    /// for an agent that sends no `usage_update` at all (Grok) is the honest
+    /// answer, it names no window anywhere.
+    occupancy: (u64, u64),
+}
+
 /// Everything the bridge, its reader thread and every [`AcpInputSink`] share.
 ///
 /// One struct rather than a parameter list because all four writers need all
@@ -272,6 +305,8 @@ struct Shared {
     /// A handle onto the reader thread's channel, so the handshake and a
     /// `session/set_config_option` can push a locally-derived event.
     tx: mpsc::Sender<Option<Framed>>,
+    /// See [`ReaderState`]. Written by the reader thread and by the handshake.
+    state: Mutex<ReaderState>,
 }
 
 /// A live bridge to a child process speaking ACP v1 over newline-delimited
@@ -351,6 +386,7 @@ impl AcpBridge {
             prompt_caps: Arc::new(OnceLock::new()),
             root,
             tx,
+            state: Mutex::new(ReaderState::default()),
         });
 
         let writer = std::thread::spawn(move || write_loop(stdin, write_rx));
@@ -474,6 +510,11 @@ impl AcpBridge {
         // conversation re-emits its history, in order, ahead of the
         // `SessionStarted` below.
         for ev in session_events(&session_id, &result) {
+            if let AgentEvent::SessionStarted { model, .. } = &ev
+                && let Ok(mut state) = self.shared.state.lock()
+            {
+                state.model.clone_from(model);
+            }
             emit(&self.shared.tx, ev, None);
         }
 
@@ -583,6 +624,15 @@ fn initialize_params() -> Value {
         "clientCapabilities": {
             "fs": {"readTextFile": true, "writeTextFile": true},
             "session": {"configOptions": {"boolean": {}}},
+            // The subagent extension (ACP draft PR #1992) is gated on this,
+            // which the adapters carry under their `jetbrains.air` vendor
+            // namespace until the draft lands in ACP proper. Without it a
+            // delegate arrives as a plain tool call and [`attribute`]'s
+            // heuristic is all there is.
+            "_meta": {"jetbrains": {"air": {
+                "version": 1,
+                "capabilities": ["nativeSubagentSessions"],
+            }}},
         },
     })
 }
@@ -1232,6 +1282,9 @@ fn deliver_response(shared: &Shared, id: &Value, value: &Value, raw: &Arc<str>) 
         // an agent may legally end a turn (`cancelled`, `refusal`) without
         // waiting for a parked permission answer, and those ids die with it.
         drop_outstanding(shared, "the turn ended");
+        if let Some(ev) = turn_spend(shared, value) {
+            emit(&shared.tx, ev, None);
+        }
         return emit(&shared.tx, turn_ended(value), Some(Arc::clone(raw)));
     }
 
@@ -1277,6 +1330,73 @@ fn turn_ended(response: &Value) -> AgentEvent {
         stop_reason: stop_reason_from(reason),
         error: None,
     }
+}
+
+/// The token breakdown a `session/prompt` response carries, as a
+/// [`AgentEvent::UsageUpdate`] — the only place any ACP agent states one.
+///
+/// ACP v1 puts no token counts on `usage_update` (it reports occupancy and
+/// cost, nothing else), but every adapter reports the turn's spend on the
+/// prompt *response*: `result.usage` for `claude-code-acp` and `copilot`,
+/// `result._meta.usage` for `grok`, which also flattens the same keys onto
+/// `_meta` itself. Dropping it left three of four harnesses with no token
+/// total at all.
+///
+/// **`totalTokens` is the authority, and `input` is derived from it.** The
+/// adapters disagree on what `inputTokens` includes: `copilot` and `grok`
+/// count cached reads inside it, `claude-code-acp` does not, so summing the
+/// reported fields double-counts for two of them and [`Spend::total`] — which
+/// is what the interface prints as the headline figure — would be wrong.
+/// Subtracting the separately-reported parts from `totalTokens` instead gives
+/// the fresh input tokens [`Spend::input`] is defined as, and makes
+/// `Spend::total()` equal the agent's own `totalTokens` by construction, for
+/// every adapter and without a per-harness branch.
+///
+/// `used`/`size` restate the last occupancy seen, and `cost` is `None`: the
+/// cumulative-cost memo belongs to `usage_update`, and billing the same turn
+/// twice is worse than not billing it here.
+fn turn_spend(shared: &Shared, response: &Value) -> Option<AgentEvent> {
+    let result = response.get("result")?;
+    let meta = result.get("_meta");
+    let usage = result
+        .get("usage")
+        .or_else(|| meta.and_then(|meta| meta.get("usage")))
+        .or(meta)?;
+    let count = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|key| usage.get(key).and_then(Value::as_u64))
+            .unwrap_or(0)
+    };
+    let mut spend = Spend {
+        input: count(&["inputTokens"]),
+        output: count(&["outputTokens"]),
+        thinking: count(&["thoughtTokens", "reasoningTokens"]),
+        cache_read: count(&["cachedReadTokens"]),
+        cache_creation: count(&["cachedWriteTokens", "cacheCreationTokens"]),
+    };
+    if let Some(total) = usage.get("totalTokens").and_then(Value::as_u64) {
+        spend.input = total
+            .saturating_sub(spend.output)
+            .saturating_sub(spend.thinking)
+            .saturating_sub(spend.cache_read)
+            .saturating_sub(spend.cache_creation);
+    }
+    if spend.total() == 0 {
+        return None;
+    }
+    let state = match shared.state.lock() {
+        Ok(state) => state,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let (used, size) = state.occupancy;
+    Some(AgentEvent::UsageUpdate {
+        used,
+        size,
+        cost: None,
+        model: state.model.clone(),
+        spend: Some(spend),
+        origin: Origin::default(),
+    })
 }
 
 /// ACP's five `StopReason` strings. An unknown one is [`StopReason::EndTurn`]:
@@ -1631,7 +1751,7 @@ fn take_notification(shared: &Shared, method: &str, value: &Value, raw: &Arc<str
         return true;
     }
     let params = value.get("params").cloned().unwrap_or(Value::Null);
-    let Some(ev) = session_update(&params) else {
+    let Some(ev) = session_update(shared, &params) else {
         // An unrecognised `sessionUpdate` is not an error — upstream's
         // vocabulary is open, and `from_acp` already says `None` for the ones
         // that are protocol-level rather than session updates.
@@ -1647,9 +1767,207 @@ fn take_notification(shared: &Shared, method: &str, value: &Value, raw: &Arc<str
 /// The payload is `params["update"]`, with `params` itself as a defensive
 /// fallback: the reference puts the update object under `update`, and an agent
 /// that flattened it instead is still readable rather than silently dropped.
-fn session_update(params: &Value) -> Option<AgentEvent> {
-    let update = params.get("update").unwrap_or(params);
-    super::from_acp(update)
+///
+/// ACP allows `_meta` on the notification *and* on the update payload, and the
+/// subagent markers Ubiq reads (see [`super::acp::meta_string`]) could be on
+/// either, so the outer one is folded into the update — the update's own keys
+/// win — before mapping. Then [`attribute`] applies what only the reader
+/// knows: whose delegate a chunk belongs to, and what a cumulative cost
+/// figure means as a delta.
+fn session_update(shared: &Shared, params: &Value) -> Option<AgentEvent> {
+    let mut update = params.get("update").unwrap_or(params).clone();
+    if let Some(Value::Object(outer)) = params.get("_meta")
+        && let Value::Object(inner) = &mut update
+        && let Value::Object(meta) = inner.entry("_meta").or_insert_with(|| json!({}))
+    {
+        for (key, value) in outer {
+            meta.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    if let Some(ev) = track_subagent(shared, &update) {
+        return Some(ev);
+    }
+    let ev = super::from_acp(&update)?;
+    Some(attribute(shared, params, &update, ev))
+}
+
+/// Record or forget a subagent session from the ACP subagent extension's two
+/// `sessionUpdate` variants (draft PR #1992, advertised by
+/// [`initialize_params`]). `None` means this notification was neither of them.
+///
+/// After a `subagent_spawned` the child's output arrives as ordinary
+/// `session/update` notifications whose envelope `sessionId` is the
+/// `subagentSessionId`, which is what the registry is for. The event returned
+/// beside it is the *anchor*: the same shape `io/jsonl.rs` gives a Claude
+/// `Task` block — a `ToolKind::Delegate` call, in progress, titled with the
+/// spawn's description — so the extension path and the heuristic fallback
+/// converge on one transcript shape and the chat panel needs no second
+/// rendering path. Its id is the `subagentSessionId`, which is what the
+/// children's `Origin::parent_tool_use_id` then points at. Every state the
+/// draft defines is terminal, so a `subagent_state_update` closes the call.
+///
+/// The anchor is deliberately not routed through [`attribute`]: a spawn
+/// belongs to whoever opened it, never to itself.
+fn track_subagent(shared: &Shared, update: &Value) -> Option<AgentEvent> {
+    let id = update.get("subagentSessionId").and_then(Value::as_str)?;
+    let kind = update.get("sessionUpdate").and_then(Value::as_str)?;
+    let mut state = match shared.state.lock() {
+        Ok(state) => state,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    match kind {
+        "subagent_spawned" => {
+            let name = update.get("name").and_then(Value::as_str).unwrap_or(id);
+            state.subagents.insert(id.to_string(), name.to_string());
+            let mut call = ToolCall::new(id, name);
+            call.kind = ToolKind::Delegate;
+            call.status = ToolStatus::InProgress;
+            // The two field names `io/jsonl.rs` reads off a `Task` input, and
+            // the two `attribute` reads back off `raw_input` — this is where
+            // the spawn's `task` string lives.
+            call.raw_input = Some(json!({
+                "description": update.get("task").cloned().unwrap_or(Value::Null),
+                "subagent_type": name,
+            }));
+            Some(AgentEvent::ToolCall { call })
+        }
+        "subagent_state_update" => {
+            state.subagents.remove(id);
+            state.cost_totals.remove(id);
+            // `ToolStatus` has no cancelled variant, so every non-completion
+            // is a failure — the draft's `failed`, `cancelled` and
+            // `disconnected` all end the call without a result.
+            let status = match update.get("state").and_then(Value::as_str) {
+                Some("completed") => ToolStatus::Completed,
+                _ => ToolStatus::Failed,
+            };
+            Some(AgentEvent::ToolCallUpdate {
+                update: ToolCallUpdate::finished(id, status),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Apply the reader's own knowledge to one freshly mapped event: the usage
+/// contract, and delegate attribution.
+///
+/// **Usage.** ACP's `cost.amount` is session-cumulative while
+/// [`AgentEvent::UsageUpdate`]'s `cost` is contractually a per-report delta
+/// (rule 5), so the running total is subtracted here — the same shape
+/// [`super::jsonl`] uses for Claude's cumulative figure. `spend` stays `None`:
+/// ACP reports no token breakdown at all, and synthesising one would break the
+/// same contract in the other direction.
+///
+/// **Delegates.** An adapter that took [`initialize_params`]'s subagent
+/// capability says so exactly: the child's output arrives on the child's own
+/// `sessionId`, which [`track_subagent`] has already mapped to a name. Failing
+/// that, ACP v1 has no subagent vocabulary, so an agent that writes no
+/// `_meta` marker leaves only the shape of the traffic to go on: while a
+/// `Task`/`Agent` tool call is open the main agent is blocked on it, so every
+/// unattributed chunk that arrives is the delegate's. An origin `_meta` already
+/// filled is never overwritten.
+///
+/// ponytail: with two delegates open at once every chunk is attributed to the
+/// most recently opened one — nothing on the wire could tell them apart. The
+/// upgrade path is the `_meta` marker, which an agent can send today.
+fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent) -> AgentEvent {
+    let mut state = match shared.state.lock() {
+        Ok(state) => state,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let session = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let child = state
+        .subagents
+        .get(&session)
+        .map(|name| (session.clone(), Some(name.clone())));
+    match &mut ev {
+        AgentEvent::UsageUpdate { cost, model, .. } => {
+            if let Some(reported) = cost {
+                let total = reported.amount;
+                let seen = state.cost_totals.entry(session).or_default();
+                reported.amount = (total - *seen).max(0.0);
+                *seen = total;
+                if reported.amount <= 0.0 {
+                    *cost = None;
+                }
+            }
+            model.clone_from(&state.model);
+            if let AgentEvent::UsageUpdate { used, size, .. } = &ev {
+                state.occupancy = (*used, *size);
+            }
+        }
+        AgentEvent::ConfigOptionUpdate { .. } => {
+            if let Some(model) = update
+                .get("configOptions")
+                .and_then(|options| config_current_value(options, "model"))
+            {
+                state.model = Some(model);
+            }
+            return ev;
+        }
+        AgentEvent::ToolCall { call } if is_delegate(update, &call.title) => {
+            call.kind = ToolKind::Delegate;
+            let subagent = call
+                .raw_input
+                .as_ref()
+                .and_then(|raw| str_any(raw, &["subagent_type", "subagent", "description"]));
+            state.delegates.push((call.id.clone(), subagent));
+            // The delegate's own call belongs to whoever opened it, not to itself.
+            return ev;
+        }
+        AgentEvent::ToolCallUpdate { update } => {
+            if matches!(
+                update.status,
+                Some(ToolStatus::Completed | ToolStatus::Failed)
+            ) {
+                state.delegates.retain(|(id, _)| id != &update.id);
+            }
+            return ev;
+        }
+        _ => {}
+    }
+    // Precedence: an explicit `_meta` origin (checked below), then the child
+    // session id, then the open-delegate heuristic.
+    let Some((id, subagent)) = child.or_else(|| state.delegates.last().cloned()) else {
+        return ev;
+    };
+    let origin = match &mut ev {
+        AgentEvent::AgentMessageChunk { origin, .. }
+        | AgentEvent::AgentThoughtChunk { origin, .. }
+        | AgentEvent::UsageUpdate { origin, .. } => origin,
+        AgentEvent::ToolCall { call } => &mut call.origin,
+        _ => return ev,
+    };
+    if origin.parent_tool_use_id.is_none() {
+        origin.parent_tool_use_id = Some(id);
+        origin.subagent_type = subagent;
+    }
+    ev
+}
+
+/// Whether a `tool_call` is a delegation — the spawn of a subagent.
+///
+/// ACP's `ToolKind` has no value for it, so the name is all there is: the
+/// `_meta` tool name the reference adapter emits
+/// (`_meta.claudeCode.toolName`), or the call's own title or name.
+fn is_delegate(update: &Value, title: &str) -> bool {
+    let named =
+        |name: &str| name.eq_ignore_ascii_case("task") || name.eq_ignore_ascii_case("agent");
+    super::acp::meta_string(update, &["toolName"]).is_some_and(|name| named(&name))
+        || named(title)
+        || str_any(update, &["name"]).is_some_and(|name| named(&name))
+}
+
+/// The first of `keys` present on `value` as a string.
+fn str_any(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(key).and_then(Value::as_str))
+        .map(String::from)
 }
 
 /// Push one mapped event, logged at `debug`. `false` means nobody is
@@ -1700,6 +2018,7 @@ mod tests {
             prompt_caps: Arc::new(OnceLock::new()),
             root: root.to_path_buf(),
             tx,
+            state: Mutex::new(ReaderState::default()),
         });
         (shared, written, events)
     }
@@ -1980,12 +2299,13 @@ mod tests {
 
     #[test]
     fn a_session_update_becomes_the_event_from_acp_maps_it_to() {
+        let (shared, _written, _events) = test_shared(&temp_root("update"));
         let params = parse(
             r#"{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk",
                 "content":{"type":"text","text":"hello"},"messageId":"m1"}}"#,
         );
         assert_eq!(
-            session_update(&params),
+            session_update(&shared, &params),
             Some(AgentEvent::AgentMessageChunk {
                 content: Content::text("hello"),
                 message_id: Some("m1".to_string()),
@@ -1996,8 +2316,312 @@ mod tests {
 
     #[test]
     fn an_unknown_session_update_produces_no_event() {
+        let (shared, _written, _events) = test_shared(&temp_root("unknown-update"));
         let params = parse(r#"{"sessionId":"s1","update":{"sessionUpdate":"something_new"}}"#);
-        assert_eq!(session_update(&params), None);
+        assert_eq!(session_update(&shared, &params), None);
+    }
+
+    /// A marker on the *notification* reaches [`super::from_acp`] too: ACP
+    /// allows `_meta` at either level, so the outer one is folded in.
+    #[test]
+    fn a_notification_level_meta_marker_attributes_a_chunk() {
+        let (shared, _written, _events) = test_shared(&temp_root("outer-meta"));
+        let params = parse(
+            r#"{"sessionId":"s1","_meta":{"claudeCode":{"parentToolUseId":"t9",
+                "subagentType":"explorer"}},
+                "update":{"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"hi"}}}"#,
+        );
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = session_update(&shared, &params)
+        else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("t9"));
+        assert_eq!(origin.subagent_type.as_deref(), Some("explorer"));
+    }
+
+    /// ── delegate inference ──
+    ///
+    /// A `Task` tool call opens a delegate, everything until its completion is
+    /// attributed to it, and everything after is the main agent's again.
+    #[test]
+    fn a_chunk_inside_an_open_task_call_is_attributed_to_it() {
+        let (shared, _written, _events) = test_shared(&temp_root("delegate"));
+        let chunk = parse(
+            r#"{"update":{"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"hi"}}}"#,
+        );
+
+        // Before the delegate opens: nobody's but the conversation's.
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = session_update(&shared, &chunk)
+        else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin, Default::default());
+
+        // The `Task` call itself, recognised by the reference adapter's
+        // `_meta.claudeCode.toolName`, and promoted to a delegation kind.
+        let call = parse(
+            r#"{"update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Explore",
+                "kind":"other","status":"in_progress",
+                "rawInput":{"subagent_type":"explorer"},
+                "_meta":{"claudeCode":{"toolName":"Task"}}}}"#,
+        );
+        let Some(AgentEvent::ToolCall { call }) = session_update(&shared, &call) else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Delegate);
+        // The spawn belongs to whoever opened it, not to itself.
+        assert_eq!(call.origin, Default::default());
+
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = session_update(&shared, &chunk)
+        else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("t1"));
+        assert_eq!(origin.subagent_type.as_deref(), Some("explorer"));
+
+        let done = parse(
+            r#"{"update":{"sessionUpdate":"tool_call_update","toolCallId":"t1",
+                "status":"completed"}}"#,
+        );
+        session_update(&shared, &done).unwrap();
+
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = session_update(&shared, &chunk)
+        else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin, Default::default());
+    }
+
+    /// ACP states `cost.amount` cumulatively; the event contracts for a
+    /// per-report delta, and a report that adds nothing carries no cost.
+    #[test]
+    fn a_cumulative_acp_cost_becomes_a_per_report_delta() {
+        let (shared, _written, _events) = test_shared(&temp_root("cost"));
+        let usage = |amount: &str| {
+            parse(&format!(
+                r#"{{"update":{{"sessionUpdate":"usage_update","used":10,"size":100,
+                    "cost":{{"amount":{amount},"currency":"USD"}}}}}}"#
+            ))
+        };
+        let cost = |params: &Value| match session_update(&shared, params) {
+            Some(AgentEvent::UsageUpdate { cost, .. }) => cost,
+            other => panic!("expected usage, got {other:?}"),
+        };
+        assert_eq!(cost(&usage("0.05")).map(|c| c.amount), Some(0.05));
+        // 0.18 cumulative is 0.13 more than the 0.05 already reported.
+        let delta = cost(&usage("0.18")).unwrap();
+        assert!((delta.amount - 0.13).abs() < 1e-9, "{}", delta.amount);
+        // Nothing new to bill: no cost at all rather than a zero.
+        assert_eq!(cost(&usage("0.18")), None);
+    }
+
+    /// After a `subagent_spawned`, the child's output arrives on the child's
+    /// own envelope `sessionId` — exact attribution, no heuristic involved,
+    /// and it stops at the terminal `subagent_state_update`.
+    #[test]
+    fn a_child_session_attributes_its_chunks_to_the_subagent() {
+        let (shared, _written, _events) = test_shared(&temp_root("child"));
+        let spawned = parse(
+            r#"{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned",
+                "subagentSessionId":"child_1","name":"Explore","task":"look around",
+                "capabilities":{}}}"#,
+        );
+        assert!(session_update(&shared, &spawned).is_some());
+
+        let chunk = parse(
+            r#"{"sessionId":"child_1","update":{"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"hi"}}}"#,
+        );
+        let origin = |params: &Value| match session_update(&shared, params) {
+            Some(AgentEvent::AgentMessageChunk { origin, .. }) => origin,
+            other => panic!("expected a chunk, got {other:?}"),
+        };
+        let attributed = origin(&chunk);
+        assert_eq!(attributed.parent_tool_use_id.as_deref(), Some("child_1"));
+        assert_eq!(attributed.subagent_type.as_deref(), Some("Explore"));
+
+        let done = parse(
+            r#"{"sessionId":"parent","update":{"sessionUpdate":"subagent_state_update",
+                "subagentSessionId":"child_1","state":"completed"}}"#,
+        );
+        assert!(session_update(&shared, &done).is_some());
+        assert_eq!(origin(&chunk), Default::default());
+    }
+
+    /// Every ACP agent states the turn's tokens on the `session/prompt`
+    /// response and nowhere else, in three different places and two different
+    /// conventions for what `inputTokens` includes. All three are pinned from
+    /// real captures, and `Spend::total()` — the interface's headline figure —
+    /// must equal the agent's own `totalTokens` in every one.
+    #[test]
+    fn a_prompt_response_reports_the_turns_tokens() {
+        let (shared, _written, _events) = test_shared(&temp_root("spend"));
+        let spend = |response: &str| match turn_spend(&shared, &parse(response)) {
+            Some(AgentEvent::UsageUpdate {
+                used, size, spend, ..
+            }) => (used, size, spend.unwrap()),
+            other => panic!("expected usage, got {other:?}"),
+        };
+
+        // `claude-code-acp`: `result.usage`, and `inputTokens` excludes the
+        // cache — 3 + 17 + 19170 is its own 19190.
+        let (_, _, claude) = spend(
+            r#"{"result":{"stopReason":"end_turn","usage":{"inputTokens":3,"outputTokens":17,
+                "cachedReadTokens":0,"cachedWriteTokens":19170,"totalTokens":19190}}}"#,
+        );
+        assert_eq!(claude.total(), 19_190);
+        assert_eq!(claude.input, 3);
+        assert_eq!(claude.cache_creation, 19_170);
+
+        // `copilot`: same place, but `inputTokens` *includes* the 30080
+        // cached reads, so taken verbatim it would sum to 76702 rather than
+        // 46622. The fresh input is the 16270 that is left.
+        let (_, _, copilot) = spend(
+            r#"{"result":{"stopReason":"end_turn","usage":{"inputTokens":46350,
+                "outputTokens":272,"totalTokens":46622,"thoughtTokens":0,
+                "cachedReadTokens":30080,"cachedWriteTokens":0}}}"#,
+        );
+        assert_eq!(copilot.total(), 46_622);
+        assert_eq!(copilot.input, 16_270);
+        assert_eq!(copilot.cache_read, 30_080);
+
+        // `grok`: under `result._meta.usage`, with reasoning counted apart.
+        let (used, size, grok) = spend(
+            r#"{"result":{"stopReason":"end_turn","_meta":{"modelId":"grok-4.6",
+                "usage":{"inputTokens":16083,"outputTokens":54,"totalTokens":16137,
+                "cachedReadTokens":11776,"cacheCreationTokens":0,"reasoningTokens":36}}}}"#,
+        );
+        assert_eq!(grok.total(), 16_137);
+        assert_eq!(grok.input, 4_271);
+        assert_eq!(grok.thinking, 36);
+        // Grok sends no `usage_update` at all, so it names no window — 0 is
+        // the honest answer rather than an invented one.
+        assert_eq!((used, size), (0, 0));
+
+        // A response with no usage anywhere reports nothing.
+        assert!(turn_spend(&shared, &parse(r#"{"result":{"stopReason":"end_turn"}}"#)).is_none());
+    }
+
+    /// A turn's spend restates the occupancy the last `usage_update` gave, so
+    /// the context ring does not read as a window that just emptied.
+    #[test]
+    fn a_turns_spend_restates_the_last_known_occupancy() {
+        let (shared, _written, _events) = test_shared(&temp_root("occupancy"));
+        session_update(
+            &shared,
+            &parse(
+                r#"{"sessionId":"s","update":{"sessionUpdate":"usage_update",
+                    "used":19175,"size":1000000}}"#,
+            ),
+        );
+        let Some(AgentEvent::UsageUpdate { used, size, .. }) = turn_spend(
+            &shared,
+            &parse(r#"{"result":{"usage":{"inputTokens":3,"outputTokens":17,"totalTokens":20}}}"#),
+        ) else {
+            panic!("expected usage");
+        };
+        assert_eq!((used, size), (19_175, 1_000_000));
+    }
+
+    /// A spawn gets the same anchor `io/jsonl.rs` gives a Claude `Task` block —
+    /// a delegation call the transcript can hang the subagent's tab off — and
+    /// it belongs to whoever opened it, not to itself.
+    #[test]
+    fn a_spawn_synthesises_the_delegate_call_the_transcript_anchors_on() {
+        let (shared, _written, _events) = test_shared(&temp_root("anchor"));
+        let spawned = parse(
+            r#"{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned",
+                "subagentSessionId":"child_1","name":"Explore","task":"look around",
+                "capabilities":{}}}"#,
+        );
+        let Some(AgentEvent::ToolCall { call }) = session_update(&shared, &spawned) else {
+            panic!("expected the anchor tool call");
+        };
+        // The id the children's `parent_tool_use_id` will point at.
+        assert_eq!(call.id, "child_1");
+        assert_eq!(call.title, "Explore");
+        assert_eq!(call.kind, ToolKind::Delegate);
+        assert_eq!(call.status, ToolStatus::InProgress);
+        assert_eq!(
+            call.raw_input.as_ref().unwrap()["description"],
+            "look around"
+        );
+        // The spawn is the parent's line, so it carries no origin of its own.
+        assert_eq!(call.origin, Default::default());
+
+        // `cancelled` is not a `ToolStatus`, so a non-completion is a failure.
+        for (state, want) in [
+            ("completed", ToolStatus::Completed),
+            ("cancelled", ToolStatus::Failed),
+        ] {
+            let done = parse(&format!(
+                r#"{{"sessionId":"parent","update":{{"sessionUpdate":"subagent_state_update",
+                    "subagentSessionId":"child_1","state":"{state}"}}}}"#
+            ));
+            let Some(AgentEvent::ToolCallUpdate { update }) = session_update(&shared, &done) else {
+                panic!("expected the anchor to close");
+            };
+            assert_eq!(update.id, "child_1");
+            assert_eq!(update.status, Some(want));
+        }
+    }
+
+    /// Precedence: an agent that states an origin in `_meta` outranks the
+    /// child session id the envelope would otherwise supply.
+    #[test]
+    fn an_explicit_meta_origin_beats_the_child_session_id() {
+        let (shared, _written, _events) = test_shared(&temp_root("child_meta"));
+        let spawned = parse(
+            r#"{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned",
+                "subagentSessionId":"child_1","name":"Explore","task":"look",
+                "capabilities":{}}}"#,
+        );
+        session_update(&shared, &spawned);
+        let chunk = parse(
+            r#"{"sessionId":"child_1","update":{"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"hi"},
+                "_meta":{"parentToolCallId":"t7","subagentType":"stated"}}}"#,
+        );
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = session_update(&shared, &chunk)
+        else {
+            panic!("expected a chunk");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("t7"));
+        assert_eq!(origin.subagent_type.as_deref(), Some("stated"));
+    }
+
+    /// A subagent reports its own context window and its own spend, so its
+    /// cumulative figure is memoed under its own session and cannot move the
+    /// parent's delta.
+    #[test]
+    fn a_subagent_cost_does_not_disturb_the_parent_delta() {
+        let (shared, _written, _events) = test_shared(&temp_root("child_cost"));
+        let usage = |session: &str, amount: &str| {
+            parse(&format!(
+                r#"{{"sessionId":"{session}","update":{{"sessionUpdate":"usage_update",
+                    "used":10,"size":100,
+                    "cost":{{"amount":{amount},"currency":"USD"}}}}}}"#
+            ))
+        };
+        let cost = |params: &Value| match session_update(&shared, params) {
+            Some(AgentEvent::UsageUpdate { cost, .. }) => cost,
+            other => panic!("expected usage, got {other:?}"),
+        };
+        session_update(
+            &shared,
+            &parse(
+                r#"{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned",
+                    "subagentSessionId":"child_1","name":"Explore","task":"look",
+                    "capabilities":{}}}"#,
+            ),
+        );
+        assert_eq!(cost(&usage("parent", "0.05")).map(|c| c.amount), Some(0.05));
+        // The child's 2.00 is its own running total, not the parent's.
+        assert_eq!(cost(&usage("child_1", "2.00")).map(|c| c.amount), Some(2.0));
+        let delta = cost(&usage("parent", "0.18")).unwrap();
+        assert!((delta.amount - 0.13).abs() < 1e-9, "{}", delta.amount);
     }
 
     // ── the frames we write ────────────────────────────────────────────
@@ -2018,9 +2642,24 @@ mod tests {
                 "clientCapabilities": {
                     "fs": {"readTextFile": true, "writeTextFile": true},
                     "session": {"configOptions": {"boolean": {}}},
+                    "_meta": {"jetbrains": {"air": {
+                        "version": 1,
+                        "capabilities": ["nativeSubagentSessions"],
+                    }}},
                 },
             })
         );
+    }
+
+    /// The subagent extension is gated on this exact `_meta` path; the
+    /// adapters read nothing else, and drop back to a plain tool call without
+    /// it. `asyncTasks` and `sessionFailure` are deliberately absent — we
+    /// handle neither.
+    #[test]
+    fn initialize_advertises_the_native_subagent_capability() {
+        let air = &initialize_params()["clientCapabilities"]["_meta"]["jetbrains"]["air"];
+        assert_eq!(air["version"], 1);
+        assert_eq!(air["capabilities"], json!(["nativeSubagentSessions"]));
     }
 
     /// A cancel is a notification: no `id` key at all, so nothing waits for a

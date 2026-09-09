@@ -17,6 +17,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::work::AgentId;
 
+use crate::state::PanelKind;
 use crate::state::clone::CloneState;
 use crate::state::remote::RemoteConnectState;
 use crate::state::settings::SettingsState;
@@ -157,12 +158,16 @@ pub enum MenuId {
     Explorer,
     /// The status bar's text-size dropdown. It offers the whole point range the chrome admits.
     FontSize,
-    /// The file tab's right-click menu. Which tab it opened on, and where, is
-    /// `WorkbenchState::file_tab_menu`.
-    FileTab,
+    /// A tab's right-click menu — a file, a terminal or a chat tab. Which panel it opened on, and
+    /// where, is `WorkbenchState::tab_menu`.
+    Tab,
     /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
     /// opened is `WorkbenchState::new_pane_menu`.
     NewPane,
+    /// The titlebar's overflow chevron: the rarely-used commands moved off the strip to make room
+    /// for it — remote connect, web export, window capture and settings. Where it opened is
+    /// `WorkbenchState::overflow_menu`.
+    Overflow,
     /// The `+` menu every surface that hosts a conversation raises: *New agent*, which opens the
     /// form, and *Attach existing agent*, which lists what is already running. Where it opened,
     /// which surface asked and which of its two stages is drawn is
@@ -193,6 +198,19 @@ pub enum NewPaneRow {
     Separator,
     /// The console, which is revealed rather than started.
     Console,
+}
+
+/// One row of the titlebar's overflow menu, in the order it is drawn.
+///
+/// Here rather than in the module that paints it, for the same reason [`NewPaneRow`] is: the pick
+/// is matched by position, so a row that is not offered must not shift the index of the one after
+/// it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OverflowRow {
+    RemoteConnect,
+    WebExport,
+    CaptureWindow,
+    Settings,
 }
 
 /// One row of the harness menu, in the order it is drawn.
@@ -233,6 +251,10 @@ pub enum FileDialog {
     New { parent: String, dir: bool },
     /// Renaming `path`, seeded with its leaf name.
     Rename { path: String },
+    /// A tab's own name, typed over whatever it is currently showing — a terminal's pane title or
+    /// a chat's agent name. `current` is what the field is seeded with, since neither is a fact
+    /// `kind` alone can answer without a window in hand.
+    RenameTab { kind: PanelKind, current: String },
     /// Removing `path`. `trash` is false when Shift was held, and the wording and the button say
     /// which one it is rather than leaving the user to know.
     Remove {
@@ -328,10 +350,10 @@ pub struct WorkbenchState {
     /// What was typed into the explorer's "Go to file…" field. It belongs to the window rather than
     /// to a tree, because one field filters whichever project is on screen.
     pub file_filter: String,
-    /// The file tab whose right-click menu is open, and where the click went down. The menu is one
-    /// at a time, so this is a single `Option` like `open_menu`; the tab key names the file, the
-    /// point anchors the `context_menu` over the window.
-    pub file_tab_menu: Option<(String, (f32, f32))>,
+    /// The tab whose right-click menu is open, and where the click went down. The menu is one at a
+    /// time, so this is a single `Option` like `open_menu`; the panel names the tab, the point
+    /// anchors the `context_menu` over the window.
+    pub tab_menu: Option<(PanelKind, (f32, f32))>,
     /// The file question that is up, if one is. One at a time, and drawn from the window's root so
     /// that both the explorer and the editor's save-as reach it.
     pub file_dialog: Option<FileDialog>,
@@ -341,6 +363,9 @@ pub struct WorkbenchState {
     /// Where the new-pane menu's chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::NewPane`.
     pub new_pane_menu: Option<(f32, f32)>,
+    /// Where the titlebar's overflow chevron was clicked, which is what anchors the menu over the
+    /// window. `Some` exactly while `open_menu` is `MenuId::Overflow`.
+    pub overflow_menu: Option<(f32, f32)>,
     /// The `+` menu, while it is down. `Some` exactly while `open_menu` is `MenuId::NewAgent`.
     pub new_agent_menu: Option<NewAgentMenu>,
     /// Where a conversation's three-dots menu was clicked. `Some` exactly while `open_menu` is
@@ -411,10 +436,11 @@ impl Default for WorkbenchState {
             project_error: None,
             work_error: None,
             file_filter: String::new(),
-            file_tab_menu: None,
+            tab_menu: None,
             file_dialog: None,
             move_unasked_until: None,
             new_pane_menu: None,
+            overflow_menu: None,
             new_agent_menu: None,
             conversation_menu: None,
             confirm_end_conversation: None,
@@ -447,6 +473,23 @@ impl WorkbenchState {
             }
         }
         rows.push(NewPaneRow::Console);
+        rows
+    }
+
+    /// What the titlebar's overflow menu offers.
+    ///
+    /// `has_project` and `capture_offered` are asked of the caller rather than read from `self`
+    /// for the reason `new_pane_rows` takes `has_project`: this is plain data, and neither the
+    /// project nor the capture backend is a fact `WorkbenchState` itself can answer.
+    pub fn overflow_rows(&self, has_project: bool, capture_offered: bool) -> Vec<OverflowRow> {
+        let mut rows = vec![OverflowRow::RemoteConnect];
+        if has_project {
+            rows.push(OverflowRow::WebExport);
+        }
+        if has_project && capture_offered {
+            rows.push(OverflowRow::CaptureWindow);
+        }
+        rows.push(OverflowRow::Settings);
         rows
     }
 

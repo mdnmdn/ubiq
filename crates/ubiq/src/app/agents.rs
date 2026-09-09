@@ -935,6 +935,22 @@ impl AppState {
         cx.notify();
     }
 
+    /// Raise the New agent form directly, skipping the `+` menu's first stage.
+    ///
+    /// The titlebar's shortcut is the menu's row 0 with the stop left out: [`Self::aim_start`]
+    /// says where the conversation lands once it does, the same call [`Self::pick_new_agent_menu`]
+    /// makes for that row, and the surface is picked the same way — the chat strip in the IDE, an
+    /// agents-screen column everywhere else.
+    pub fn open_new_agent_direct(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let surface = if self.workbench.is_ide() {
+            NewAgentSurface::Chat
+        } else {
+            NewAgentSurface::Agents
+        };
+        self.aim_start(surface, cx);
+        self.open_new_agent(window, cx);
+    }
+
     /// What the `+` menu's second stage offers: every conversation in this project that no other
     /// panel of the asking surface already shows.
     ///

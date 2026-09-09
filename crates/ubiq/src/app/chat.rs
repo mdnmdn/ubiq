@@ -180,6 +180,8 @@ impl AppState {
     /// A chat panel left the dock for good. The conversation it was attached to, if any, is the
     /// host's and keeps running — only the tab and its composer slot go.
     pub fn closed_chat_tab(&mut self, id: ChatId, cx: &mut Context<Self>) {
+        self.tab_names.remove(&PanelKind::Chat(id));
+        self.pinned_tabs.remove(&PanelKind::Chat(id));
         let Some(project) = self.project(cx) else {
             self.panels.remove(&PanelKind::Chat(id));
             return;
