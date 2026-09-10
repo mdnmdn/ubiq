@@ -102,6 +102,21 @@ draws; it never gets an element, an entity or a frame. This is `D3` applied a th
 enforced the same way: `crates/ubiq-plugin` depends on `ubiq-proto` and nothing else, so the broker
 *cannot* express anything but a message, and `just plugin` checks that nothing reintroduced it.
 
+**Which half runs it is not a preference.** `crates/ubiq-plugin` is embedded by the host and runs on
+a plugin worker thread beside the other five, because everything a plugin reaches is on that side —
+files, tasks, git, conversations, the config root, the outbound HTTP client, the ability to spawn a
+process. A plugin in the interface crate would have to break R2's own rule to reach any of it, and
+four smaller things decide it independently: there is one host and N windows, so a plugin drawn into
+the interface would sync twice and register its tools twice; a background activation has to tick
+with no window focused; `McpService` is provisioned where the `RunSpec` is composed, so a tool
+implemented in the interface could not be called at all; and the day the host is on another machine,
+a plugin that ran beside the window would be looking for a project that is not there. Host-side, a
+remote host costs the plugin nothing.
+
+The interface's job is what it always is: draw the contributions, send the interactions back. The
+price is that a plugin cannot react within a frame — a click on its surface round-trips over the bus
+— which is what every panel already pays.
+
 **R4 — A plugin holds no credential material and no path outside its grant.** It says
 `auth: "connector:azure-devops"` and the broker attaches the token, the same way an account crosses
 the wire as an id and a label. The domain rule already reads "accounts carry credential references,
