@@ -233,6 +233,15 @@ this crate doesn't know about yet rather than failing to parse it.
 this — it's ACP's now-legacy mode-only notification, kept for a harness that
 only ever reports mode changes that way.
 
+**A category says which picker draws an option; the setter is a separate fact.**
+`AcpBridge` keeps a `ConfigSource` beside every option it publishes, saying
+which method applies a pick — `session/set_model`, `session/set_mode` or
+`session/set_config_option` — because an agent that advertises no
+`configOptions` still has to be settable. Grok is the case that forces the two
+apart: what it calls a `mode` is its reasoning effort, so the option is
+published as `ThoughtLevel` and set with `session/set_mode`. A consumer reads
+the category and never infers a method from it.
+
 ### Usage: suppressed rather than guessed
 
 ```rust

@@ -122,7 +122,11 @@ lifecycles.
 The load-bearing points:
 
 - **A view is never the workspace.** A chat tab is a perspective on a host-owned conversation;
-  closing one ends nothing, and the host is never told which surfaces are looking.
+  closing one ends nothing, and the host is never told which surfaces are looking. It holds in one
+  direction only: `ConversationDeleted` **closes** every chat tab attached to that conversation —
+  `AppState::close_chat_tab_in(project, id, cx)`, by project id because the delete can arrive while
+  the window is looking elsewhere. A delete is the one host event that ends a view, because a
+  detached tab would be an empty panel left where a conversation used to be.
 - **Exclusivity is per chat tab, not per conversation** (`D61`) — the agents screen may show the
   same conversation in a column at the same moment a chat tab is attached to it.
 - **Closing a column tab benches the agent; it does not end it.** Nothing on the agents screen

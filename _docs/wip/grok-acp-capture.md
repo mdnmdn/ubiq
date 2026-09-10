@@ -26,8 +26,11 @@ fails**:
 ```
 
 `{"method":"authenticate","params":{"methodId":"cached_token"}}` succeeds against the cached
-`~/.grok/auth.json` and requires no interaction. `acp_client.rs:445-455` deliberately never calls
-`authenticate`, so **every Grok ACP conversation dies at `session/new` today**.
+`~/.grok/auth.json` and requires no interaction. `AcpBridge`'s handshake sends it between
+`initialize` and `session/new`, and the one method it will use is the one the agent nominates itself
+at `_meta.defaultAuthMethodId` — an interactive method is information rather than a step, since
+credentials are settled at provisioning time. A failure is logged and not fatal: `session/new` is
+the authority on whether a session starts, and its error names the methods the agent advertised.
 
 ## 2. Models and modes come back in the vendor shapes, not `configOptions`
 
@@ -52,12 +55,20 @@ The `x.ai/sessionConfig` entries are flat — one row per choice, `category` say
 belongs to and `selected` marking the current one — where the `models` block is nested. The mode
 rows repeat the selected model's `reasoningEfforts`.
 
-There is **no `configOptions` and no `modes` block**. `session_events`
-(`acp_client.rs:709-741`) reads only those two, so the interface is handed no choices at all —
-that is the "no thinking mode, no harness mode" report.
+There is **no `configOptions` and no `modes` block**, so `session_events` mints the pickers from
+`x.ai/sessionConfig` instead (`xai_config` in `acp_client.rs`): one option per `category`, its
+`current_value` the `selected` row.
 
 Note what Grok calls things: **`category: "mode"` is the reasoning effort**, not a permission mode.
-Grok exposes no permission mode over ACP at all (see §4).
+Grok exposes no permission mode over ACP at all (see §4). So that group is published as the
+*thinking* option — id `thinking`, name `Thinking`, `ConfigCategory::ThoughtLevel`, the same shape
+`ubiq-host`'s `thinking_config_option` uses on the non-ACP path — because the chat row matches its
+chips by literal option id: published as `mode` it was drawn in the permission-mode chip, tooltip
+and all, and no thinking chip existed. What keeps Grok's own naming is the **setter**:
+`ConfigSource::Mode` stays on the option, so `session/set_mode {sessionId, modeId}` is what applies
+a pick. A source therefore does not imply a category. `SessionStarted.mode` is `None` for a Grok
+session, which is the accurate answer for an agent that exposes no permission mode; a
+standards-compliant agent's own `modes` block still publishes id `mode` as a permission mode.
 
 The same `modelState` block is also on the `initialize` result's `_meta`, so the model list is
 known before a session exists.
@@ -125,8 +136,17 @@ Captured from a run that spawned one:
 - Polling a finished background child is a `get_command_or_subagent_output` tool call
   (`_meta["x.ai/tool"].kind == "background_task_action"`).
 
-`is_delegate` (`acp_client.rs:1945`) matches only `task`/`agent`, so `spawn_subagent` is not
-recognised either.
+`is_delegate` recognises the spawn three ways over: `_meta["x.ai/tool"].kind == "task"`, the tool
+name, and the title `spawn_subagent`. The marker is on the **first** frame only — the follow-up
+`tool_call_update` states `kind: "other"` and the human description as its title — so the reader
+keeps a `delegate_calls` set of every id ever recognised as a delegation and a known id holds
+`ToolKind::Delegate` across every later patch, however late. `session/request_permission` runs the
+tool call embedded at `params.toolCall` through the same test, so a permission ask for a spawn is
+recognised as one.
+
+Two things the child's traffic still does not carry, both on Ubiq's own wire rather than Grok's:
+`ConvUpdate::ToolCallUpdate` has no `subagent` field (`G227`), and no per-subagent token accounting
+survives the mapping (`G228`).
 
 ## 6. Other Grok extensions seen on the wire
 
@@ -142,21 +162,23 @@ fixes in `acp_client.rs` and `grok.rs`:
 
 The argv is `grok agent --model grok-4.5 --reasoning-effort low stdio`, and the run answers with a
 `session_started`, then a `config_option_update` carrying **both** pickers — a `model` option
-offering `grok-4.6` and `grok-4.5`, and a `mode` option offering `xhigh`, `high`, `medium` and
-`low` — then the ordinary thought, message, usage and `turn_ended` events.
+offering `grok-4.6` and `grok-4.5`, and a `thinking` option offering `xhigh`, `high`, `medium` and
+`low` — then the ordinary thought, message, usage and `turn_ended` events. A run whose mode is
+`bypassPermissions` or `dontAsk` carries `--always-approve` between `agent` and `stdio`; every other
+mode value adds no flag, since this path has none to add.
 
 Both pickers being populated is what was missing. Two things this run pins down:
 
 - **`--reasoning-effort` is honoured** by `grok agent stdio`: `--reasoning-effort low` came back as
-  `mode: "low"`.
+  the selected `category: "mode"` row, `low`.
 - **`--model` is not.** `--model grok-4.5` came back as `model: "grok-4.6"`, and the model option's
   `current_value` agreed. The flag is accepted and ignored for an `agent stdio` session, so a
   requested model has to be applied with `session/set_model` after `session/new`.
 
 Re-run once the bridge does that, on the same command line: `session_started` reports
-`"model":"grok-4.5","mode":"low"`, the model option's `current_value` is `grok-4.5`, and the turn
-answers and ends normally. The requested model is what the session runs on, and it is what both
-the `SessionStarted` event and the picker report.
+`"model":"grok-4.5"` and no mode, the model option's `current_value` is `grok-4.5`, the thinking
+option's is `low`, and the turn answers and ends normally. The requested model is what the session
+runs on, and it is what both the `SessionStarted` event and the picker report.
 
 ## 8. `grok models`
 
@@ -170,3 +192,30 @@ Available models:
 
 The starred entry is the default. `Grok::discover_models` reads the bulleted list under
 `Available models:` and falls back to a `grok-`-prefixed token scan if that heading is not there.
+
+`grok models` states no reasoning field, so `Grok::discover_thinking` states the four efforts of §2
+itself — `xhigh`, `high`, `medium`, `low`, default `high` — against every model `discover_models`
+answers. A fixed CLI/API enum, the same stance `Grok::modes` takes, and it is what gives the New
+agent form a live thinking row for Grok.
+
+## 9. Tokens, and which figure is the context level
+
+Grok sends **no `usage_update`**, and the `session/prompt` response carries two different totals.
+Read them apart:
+
+| Figure | Turn 1 | Turn 2 | What it is |
+|---|---|---|---|
+| `result._meta.totalTokens` | 15920 | 17659 | **Occupancy** — how full the window is |
+| `result._meta.usage.totalTokens` | — | 88765 (7 calls) | Turn-cumulative across the turn's model calls |
+
+The second is a flow and not a level: summing model calls, it passes the window and keeps going.
+`turn_spend` therefore reads the spend figures from `result._meta.usage` and takes the occupancy from
+`result._meta.totalTokens`, over the current model's window out of `ReaderState::windows` — learned
+from `availableModels[]._meta.totalContextTokens` on `session/new`'s `models` block and on
+`initialize`'s `_meta.modelState`, the session result winning where they disagree. An agent that
+does send `usage_update` stays authoritative: the derivation runs only while no report has stated an
+occupancy. Either figure missing still reports `(0, 0)`, the stance `io/jsonl.rs`'s `ring()` takes —
+no invented denominator.
+
+The raw frames also carry a `_meta.totalTokens` per *child* session (10624 and 10607 in the
+capture), and nothing banks it per subagent: that is `G228`.

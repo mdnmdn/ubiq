@@ -950,11 +950,13 @@ impl AppState {
         }
     }
 
-    /// Open or shut one thinking block's disclosure, by its position in the transcript.
-    pub fn toggle_conversation_thought(
+    /// Open or shut one run of consecutive thinking blocks, by their positions in the transcript.
+    /// A run is one box on screen, so the disclosure on it moves every block it stands for — a
+    /// run of one included.
+    pub fn toggle_conversation_thought_group(
         &mut self,
         agent_id: AgentId,
-        block: usize,
+        blocks: Vec<usize>,
         cx: &mut Context<Self>,
     ) {
         let Some(id) = self.project(cx) else {
@@ -963,7 +965,7 @@ impl AppState {
         if let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
-            conversation.toggle_thought(block);
+            conversation.toggle_thought_group(&blocks);
             cx.notify();
         }
     }

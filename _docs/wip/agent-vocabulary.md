@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests.
 read_when: you are picking up this work, or you need to know which parts of it have been seen working and which have only been reasoned about
-updated: 2026-09-06
+updated: 2026-09-10
 verified: 2026-09-10
 code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs]
 depends_on: [wip-agent-setup, tech-agent-manager, feat-chat, feat-workbench]
@@ -59,10 +59,13 @@ suite cannot: `command -v node` succeeding while `node -v` fails is this bug's e
 
 `Harness` gained `version()`, `discover_thinking()`, `modes()` and `unattended_mode()`, all defaulted
 so a harness with no
-such concept needs no override — which is the honest answer for opencode, Copilot and Grok. Claude's
-reasoning levels are scraped from `--help`; Codex's come free from the bundled-models probe already
-run for `discover_models`. Modes are fixed CLI enums and are **not** probed. `unattended_mode()`
-names which of a harness's own modes means "ask nothing" — `bypassPermissions` for Claude,
+such concept needs no override — which is the honest answer for Copilot, the one harness with no
+reasoning concept at all. Claude's reasoning levels are scraped from `--help`; Codex's come free
+from the bundled-models probe already run for `discover_models`; opencode reads each model's
+`variants` map; Grok's four efforts (`xhigh`, `high`, `medium`, `low`, default `high`) are a fixed
+enum its own wire states, so `Grok::discover_thinking` applies them to every model rather than
+probing a second time. Modes are fixed CLI enums and are **not** probed. `unattended_mode()`
+names which of a harness's own modes means "ask nothing" — `bypassPermissions` for Claude and Grok,
 `danger-full-access` for Codex — so an embedder whose sandbox already contains the run can pick it
 without spelling it; `None` where the harness has no such mode or already asks nothing.
 
@@ -128,7 +131,7 @@ in the round.
 |---|---|
 | Workspace tests, clippy under `-D warnings`, fmt, and the crate-boundary checks | Run green |
 | The login policy grants the interpreter | **Reasoned and unit-tested, never seen signing anybody in.** The probe shell exists precisely because this is the gap |
-| opencode and grok logins | Unverifiable here — neither binary is installed (`G118`) |
+| opencode and grok logins | opencode's is unverifiable here — the binary is absent. grok 1.0.13 is installed and drives a real ACP session, and it has no login verb at all, so its relocated-`HOME` grants stay unexercised (`G118`) |
 | A successful real-harness resume, end to end over the bus | No test. No coordinator test in this tree spawns a real harness, and a hanging test would be worse than the honest gap |
 | Everything visual | Not verified. No agent in this round could drive the GUI |
 | `docs-lint` | Not run against a measured baseline this round |

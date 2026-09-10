@@ -132,8 +132,8 @@ override user settings per key.
 | Agents         | full    | `~/.grok/user-settings.json` → `subAgents[]`                          |
 | Slash commands | partial | Built-in TUI commands only; no documented custom-command file format  |
 | Auth           | full    | `GROK_API_KEY` / `-k` / `apiKey`; `GROK_BASE_URL` for endpoint         |
-| Permissions    | partial | `--permission-mode <mode>` (6 values, passthrough only, verified 2026-09-10); `--always-approve`/`_meta.yoloMode` on the ACP path; no allow/deny rule file |
-| Structured I/O | partial | ACP over `grok agent stdio`; generic `AcpBridge`. Verified 2026-09-10 that `session/new` **requires** a preceding `authenticate` call the bridge does not make today, and that models/reasoning arrive in vendor `_meta` shapes the bridge does not read — see "ACP mode" below and `_docs/wip/grok-acp-capture.md` |
+| Permissions    | partial | `--permission-mode <mode>` (6 values, passthrough only, verified 2026-09-10); on the ACP path only `--always-approve`, which the two ask-nothing modes map onto; `_meta.yoloMode` unused; no allow/deny rule file |
+| Structured I/O | full    | ACP over `grok agent stdio`; generic `AcpBridge`, captured live 2026-09-10 — the mandatory `authenticate`, the vendor `models`/`x.ai/sessionConfig` pickers, the per-model context window and the child sessions a spawn streams on are all read. See "ACP mode" below and `_docs/wip/grok-acp-capture.md` |
 | Policies       | full    | `AGENTS.md` (always-on instruction content)                           |
 
 "Support" is the `agent-manager` view of how completely the feature is
@@ -381,11 +381,13 @@ file:
 
 **`grok agent stdio` (the structured/ACP path) has no `--permission-mode` selector at all** — that
 flag exists only at the top level, outside agent mode. `Grok::provision`'s `IoModes::Structured`
-arm therefore emits `--model`/`--reasoning-effort` (both accepted between `agent` and `stdio`) but
-deliberately no permission flag; `spec.policy.permission_mode` only reaches the process on the
-passthrough path, as `--permission-mode <id>` in top-level argv. Wiring `_meta.yoloMode` into the
-ACP bridge's `session/new` call is a change to `io/acp_client.rs`, out of this harness module's
-scope.
+arm emits `--model`/`--reasoning-effort` (both accepted between `agent` and `stdio`) and maps the
+mode onto the one lever that path does have: `bypassPermissions` and `dontAsk`, Grok's two
+ask-nothing modes, become `--always-approve`. The other four (`default`, `acceptEdits`, `auto`,
+`plan`) have no ACP-side wire and emit nothing — they reach the process only on the passthrough
+path, as `--permission-mode <id>` in top-level argv. Wiring `_meta.yoloMode` into the ACP bridge's
+`session/new` call is the finer-grained alternative, per session rather than per process, and it is
+a change to `io/acp_client.rs` out of this harness module's scope.
 
 The npm CLI's workspace-trust + sandbox-flag description (unverified for 1.0.13, kept for
 reference):
@@ -471,7 +473,7 @@ launch `am` drives for every structured run of this harness, through the harness
 Structured argv, verified 2026-09-10:
 
 ```
-grok agent [--model <id>] [--reasoning-effort <level>] stdio [passthrough_args...]
+grok agent [--model <id>] [--reasoning-effort <level>] [--always-approve] stdio [passthrough_args...]
 ```
 
 `agent`'s own options — including `-m`/`--model` and `--reasoning-effort` (alias `--effort`) —
@@ -479,22 +481,32 @@ go **between `agent` and `stdio`**, not after it; putting them after `stdio` doe
 is still no `--prompt` (the prompt is a `session/prompt` request over the wire) and no `--session`
 (a resume is `session/load` against the id the previous run reported).
 
-Four behaviours the capture establishes that `src/io/acp_client.rs` does not yet handle — listed
-here for reference; fixing the bridge itself is out of this harness module's scope:
+Five behaviours the capture establishes, each answered in `src/io/acp_client.rs` — the bridge stays
+harness-neutral, so every one of them is read off the wire rather than keyed on this harness's id:
 
 - **`authenticate` is mandatory.** `session/new` fails with `-32000 "Authentication required"`
-  unless `{"method":"authenticate","params":{"methodId":"cached_token"}}` precedes it. The bridge
-  never sends it today, so every Grok ACP conversation dies at `session/new`.
+  unless `{"method":"authenticate","params":{"methodId":"cached_token"}}` precedes it. The
+  handshake sends the method the agent nominates at `_meta.defaultAuthMethodId`, which for Grok is
+  the cached token and asks nothing; a failure is logged and `session/new` is left to report it.
 - **Models and reasoning effort arrive in vendor shapes**, not the ACP-standard `configOptions`/
-  `modes` the bridge reads: `session/new`'s `_meta["x.ai/sessionConfig"].options` mixes
-  `category: "model"` and `category: "mode"` entries (Grok calls reasoning effort a "mode" — it is
-  not a permission mode). Setting either is `session/set_mode` (effort) or `session/set_model`
-  (model); `session/set_config_option`, the only setter the bridge sends, names an option Grok
-  never advertises.
-- **No permission mode over ACP** — see "Permissions" above.
-- **Subagents stream on a second `sessionId`** rather than the `subagent_spawned` extension the
-  bridge's `is_delegate` heuristic expects, so a delegate's transcript (and its prompt) currently
-  renders as ordinary user/assistant turns instead of a nested delegate.
+  `modes`: `session/new`'s `_meta["x.ai/sessionConfig"].options` mixes `category: "model"` and
+  `category: "mode"` entries (Grok calls reasoning effort a "mode" — it is not a permission mode),
+  and the `models` block is nested beside them. The bridge mints one select option per category
+  from both, and publishes the effort as the **thinking** option (`ConfigCategory::ThoughtLevel`)
+  while keeping `session/set_mode` as its setter — the picker an option is drawn in and the method
+  that applies it are separate facts. `session/set_model` sets the model.
+- **No permission mode over ACP** — see "Permissions" above. `SessionStarted.mode` is `None` for a
+  Grok session, and `bypassPermissions`/`dontAsk` reach the launch as `--always-approve` instead.
+- **The context window is stated on the model list, not on a usage report.** Grok sends no
+  `usage_update` at all, so the bridge learns each model's window from
+  `availableModels[]._meta.totalContextTokens` and pairs it with the occupancy on the
+  `session/prompt` response (`result._meta.totalTokens` — *not* `result._meta.usage.totalTokens`,
+  which is cumulative over the turn's model calls). Either figure missing reports `(0, 0)`.
+- **Subagents stream on a second `sessionId`** rather than through the `subagent_spawned`
+  extension, so a delegate is recognised from the spawn's own `_meta["x.ai/tool"].kind == "task"`
+  and its child chunks are attributed by envelope `sessionId`. The marker is on the first frame
+  only, so the bridge remembers delegate call ids and holds the delegate kind across every later
+  `tool_call_update`.
 
 The `--format json` NDJSON stream (below) stays **unused** for structured runs: its event names
 are documented but its per-field shapes are not, and ACP's shapes are specified — the reason this
@@ -515,6 +527,11 @@ Verified 2026-09-10 against 1.0.13:
 - `RunSpec::thinking` (`crates/agent-manager/src/spec.rs`) is the harness-neutral field
   `Grok::provision` reads for this; see `harness/grok.rs`'s `IoModes::Structured` and
   `IoModes::Passthrough` arms.
+- `Grok::discover_thinking` states the four efforts — `xhigh`, `high`, `medium`, `low`, default
+  `high` — against every id `discover_models` answers. They are a fixed CLI/API enum rather than a
+  probe, the same stance `Grok::modes` takes, so an embedder gets a level picker for this harness
+  without a second command. `grok-4.5` accepting one fewer than `grok-4.6` is the one place that
+  list is broader than the model.
 
 ### MCP at launch
 

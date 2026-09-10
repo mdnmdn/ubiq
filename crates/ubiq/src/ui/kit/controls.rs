@@ -64,7 +64,10 @@ pub fn section_label(text: &str) -> impl IntoElement {
 }
 
 /// A 7px state dot with the soft ring that makes it readable against any surface.
-pub fn status_dot(color: Rgba, ring: Rgba) -> impl IntoElement {
+///
+/// A `Div` rather than `impl IntoElement`, because a caller that animates it — the lifecycle dot
+/// pulsing while a turn wants the reader — needs an element to hang `with_animation` on.
+pub fn status_dot(color: Rgba, ring: Rgba) -> Div {
     div()
         .size(px(13.))
         .flex()

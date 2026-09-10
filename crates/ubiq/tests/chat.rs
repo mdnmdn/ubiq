@@ -14,12 +14,15 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::agents::COLUMNS_MAX;
 use ubiq::state::dock::ChatId;
-use ubiq::state::{WindowRegistry, attach_choices};
-use ubiq_proto::bus::{self, To};
+use ubiq::state::{WindowRegistry, attach_choices, prefs};
+use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
+
+/// How long a drain of the host's inbox waits for one more message before calling it empty.
+const PATIENCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 struct Fixture {
     state: Entity<AppState>,
@@ -102,6 +105,19 @@ impl Fixture {
         self.host
             .send(To::Everyone, Message::ConversationDeleted { agent_id });
         cx.run_until_parked();
+    }
+
+    /// Everything this window has said to the host, drained. The same helper the conversation
+    /// tests use, for the one assertion that has to read what was written down rather than what
+    /// the window holds.
+    fn said(&self) -> Vec<Message> {
+        let mut said = Vec::new();
+        while let Ok(event) = self.host.recv_timeout(PATIENCE) {
+            if let FromClient::Said { message, .. } = event {
+                said.push(message);
+            }
+        }
+        said
     }
 
     fn regions_open(&self, cx: &mut TestAppContext) -> (bool, bool, bool) {
@@ -449,36 +465,113 @@ fn a_persistent_agent_opens_its_chat_on_entry(cx: &mut TestAppContext) {
     assert_eq!(attached, Some(agent_id));
 }
 
-/// Deleting a conversation is not closing its tab: the tab is a view and stays, but with nothing
-/// attached, and the conversation itself is gone from this window's own copy.
+/// Deleting a conversation **closes** the tab that was looking at it, panel and all. Every other
+/// view stays: the delete names one conversation, not the surface it happened to be drawn on.
+///
+/// A detached tab would be an empty panel left where a conversation used to be, which is the one
+/// thing a delete must not leave behind — an empty tab is what a `+` produces on request.
 #[gpui::test]
-fn deleting_a_conversation_detaches_its_chat_tab_rather_than_closing_it(cx: &mut TestAppContext) {
+fn deleting_a_conversation_closes_the_chat_tab_that_was_looking_at_it(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let agent_id = AgentId::generate();
     fixture.started(an_agent(agent_id, "Claude Code"), cx);
-    let tab = fixture
+
+    // A tab of its own, opened the way the strip's `+` opens one, so there is a real dock leaf to
+    // watch go — and the project's default tab stays behind as the view the delete must not touch.
+    let watching = fixture
         .state
-        .read_with(cx, |state, cx| state.open_project(cx).unwrap().chats[0].id);
-    fixture
-        .state
-        .update(cx, |state, cx| state.attach_chat(tab, Some(agent_id), cx));
+        .update(cx, |state, cx| state.open_chat_tab_now(cx))
+        .expect("a second chat tab");
+    cx.run_until_parked();
+    fixture.state.update(cx, |state, cx| {
+        state.attach_chat(watching, Some(agent_id), cx)
+    });
+    assert!(
+        fixture.chat_leaves(cx).contains(&watching.to_string()),
+        "the attached tab is on screen before the delete"
+    );
 
     fixture.deleted(agent_id, cx);
 
-    let (chats, has_conversation) = fixture.state.read_with(cx, |state, cx| {
+    let (chats, has_conversation, listed) = fixture.state.read_with(cx, |state, cx| {
         let open = state.open_project(cx).unwrap();
         (
             open.chats.clone(),
             open.conversations.contains_key(&agent_id),
+            open.work.agent(agent_id).is_some(),
         )
     });
-    assert_eq!(chats.len(), 1, "the tab is not closed by a delete");
-    assert_eq!(
-        chats[0].attached, None,
-        "but it is left attached to nothing"
+    assert!(
+        !chats.iter().any(|tab| tab.id == watching),
+        "the tab looking at a deleted conversation must close, not detach"
+    );
+    assert_eq!(chats.len(), 1, "the project's other view is untouched");
+    assert_eq!(chats[0].attached, None);
+    assert!(
+        !fixture.chat_leaves(cx).contains(&watching.to_string()),
+        "the dock panel goes with the tab, not just the ChatTab row"
     );
     assert!(
         !has_conversation,
         "the window's own copy of the conversation must go with the delete"
+    );
+    assert!(
+        !listed,
+        "and its work row too — the columns, the bench and every attach list read that one list"
+    );
+}
+
+/// A conversation nobody marked persistent is not written down, because it will not survive: the
+/// host keeps only the persistent rows and the boot sweep has already deleted the rest. Writing
+/// one would revive a tab attached to an agent that no longer exists.
+///
+/// A persistent one still is — that is the whole of what the blob is for.
+#[gpui::test]
+fn only_a_persistent_attachment_is_remembered(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+
+    let kept_id = AgentId::generate();
+    let mut kept = an_agent(kept_id, "Claude Code");
+    kept.persistent = true;
+    let passing_id = AgentId::generate();
+    fixture.started(kept, cx);
+    fixture.started(an_agent(passing_id, "Codex"), cx);
+
+    let first = fixture
+        .state
+        .read_with(cx, |state, cx| state.open_project(cx).unwrap().chats[0].id);
+    let second = fixture
+        .state
+        .update(cx, |state, cx| state.open_chat_tab_now(cx))
+        .expect("a second chat tab");
+    cx.run_until_parked();
+    fixture
+        .state
+        .update(cx, |state, cx| state.attach_chat(first, Some(kept_id), cx));
+    fixture.state.update(cx, |state, cx| {
+        state.attach_chat(second, Some(passing_id), cx)
+    });
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.remember_view(cx));
+    cx.run_until_parked();
+
+    let remembered = fixture
+        .said()
+        .into_iter()
+        .rev()
+        .find_map(|message| match message {
+            Message::SetPreferences { value, .. } => {
+                prefs::decode::<prefs::ViewPrefs>(&value).map(|view| view.chats)
+            }
+            _ => None,
+        })
+        .expect("the window wrote its view down");
+
+    assert_eq!(
+        remembered,
+        vec![kept_id.to_string()],
+        "the persistent attachment is kept and the passing one is written as nothing"
     );
 }

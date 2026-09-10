@@ -549,17 +549,33 @@ same bargain `kit::elided` makes.
 The state dot itself is what a conversation's lifecycle reading is drawn as — no primitive of its
 own. `ui::conversation::lifecycle` derives one `Lifecycle` from the conversation's own fields
 (Starting, Ready, Waiting, Working carrying an `Activity`, Idle, Unloaded, Ended), and
-`lifecycle_colour` puts it on a `status_dot`, with the word in a tooltip, one or two of them, never
-a sentence.
+`lifecycle_dot` puts `lifecycle_colour`'s answer on a `status_dot`, with the word in a tooltip, one
+or two of them, never a sentence.
 
 **A state dot has four readings and only four: `warning` wants you, `info` is working, `success` is
 idle, `text_faint` has stopped.** What a dot read at a glance across a window full of columns has
 to answer is whether that conversation wants the reader, and four colours is as many as the glance
 holds — so every working turn is one `info` rather than `Activity`'s own palette, which kind of work
 being a question the transcript beside it answers. Every value is a status token the window
-gives that meaning elsewhere, so a dot invents no colour, and `lifecycle_colour` is the one place the mapping
-is written: the agents column's title, each of its tabs and the chat panel's toolbar mark all read
-it.
+gives that meaning elsewhere, so a dot invents no colour.
+
+**Two of the four move, and that is the fifth fact about the dot: `Waiting` and `Working` pulse, the
+other two are still.** `lifecycle_pulses` is the rule — those two are the readings something is
+expected to happen in, and stillness is the wrong thing to draw for them — and the fade is slow and
+shallow, opacity 0.45 to 1.0 over two seconds, the same construction the transcript's `writing_mark`
+is built from. A dot on a tab strip nobody is looking at is a hint at the edge of vision, not an
+alarm; the turn itself is watched at the tail. `lifecycle_pulses` answers `false` for a reader who
+asked the system for reduced motion (`App::reduce_motion`), because motion used as a signal is
+exactly the motion that setting is about. Carrying the animation is why `kit::status_dot` returns a
+`Div` rather than an opaque element.
+
+**The dot is one element, not a colour every surface redraws.** `ui::conversation::lifecycle_dot` —
+colour, pulse, the ring it sits on and an element id for the animation — is what the agents column's
+header title and each of its tabs draw, and what the dock's tab strip draws for every tab kind
+through `TabInfo::dot_colour` and `dot_pulse`, with `ui/dock/mod.rs`'s `PanelKind::Chat` arm the
+only one filling the pulse in. So the reading, the mapping *and the element* live in that one module
+regardless of caller, and a surface adopting the dot draws no dot of its own. A tab with no
+conversation behind it has no dot: there is no state to report.
 
 **Whether the shared conversation view draws the three-dots menu itself is per surface, not fixed.**
 `ConversationView` carries `header: bool` beside its existing `footer` and `composer` — the agents
@@ -567,7 +583,8 @@ column keeps it `true` and gets a bordered strip holding the menu; the chat pane
 and draws the identical fragments, `ui::conversation::lifecycle_mark` and `lifecycle_menu`, at
 opposite ends of its own toolbar row instead, with the chevron that changes what the tab is looking
 at between them. The state's
-reading and the menu's enable rule — `lifecycle`, `lifecycle_colour` and `lifecycle_menu_rows` —
+reading, the element it is drawn as and the menu's enable rule — `lifecycle`, `lifecycle_colour`,
+`lifecycle_dot` and `lifecycle_menu_rows` —
 are read in exactly one place regardless of which surface calls them, so a second surface adopting
 the shared view is a `ConversationView` field, never a forked copy of any of the three.
 

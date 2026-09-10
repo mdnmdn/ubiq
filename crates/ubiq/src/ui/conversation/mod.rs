@@ -645,6 +645,45 @@ pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
     }
 }
 
+/// Whether the dot for a reading moves, which is the other half of what it says.
+///
+/// **Only the two readings that are going somewhere.** A turn in flight and a question waiting on
+/// the reader are the states worth catching an eye that is not on this surface; idle and stopped
+/// are resting, and a resting dot that moved would put every tab in the row in motion and leave
+/// the movement meaning nothing. The system's reduced-motion setting is honoured here rather than
+/// at each call site, so a reader who asked for stillness gets the same still dot on every surface
+/// that draws one.
+pub fn lifecycle_pulses(state: Lifecycle, cx: &App) -> bool {
+    matches!(state, Lifecycle::Waiting | Lifecycle::Working(_)) && !cx.reduce_motion()
+}
+
+/// The state dot itself — the one element every surface that reports a conversation draws.
+///
+/// A [`kit::status_dot`], plus the slow shallow fade [`lifecycle_pulses`] asks for. Slow and
+/// shallow on purpose: this is a hint at the edge of vision on a row of tabs a reader is not
+/// looking at, not an alarm, and the [`writing_mark`] at the tail is where a turn is watched.
+/// `ring` is the surface the dot sits on, so the ring reads as the dot's own edge rather than as a
+/// halo.
+pub fn lifecycle_dot(
+    colour: Rgba,
+    pulse: bool,
+    ring: Rgba,
+    id: impl Into<ElementId>,
+) -> AnyElement {
+    let dot = status_dot(colour, ring);
+    if !pulse {
+        return dot.into_any_element();
+    }
+    dot.with_animation(
+        id,
+        Animation::new(Duration::from_millis(2_000))
+            .repeat()
+            .with_easing(pulsating_between(0.45, 1.0)),
+        |this, delta| this.opacity(delta),
+    )
+    .into_any_element()
+}
+
 /// A cheap reading of the transcript's tail: how many blocks there are, how long the last one is,
 /// and how many prompts are waiting on an answer.
 ///
@@ -700,6 +739,9 @@ enum RowKind {
         running: bool,
         open: bool,
     },
+    /// One run of consecutive thinking blocks, drawn as a single box — the blocks it stands for,
+    /// in the order they were said, and whether the box is expanded.
+    Thinking { blocks: Vec<usize>, open: bool },
     /// A prompt whose call the transcript does not hold, by its place in `pending`.
     Adrift(usize),
     /// The note a transcript with nothing in it draws.
@@ -787,6 +829,186 @@ fn row_for(rows: &[Row], block: usize) -> Option<usize> {
         .next_back()
 }
 
+/// The rows one frame draws, planned from the blocks on screen — what each row stands for, and
+/// what the height cache needs to know about it. Nothing here is an element, which is what makes
+/// planning the whole transcript cheap enough to do every frame.
+///
+/// **A run of same-kind tool calls is one row standing for the whole of it**: twelve `READ`s in a
+/// row are twelve rows of furniture between two sentences. While the run's last call is still
+/// going that one card stays out of the fold, because a call in flight is the part a reader is
+/// following; once it finishes the row is the entire run. Either way the row says how many it
+/// stands for and opens to show them.
+///
+/// **A run of consecutive thinking blocks is one row too**, and unconditionally — the fold saves
+/// a bordered box per message rather than a card, so there is no floor to pay for.
+///
+/// Contiguity is judged over `visible`, not over `conversation.blocks`: what the reader sees is
+/// what groups, so a block belonging to another subagent — drawn nowhere — does not break a run.
+fn plan_rows(
+    conversation: &Conversation,
+    visible: &[usize],
+    attached: &HashMap<usize, Vec<&Pending>>,
+    adrift: &[usize],
+    tag: u64,
+    width: Pixels,
+    size: Pixels,
+) -> Vec<Row> {
+    let row = |kind: RowKind, anchor: Option<usize>, slot: (u8, usize), shape: (u64, Pixels)| Row {
+        kind,
+        anchor,
+        key: hashed((tag, slot.0, slot.1)),
+        sig: row_signature(width, size, shape.0),
+        estimate: shape.1,
+    };
+
+    let mut rows: Vec<Row> = Vec::new();
+    let mut at = 0usize;
+    while at < visible.len() {
+        let ix = visible[at];
+        let block = &conversation.blocks[ix];
+        // Reasoning first, because a harness that flushes it as several messages is saying nothing
+        // by the boundaries between them: the whole run is one box, however many blocks it took.
+        if matches!(block, ConvBlock::Thought { .. }) {
+            let mut end = at + 1;
+            while end < visible.len()
+                && matches!(conversation.blocks[visible[end]], ConvBlock::Thought { .. })
+            {
+                end += 1;
+            }
+            let blocks = visible[at..end].to_vec();
+            // The run is read by its **last** block: that is the one still streaming while the
+            // thinking is the one thing being written, and `Conversation::end_open_thought` is
+            // what closes it once anything else starts.
+            let open = matches!(
+                conversation.blocks[visible[end - 1]],
+                ConvBlock::Thought { open: true, .. }
+            );
+            // The bodies are in the signature the way `block_shape` puts a block's own length
+            // there: a streaming thought grows without a block being added, and a row whose
+            // signature did not move would be drawn at the height it had one chunk ago.
+            let len: usize = blocks
+                .iter()
+                .map(|ix| match &conversation.blocks[*ix] {
+                    ConvBlock::Thought { body, .. } => body.len(),
+                    _ => 0,
+                })
+                .sum();
+            let estimate = px(28. + if open { 17. * (len / 80) as f32 } else { 0. });
+            rows.push(row(
+                RowKind::Thinking { blocks, open },
+                Some(ix),
+                (5, ix),
+                (hashed((len, end - at, open)), estimate),
+            ));
+            at = end;
+            continue;
+        }
+        // A delegation is never folded away: a spawned agent is a second transcript, not a step.
+        // Nor is a call somebody is being asked to authorise — a prompt hidden behind a counter is
+        // a turn that deadlocks.
+        if let ConvBlock::Tool { call, .. } = block
+            && call.kind != ToolKind::Delegate
+            && !attached.contains_key(&ix)
+        {
+            let kind = call.kind;
+            let mut end = at + 1;
+            while end < visible.len() {
+                match &conversation.blocks[visible[end]] {
+                    ConvBlock::Tool { call: next, .. }
+                        if next.kind == kind && !attached.contains_key(&visible[end]) =>
+                    {
+                        end += 1;
+                    }
+                    _ => break,
+                }
+            }
+            // Two cards become a row plus a card, which is no shorter and one more thing to learn.
+            // Three is where folding starts paying.
+            if end - at >= GROUP_MIN {
+                let key = call.id.clone();
+                let open = conversation.open_groups.contains(&key);
+                // The last card is held out of the fold only while it is still going: a call in
+                // flight is the one thing in the run a reader is actually following, and folding
+                // it away would hide the only part still changing. The moment it finishes there
+                // is nothing left to follow, so it joins the ones before it and the whole run
+                // becomes the one row — which is what a finished run of twelve READs should cost.
+                let last_ix = visible[end - 1];
+                let last = &conversation.blocks[last_ix];
+                let running = matches!(
+                    last,
+                    ConvBlock::Tool { call, .. }
+                        if matches!(call.status, ToolStatus::Pending | ToolStatus::InProgress)
+                );
+                let hidden = if running { end - at - 1 } else { end - at };
+                rows.push(row(
+                    RowKind::Group {
+                        key,
+                        kind,
+                        hidden,
+                        running,
+                        open,
+                    },
+                    Some(ix),
+                    (1, ix),
+                    (hashed((hidden, running, open)), px(24.)),
+                ));
+                if open {
+                    for &hidden_ix in &visible[at..at + hidden] {
+                        rows.push(row(
+                            RowKind::Block(hidden_ix),
+                            Some(hidden_ix),
+                            (0, hidden_ix),
+                            block_shape(&conversation.blocks[hidden_ix]),
+                        ));
+                    }
+                }
+                if running {
+                    rows.push(row(
+                        RowKind::Block(last_ix),
+                        Some(last_ix),
+                        (0, last_ix),
+                        block_shape(last),
+                    ));
+                }
+                at = end;
+                continue;
+            }
+        }
+        rows.push(row(
+            RowKind::Block(ix),
+            Some(ix),
+            (0, ix),
+            block_shape(block),
+        ));
+        at += 1;
+    }
+
+    // A request whose call the transcript does not hold — the patch carried nothing but an id, or
+    // the request outran the call announcing it. Self-contained, and still answerable.
+    for &request in adrift {
+        rows.push(row(
+            RowKind::Adrift(request),
+            None,
+            (2, request),
+            (hashed(request), px(120.)),
+        ));
+    }
+
+    // Last, so a transcript holding only an unattached prompt reads as the question it is.
+    if rows.is_empty() {
+        rows.push(row(RowKind::Empty, None, (3, 0), (0, px(20.))));
+    }
+
+    // And after everything, while the turn is still running: the tail of a transcript is where a
+    // reader waits, so that is where the waiting is drawn. Not while a prompt is up — the question
+    // on screen is what is happening, and two marks would compete to say so.
+    if conversation.run == Run::Working && conversation.pending.is_empty() {
+        rows.push(row(RowKind::Writing, None, (4, 0), (0, px(24.))));
+    }
+
+    rows
+}
+
 /// One row, drawn — and wrapped in the padding and the text style the transcript reads in.
 #[allow(clippy::too_many_arguments)]
 fn build_row(
@@ -810,6 +1032,9 @@ fn build_row(
             running,
             open,
         } => tool_group(id, key, *kind, *hidden, *running, *open, view, cx),
+        RowKind::Thinking { blocks, open } => {
+            thought_group(conversation, id, blocks, *open, view, cx)
+        }
         RowKind::Adrift(at) => match conversation.pending.get(*at) {
             Some(request) => permission(id, request, None, view, cx),
             None => div().into_any_element(),
@@ -863,7 +1088,9 @@ fn one_block(
             .on_link_click(crate::ui::on_link(root.clone(), None))
             .into_any_element(),
         ),
-        ConvBlock::Thought { body, .. } => copyable(view, ix, body, thought(body)),
+        // A run of one. The plan draws every thinking block through `RowKind::Thinking`, so this
+        // is the arm for a thought reached some other way — the same box, standing for itself.
+        ConvBlock::Thought { open, .. } => thought_group(conversation, id, &[ix], *open, view, cx),
         ConvBlock::Tool { call, open } => {
             // A delegation is a way in to the agent it spawned, and the way in exists only
             // once that agent has said something: the instance id *is* this call's id.
@@ -1017,13 +1244,7 @@ fn transcript(
     }
 
     // One agent's turns, never two interleaved — and the indices are the real ones, because the
-    // element ids and the tool-toggle listener both key off a block's position in `blocks`.
-    //
-    // A run of same-kind tool calls is drawn as one row standing for the whole of it: twelve
-    // `READ`s in a row are twelve rows of furniture between two sentences. While the run's last
-    // call is still going that one card stays out of the fold, because a call in flight is the
-    // part a reader is following; once it finishes the row is the entire run. Either way the row
-    // says how many it stands for and opens to show them.
+    // element ids and every toggle listener key off a block's position in `blocks`.
     let visible = conversation.visible_blocks();
     let scroll = app.transcript_scrolls.get(view.slot);
     // Where the reader is put before anything is drawn: a transcript switched to is restored to
@@ -1042,121 +1263,8 @@ fn transcript(
     let tag = hashed(conversation.viewing_subagent());
     let width = scroll.map_or(px(0.), |scroll| scroll.handle.bounds().size.width);
     let size = theme::font(theme::Family::Conversation, theme::Role::Body);
-    let row = |kind: RowKind, anchor: Option<usize>, slot: (u8, usize), shape: (u64, Pixels)| Row {
-        kind,
-        anchor,
-        key: hashed((tag, slot.0, slot.1)),
-        sig: row_signature(width, size, shape.0),
-        estimate: shape.1,
-    };
 
-    let mut rows: Vec<Row> = Vec::new();
-    let mut at = 0usize;
-    while at < visible.len() {
-        let ix = visible[at];
-        let block = &conversation.blocks[ix];
-        // A delegation is never folded away: a spawned agent is a second transcript, not a step.
-        // Nor is a call somebody is being asked to authorise — a prompt hidden behind a counter is
-        // a turn that deadlocks.
-        if let ConvBlock::Tool { call, .. } = block
-            && call.kind != ToolKind::Delegate
-            && !attached.contains_key(&ix)
-        {
-            let kind = call.kind;
-            let mut end = at + 1;
-            while end < visible.len() {
-                match &conversation.blocks[visible[end]] {
-                    ConvBlock::Tool { call: next, .. }
-                        if next.kind == kind && !attached.contains_key(&visible[end]) =>
-                    {
-                        end += 1;
-                    }
-                    _ => break,
-                }
-            }
-            // Two cards become a row plus a card, which is no shorter and one more thing to learn.
-            // Three is where folding starts paying.
-            if end - at >= GROUP_MIN {
-                let key = call.id.clone();
-                let open = conversation.open_groups.contains(&key);
-                // The last card is held out of the fold only while it is still going: a call in
-                // flight is the one thing in the run a reader is actually following, and folding
-                // it away would hide the only part still changing. The moment it finishes there
-                // is nothing left to follow, so it joins the ones before it and the whole run
-                // becomes the one row — which is what a finished run of twelve READs should cost.
-                let last_ix = visible[end - 1];
-                let last = &conversation.blocks[last_ix];
-                let running = matches!(
-                    last,
-                    ConvBlock::Tool { call, .. }
-                        if matches!(call.status, ToolStatus::Pending | ToolStatus::InProgress)
-                );
-                let hidden = if running { end - at - 1 } else { end - at };
-                rows.push(row(
-                    RowKind::Group {
-                        key,
-                        kind,
-                        hidden,
-                        running,
-                        open,
-                    },
-                    Some(ix),
-                    (1, ix),
-                    (hashed((hidden, running, open)), px(24.)),
-                ));
-                if open {
-                    for &hidden_ix in &visible[at..at + hidden] {
-                        rows.push(row(
-                            RowKind::Block(hidden_ix),
-                            Some(hidden_ix),
-                            (0, hidden_ix),
-                            block_shape(&conversation.blocks[hidden_ix]),
-                        ));
-                    }
-                }
-                if running {
-                    rows.push(row(
-                        RowKind::Block(last_ix),
-                        Some(last_ix),
-                        (0, last_ix),
-                        block_shape(last),
-                    ));
-                }
-                at = end;
-                continue;
-            }
-        }
-        rows.push(row(
-            RowKind::Block(ix),
-            Some(ix),
-            (0, ix),
-            block_shape(block),
-        ));
-        at += 1;
-    }
-
-    // A request whose call the transcript does not hold — the patch carried nothing but an id, or
-    // the request outran the call announcing it. Self-contained, and still answerable.
-    for request in adrift {
-        rows.push(row(
-            RowKind::Adrift(request),
-            None,
-            (2, request),
-            (hashed(request), px(120.)),
-        ));
-    }
-
-    // Last, so a transcript holding only an unattached prompt reads as the question it is.
-    if rows.is_empty() {
-        rows.push(row(RowKind::Empty, None, (3, 0), (0, px(20.))));
-    }
-
-    // And after everything, while the turn is still running: the tail of a transcript is where a
-    // reader waits, so that is where the waiting is drawn. Not while a prompt is up — the question
-    // on screen is what is happening, and two marks would compete to say so.
-    if conversation.run == Run::Working && conversation.pending.is_empty() {
-        rows.push(row(RowKind::Writing, None, (4, 0), (0, px(24.))));
-    }
+    let rows = plan_rows(conversation, &visible, &attached, &adrift, tag, width, size);
 
     if let Some(scroll) = scroll {
         // Somewhere to be taken to, asked for by the strip that named the prompt. Resolved here
@@ -1452,9 +1560,14 @@ fn writing_mark(activity: Activity, variant: u64, view: &ConversationView) -> An
 /// the message, because a control on every line of a transcript reads as a toolbar rather than a
 /// conversation. The clipboard gets the block's own text, which is what the harness said or
 /// received rather than anything rendered over it.
-fn copyable(view: &ConversationView, ix: usize, text: &str, body: AnyElement) -> AnyElement {
+fn copyable(
+    view: &ConversationView,
+    ix: usize,
+    text: impl Into<String>,
+    body: AnyElement,
+) -> AnyElement {
     let group = SharedString::from(format!("{}-msg-{ix}", view.id));
-    let text = text.to_string();
+    let text = text.into();
     div()
         .relative()
         .flex()
@@ -1507,8 +1620,70 @@ fn user_turn(text: &str) -> AnyElement {
 /// Reasoning, quieter than prose: it is what the agent thought on the way to what it said, and it
 /// must not read as the answer. Whose thought it was is not marked here any more \u{2014} the
 /// transcript shows one agent at a time, and [`reading_strip`] names it once above the whole of it.
-fn thought(body: &str) -> AnyElement {
-    div()
+///
+/// **One box for the whole run.** `blocks` is every consecutive thinking block the plan folded
+/// together, and each one is a child of the same box rather than a box of its own: where a
+/// harness broke its reasoning into messages is not something the reader asked about, and a stack
+/// of identical `THINKING` frames says only that the harness flushed several times. Each block
+/// stays its own child, so a streaming run appends to the last one instead of rebuilding a joined
+/// string every frame.
+///
+/// **The caption is the disclosure.** Expanded while the thinking is the one thing still being
+/// written, collapsed to the caption alone once something else starts
+/// ([`Conversation::end_open_thought`]), and clicking it moves the whole run
+/// ([`Conversation::toggle_thought_group`]) \u{2014} half a box open would be the reader's click
+/// drawn wrong.
+fn thought_group(
+    conversation: &Conversation,
+    agent: AgentId,
+    blocks: &[usize],
+    open: bool,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let first = blocks.first().copied().unwrap_or_default();
+    let bodies = || {
+        blocks
+            .iter()
+            .filter_map(|ix| match conversation.blocks.get(*ix) {
+                Some(ConvBlock::Thought { body, .. }) => Some(body.as_str()),
+                _ => None,
+            })
+    };
+    let owned = blocks.to_vec();
+
+    let header = div()
+        .id(view.eid(&format!("thought-{first}")))
+        // Named by the run's first block and how much of the run it stands for, so a fold is
+        // legible from outside: how many messages one box swallowed is the question.
+        .debug_selector({
+            let count = blocks.len();
+            move || format!("thought-group-{first}-{count}")
+        })
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(if open {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronRight
+            })
+            .with_size(Size::XSmall)
+            .text_color(theme::text_faint()),
+        )
+        .child(
+            mono("THINKING", theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.toggle_conversation_thought_group(agent, owned.clone(), cx);
+        }));
+
+    let mut box_ = div()
         .p_2()
         .flex()
         .flex_none()
@@ -1517,17 +1692,31 @@ fn thought(body: &str) -> AnyElement {
         .bg(theme::surface())
         .border_l(px(theme::accent_edge()))
         .border_color(theme::text_faint())
-        .child(
-            mono("THINKING", theme::text_faint())
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
-        )
-        .child(
-            div()
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
-                .text_color(theme::text_muted())
-                .child(SharedString::from(body.to_string())),
-        )
-        .into_any_element()
+        .child(header);
+
+    // Collapsed is the caption alone: the reasoning is still there to be reopened, and a box
+    // keeping a first line of it would be a preview nobody asked for.
+    if open {
+        box_ = box_.children(
+            bodies()
+                .map(|body| {
+                    div()
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
+                        .text_color(theme::text_muted())
+                        .child(SharedString::from(body.to_string()))
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    // The clipboard gets the whole run, collapsed or not: what the reader points at is one
+    // thought, so copying it has to be all of it rather than whichever part is on screen.
+    copyable(
+        view,
+        first,
+        bodies().collect::<Vec<_>>().join("\n\n"),
+        box_.into_any_element(),
+    )
 }
 
 /// The one line above a subagent's transcript that says whose turns are on screen, and what they
@@ -3222,6 +3411,100 @@ mod tests {
     use super::*;
     use ubiq_proto::conversation::{ConvContent, ConvUpdate, ToolCallPatch};
     use ubiq_proto::work::AgentId;
+
+    fn conversation() -> Conversation {
+        Conversation::new(
+            AgentId::generate(),
+            "Claude Code".to_string(),
+            "work".to_string(),
+        )
+    }
+
+    fn thought(seq: u64, id: &str) -> ConvUpdate {
+        ConvUpdate::ThoughtChunk {
+            content: ConvContent::Text(format!("reasoning {seq}")),
+            message_id: Some(id.to_string()),
+            subagent: None,
+        }
+    }
+
+    fn plan(conversation: &Conversation) -> Vec<Row> {
+        let visible = conversation.visible_blocks().to_vec();
+        plan_rows(
+            conversation,
+            &visible,
+            &HashMap::new(),
+            &[],
+            0,
+            px(400.),
+            px(13.),
+        )
+    }
+
+    /// A harness that flushes its reasoning as three messages said nothing by the boundaries
+    /// between them, so the transcript draws one box rather than three identical ones.
+    #[test]
+    fn a_run_of_thoughts_is_one_row() {
+        let mut c = conversation();
+        for (seq, id) in [(1, "t1"), (2, "t2"), (3, "t3")] {
+            c.apply(seq, thought(seq, id));
+        }
+        assert_eq!(c.blocks.len(), 3, "three messages, three blocks");
+
+        let rows = plan(&c);
+        let thinking: Vec<&Row> = rows
+            .iter()
+            .filter(|row| matches!(row.kind, RowKind::Thinking { .. }))
+            .collect();
+        assert_eq!(thinking.len(), 1, "one box for the run");
+        assert!(
+            matches!(&thinking[0].kind, RowKind::Thinking { blocks, .. } if blocks == &[0, 1, 2]),
+            "and it stands for every block in it"
+        );
+        assert_eq!(
+            thinking[0].anchor,
+            Some(0),
+            "anchored on the first, which is where a jump to any of them lands"
+        );
+    }
+
+    /// Consecutive means consecutive: prose between two thoughts is the agent having said
+    /// something, and folding across it would put a reply inside a box captioned `THINKING`.
+    #[test]
+    fn prose_between_two_thoughts_breaks_the_run() {
+        let mut c = conversation();
+        c.apply(1, thought(1, "t1"));
+        c.apply(
+            2,
+            ConvUpdate::AgentChunk {
+                content: ConvContent::Text("Here is what I found.".to_string()),
+                message_id: Some("m1".to_string()),
+                subagent: None,
+            },
+        );
+        c.apply(3, thought(3, "t2"));
+
+        let rows = plan(&c);
+        let thinking: Vec<usize> = rows
+            .iter()
+            .filter_map(|row| match &row.kind {
+                RowKind::Thinking { blocks, .. } => Some(blocks.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(thinking, vec![1, 1], "two runs of one, not one run of two");
+    }
+
+    /// A streaming thought grows without a block being added, so the row's signature has to move
+    /// on the bodies — otherwise the height cache draws it at the height it had a chunk ago.
+    #[test]
+    fn a_growing_thought_moves_its_row_signature() {
+        let mut c = conversation();
+        c.apply(1, thought(1, "t1"));
+        let before = plan(&c)[0].sig;
+        c.apply(2, thought(2, "t1"));
+        assert_ne!(plan(&c)[0].sig, before, "the box got taller");
+    }
 
     /// A cached row height is a height at one width *and* one type size, so both are in the
     /// signature the cache is keyed on: grow the conversation family and every row is measured

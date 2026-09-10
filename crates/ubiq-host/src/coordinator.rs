@@ -481,8 +481,8 @@ fn thinking_config_option(
 }
 
 /// The `mode` [`ConfigOption`] for `agent_type`, from its fixed, non-probed [`agent_manager::
-/// harness::Harness::modes`] list — `None` when the harness offers no choice (opencode, Copilot,
-/// Grok today), an absent picker rather than an empty one. `current` is always empty: no mode
+/// harness::Harness::modes`] list — `None` when the harness offers no choice (opencode and
+/// Copilot today), an absent picker rather than an empty one. `current` is always empty: no mode
 /// is a harness default the way a model or a reasoning level is, so nothing is preselected —
 /// leaving it unset is what tells `launch_pending` to pass no mode flag at all.
 fn mode_config_option(agent_type: &str, chosen: &str) -> Option<ConfigOption> {

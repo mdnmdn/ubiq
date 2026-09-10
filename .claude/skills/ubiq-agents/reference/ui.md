@@ -28,7 +28,7 @@ taken was taken as somebody.
 | Attachments | `Attachment`, `attach(path, size)` (dedupes by path, refreshing the size), `detach(id)`, `clear_attached()`, `compose_prompt(typed)` — **the one place `@path` mentions are written** |
 | Subagents | `SubagentTab` (with `model` and `waiting`), `subagents()`, `subagent_name(id)`, `has_subagent(id)`, `viewing_subagent()` |
 | Scroll | `TranscriptScroll` — one per composer slot on `AppState::transcript_scrolls`, keyed by `TranscriptKey = (AgentId, Option<String>)`: `sync(key, signature)`, `away()`, `request(block)` / `take_request()` / `request_held()`, `to_tail()`, `windows(children)`, `child_bounds(ix)`, `near_viewport(bounds)` |
-| Folding | `toggle_tool(id)`, `toggle_group(id)`, `open_groups` |
+| Folding | Tool calls: `toggle_tool(id)`, `toggle_group(id)`, `open_groups`. Reasoning: `toggle_thought_group(&[usize])` over a whole run, `end_open_thought()`, `touched_thoughts` (every block a reader moved by hand, never overridden again) |
 | Labels | `short_model_label(harness, model)` — one shortener, so a conversation never spells a model two ways |
 
 ## `ui/conversation/mod.rs` — the shared view
@@ -40,9 +40,11 @@ into — an index and nothing else.
 | Function | Draws |
 |---|---|
 | `render(...)` | The whole thing |
-| `transcript()` | Walks the visible blocks, folding runs of same-kind calls |
+| `plan_rows()` | The row walk, lifted out of `transcript()` so it is testable with no element: one `RowKind` per row — `Block`, `Group`, `Thinking`, `Adrift`, `Empty`, `Writing` — plus each row's anchor, key and height signature |
+| `transcript()` | Draws what `plan_rows()` planned, through the virtual list |
 | `one_block()` | The arm reused for an unfolded card and for the ones a fold opens |
 | `tool_group()` | The `N earlier calls` row |
+| `thought_group()` | The bordered `THINKING` box over a whole run of thoughts, its caption the disclosure |
 | `writing_mark()` | The running mark at the tail |
 | `tail_signature()` | What the follow-the-tail scroll compares, over the **visible** blocks it is handed |
 | `Built` (private) | The children the walk produces: which block each stands for, and the off-screen ones left unbuilt behind a measured stand-in |
@@ -53,7 +55,7 @@ into — an index and nothing else.
 | `stop_button()`, `action_button()` | The square Stop, and the Send/Enqueue pair |
 | `attachment_tags()` | The wrapping tag row, on `kit::removable_tag` |
 | `config_choices()`, `ConfigRow` | The launch-time model / thinking / mode pickers |
-| `lifecycle()`, `lifecycle_colour()`, `lifecycle_menu_enabled()`, `lifecycle_mark()`, `lifecycle_menu()`, `LIFECYCLE_ROWS` | The state dot and the three-dots menu — **read in this one module regardless of caller**, `lifecycle_colour` `pub` because the agents column draws the dot on its own title and tabs |
+| `lifecycle()`, `lifecycle_colour()`, `lifecycle_pulses()`, `lifecycle_dot()`, `lifecycle_menu_enabled()`, `lifecycle_mark()`, `lifecycle_menu()`, `LIFECYCLE_ROWS` | The state dot and the three-dots menu — the reading, the mapping **and the element** are all **in this one module regardless of caller**. `lifecycle_colour`, `lifecycle_pulses` and `lifecycle_dot` are `pub` because the agents column and the dock's tab strip both draw the dot |
 | `subagent_tip()` | A delegate row's hover |
 
 ### `Lifecycle`
@@ -70,10 +72,22 @@ primitive; the tooltip is one or two words (`Unloaded`, `Working · Tools`), nev
 **Four readings and only four:** `warning` wants you, `info` is working, `success` is idle,
 `text_faint` has stopped — `lifecycle_colour`, the one place the mapping is written. Every working
 turn is one `info` rather than `Activity`'s own palette, because what a dot glanced at across a
-row of columns has to answer is whether that conversation wants the reader. The agents column
-draws it on its header title (before the name — that is where the eye lands when it is scanning
-columns) and on every tab, falling back to `activity_colour` for an agent with no live conversation
-behind it: a record is not idle, it is a record.
+row of columns has to answer is whether that conversation wants the reader.
+
+**And a fifth fact: two of the four move.** `lifecycle_pulses` says `Waiting` and `Working(_)` pulse
+and the other readings do not — those two are the states something is expected to happen in — and
+`lifecycle_dot(colour, pulse, ring, id)` is the element that carries it: `status_dot` plus a
+0.45→1.0 opacity fade over 2000ms, the `writing_mark` construction. Slow and shallow on purpose: a
+hint at the edge of vision on a strip nobody is watching, not an alarm. `lifecycle_pulses` answers
+`false` under `App::reduce_motion()`. `kit::status_dot` returns `Div` rather than
+`impl IntoElement` so the animation can hang off it.
+
+Two surfaces draw it, and neither keeps a dot of its own. `ui/agents/column.rs` puts it on the
+header title (before the name — that is where the eye lands when it is scanning columns) and on
+every tab, falling back to `activity_colour` for an agent with no live conversation behind it: a
+record is not idle, it is a record. `ui/dock/skin.rs` puts it on every tab kind through
+`TabInfo::dot_colour` / `dot_pulse`, with the pulse off for all but chat, filled by
+`ui/dock/mod.rs`'s `PanelKind::Chat` arm; a chat tab attached to nothing has no dot.
 
 **The menu has five rows, `LIFECYCLE_ROWS`:** Stop, Abort, Unload, Resume, Delete, and
 `lifecycle_menu_enabled` returns `[bool; 5]` matched by position — Stop only while a turn runs,
@@ -95,12 +109,24 @@ toolbar row, at opposite ends — one set of functions either way.
   activity's word beside them. Not drawn while an ask is up: the question on screen is what is
   happening. A spinner would claim progress nothing measures. The run folds into `tail_signature`,
   so the mark appearing scrolls the tail in.
+- **Two things fold, and the rules differ.** Both judge a run over the **visible** blocks, so
+  another subagent's blocks — drawn nowhere — do not break one, while any other kind of block
+  between two of a kind does.
 - **A run of same-kind tool calls folds to its last card.** Three or more (`GROUP_MIN`) become the
   last card plus one `N earlier calls` row in that kind's colour, opening in place. Twelve `READ`s
   are twelve rows of furniture between two sentences. Two cards would become a row plus a card —
-  no shorter, one more thing to learn — which is where the floor of three comes from. **Never
+  no shorter, one more thing to learn — which is where the floor of three comes from. The last card
+  stays out of the fold only while that call is still going. **Never
   folded**: a `Delegate` call (a spawned agent is a second transcript, not a step), and a call with
   a permission ask attached (a prompt behind a counter is a turn that deadlocks).
+- **A run of consecutive thoughts folds into one bordered `THINKING` box, unconditionally.** No
+  `GROUP_MIN`: the fold saves a box per message rather than a card, so there is nothing to pay for.
+  Each block stays its own child of the one box, so a streaming run appends instead of rebuilding a
+  joined string. Expanded while the thinking is the one thing still being written — the run is read
+  by its **last** block's `open` — and `Conversation::end_open_thought` collapses it to the caption
+  the instant anything else starts. Clicking the caption moves the whole run
+  (`toggle_thought_group`, `AppState::toggle_conversation_thought_group`) and marks every block in
+  `touched_thoughts`, so the reader's choice is never overridden.
 - **A permission ask is drawn on the tool call it authorises.** Joined by tool call id; the block
   reads as awaiting approval and the buttons sit under it. One button per `PermissionOption`,
   labelled from its `name`, differentiated by its `kind` — allow from reject, with the "always"
@@ -124,6 +150,14 @@ toolbar row, at opposite ends — one set of functions either way.
   arriving at a *different* transcript — a slot moved to a delegate and back restores both
   positions, and one never shown opens on its tail. `tail_signature` reads the **visible** blocks,
   so the main agent writing under a delegate's transcript scrolls nothing.
+- **Being on the tail is sticky.** `away` is set only when the offset **rose** by more than
+  `TAIL_SLACK` (`px(20.)`) since the previous `sync`, and only while `off_bottom` also holds; it
+  clears as soon as `away_from_tail()` is false. A rise is the one movement content growth cannot
+  cause — a row measuring taller than last time grows `max_offset` while the pinned offset stays
+  put, and re-deriving `away` from the handle each frame read that as a reader who scrolled away and
+  killed the follow for the rest of the turn. `own_move` discounts the frame after `to_bottom()`,
+  whose `-1e9` is clamped at paint. The rule is the free functions `off_bottom()` and
+  `away_reading()`, so it can be tested without a painted handle.
 - **`Go to last message` is an overlay, not a column control.** Over the transcript's lower right,
   drawn only while it is away from the tail, so nothing moves when it appears. It scrolls and does
   nothing else; the next thing said resumes the follow.
@@ -316,6 +350,7 @@ Lifecycle: `end_conversation`, `abort_agent`, `unload_agent`, `resume_agent`,
 `dismiss_conversation_menu`.
 
 Transcript and config: `toggle_conversation_tool`, `toggle_conversation_tool_group`,
+`toggle_conversation_thought_group` (a whole run, by its block indices),
 `view_conversation_agent`, `toggle_conversation_subagents`, `pick_agent_config`,
 `toggle_agent_config_menu`, `dismiss_agent_config_menu`.
 

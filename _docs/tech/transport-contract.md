@@ -185,11 +185,13 @@ configured for it in `HostSettings.agent_commands`; `command` is what the librar
 `claude`, say — carried to be shown as the field's placeholder when a user types an override, never
 composed into a launch. `chat` is a separate axis: whether the harness has a structured bridge at
 all, so its output can become a `ConvUpdate` rather than terminal bytes. A harness with no bridge
-(Grok) still gets a pane — `available` and `command` mean the same thing for it as for any other —
-but `harness_choices` in `crates/ubiq/src/state/workbench.rs` filters every chat-start menu on
-`chat`, since starting a conversation with one would compose a run nothing ever reads. `chat` says
-nothing about how many turns one process takes; a one-shot harness (Copilot, opencode) is `chat:
-true` the same as a multi-turn one (Claude Code, codex).
+still gets a pane — `available` and `command` mean the same thing for it as for any other — but
+`harness_choices` in `crates/ubiq/src/state/workbench.rs` filters every chat-start menu on `chat`,
+since starting a conversation with one would compose a run nothing ever reads. Every harness Ubiq
+ships an implementation for answers `chat: true`: Claude Code and codex over their native wires,
+Grok, opencode and Copilot over ACP. `chat` says nothing about how many turns one process takes; a
+one-shot harness would be `chat: true` the same as a multi-turn one, and the harnesses here are all
+multi-turn.
 
 **`modes` is whatever the harness named, and `unattended_mode` says which of them asks nothing.**
 A permission mode is not a universal concept — it is one harness's own vocabulary, carried as

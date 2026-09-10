@@ -157,6 +157,37 @@ impl Harness for Grok {
         Ok(out)
     }
 
+    /// Grok's own four reasoning-effort levels, verified live against `grok agent stdio`'s ACP
+    /// `initialize` response (`_docs/wip/grok-acp-capture.md` §2, §7): every model's
+    /// `_meta.reasoningEfforts` lists `xhigh`/`high`/`medium`/`low` in that wire order, each with
+    /// `supportsReasoningEffort: true` and `high` marked `default: true`. `--reasoning-effort
+    /// low` is confirmed honoured by `grok agent stdio` (§7). Fixed CLI/API enum, not probed —
+    /// the same stance [`Grok::modes`] takes for permission modes — so every model
+    /// [`Self::discover_models`] answers gets the same four levels rather than a second probe.
+    fn discover_thinking(&self) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
+        let levels: Vec<super::ThinkingLevel> = ["xhigh", "high", "medium", "low"]
+            .into_iter()
+            .map(|value| super::ThinkingLevel {
+                value: value.to_string(),
+                label: super::effort_label(value),
+                description: None,
+            })
+            .collect();
+        Ok(self
+            .discover_models()?
+            .into_iter()
+            .map(|model| {
+                (
+                    model.id,
+                    super::ModelThinking {
+                        levels: levels.clone(),
+                        default_level: Some("high".to_string()),
+                    },
+                )
+            })
+            .collect())
+    }
+
     /// The six values Grok's own top-level `--permission-mode <mode>` accepts (verified against
     /// the bundled user guide and `grok --help`, 1.0.13 — see
     /// `_docs/wip/grok-acp-capture.md` §4). Fixed CLI enum, not probed — see
@@ -259,11 +290,17 @@ impl Harness for Grok {
                 // grok-4.6 --reasoning-effort high --always-approve stdio`.
                 // Putting `-m`/`--reasoning-effort` after `stdio` (as this
                 // used to assume they'd arrive via `session/set_config_option`
-                // instead) does not work. There is no `--permission-mode` for
-                // this path at all: Grok's only ACP-side permission lever is
-                // `--always-approve`/`_meta.yoloMode` (see §4), neither of
-                // which `spec.policy.permission_mode` maps onto today, so no
-                // permission flag is emitted here.
+                // instead) does not work. There is still no `--permission-mode`
+                // for this path (re-verified against `grok agent --help`,
+                // which lists only `--always-approve`; `--permission-mode` is
+                // a top-level TUI-only flag — see §4), so most of
+                // `spec.policy.permission_mode`'s six values still map onto
+                // nothing here. But two of them mean exactly what
+                // `--always-approve` means — "ask nothing" — and now map onto
+                // it: [`Grok::unattended_mode`]'s `bypassPermissions`, and
+                // `dontAsk`, [`Grok::modes`]'s other zero-prompt value. Every
+                // other mode value (`default`, `acceptEdits`, `auto`, `plan`)
+                // still has no ACP-side wire and emits nothing.
                 let mut structured_args = vec!["agent".to_string()];
                 if let Some(model) = &spec.model {
                     structured_args.push("--model".to_string());
@@ -272,6 +309,12 @@ impl Harness for Grok {
                 if let Some(effort) = &spec.thinking {
                     structured_args.push("--reasoning-effort".to_string());
                     structured_args.push(effort.clone());
+                }
+                if let Some(policy) = &spec.policy
+                    && let Some(mode) = &policy.permission_mode
+                    && (mode == "bypassPermissions" || mode == "dontAsk")
+                {
+                    structured_args.push("--always-approve".to_string());
                 }
                 structured_args.push("stdio".to_string());
                 structured_args.extend(spec.passthrough_args.clone());
@@ -985,6 +1028,56 @@ mod tests {
     }
 
     #[test]
+    fn provision_structured_maps_zero_prompt_modes_to_always_approve() {
+        use crate::spec::Policy;
+
+        for mode in ["bypassPermissions", "dontAsk"] {
+            let config_dir = tempfile::TempDir::new().unwrap();
+            let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+            spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+            spec.io = IoModes::Structured;
+            spec.policy = Some(Policy {
+                permission_mode: Some(mode.to_string()),
+                ..Default::default()
+            });
+
+            let grok = Grok::new();
+            let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+            assert_eq!(
+                launch.args,
+                vec!["agent", "--always-approve", "stdio"],
+                "mode {mode} should map to --always-approve"
+            );
+        }
+    }
+
+    #[test]
+    fn provision_structured_other_modes_emit_no_permission_flag() {
+        use crate::spec::Policy;
+
+        for mode in ["default", "acceptEdits", "auto", "plan"] {
+            let config_dir = tempfile::TempDir::new().unwrap();
+            let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+            spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+            spec.io = IoModes::Structured;
+            spec.policy = Some(Policy {
+                permission_mode: Some(mode.to_string()),
+                ..Default::default()
+            });
+
+            let grok = Grok::new();
+            let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+            assert_eq!(
+                launch.args,
+                vec!["agent", "stdio"],
+                "mode {mode} should not map to a permission flag"
+            );
+        }
+    }
+
+    #[test]
     fn provision_passthrough_adds_reasoning_effort_and_permission_mode_when_set() {
         use crate::spec::Policy;
 
@@ -1082,5 +1175,43 @@ mod tests {
     #[test]
     fn parse_model_ids_no_matches_returns_empty() {
         assert_eq!(super::parse_model_ids("nothing here"), Vec::<String>::new());
+    }
+
+    /// Live check against a real `grok` on PATH. Skipped when the binary is missing (or its
+    /// `grok models` call fails, e.g. an unreadable config file in a sandbox) so unit CI without
+    /// Grok still passes — the same guard shape as `codex.rs`'s
+    /// `discover_thinking_live_when_codex_available`.
+    #[test]
+    fn discover_thinking_live_when_grok_available() {
+        let has_grok = std::process::Command::new("grok")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !has_grok {
+            eprintln!("skipping: `grok` not on PATH");
+            return;
+        }
+        let thinking = match Grok::new().discover_thinking() {
+            Ok(thinking) => thinking,
+            Err(err) => {
+                eprintln!("skipping: `grok discover_thinking` failed: {err}");
+                return;
+            }
+        };
+        assert!(!thinking.is_empty(), "expected at least one model");
+        for model in thinking.values() {
+            assert_eq!(
+                model
+                    .levels
+                    .iter()
+                    .map(|l| l.value.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["xhigh", "high", "medium", "low"]
+            );
+            assert_eq!(model.default_level.as_deref(), Some("high"));
+        }
     }
 }

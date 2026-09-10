@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-09
-verified: 2026-09-09
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -222,7 +222,14 @@ the shape `io/jsonl.rs` already uses for Claude's cumulative figure — and fill
 `usage_update` carries occupancy and cost and nothing else. `turn_spend` reads it from `result.usage`
 (`claude-code-acp`, `copilot`) or `result._meta.usage` (`grok`) and reports it beside the
 `TurnEnded`, restating the last occupancy seen so the ring does not read as a window that just
-emptied. `totalTokens` is the authority and `input` is derived by subtracting the separately-reported
+emptied. **An agent that sends no `usage_update` can still fill the ring, from two figures stated
+elsewhere.** Grok is that agent: its occupancy is `result._meta.totalTokens` on the same prompt
+response — not `result._meta.usage.totalTokens`, which is cumulative over the turn's model calls and
+so passes the window — and the window itself is the current model's `_meta.totalContextTokens`, read
+off `availableModels[]` on `session/new` and on `initialize`'s `_meta.modelState` and kept per model
+id in the reader. That derivation runs only while no `usage_update` has stated an occupancy, so an
+agent that reports one stays authoritative; either figure missing reports `(0, 0)` rather than a
+ratio against an invented denominator, which is `io/jsonl.rs`'s rule too and `G96`'s. `totalTokens` is the authority and `input` is derived by subtracting the separately-reported
 parts from it: the adapters disagree on whether `inputTokens` already includes cached reads (`copilot`
 and `grok` count them inside it, `claude-code-acp` does not), so summing the reported fields would
 make `Spend::total()`, the figure the interface prints, wrong for two of the three. Deriving equals
@@ -254,11 +261,23 @@ so a child's context window and spend cannot move the parent's ring. `G212` name
 ceiling, which now only applies to an adapter that ignores the capability: two delegates open at once
 collapse onto the most recent one.
 
+**An option's picker and its setter are two questions.** The bridge publishes what a `session/new`
+result names — a compliant agent's `configOptions` and `modes`, or the vendor blocks Grok sends in
+their place — and each published option carries both a `ConfigCategory`, which says which picker
+draws it, and a source, which says which method applies a pick (`session/set_model`,
+`session/set_mode`, `session/set_config_option`). The two can disagree, and with Grok they do: what
+Grok calls a `mode` is its reasoning effort, so the option is published as the *thinking* one,
+`ConfigCategory::ThoughtLevel` under the id the interface matches that chip by, while `set_mode`
+stays its setter. Grok therefore names no permission mode at all and `SessionStarted.mode` is `None`
+for it, which is the accurate answer rather than a missing one.
+
 Permissions are the one thing this bridge
 answers back on rather than resolving itself: `session/request_permission` blocks the agent, so it is
-parked by request id and released by an `AgentInput::AnswerPermission` from the caller. Nothing here
-is pinned against a live ACP agent — `crates/agent-manager/_docs/harness/grok.md` says what is
-reported rather than captured, and `../backlog.md` carries the capture.
+parked by request id and released by an `AgentInput::AnswerPermission` from the caller. One of the
+five ACP endpoints is pinned against the live binary: `grok agent stdio` is captured frame by frame
+in [`../wip/grok-acp-capture.md`](../wip/grok-acp-capture.md), down to the mandatory `authenticate`,
+the vendor picker shapes and the child sessions a spawn streams on. The other four are read from the
+protocol reference rather than from a capture, which `../backlog.md`'s `G101` carries.
 
 **One file knows both vocabularies.** `map_event()` in the same module is the only place that names
 `agent_manager::io::AgentEvent` and `ubiq_proto::conversation::ConvUpdate` together. Both are the

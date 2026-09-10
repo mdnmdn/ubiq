@@ -81,7 +81,8 @@ crates/ubiq-host/src/
 │   ├── mod.rs
 │   ├── graph.rs
 │   ├── history.rs
-│   └── observe.rs
+│   ├── observe.rs
+│   └── nested.rs
 ├── settings.rs
 ├── shells.rs
 ├── conversation.rs
@@ -390,6 +391,7 @@ the documents in its row.
 | `crates/ubiq-host/src/git/graph.rs` | [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/git/history.rs` | [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/git/mod.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md) |
+| `crates/ubiq-host/src/git/nested.rs` | [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/git/observe.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/index/ceiling.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/index/mod.rs` | [`wip/indexing.md`](../wip/indexing.md) |
@@ -453,7 +455,7 @@ the documents in its row.
 | `crates/ubiq/src/app/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq/src/app/panels.rs` | [`features/chat.md`](../features/chat.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/picker.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/app/projects.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/projects.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/remote_connect.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/shell.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |

@@ -682,12 +682,12 @@ pub trait Harness {
     /// Per-model reasoning catalogs, keyed by the same ids `discover_models` answers.
     ///
     /// Default empty — a harness with no reasoning concept. That is the truthful answer for
-    /// Copilot CLI and Grok CLI, and it is why they are not overridden: Copilot's `help config`
-    /// block carries model ids and nothing about effort (verified: no reasoning-effort flag
-    /// exists in the CLI), and Grok's `models_cache.json` has no reasoning field. opencode *does*
-    /// have one and overrides this: `opencode models --verbose` lists each model's `variants`
-    /// map, and `run --variant <name>` is the flag that selects one — see
-    /// `Opencode::discover_thinking`.
+    /// Copilot CLI, and it is why it is not overridden: its `help config` block carries model
+    /// ids and nothing about effort (verified: no reasoning-effort flag exists in the CLI).
+    /// opencode *does* have one and overrides this: `opencode models --verbose` lists each
+    /// model's `variants` map, and `run --variant <name>` is the flag that selects one — see
+    /// `Opencode::discover_thinking`. So does Grok, whose four efforts are a fixed enum rather
+    /// than a probe — see `Grok::discover_thinking`.
     fn discover_thinking(&self) -> Result<std::collections::BTreeMap<String, ModelThinking>> {
         Ok(std::collections::BTreeMap::new())
     }

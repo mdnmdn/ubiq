@@ -75,7 +75,7 @@ a harness is a small secondary tag, never where one is being *chosen*.
 | `field(edge, focused) -> Div` | The container every free-text input sits in — left edge plus a focus-colour bottom underline while it holds the keyboard |
 | `mono(text, color)` | A mono run |
 | `section_label(text)` | A section heading |
-| `status_dot(color, ring)` | The one surviving circle |
+| `status_dot(color, ring)` | The one surviving circle. Returns `Div`, not an opaque element, so `ui::conversation::lifecycle_dot` can hang a pulse animation on it |
 | `pill(edge) -> Div`, `badge(text, color)`, `state_chip(label, colour, scale)` | Inline tags |
 | `choice_pill(...)` | One value of a set |
 | `toggle_pill(...)` | An independent facet |

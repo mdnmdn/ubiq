@@ -995,12 +995,24 @@ impl Conversation {
         }
     }
 
-    /// Toggle a thinking block's disclosure, by its position in `blocks`. Marks it touched, so
-    /// [`Self::end_open_block`] leaves whatever the reader picked alone from here on.
-    pub fn toggle_thought(&mut self, ix: usize) {
-        if let Some(ConvBlock::Thought { open, .. }) = self.blocks.get_mut(ix) {
-            *open = !*open;
-            self.touched_thoughts.insert(ix);
+    /// Toggle one run of consecutive thinking blocks, by their positions in `blocks` — the
+    /// transcript draws a run as a single box, so the disclosure on it has to move the whole run
+    /// or the box would be half open. The **last** block's state is the one the run is read by,
+    /// since that is the one still streaming while the run is being written, and every block is
+    /// then set to the opposite of it rather than flipped on its own.
+    ///
+    /// Marks every block touched, so [`Self::end_open_thought`] leaves whatever the reader picked
+    /// alone from here on.
+    pub fn toggle_thought_group(&mut self, blocks: &[usize]) {
+        let last_open = blocks
+            .last()
+            .and_then(|ix| self.blocks.get(*ix))
+            .is_some_and(|block| matches!(block, ConvBlock::Thought { open: true, .. }));
+        for &ix in blocks {
+            if let Some(ConvBlock::Thought { open, .. }) = self.blocks.get_mut(ix) {
+                *open = !last_open;
+                self.touched_thoughts.insert(ix);
+            }
         }
     }
 
@@ -1137,11 +1149,45 @@ pub type TranscriptKey = (AgentId, Option<String>);
 
 /// How close to the tail still counts as reading the tail. A few pixels of slack, because a
 /// wheel notch that lands one pixel short is not a reader who has scrolled away.
-const TAIL_SLACK: Pixels = px(24.);
+const TAIL_SLACK: Pixels = px(20.);
 
 /// How far a re-measurement has to move before the row is worth drawing again. Below this the
 /// difference is layout rounding, and answering it would be a frame per frame for ever.
 const MEASURE_SLACK: Pixels = px(0.5);
+
+/// Whether the handle is far enough off the bottom to count as somewhere else. A slot that has
+/// never painted has no maximum and is not away from anything.
+fn off_bottom(offset: Pixels, max: Pixels) -> bool {
+    max > px(0.) && offset + max > TAIL_SLACK
+}
+
+/// The whole of the follow rule, with the handle taken out of it — so the one thing worth testing
+/// can be, `max_offset` being written by the list at paint and readable nowhere else.
+///
+/// **Being at the bottom is sticky until the reader scrolls up.** The offset is `0` at the top and
+/// `-max_offset` at the bottom, and content growing raises the maximum while leaving the offset
+/// alone: a row that lays out taller than it was last measured at therefore *looks* like a reader
+/// who has moved, which is what used to end the follow partway through a turn. What only a reader
+/// can do is make the offset **rise** between two frames — so that, and not the distance to the
+/// bottom, is what says they left.
+///
+/// Both halves are needed. Without the rise nothing ends the follow; without [`off_bottom`] a
+/// bottom that moved *up* to meet the reader — a fold closing, the list re-clamping — would read as
+/// a reader moving away from it, and coming back to the tail would never be noticed.
+///
+/// `own_move` discounts the frame after this type moved the offset itself: [`TranscriptScroll::
+/// to_bottom`] asks for `-1e9` and the list clamps it at paint, so the reading that follows a pin
+/// is far above the value that was set and is not a scroll.
+fn away_reading(
+    offset: Pixels,
+    previous: Pixels,
+    max: Pixels,
+    was_away: bool,
+    own_move: bool,
+) -> bool {
+    let scrolled_up = !own_move && offset - previous > TAIL_SLACK;
+    off_bottom(offset, max) && (was_away || scrolled_up)
+}
 
 /// What one composer slot's transcript remembers between frames.
 ///
@@ -1166,7 +1212,20 @@ pub struct TranscriptScroll {
     target: Cell<Option<usize>>,
     /// Whether the last frame was painted away from the tail. Read from the handle before
     /// anything moves it, and what both the follow and the jump button ask.
+    ///
+    /// **Sticky, not re-derived.** The reader leaves the tail by scrolling and comes back by
+    /// scrolling; a row that lays out taller than it was measured at is not either of those, and
+    /// deriving this from the handle alone made the growing tail itself end the follow.
     away: Cell<bool>,
+    /// The offset [`Self::sync`] read last frame, which is what "the reader scrolled up" is
+    /// measured against. Growing content moves `max_offset` and leaves the offset alone, so a
+    /// *rise* here is the one thing that only a reader can cause.
+    last_offset: Cell<Pixels>,
+    /// Whether this type moved the offset itself since the last [`Self::sync`], in which case the
+    /// change the next frame reads is its own doing rather than the reader's. Necessary because
+    /// [`Self::to_bottom`] asks for `-1e9` and the list clamps it at paint, so the frame after a
+    /// pin reads an offset far *above* the one that was set.
+    own_move: Cell<bool>,
     /// Whether this frame is drawing the same transcript the last one did.
     ///
     /// A frame that has just switched transcripts is measuring the *previous* one: the scroll
@@ -1193,6 +1252,8 @@ impl Default for TranscriptScroll {
             saved: RefCell::default(),
             target: Cell::default(),
             away: Cell::default(),
+            last_offset: Cell::default(),
+            own_move: Cell::default(),
             settled: Cell::default(),
             heights: RefCell::default(),
         }
@@ -1210,7 +1271,14 @@ impl TranscriptScroll {
     /// screens up stays three screens up while the agent below it keeps writing. Anything else
     /// leaves the handle alone.
     pub fn sync(&self, key: TranscriptKey, signature: u64) {
-        self.away.set(self.away_from_tail());
+        let offset = self.handle.offset().y;
+        self.away.set(away_reading(
+            offset,
+            self.last_offset.replace(offset),
+            self.handle.max_offset().y,
+            self.away.get(),
+            self.own_move.replace(false),
+        ));
         let mut showing = self.showing.borrow_mut();
         if showing.as_ref() != Some(&key) {
             if let Some(previous) = showing.take() {
@@ -1227,6 +1295,7 @@ impl TranscriptScroll {
                 Some(y) => {
                     self.handle
                         .set_offset(gpui::point(self.handle.offset().x, y));
+                    self.own_move.set(true);
                     self.away.set(true);
                 }
                 // Somewhere to be taken to outranks the tail: the list answers a scroll-to-row
@@ -1248,18 +1317,20 @@ impl TranscriptScroll {
         }
     }
 
-    /// Whether the reader is reading something other than the tail — what draws the jump button,
-    /// and what stops an arriving chunk from dragging them back down.
+    /// Whether the handle is geometrically off the bottom right now. One half of the answer
+    /// [`Self::away`] carries: enough to say the reader has come *back* to the tail, and not
+    /// enough on its own to say they left it, because a row measured taller than it was drawn
+    /// moves the bottom without the reader moving at all.
     ///
     /// Measured from the last frame the handle painted: the offset is zero or negative and sits
     /// at `-max_offset` at the bottom, so the two summed are the distance still to go. A slot
     /// that has never painted has no maximum and is not away from anything.
     pub fn away_from_tail(&self) -> bool {
-        let max = self.handle.max_offset().y;
-        max > px(0.) && self.handle.offset().y + max > TAIL_SLACK
+        off_bottom(self.handle.offset().y, self.handle.max_offset().y)
     }
 
-    /// What the last frame decided, for whoever is drawing this frame's overlay.
+    /// What the last frame decided, for whoever is drawing this frame's overlay. The sticky
+    /// answer — [`away_reading`] is the rule it carries.
     pub fn away(&self) -> bool {
         self.away.get()
     }
@@ -1297,6 +1368,9 @@ impl TranscriptScroll {
     fn to_bottom(&self) {
         self.handle
             .set_offset(gpui::point(self.handle.offset().x, px(-1.0e9)));
+        // The clamped offset the next frame reads is this pin, not a reader — see
+        // [`Self::own_move`].
+        self.own_move.set(true);
     }
 
     /// How tall to tell the virtual list a row is, before it has laid it out.
@@ -1599,6 +1673,54 @@ mod tests {
         assert_eq!(c.visible_blocks().len(), 4, "the main agent's own turns");
     }
 
+    /// The bug this rule exists for: the tail's row measures taller than it was drawn, so the
+    /// bottom moves out from under a reader who has not touched the wheel. The follow has to
+    /// survive that, and has to stop the moment they actually scroll up.
+    ///
+    /// Driven through [`away_reading`] rather than through a `TranscriptScroll`, because
+    /// `max_offset` is written by the virtual list at paint and there is no way to put a value
+    /// there from a test — a test over the type would only ever see a slot that never painted.
+    #[test]
+    fn growing_content_does_not_end_the_follow_but_scrolling_up_does() {
+        // Pinned to the bottom of a 500px-tall transcript, then the tail's block grows by 80px:
+        // the offset is untouched and only the maximum moved.
+        assert!(
+            !away_reading(px(-500.), px(-500.), px(580.), false, false),
+            "the bottom moved, not the reader"
+        );
+
+        // The frame after `to_bottom`: `-1e9` was asked for and the list clamped it, so the
+        // reading is a rise of most of a billion pixels and is this type's own doing.
+        assert!(
+            !away_reading(px(-580.), px(-1.0e9), px(580.), false, true),
+            "a clamped pin is not a scroll"
+        );
+
+        // The reader scrolls up. Past the slack, and past the bottom.
+        assert!(
+            away_reading(px(-380.), px(-580.), px(580.), false, false),
+            "the offset rose: only a reader does that"
+        );
+
+        // A wheel notch that lands a few pixels short of the bottom is still reading the tail.
+        assert!(
+            !away_reading(px(-570.), px(-580.), px(580.), false, false),
+            "within the slack of the bottom"
+        );
+
+        // Away stays away while the turn keeps writing under them, however far the bottom moves.
+        assert!(
+            away_reading(px(-380.), px(-380.), px(900.), true, false),
+            "still reading the same place"
+        );
+
+        // And ends the moment they are back on the tail, which is the geometry alone.
+        assert!(
+            !away_reading(px(-900.), px(-380.), px(900.), true, false),
+            "back on the tail"
+        );
+    }
+
     fn conversation() -> Conversation {
         Conversation::new(
             AgentId::generate(),
@@ -1686,6 +1808,54 @@ mod tests {
                 open: true,
             }
         );
+    }
+
+    /// A run of thoughts is one box, so its disclosure is one decision: the reader clicked a box
+    /// closed, not the last message in it. And the run is read by its last block, which is the one
+    /// still streaming — so a run whose tail is open shuts, rather than every block flipping on
+    /// its own and leaving the box half open.
+    #[test]
+    fn toggling_a_run_of_thoughts_moves_every_block_in_it() {
+        let mut c = conversation();
+        for (seq, id) in [(1, "t1"), (2, "t2"), (3, "t3")] {
+            c.apply(
+                seq,
+                ConvUpdate::ThoughtChunk {
+                    content: ConvContent::Text("pondering".to_string()),
+                    message_id: Some(id.to_string()),
+                    subagent: None,
+                },
+            );
+        }
+        let open = |c: &Conversation| {
+            c.blocks
+                .iter()
+                .map(|block| matches!(block, ConvBlock::Thought { open: true, .. }))
+                .collect::<Vec<_>>()
+        };
+        // Only the last is still being written; the two before it folded as it started.
+        assert_eq!(open(&c), vec![false, false, true]);
+
+        c.toggle_thought_group(&[0, 1, 2]);
+        assert_eq!(
+            open(&c),
+            vec![false; 3],
+            "the tail was open, so the box shut"
+        );
+
+        c.toggle_thought_group(&[0, 1, 2]);
+        assert_eq!(open(&c), vec![true; 3], "and opens as one");
+
+        // Every block is the reader's choice now, so nothing collapses under them.
+        c.apply(
+            4,
+            ConvUpdate::AgentChunk {
+                content: ConvContent::Text("done".to_string()),
+                message_id: Some("m1".to_string()),
+                subagent: None,
+            },
+        );
+        assert_eq!(open(&c)[..3], [true; 3], "a reader's own choice stands");
     }
 
     #[test]

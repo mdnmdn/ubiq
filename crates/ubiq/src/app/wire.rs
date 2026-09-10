@@ -1233,24 +1233,38 @@ impl AppState {
 
             // Delete answered: unlike `ConversationEnded`, which keeps the transcript because the
             // harness merely stopped, there is nothing left to draw here. The conversation goes,
-            // the agent record goes with it, and any chat tab that was looking at it is detached
-            // rather than closed — the tab is a view, and a view with nothing attached is what a
-            // fresh `+` produces too.
+            // the agent record goes with it, and **every chat tab that was looking at it is
+            // closed** — a detached tab would be an empty panel the user never asked for, left
+            // where a conversation used to be, and the delete is the one gesture that says there
+            // is nothing to look at. An empty tab is what a fresh `+` produces on request; it is
+            // not what a delete should leave behind.
+            //
+            // Closing goes through `close_chat_tab_in` rather than dropping the `ChatTab` row
+            // here: the dock panel has to leave the tree too, and the composer slot has to be
+            // cleared before it is handed on.
             Message::ConversationDeleted { agent_id } => {
-                let open = self
+                let (project, open) = self
                     .projects
-                    .values_mut()
-                    .find(|open| open.conversations.contains_key(&agent_id))?;
+                    .iter_mut()
+                    .find(|(_, open)| open.conversations.contains_key(&agent_id))?;
+                let project = *project;
                 open.conversations.remove(&agent_id);
+                // The row goes from the work projection, which is what the agents columns, the
+                // computed bench and a chat tab's attach list all read — so one removal takes it
+                // off every surface that could still offer it.
                 open.work.remove_agent(agent_id);
-                for tab in open.chats.iter_mut() {
-                    if tab.attached == Some(agent_id) {
-                        tab.attached = None;
-                    }
-                }
+                let watching: Vec<ChatId> = open
+                    .chats
+                    .iter()
+                    .filter(|tab| tab.attached == Some(agent_id))
+                    .map(|tab| tab.id)
+                    .collect();
                 open.agents.live = open.conversations.keys().copied().collect();
                 open.agents.prune(&open.work);
                 open.graph.absorb_new(&open.work);
+                for tab in watching {
+                    self.close_chat_tab_in(project, tab, cx);
+                }
                 self.refill_columns = true;
                 cx.notify();
             }

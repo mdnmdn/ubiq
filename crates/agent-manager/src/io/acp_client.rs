@@ -182,7 +182,7 @@
 //! vanished — are `debug!` too, not returned errors: the caller asked for a
 //! state the session is already in.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout};
@@ -268,7 +268,9 @@ enum ConfigSource {
     /// `session/set_model`.
     Model,
     /// The legacy `modes` block or an `x.ai/sessionConfig` `mode` group —
-    /// `session/set_mode`.
+    /// `session/set_mode`. The second of those is a reasoning effort and is
+    /// published as the thinking option, so this source does *not* imply the
+    /// option's category is [`ConfigCategory::Mode`]; see [`xai_config`].
     Mode,
 }
 
@@ -284,6 +286,16 @@ struct ReaderState {
     /// Open `Task`/`Agent` tool calls, oldest first: `toolCallId` and the
     /// subagent type its `rawInput` named.
     delegates: Vec<(String, Option<String>)>,
+    /// Every tool call id ever recognised as a delegation, closed ones
+    /// included. A `tool_call_update` carries neither the `_meta` marker nor
+    /// the spawn's title — Grok's update for a `spawn_subagent` states
+    /// `kind: "other"` and the human description ("List files, quote A"), see
+    /// §5 of `_docs/wip/grok-acp-capture.md` — so without this memo the patch
+    /// would downgrade the block's kind back to `Other` one update after the
+    /// spawn and the delegate would stop rendering as one. Kept apart from
+    /// `delegates`, which is pruned when a call closes: the kind must not
+    /// regress on a *late* update either.
+    delegate_calls: HashSet<String>,
     /// Live subagent sessions from the ACP subagent extension (draft PR
     /// #1992): the child's `sessionId` and the `name` it was spawned under.
     /// Exact attribution, where `delegates` only guesses.
@@ -304,10 +316,16 @@ struct ReaderState {
     config: Vec<(ConfigOption, ConfigSource)>,
     /// The last `used`/`size` a `usage_update` reported, so the turn's own
     /// spend report can state the same occupancy rather than reading as a
-    /// context window that just emptied. `(0, 0)` until one arrives — which
-    /// for an agent that sends no `usage_update` at all (Grok) is the honest
-    /// answer, it names no window anywhere.
+    /// context window that just emptied. `(0, 0)` until one arrives, and an
+    /// agent that sends `usage_update` stays authoritative: [`turn_spend`]
+    /// only derives an occupancy of its own while this is still `(0, 0)`.
     occupancy: (u64, u64),
+    /// Each model's context window, learned from the `availableModels[]`
+    /// entries' `_meta.totalContextTokens` (500000 for `grok-4.6`, §2 of
+    /// `_docs/wip/grok-acp-capture.md`). The same stance as
+    /// [`super::jsonl`]'s own `windows` map: a model with no window here
+    /// reports `(0, 0)` rather than a ratio against an invented denominator.
+    windows: HashMap<String, u64>,
 }
 
 /// Everything the bridge, its reader thread and every [`AcpInputSink`] share.
@@ -584,6 +602,7 @@ impl AcpBridge {
         {
             let mut state = state_of(&self.shared);
             state.config = std::mem::take(&mut setup.config);
+            state.windows = std::mem::take(&mut setup.windows);
         }
         // Over the wire, and before anything is emitted: the events below must
         // state the model the session is actually on.
@@ -832,14 +851,49 @@ fn session_events(session_id: &str, result: &Value, init_models: Option<&Value>)
     if let Some(ev) = config_event(&config) {
         events.push(ev);
     }
-    SessionSetup { events, config }
+    SessionSetup {
+        events,
+        config,
+        windows: model_windows(result, init_models),
+    }
 }
 
-/// What `session/new`'s result implies: the events to emit, and the config
-/// the reader has to remember to route a later set.
+/// What `session/new`'s result implies: the events to emit, the config the
+/// reader has to remember to route a later set, and the context windows the
+/// model block named.
 struct SessionSetup {
     events: Vec<AgentEvent>,
     config: Vec<(ConfigOption, ConfigSource)>,
+    windows: HashMap<String, u64>,
+}
+
+/// Each model's context window, from `availableModels[]`'s
+/// `_meta.totalContextTokens` — 500000 for `grok-4.6`, §2 of
+/// `_docs/wip/grok-acp-capture.md`.
+///
+/// This is the only place any ACP agent states a window: ACP puts one on
+/// `usage_update`, and Grok sends no `usage_update` at all, so without this
+/// every Grok usage report read `0/0` and the chat panel drew no context ring
+/// and no `ctx` figure. The same block is on the `initialize` result's
+/// `_meta.modelState`, which is why both are read — `session/new`'s own wins
+/// where the two disagree. A model absent here keeps no window rather than a
+/// default one.
+fn model_windows(result: &Value, init_models: Option<&Value>) -> HashMap<String, u64> {
+    [init_models, result.get("models")]
+        .into_iter()
+        .flatten()
+        .filter(|models| !models.is_null())
+        .filter_map(|models| models.get("availableModels")?.as_array())
+        .flatten()
+        .filter_map(|entry| {
+            let id = entry.get("modelId").and_then(Value::as_str)?;
+            let size = entry
+                .get("_meta")?
+                .get("totalContextTokens")
+                .and_then(Value::as_u64)?;
+            Some((id.to_string(), size))
+        })
+        .collect()
 }
 
 /// Every knob the session advertised, whichever mechanism it used, flattened
@@ -958,9 +1012,21 @@ fn vendor_select(
 /// `{id, category, label, selected}` — as one select option per category.
 ///
 /// Note what Grok calls things: its `category: "mode"` is the *reasoning
-/// effort*, not a permission mode. That is still the mode setter's business
-/// (`session/set_mode` takes a reasoning-effort id), so the naming is
-/// followed rather than corrected.
+/// effort*, not a permission mode — Grok exposes no permission mode over ACP
+/// at all (§2 and §4 of `_docs/wip/grok-acp-capture.md`). So the effort is
+/// published as the **thinking** option, in the exact shape the non-ACP path
+/// uses (`ubiq-host`'s `thinking_config_option`: id `thinking`, name
+/// `Thinking`, [`ConfigCategory::ThoughtLevel`]), because the interface
+/// matches its chat-row chips by literal option id: published as `mode` it
+/// was drawn in the permission-mode slot, tooltip and all, and the thinking
+/// chip never appeared.
+///
+/// The *setter* keeps Grok's naming, which is where the naming is real:
+/// [`ConfigSource::Mode`] means `session/set_mode {sessionId, modeId}`, the
+/// one method Grok answers for an effort — `session/set_config_option` names
+/// nothing Grok advertises. Published id, category and setter therefore
+/// diverge for this one case, which is what [`ConfigSource`] being a separate
+/// memo from the option makes possible.
 fn xai_config(result: &Value) -> Vec<(ConfigOption, ConfigSource)> {
     let Some(entries) = result
         .get("_meta")
@@ -985,10 +1051,18 @@ fn xai_config(result: &Value) -> Vec<(ConfigOption, ConfigSource)> {
     groups
         .into_iter()
         .filter_map(|(category, group)| {
-            let (name, kind, source) = match category.as_str() {
-                "model" => ("Model", ConfigCategory::Model, ConfigSource::Model),
-                "mode" => ("Mode", ConfigCategory::Mode, ConfigSource::Mode),
+            let (id, name, kind, source) = match category.as_str() {
+                "model" => ("model", "Model", ConfigCategory::Model, ConfigSource::Model),
+                // Grok's "mode" is the reasoning effort: published as the
+                // thinking option, still set with `session/set_mode`.
+                "mode" => (
+                    "thinking",
+                    "Thinking",
+                    ConfigCategory::ThoughtLevel,
+                    ConfigSource::Mode,
+                ),
                 other => (
+                    other,
                     other,
                     ConfigCategory::Other(other.to_string()),
                     ConfigSource::Option,
@@ -1000,7 +1074,7 @@ fn xai_config(result: &Value) -> Vec<(ConfigOption, ConfigSource)> {
                 .and_then(|entry| entry.get("id"))
                 .and_then(Value::as_str)
                 .map(String::from);
-            let option = vendor_select(&category, name, kind, current.as_deref(), &group, "id")?;
+            let option = vendor_select(id, name, kind, current.as_deref(), &group, "id")?;
             Some((option, source))
         })
         .collect()
@@ -1226,7 +1300,8 @@ fn set_config_option(
                     shared,
                     "session/set_model",
                     json!({"sessionId": session_id, "modelId": text}),
-                    &ConfigCategory::Model,
+                    config_id,
+                    ConfigSource::Model,
                     text,
                 );
             }
@@ -1235,7 +1310,8 @@ fn set_config_option(
                     shared,
                     "session/set_mode",
                     json!({"sessionId": session_id, "modeId": text}),
-                    &ConfigCategory::Mode,
+                    config_id,
+                    ConfigSource::Mode,
                     text,
                 );
             }
@@ -1360,17 +1436,30 @@ fn apply_requested_model(shared: &Shared, requested: Option<&str>, events: &mut 
 /// value is recorded here and the whole set restated from the memo. Without
 /// that the interface would show the old selection until the agent happened
 /// to volunteer a notification.
+///
+/// The memo is updated by option **id**, not by category: an option's setter
+/// and its published category diverge for Grok's reasoning effort, which is
+/// set with `session/set_mode` while it is published as the thinking option.
 fn set_vendor(
     shared: &Shared,
     method: &str,
     params: Value,
-    category: &ConfigCategory,
+    config_id: &str,
+    source: ConfigSource,
     value: &str,
 ) -> crate::Result<Option<AgentEvent>> {
     rpc_request(shared, method, params, REQUEST_TIMEOUT)?;
     let mut state = state_of(shared);
-    set_current(&mut state.config, category, value);
-    if category == &ConfigCategory::Model {
+    for (option, _) in state
+        .config
+        .iter_mut()
+        .filter(|(option, _)| option.id == config_id)
+    {
+        if let ConfigValue::Select { current_value, .. } = &mut option.value {
+            *current_value = value.to_string();
+        }
+    }
+    if source == ConfigSource::Model {
         state.model = Some(value.to_string());
     }
     Ok(config_event(&state.config))
@@ -1829,9 +1918,21 @@ fn turn_ended(response: &Value) -> AgentEvent {
 /// `Spend::total()` equal the agent's own `totalTokens` by construction, for
 /// every adapter and without a per-harness branch.
 ///
-/// `used`/`size` restate the last occupancy seen, and `cost` is `None`: the
-/// cumulative-cost memo belongs to `usage_update`, and billing the same turn
-/// twice is worse than not billing it here.
+/// `cost` is `None`: the cumulative-cost memo belongs to `usage_update`, and
+/// billing the same turn twice is worse than not billing it here.
+///
+/// **`used`/`size` restate the last `usage_update`'s occupancy where there was
+/// one, and are otherwise derived here.** An agent that reports occupancy
+/// stays authoritative. Grok reports none, so the two numbers come from the
+/// only places it states them: `result._meta.totalTokens`, which is the
+/// session's *running* occupancy (15920 after turn 1, 17659 after turn 2 of
+/// the `_data/grok-acp.jsonl` capture) — expressly **not**
+/// `result._meta.usage.totalTokens`, which is the turn's cumulative spend
+/// across every model call (88765 across 7 calls on that same turn 2) — and
+/// [`ReaderState::windows`] for the window of the model the session is on. A
+/// model with no window learned reports `(0, 0)`, the same answer
+/// [`super::jsonl`] gives: a ratio against an invented denominator is worse
+/// than no ratio.
 fn turn_spend(shared: &Shared, response: &Value) -> Option<AgentEvent> {
     let result = response.get("result")?;
     let meta = result.get("_meta");
@@ -1865,7 +1966,23 @@ fn turn_spend(shared: &Shared, response: &Value) -> Option<AgentEvent> {
         Ok(state) => state,
         Err(poisoned) => poisoned.into_inner(),
     };
-    let (used, size) = state.occupancy;
+    let (used, size) = match state.occupancy {
+        (0, 0) => {
+            let window = state
+                .model
+                .as_ref()
+                .and_then(|model| state.windows.get(model))
+                .copied();
+            let occupied = meta
+                .and_then(|meta| meta.get("totalTokens"))
+                .and_then(Value::as_u64);
+            match (occupied, window) {
+                (Some(occupied), Some(window)) => (occupied, window),
+                _ => (0, 0),
+            }
+        }
+        reported => reported,
+    };
     Some(AgentEvent::UsageUpdate {
         used,
         size,
@@ -1936,11 +2053,17 @@ fn serve_request(shared: &Shared, id: Value, method: &str, value: &Value, raw: &
                     permission_reply(&previous, &PermissionOutcome::Cancelled),
                 );
             }
-            if emit(
-                &shared.tx,
-                permission_request(&request_id, &params),
-                Some(Arc::clone(raw)),
-            ) {
+            let ev = permission_request(&request_id, &params);
+            // An ask can be the first frame that names a call a delegation, so
+            // the memo is written here too — see [`ReaderState::delegate_calls`].
+            if let AgentEvent::PermissionRequest { tool_call, .. } = &ev
+                && tool_call.kind == Some(ToolKind::Delegate)
+            {
+                state_of(shared)
+                    .delegate_calls
+                    .insert(tool_call.id.clone());
+            }
+            if emit(&shared.tx, ev, Some(Arc::clone(raw))) {
                 return true;
             }
             // The event reached nobody, so nobody will ever answer it: retire
@@ -1998,10 +2121,23 @@ fn request_id_of(id: &Value) -> String {
 }
 
 /// `session/request_permission`'s params as the event a consumer draws.
+///
+/// The embedded tool call goes through [`is_delegate`] too: Grok asks
+/// permission for a `spawn_subagent` with `kind: "other"` and the human
+/// description as the title, but its `toolCall._meta["x.ai/tool"]` does carry
+/// the `task` marker (capture seq 116), so the ask can be drawn as the
+/// delegation it is rather than as an ordinary tool.
 fn permission_request(request_id: &str, params: &Value) -> AgentEvent {
+    let tool_call = params.get("toolCall");
+    let mut patch = tool_call_update(tool_call);
+    if let Some(call) = tool_call
+        && is_delegate(call, patch.title.as_deref().unwrap_or_default())
+    {
+        patch.kind = Some(ToolKind::Delegate);
+    }
     AgentEvent::PermissionRequest {
         request_id: request_id.to_string(),
-        tool_call: tool_call_update(params.get("toolCall")),
+        tool_call: patch,
         options: permission_options(params.get("options")),
     }
 }
@@ -2363,9 +2499,10 @@ fn model_changed(shared: &Shared, params: &Value) -> bool {
             set_current(&mut state.config, &ConfigCategory::Model, model);
             state.model = Some(model.to_string());
         }
-        // Grok's "mode" *is* the reasoning effort. See [`xai_config`].
+        // Grok's "mode" *is* the reasoning effort, and it is published as the
+        // thinking option. See [`xai_config`].
         if let Some(effort) = update.get("reasoning_effort").and_then(Value::as_str) {
-            set_current(&mut state.config, &ConfigCategory::Mode, effort);
+            set_current(&mut state.config, &ConfigCategory::ThoughtLevel, effort);
         }
         config_event(&state.config)
     };
@@ -2506,17 +2643,26 @@ fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent
             }
             return ev;
         }
-        AgentEvent::ToolCall { call } if is_delegate(update, &call.title) => {
+        AgentEvent::ToolCall { call }
+            if is_delegate(update, &call.title) || state.delegate_calls.contains(&call.id) =>
+        {
             call.kind = ToolKind::Delegate;
             let subagent = call
                 .raw_input
                 .as_ref()
                 .and_then(|raw| str_any(raw, &["subagent_type", "subagent", "description"]));
+            state.delegate_calls.insert(call.id.clone());
             state.delegates.push((call.id.clone(), subagent));
             // The delegate's own call belongs to whoever opened it, not to itself.
             return ev;
         }
         AgentEvent::ToolCallUpdate { update: patch } => {
+            // A patch for a call already known to be a delegation stays one:
+            // Grok's own update states `kind: "other"` and would otherwise
+            // downgrade the block one update after the spawn.
+            if state.delegate_calls.contains(&patch.id) {
+                patch.kind = Some(ToolKind::Delegate);
+            }
             // A spawn that names its child in its own result is the reliable
             // registration: the child's transcript may arrive long after the
             // call closed (Grok's background subagents), by which time the
@@ -2564,6 +2710,10 @@ fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent
 /// ACP's `ToolKind` has no value for it, so the name is all there is: the
 /// `_meta` tool name the reference adapter emits
 /// (`_meta.claudeCode.toolName`), or the call's own title or name.
+///
+/// Only the *initial* `tool_call` (and Grok's permission ask) carries any of
+/// that: a `tool_call_update` for the same id has neither the marker nor the
+/// spawn's title, which is what [`ReaderState::delegate_calls`] is for.
 fn is_delegate(update: &Value, title: &str) -> bool {
     let named = |name: &str| {
         name.eq_ignore_ascii_case("task")
@@ -3161,6 +3311,87 @@ mod tests {
         assert_eq!(origin.subagent_type.as_deref(), Some("explore"));
     }
 
+    /// Grok's `tool_call_update` for a spawn carries neither the
+    /// `x.ai/tool` marker nor the spawn's title: its own kind is `"other"`
+    /// and its title is the human description ("List files, quote A" in the
+    /// capture). Taken at face value the patch downgraded the block to an
+    /// ordinary tool one update after the spawn, which is why a subagent
+    /// stopped rendering as one. An ordinary call's update is untouched.
+    #[test]
+    fn a_delegates_kind_never_regresses_on_a_later_update() {
+        let (shared, _written, _events) = test_shared(&temp_root("delegatekind"));
+        let _ = shared.session_id.set("main".to_string());
+
+        let spawn = parse(
+            r#"{"sessionId":"main","update":{"sessionUpdate":"tool_call",
+                "toolCallId":"call_1","title":"spawn_subagent","status":"in_progress",
+                "kind":"other","rawInput":{"subagent_type":"explore"},
+                "_meta":{"x.ai/tool":{"name":"spawn_subagent","kind":"task"}}}}"#,
+        );
+        let Some(AgentEvent::ToolCall { call }) = session_update(&shared, &spawn) else {
+            panic!("expected the spawn to be a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Delegate);
+
+        let patched = |id: &str| {
+            let update = parse(&format!(
+                r#"{{"sessionId":"main","update":{{"sessionUpdate":"tool_call_update",
+                    "toolCallId":"{id}","kind":"other","title":"List files, quote A",
+                    "status":"in_progress"}}}}"#
+            ));
+            match session_update(&shared, &update) {
+                Some(AgentEvent::ToolCallUpdate { update }) => update.kind,
+                other => panic!("expected a patch, got {other:?}"),
+            }
+        };
+        assert_eq!(patched("call_1"), Some(ToolKind::Delegate));
+        // Still a delegate after it has closed, and after `delegates` has
+        // been pruned of it.
+        assert!(
+            session_update(
+                &shared,
+                &parse(
+                    r#"{"sessionId":"main","update":{"sessionUpdate":"tool_call_update",
+                        "toolCallId":"call_1","status":"completed"}}"#
+                ),
+            )
+            .is_some()
+        );
+        assert_eq!(patched("call_1"), Some(ToolKind::Delegate));
+        // An ordinary call is unaffected.
+        assert_eq!(patched("call_2"), Some(ToolKind::Other));
+    }
+
+    /// Grok asks permission for the spawn with `kind: "other"` and the
+    /// description as the title, but its `toolCall._meta["x.ai/tool"]` does
+    /// carry the `task` marker (capture seq 116) — so the ask is a delegation
+    /// too, and the memo it writes keeps every later patch one.
+    #[test]
+    fn a_permission_ask_for_a_spawn_is_a_delegation() {
+        let params = parse(
+            r#"{"sessionId":"s1","toolCall":{"toolCallId":"call_1","kind":"other",
+                "title":"List files, quote A",
+                "rawInput":{"variant":"Task","subagent_type":"explore"},
+                "_meta":{"x.ai/tool":{"name":"spawn_subagent","kind":"task"}}},
+                "options":[]}"#,
+        );
+        let AgentEvent::PermissionRequest { tool_call, .. } = permission_request("n:0", &params)
+        else {
+            panic!("expected a permission request");
+        };
+        assert_eq!(tool_call.kind, Some(ToolKind::Delegate));
+        // An ordinary ask keeps the kind the agent stated.
+        let plain = parse(
+            r#"{"toolCall":{"toolCallId":"call_2","kind":"execute","title":"ls"},
+                "options":[]}"#,
+        );
+        let AgentEvent::PermissionRequest { tool_call, .. } = permission_request("n:1", &plain)
+        else {
+            panic!("expected a permission request");
+        };
+        assert_eq!(tool_call.kind, Some(ToolKind::Execute));
+    }
+
     /// A child's `user_message_chunk` is the delegate's prompt and carries no
     /// origin to say so, and a `<system-reminder>` on the main session is the
     /// harness talking to the model. Neither is a turn the user took.
@@ -3282,8 +3513,10 @@ mod tests {
         assert_eq!(grok.total(), 16_137);
         assert_eq!(grok.input, 4_271);
         assert_eq!(grok.thinking, 36);
-        // Grok sends no `usage_update` at all, so it names no window — 0 is
-        // the honest answer rather than an invented one.
+        // No `usage_update` and no model block seen, so no window is known
+        // for this session — 0/0 is the honest answer rather than a ratio
+        // against an invented denominator. See the next test for the session
+        // that did learn one.
         assert_eq!((used, size), (0, 0));
 
         // A response with no usage anywhere reports nothing.
@@ -3309,6 +3542,68 @@ mod tests {
             panic!("expected usage");
         };
         assert_eq!((used, size), (19_175, 1_000_000));
+    }
+
+    /// Grok sends no `usage_update` at all, so the context ring has to come
+    /// from the two places it *does* state those numbers: the running
+    /// occupancy on `result._meta.totalTokens`, and the window the model
+    /// block named in `_meta.totalContextTokens`. Both figures are from the
+    /// `_data/grok-acp.jsonl` capture, whose turn 2 is the reason
+    /// `_meta.usage.totalTokens` cannot be used — 88765 is that turn's spend
+    /// across 7 model calls, not what is sitting in the window.
+    #[test]
+    fn a_grok_turn_reports_the_occupancy_and_the_window_the_model_block_named() {
+        let (shared, _written, _events) = test_shared(&temp_root("grokwindow"));
+        let result = parse(
+            r#"{"sessionId":"s1","models":{"currentModelId":"grok-4.6","availableModels":[
+                  {"modelId":"grok-4.6","name":"Grok 4.6",
+                   "_meta":{"totalContextTokens":500000}},
+                  {"modelId":"grok-4.5","name":"Grok 4.5"}]}}"#,
+        );
+        let mut setup = session_events("s1", &result, None);
+        {
+            let mut state = state_of(&shared);
+            state.config = std::mem::take(&mut setup.config);
+            state.windows = std::mem::take(&mut setup.windows);
+            state.model = Some("grok-4.6".to_string());
+        }
+        let ring = |response: &str| match turn_spend(&shared, &parse(response)) {
+            Some(AgentEvent::UsageUpdate {
+                used, size, spend, ..
+            }) => (used, size, spend.unwrap().total()),
+            other => panic!("expected usage, got {other:?}"),
+        };
+
+        // Turn 1: occupancy and turn total agree, one model call.
+        assert_eq!(
+            ring(
+                r#"{"result":{"stopReason":"end_turn","_meta":{"modelId":"grok-4.6",
+                    "totalTokens":15920,
+                    "usage":{"inputTokens":15857,"outputTokens":63,"totalTokens":15920,
+                    "cachedReadTokens":640,"reasoningTokens":45}}}}"#
+            ),
+            (15_920, 500_000, 15_920)
+        );
+        // Turn 2: they part company, and the ring follows the occupancy.
+        assert_eq!(
+            ring(
+                r#"{"result":{"stopReason":"end_turn","_meta":{"modelId":"grok-4.6",
+                    "totalTokens":17659,
+                    "usage":{"inputTokens":86000,"outputTokens":2000,"totalTokens":88765,
+                    "cachedReadTokens":700,"reasoningTokens":65}}}}"#
+            ),
+            (17_659, 500_000, 88_765)
+        );
+
+        // The other model named no window, so a session on it reports none
+        // rather than borrowing its sibling's.
+        state_of(&shared).model = Some("grok-4.5".to_string());
+        let (used, size, _) = ring(
+            r#"{"result":{"stopReason":"end_turn","_meta":{"modelId":"grok-4.5",
+                "totalTokens":17659,
+                "usage":{"inputTokens":10,"outputTokens":10,"totalTokens":20}}}}"#,
+        );
+        assert_eq!((used, size), (0, 0));
     }
 
     /// A spawn gets the same anchor `io/jsonl.rs` gives a Claude `Task` block —
@@ -3565,8 +3860,15 @@ mod tests {
     /// Grok's reasoning efforts arrive only in `_meta["x.ai/sessionConfig"]`,
     /// as a flat list keyed by `category` — one select option per category,
     /// composing with the `models` block rather than replacing it.
+    ///
+    /// Grok's `category: "mode"` *is* the reasoning effort, so it is published
+    /// as the **thinking** option — id `thinking`, `ThoughtLevel` — while
+    /// still being set with `session/set_mode`. Published as `mode` it landed
+    /// in the interface's permission-mode slot, which is a slot Grok has
+    /// nothing to put in: it exposes no permission mode over ACP, so the
+    /// session starts with no mode named.
     #[test]
-    fn an_x_ai_session_config_yields_both_a_model_and_a_mode() {
+    fn an_x_ai_reasoning_effort_is_published_as_the_thinking_option() {
         let result = parse(
             r#"{"sessionId":"sess_5",
                 "models":{"currentModelId":"grok-4.6","availableModels":[
@@ -3584,17 +3886,24 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            vec![("model", ConfigSource::Model), ("mode", ConfigSource::Mode)]
+            vec![
+                ("model", ConfigSource::Model),
+                ("thinking", ConfigSource::Mode)
+            ]
         );
+        let (thinking, _) = &setup.config[1];
+        assert_eq!(thinking.name, "Thinking");
+        assert_eq!(thinking.category, Some(ConfigCategory::ThoughtLevel));
         assert_eq!(
-            current_of(&setup.config, &ConfigCategory::Mode).as_deref(),
+            current_of(&setup.config, &ConfigCategory::ThoughtLevel).as_deref(),
             Some("high")
         );
+        assert_eq!(current_of(&setup.config, &ConfigCategory::Mode), None);
         let AgentEvent::SessionStarted { model, mode, .. } = &setup.events[0] else {
             panic!("expected a session to start, got {:?}", setup.events);
         };
         assert_eq!(model.as_deref(), Some("grok-4.6"));
-        assert_eq!(mode.as_deref(), Some("high"));
+        assert_eq!(mode.as_deref(), None);
         assert!(
             matches!(setup.events[1], AgentEvent::ConfigOptionUpdate { .. }),
             "expected a config update, got {:?}",
@@ -3638,8 +3947,9 @@ mod tests {
     }
 
     /// A set is dispatched by where the option came from, not by its id: a
-    /// vendor-sourced model is `session/set_model`, a vendor-sourced mode is
-    /// `session/set_mode`, and an id with no memo keeps the spec method.
+    /// vendor-sourced model is `session/set_model`, Grok's reasoning effort —
+    /// published as `thinking` — is `session/set_mode`, and an id with no memo
+    /// keeps the spec method.
     #[test]
     fn a_vendor_option_is_set_through_its_own_method() {
         let (shared, written, _events) = test_shared(&temp_root("setvendor"));
@@ -3667,8 +3977,8 @@ mod tests {
             .unwrap();
         };
         set("model", "grok-4.5");
-        set("mode", "low");
-        set("thinking", "on");
+        set("thinking", "low");
+        set("verbosity", "high");
 
         let frames = answers.join().unwrap();
         let methods: Vec<_> = frames
@@ -3690,6 +4000,12 @@ mod tests {
         assert_eq!(
             frames[1]["params"],
             json!({"sessionId":"sess_1","modeId":"low"})
+        );
+        // The memo is updated by option id, not by category — `set_mode` set
+        // an option whose category is `ThoughtLevel`.
+        assert_eq!(
+            current_of(&state_of(&shared).config, &ConfigCategory::ThoughtLevel).as_deref(),
+            Some("low")
         );
     }
 

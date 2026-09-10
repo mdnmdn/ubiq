@@ -231,9 +231,19 @@ impl WorkbenchPanel {
                     Some(name) => truncate_tab_title(&name),
                     None => (SharedString::from(label), tooltip),
                 };
+                // The same dot the agents column wears, from the same pair of functions: a reader
+                // scanning the tab row is asking which conversation wants them, and the label
+                // alone does not answer it. A tab attached to nothing keeps no dot — there is no
+                // conversation there to have a state.
+                let state = attached
+                    .and_then(|agent| app.conversation(agent, cx))
+                    .map(crate::ui::conversation::lifecycle);
                 TabInfo {
                     label,
                     tooltip,
+                    dot_colour: state.map(crate::ui::conversation::lifecycle_colour),
+                    dot_pulse: state
+                        .is_some_and(|state| crate::ui::conversation::lifecycle_pulses(state, cx)),
                     pinned: app.tab_pinned(&self.kind, cx),
                     ..TabInfo::default()
                 }
@@ -253,6 +263,7 @@ impl WorkbenchPanel {
                             .map(|explorer| editor::git_colour(file, explorer))
                             .unwrap_or_else(theme::text_muted),
                         dot_colour: did_save_or_dirty(file).then(|| editor::dirty_colour(file)),
+                        dot_pulse: false,
                         temporary: file.temporary,
                         tooltip: None,
                         bookmarks: app.bookmark_count(key, cx),
@@ -333,6 +344,10 @@ pub struct TabInfo {
     pub label: SharedString,
     pub title_colour: Rgba,
     pub dot_colour: Option<Rgba>,
+    /// Whether that dot fades in and out. A conversation that is working or wants the reader is
+    /// the only thing that asks for it — a terminal's running dot and a file's dirty dot are
+    /// states, not activity, and `false` is what leaves them still.
+    pub dot_pulse: bool,
     pub temporary: bool,
     /// The untruncated title, shown on hover when [`Self::label`] is a trimmed version of it.
     pub tooltip: Option<SharedString>,
@@ -350,6 +365,7 @@ impl Default for TabInfo {
             label: SharedString::default(),
             title_colour: theme::text(),
             dot_colour: None,
+            dot_pulse: false,
             temporary: false,
             tooltip: None,
             bookmarks: 0,

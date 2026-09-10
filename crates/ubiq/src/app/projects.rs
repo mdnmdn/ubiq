@@ -696,9 +696,8 @@ impl AppState {
     ///
     /// The revive is a **re-attach**: `source == agent_id`, so the harness resumes its own session
     /// in the run directory it kept, and the answer arrives as `ConversationStarted` like any
-    /// other start. A conversation that was never marked persistent is gone and the host answers
-    /// nothing; the tab then sits attached to an agent with no transcript, which draws the empty
-    /// page a fresh tab draws.
+    /// other start. Everything in the blob was persistent when it was written — [`Self::remember`]
+    /// writes nothing else down — so every id here is one the host still has a row for.
     fn restore_chats(&mut self, project: ProjectId, view: &prefs::ViewPrefs) {
         if view.chats.is_empty() {
             return;
@@ -767,11 +766,36 @@ impl AppState {
             open.prefs.active_file = open.editor.active_file().map(|file| file.key());
             // The chat tabs, as what each was attached to. A tab attached to nothing leaves
             // nothing to bring back, so it is skipped rather than written as a hole.
-            open.prefs.chats = open
-                .chats
-                .iter()
-                .filter_map(|tab| tab.attached.map(|agent| agent.to_string()))
-                .collect();
+            //
+            // **Only a persistent conversation is written down**, because only a persistent one
+            // survives: the host keeps the rows marked persistent and the boot sweep has already
+            // deleted the rest of the run directories, so remembering an ordinary conversation
+            // would revive a tab attached to an agent that no longer exists and draw an empty
+            // panel. A tab whose conversation was not kept is written as nothing, exactly as a
+            // tab attached to nothing is.
+            //
+            // The persistent mark lives on the host's work snapshot and nowhere else, so this can
+            // only be answered once that snapshot has arrived: a project is opened by asking for
+            // its preferences and its work in two independent round trips, and the blob's own
+            // tabs are re-attached the moment the first lands. **With no work reported yet, what
+            // the blob already says is left alone** rather than overwritten with nothing — the
+            // same guard `Self::settle_persistent_chat` makes, for the same reason. Reading an
+            // empty projection as "nothing was persistent" would throw away a persistent tab the
+            // previous blob was right about.
+            if !open.work.agents.is_empty() {
+                let mut chats = Vec::new();
+                for tab in &open.chats {
+                    if let Some(agent) = tab.attached
+                        && open
+                            .work
+                            .agent(agent)
+                            .is_some_and(|record| record.persistent)
+                    {
+                        chats.push(agent.to_string());
+                    }
+                }
+                open.prefs.chats = chats;
+            }
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();
             open.prefs.file_filter = self.workbench.file_filter.clone();

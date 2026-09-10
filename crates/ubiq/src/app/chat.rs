@@ -167,15 +167,34 @@ impl AppState {
     /// Closing the last one is allowed: there is no last-tab guard anywhere in this tree, and a
     /// chat tab is a view — the conversation it was looking at is the host's and outlives it.
     pub fn close_chat_tab(&mut self, id: ChatId, cx: &mut Context<Self>) {
-        let slot = self.project(cx).and_then(|project| {
-            let open = self.projects.get_mut(&project)?;
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        self.close_chat_tab_in(project, id, cx);
+    }
+
+    /// The same close, for a tab belonging to a **named** project rather than the one on screen.
+    ///
+    /// A conversation may be deleted while the window is looking at another project, and the tab
+    /// that was watching it still has to go — so the project is passed in rather than read off the
+    /// window. The queued `PanelEdit::Close` is harmless for a project that is not on screen: the
+    /// dock holding no such leaf simply has nothing to remove.
+    pub(super) fn close_chat_tab_in(
+        &mut self,
+        project: ProjectId,
+        id: ChatId,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.projects.get_mut(&project).and_then(|open| {
             let at = open.chats.iter().position(|tab| tab.id == id)?;
             Some(open.chats.remove(at).slot)
         });
+        // The draft belongs to the project the tab did, and a slot handed on carrying what was
+        // typed at the tab before it is the one thing a free slot must never do.
         if let Some(slot) = slot
-            && let Some(agents) = self.agents_mut(cx)
+            && let Some(open) = self.projects.get_mut(&project)
         {
-            agents.clear_draft(slot);
+            open.agents.clear_draft(slot);
         }
         self.pending_panels
             .push(PanelEdit::Close(PanelKind::Chat(id)));

@@ -13,7 +13,9 @@
 //! are the same answer. It used to sit in the lifecycle strip under the title, which is a line
 //! below where a reader scanning a row of columns for the one that wants them actually looks. An
 //! agent the host is not streaming has no lifecycle to read and keeps its activity colour: a
-//! record is not idle, it is a record.
+//! record is not idle, it is a record. The dot itself is
+//! [`conversation::lifecycle_dot`] — the same element a chat tab in the dock wears, blink
+//! included, so there is one dot in the window rather than one per surface that draws one.
 //!
 //! **A tab is dragged, not reordered.** Dropped on another column it groups; dropped past the last
 //! one it splits off. Both are the same gesture from the user's side, and neither sends anything —
@@ -48,7 +50,7 @@ use crate::ui::agents::DraggedTab;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::{
     Picker, PickerStyle, field, ghost_button, harness_icon, mono, pill, progress_ring,
-    section_label, state_chip, status_dot,
+    section_label, state_chip,
 };
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, handler, indexed};
@@ -113,10 +115,15 @@ pub fn render(
         .child(div().flex_1().min_w(px(0.)))
         .child(add_tab(app, column, window, cx));
 
-    // What the dot says, where there is a conversation to say it about.
-    let state = app
-        .conversation(agent.id, cx)
-        .map(|live| conversation::lifecycle_colour(conversation::lifecycle(live)));
+    // What the dot says, and whether it moves while saying it, where there is a conversation to
+    // say it about.
+    let state = app.conversation(agent.id, cx).map(|live| {
+        let state = conversation::lifecycle(live);
+        (
+            conversation::lifecycle_colour(state),
+            conversation::lifecycle_pulses(state, cx),
+        )
+    });
     let root = root
         .child(strip)
         .child(header(agent, held.tabs.len(), work, colour, state));
@@ -166,11 +173,18 @@ fn tab(
     // What the conversation is about, where something has named it. A tab with no summary says
     // nothing on hover: the name is printed in full beside the dot already.
     let summary: Option<SharedString> = agent.summary.clone().map(SharedString::from);
-    // The same reading the title carries, so a grouped column's tabs and its title agree.
-    let colour = app
+    // The same reading the title carries, so a grouped column's tabs and its title agree — the
+    // pulse included. A record with no live conversation behind it has no lifecycle to pulse.
+    let (colour, pulse) = app
         .conversation(id, cx)
-        .map(|live| conversation::lifecycle_colour(conversation::lifecycle(live)))
-        .unwrap_or_else(|| activity_colour(agent.activity));
+        .map(|live| {
+            let state = conversation::lifecycle(live);
+            (
+                conversation::lifecycle_colour(state),
+                conversation::lifecycle_pulses(state, cx),
+            )
+        })
+        .unwrap_or_else(|| (activity_colour(agent.activity), false));
 
     let mut row = div()
         .id(eid("agents-tab", id))
@@ -199,44 +213,51 @@ fn tab(
         row = row.bg(theme::app_bg());
     }
 
-    row.child(status_dot(colour, theme::pane_bg()))
-        .child(div().id(eid("agents-tab-name", id)).child(name).when_some(
-            summary,
-            |this, summary| {
+    row.child(conversation::lifecycle_dot(
+        colour,
+        pulse,
+        theme::pane_bg(),
+        eid("agents-tab-dot", id),
+    ))
+    .child(
+        div()
+            .id(eid("agents-tab-name", id))
+            .child(name)
+            .when_some(summary, |this, summary| {
                 this.tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(summary.clone()).build(window, cx)
                 })
-            },
-        ))
-        .child(
-            div()
-                .id(eid("agents-tab-close", id))
-                .size(px(16.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .cursor_pointer()
-                .hover(|this| this.bg(theme::hover()))
-                .child(
-                    Icon::new(IconName::Close)
-                        .with_size(Size::XSmall)
-                        .text_color(theme::text_faint()),
-                )
-                // The close benches the agent. It does not end it — see the module note on
-                // `ui::agents`.
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new("Put on the bench").build(window, cx)
-                })
-                .on_click(cx.listener(move |this, _, _, cx| this.bench_agent(id, cx))),
-        )
-        .on_click(cx.listener(move |this, _, _, cx| this.select_column_tab(column, index, cx)))
-        .on_drag(DraggedTab(id), move |_, _, _, cx: &mut App| {
-            let ghost = ghost.clone();
-            view.update(cx, |this, cx| this.start_tab_drag(id, cx));
-            cx.new(|_| TabGhost(ghost))
-        })
-        .into_any_element()
+            }),
+    )
+    .child(
+        div()
+            .id(eid("agents-tab-close", id))
+            .size(px(16.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .child(
+                Icon::new(IconName::Close)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+            // The close benches the agent. It does not end it — see the module note on
+            // `ui::agents`.
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new("Put on the bench").build(window, cx)
+            })
+            .on_click(cx.listener(move |this, _, _, cx| this.bench_agent(id, cx))),
+    )
+    .on_click(cx.listener(move |this, _, _, cx| this.select_column_tab(column, index, cx)))
+    .on_drag(DraggedTab(id), move |_, _, _, cx: &mut App| {
+        let ghost = ghost.clone();
+        view.update(cx, |this, cx| this.start_tab_drag(id, cx));
+        cx.new(|_| TabGhost(ghost))
+    })
+    .into_any_element()
 }
 
 /// The `+` at the end of a strip: which agent to group into this column — from the bench, or
@@ -336,7 +357,7 @@ fn header(
     tabs: usize,
     work: &work::WorkProjection,
     colour: gpui::Rgba,
-    state: Option<gpui::Rgba>,
+    state: Option<(gpui::Rgba, bool)>,
 ) -> AnyElement {
     let worktree = work
         .session(agent.session)
@@ -369,8 +390,13 @@ fn header(
                 .child(role_mark(&agent.role, colour, 18.))
                 // Before the name, not after it: the dot is what the eye lands on first when it
                 // is scanning columns rather than reading one.
-                .when_some(state, |this, state| {
-                    this.child(status_dot(state, theme::pane_bg()))
+                .when_some(state, |this, (colour, pulse)| {
+                    this.child(conversation::lifecycle_dot(
+                        colour,
+                        pulse,
+                        theme::pane_bg(),
+                        eid("agents-header-dot", agent.id),
+                    ))
                 })
                 // Beside the dot, not folded into it: the dot says what this agent is doing, and
                 // this says whether it will still be here after a restart. Only when it is kept —

@@ -99,8 +99,10 @@ command + all four harness `login()` impls + reuse). Remaining:
   identifying fields** (email, account uuid) per those tables. Never store token
   values.
 - **Login argv unverified for opencode & grok.** The dev sandbox has no
-  `opencode`/`grok` binary, so `opencode auth login` and grok's bare-run OAuth are
-  transcribed-from-docs, not run. Verify on a real machine.
+  `opencode` binary, so `opencode auth login` is transcribed-from-docs, not run.
+  grok 1.0.13 is installed and its ACP path is captured, but it has no login verb
+  at all — a captured `~/.grok/auth.json` is the whole account story — so its
+  bare-run OAuth is equally unrun. Verify on a real machine.
 - **Codex headless flag doc drift.** `_docs/harness/codex.md` says `codex login
   --device-code`; the installed codex-cli 0.142.5 actually uses `--device-auth`
   (flagged in a `codex.rs` code comment). Fix the doc, and decide whether
@@ -135,7 +137,11 @@ acceptable for full isolation.
 §11 of the test plan (`--io structured` for claude/codex/opencode) is `BLOCKED`
 in automated runs: it needs a human-authenticated harness (claude "/login", codex
 auth, opencode provider login). Run a manual pass once logged in to clear T-11.
-(grok structured is intentionally unsupported — asserted, not a gap.)
+grok is the one harness whose structured path *has* been run against the live
+binary with a real account — `grok agent stdio` over the generic `AcpBridge`,
+captured frame by frame in `_docs/wip/grok-acp-capture.md` — so §11's grok rows
+(and the test plan's "grok passthrough-only" claims) need rewriting to match
+rather than clearing.
 
 ---
 

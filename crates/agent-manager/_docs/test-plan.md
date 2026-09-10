@@ -393,13 +393,13 @@ Real launches. Use short, safe passthrough commands so the harness exits quickly
 
 ## 11. Structured I/O (`--io structured`) (needs §1.B + §1.C)
 
-Applies to **claude ✅, codex ✅, opencode ✅**; **grok ⛔**.
+Applies to **claude ✅, codex ✅, opencode ✅, grok ✅** (grok over ACP, `grok agent stdio`).
 
 | id | Command | Expected |
 |----|---------|----------|
 | T-11a-claude/codex/opencode | `<h> --io structured --prompt "say hi"` | emits normalized `AgentEvent` NDJSON on stdout (one JSON object per line, parseable); drains and exits cleanly |
 | T-11b | `--io jsonl` (alias) | behaves identically to `--io structured` |
-| T-11c-grok | `grok --io structured` | **error**: "harness 'grok' does not support --io structured (yet)" (assert the documented gap) |
+| T-11c-grok | `grok --io structured --model grok-4.5 --thinking low` | argv is `grok agent --model grok-4.5 --reasoning-effort low stdio`; the stream carries `session_started` naming `grok-4.5` and no mode, then a config update with a `model` picker and a `thinking` picker (`xhigh`/`high`/`medium`/`low`), then the turn's events. With `--permission-mode bypassPermissions` or `dontAsk` the argv gains `--always-approve` between `agent` and `stdio`; with any other mode it gains nothing |
 | T-11d | `--io structured --output acp` | each line is the ACP projection (parseable JSON); non-projectable events dropped, not crashed |
 | T-11e | `--io structured --output agui` (and `--output ag-ui`) | AG-UI projection; alias accepted |
 | T-11f | `--io structured --output bogus` | error naming the value and the accepted set |
@@ -485,7 +485,7 @@ implementation**. Quick to do and they catch drift.
 | T-16d | `_docs/harness/gemini.md`, `copilot.md` also carry both subsections (documented-not-wrapped) | present |
 | T-16e | `AGENTS.md` "Build & run" examples all execute as written (`--print-config`, `--list-models`, `--model sonnet`, `catalog ls`, `account ls`, …) | each runs without error (login-gated ones may `BLOCKED`) |
 | T-16f | `AGENTS.md` supported-harness table matches `harness::all()` (claude/codex/grok/opencode wrapped; rest documented/reference) | matches |
-| T-16g | `_docs/io-modes.md` structured-support claims match code | claude/codex/opencode structured; grok passthrough-only |
+| T-16g | `_docs/io-modes.md` structured-support claims match code | claude/codex structured on native wires; grok/opencode/copilot structured over ACP |
 | T-16h | `_docs/reference/multica.md` + `refs/multica/` submodule present and cited | file exists; submodule checked out |
 
 ---

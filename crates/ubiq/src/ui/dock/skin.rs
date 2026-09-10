@@ -440,8 +440,21 @@ impl TabGroupRenderer for Skin {
                     );
                 }
 
+                // The dot is the conversation view's, not the dock's: one element and one blink
+                // rule, so the dot on a chat tab here and the dot on an agents-mode column tab are
+                // the same answer drawn the same way. Its ring is the tab's own background, so a
+                // still dot reads exactly as it did before it was shared.
                 if let Some(colour) = info.dot_colour {
-                    tab = tab.child(div().size(px(7.)).flex_none().rounded_full().bg(colour));
+                    tab = tab.child(crate::ui::conversation::lifecycle_dot(
+                        colour,
+                        info.dot_pulse,
+                        if active {
+                            theme::app_bg()
+                        } else {
+                            theme::pane_bg()
+                        },
+                        ("ubiq-tab-dot", ix),
+                    ));
                 }
 
                 if closable {

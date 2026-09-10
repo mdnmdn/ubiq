@@ -115,7 +115,7 @@ agent-manager/
     │   ├── claude.rs      #   Claude Code provisioner (CLAUDE_CONFIG_DIR bridge)
     │   ├── codex.rs       #   Codex provisioner (P2, Harness impl)
     │   ├── copilot.rs     #   GitHub Copilot CLI provisioner (Class A, COPILOT_HOME bridge)
-    │   ├── grok.rs        #   Grok CLI provisioner (ephemeral-HOME bridge, passthrough-only)
+    │   ├── grok.rs        #   Grok CLI provisioner (ephemeral-HOME bridge; passthrough + ACP)
     │   └── opencode.rs    #   opencode provisioner (P2, Harness impl)
     ├── provision.rs       # RunSpec → ephemeral config dir + Launch (core)
     ├── run.rs             # PTY spawn/supervise + exit-code + cleanup (feature: pty)
@@ -184,7 +184,7 @@ the `Harness` trait, and the module layout — is in
 | `codex`       | Codex             | **wrapped** (P2, `Harness` impl) |
 | `copilot`     | GitHub Copilot    | **wrapped** (Class A via `COPILOT_HOME`, `Harness` impl; passthrough + structured) |
 | `gemini`      | Gemini CLI        | documented (`Harness` impl TBD) |
-| `grok`        | Grok CLI          | **wrapped** (passthrough; structured TBD) |
+| `grok`        | Grok CLI          | **wrapped** (passthrough + structured over ACP, `grok agent stdio`) |
 | `opencode`    | opencode          | **wrapped** (P2, `Harness` impl) |
 
 `claude-code`, `codex`, `copilot`, `grok`, and `opencode` each have `Harness`

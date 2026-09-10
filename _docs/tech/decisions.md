@@ -1899,6 +1899,24 @@ outer repository's own paths out of the map, and the project's counts on the ove
 stay the outer repository's own rather than a sum nobody asked for. Everything the Git screen draws
 from refs and history stays single-repository (`G125`).
 
+### D100 — A deleted conversation closes the views on it
+
+`D61` and the rule under it say a view is a perspective and closing one ends nothing. **Deleting the
+conversation is the one event that runs the other way**: the `ConversationDeleted` arm closes every
+chat tab attached to that conversation, dock leaf and composer slot with it, through
+`AppState::close_chat_tab_in` — which takes the project id rather than reading the window's, because
+the delete can land while the window is looking at another project. `ConversationEnded` and
+`ConversationUnloaded` still change nothing about which surfaces are open: the harness stopped, the
+transcript is still worth reading.
+
+**Why.** A delete leaves nothing to be a perspective on. Clearing `attached` would leave an empty
+panel sitting where a conversation used to be, which is what a fresh `+` produces *on request* and
+not what a delete should produce on its own.
+
+**Cost.** The rule is not uniform: "closing a view ends nothing" carries an exception a
+reader has to know, and the delete arm is the one place in the UI where a host message removes
+furniture the user arranged. A reader who deletes a conversation and wanted the tab back mints one.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
