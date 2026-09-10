@@ -591,6 +591,9 @@ impl AppState {
         self.workbench.new_pane_menu = Some(at);
         self.bus.send(Message::ListShells);
         self.bus.send(Message::ListAgentTypes);
+        self.bus.send(Message::ListTools {
+            project_id: self.project(cx),
+        });
         cx.notify();
     }
 
@@ -630,6 +633,15 @@ impl AppState {
                     return;
                 };
                 self.spawn_pane(Some(program), Vec::new(), cx);
+            }
+            Some(NewPaneRow::Tool(tool)) => {
+                let Some(listed) = self.workbench.tools.get(*tool) else {
+                    return;
+                };
+                if !listed.applicable {
+                    return;
+                }
+                self.run_tool(listed.scope.clone(), listed.tool.id, cx);
             }
             Some(NewPaneRow::Console) => self.reveal_console(window, cx),
             Some(NewPaneRow::Separator) | None => {}

@@ -107,6 +107,19 @@ impl AppState {
         let grant_path_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("~/.cache/shared\u{2026}"));
 
+        // The tool editor's fields, filled when a row is picked for editing and read on Save.
+        let tool_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Build release\u{2026}"));
+        let tool_command_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("cargo build\u{2026}"));
+        let tool_args_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("--release\u{2026}"));
+        let tool_env_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("RUST_LOG=debug\u{2026}")
+                .auto_grow(2, 5)
+        });
+
         let rename_input = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
         let project_form_about = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -958,6 +971,10 @@ impl AppState {
             search_fallbacks_input,
             agent_home_input,
             grant_path_input,
+            tool_name_input,
+            tool_command_input,
+            tool_args_input,
+            tool_env_input,
             rename_input,
             project_form_about,
             project_form_hex,

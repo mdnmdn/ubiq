@@ -159,6 +159,7 @@ mod tests {
                 last_opened_at: None,
                 search_excludes: vec![],
                 index: None,
+                tools: vec![],
             },
             health: ProjectHealth::Ok,
             open_panes: 2,

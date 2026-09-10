@@ -168,8 +168,9 @@ fn a_project() -> ProjectSnapshot {
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
-            search_excludes: Vec::new(),
-            index: None,
+                search_excludes: Vec::new(),
+                index: None,
+                tools: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -549,4 +550,36 @@ fn a_panes_tab_is_its_program_and_a_number() {
 
     // A program with no path, and one with a trailing name only, are named the same way.
     assert_eq!(ubiq::app::pane_title("bash", &[]), "bash 1");
+}
+
+/// A Windows shell names its tab after its short name, never its path or its `.exe`: both
+/// PowerShells are `psh`, the console is `cmd`, and each numbers in its own sequence.
+#[test]
+fn a_windows_shells_tab_is_its_short_name_and_a_number() {
+    assert_eq!(
+        ubiq::app::pane_title("C:\\Windows\\System32\\cmd.exe", &[]),
+        "cmd 1"
+    );
+    assert_eq!(
+        ubiq::app::pane_title("C:\\Program Files\\PowerShell\\7\\pwsh.exe", &[]),
+        "psh 1"
+    );
+    assert_eq!(
+        ubiq::app::pane_title(
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            &[]
+        ),
+        "psh 1"
+    );
+
+    // Bare names take the same path, and a second pane of the same shell takes the next number.
+    let taken = vec![
+        ubiq::app::pane_title("pwsh.exe", &[]),
+        ubiq::app::pane_title("cmd.exe", &[]),
+    ];
+    assert_eq!(taken, vec!["psh 1", "cmd 1"]);
+    assert_eq!(
+        ubiq::app::pane_title("C:\\Program Files\\PowerShell\\7\\pwsh.exe", &taken),
+        "psh 2"
+    );
 }

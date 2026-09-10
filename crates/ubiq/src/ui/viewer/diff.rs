@@ -134,6 +134,8 @@ pub fn render(diff: &FileDiff, layout: ViewLayout) -> AnyElement {
 fn flattened(diff: &FileDiff, side_by_side: bool) -> Arc<Rows> {
     type Key = (usize, usize, usize, bool, bool);
     thread_local! {
+        // Already `const`: allowed because the lint fires on this toolchain regardless.
+        #[allow(clippy::missing_const_for_thread_local)]
         static CACHE: RefCell<Vec<(Key, Arc<Rows>)>> = const { RefCell::new(Vec::new()) };
     }
 

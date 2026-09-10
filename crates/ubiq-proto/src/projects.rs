@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::ProjectId;
+use crate::tools::ToolDef;
 
 /// A project as it is written down. Everything here survives a restart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +48,13 @@ pub struct ProjectRecord {
     /// project that never said otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<IndexLevel>,
+    /// Runnable tools defined for this project, on top of the machine-wide set in
+    /// [`crate::settings::HostSettings::tools`]. Replaced whole through
+    /// [`Message::UpdateProject`], the way `search_excludes` above is.
+    ///
+    /// [`Message::UpdateProject`]: crate::messages::Message::UpdateProject
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolDef>,
 }
 
 /// How much of a project Ubiq keeps an index of.

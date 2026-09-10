@@ -6,9 +6,10 @@
 //! does not name `AppState`, so it says a menu was wanted and the window draws it.
 //!
 //! The rows are the agent harnesses in the order the host listed them, then a separator, then the
-//! shells, then a separator, then the console. The index a row is picked at is its index in that
-//! list — the separators included, because each is a row — which is what
-//! `AppState::pick_new_pane_menu` matches on: keep the two in step.
+//! shells, then a separator, then the applicable runnable tools, then a separator, then the
+//! console. The index a row is picked at is its index in that list — the separators included,
+//! because each is a row — which is what `AppState::pick_new_pane_menu` matches on: keep the
+//! two in step.
 //!
 //! A harness the host could not find on disk is still listed — the interface says so rather than
 //! leaving a gap — but its row is disabled: it reads muted and takes no click, the same affordance
@@ -58,6 +59,10 @@ pub fn overlay(
                     shell.label.clone()
                 };
                 kit::ContextItem::new(SharedString::from(label))
+            }
+            NewPaneRow::Tool(tool) => {
+                let tool = &app.workbench.tools[tool].tool;
+                kit::ContextItem::new(SharedString::from(tool.name.clone()))
             }
             // The console is not a pane, and the line says so: everything above it starts
             // something.

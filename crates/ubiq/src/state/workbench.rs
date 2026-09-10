@@ -15,6 +15,7 @@
 use gpui::SharedString;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
+use ubiq_proto::tools::ListedTool;
 use ubiq_proto::work::AgentId;
 
 use crate::state::PanelKind;
@@ -22,7 +23,7 @@ use crate::state::clone::CloneState;
 use crate::state::remote::RemoteConnectState;
 use crate::state::remote_hosts::RemoteManagerState;
 use crate::state::settings::SettingsState;
-use crate::state::sink::ColourField;
+use crate::state::sink::{ColourField, ProjectNav};
 use crate::theme::ThemeId;
 
 /// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and
@@ -129,6 +130,9 @@ pub enum ProjectSettingsMode {
 pub struct ProjectSettings {
     pub mode: ProjectSettingsMode,
     pub colour: ColourField,
+    /// The dialog's own nav, starting on General. The sink page keeps its separate
+    /// [`crate::state::sink`] nav — a dialog left on Tools must not reopen the sink there.
+    pub nav: ProjectNav,
 }
 
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
@@ -195,6 +199,8 @@ pub enum NewPaneRow {
     Agent(usize),
     /// A shell, by its index in [`WorkbenchState::shells`].
     Shell(usize),
+    /// A runnable tool, by its index in [`WorkbenchState::tools`].
+    Tool(usize),
     /// The line between what starts something and what does not.
     Separator,
     /// The console, which is revealed rather than started.
@@ -390,6 +396,11 @@ pub struct WorkbenchState {
     ///
     /// [`Message::ListShells`]: ubiq_proto::messages::Message::ListShells
     pub agent_types: Vec<AgentTypeInfo>,
+    /// The runnable tools the host lists: the machine-wide rows first, then the current
+    /// project's. The menu offers the applicable ones below the shells. Empty until the host
+    /// answers — asked with the shells and harnesses every time the menu opens, so a tool
+    /// added in the settings is offered without a restart.
+    pub tools: Vec<ListedTool>,
     /// Whether the explorer's bookmarks section is open. Furniture, so it is not written down.
     pub bookmarks_open: bool,
 }
@@ -452,6 +463,7 @@ impl Default for WorkbenchState {
             confirm_end_conversation: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
+            tools: Vec::new(),
             bookmarks_open: false,
         }
     }
@@ -461,11 +473,13 @@ impl WorkbenchState {
     /// What the new-pane control's menu offers.
     ///
     /// A window with no project can start no pane — there is no folder to run one in — so it is
-    /// offered the console alone rather than agents and shells that would do nothing. Agent
-    /// harnesses are offered above the shells, because starting a harness is the common case and
-    /// a bare shell is the fallback. Each separator is a row like any other, and there is none
-    /// when there is nothing above it to separate — an empty agent list degrades to exactly the
-    /// menu a window with no harnesses installed showed before agents existed.
+    /// offered the console alone rather than anything that would do nothing. Agent harnesses
+    /// are offered above the shells, because starting a harness is the common case and a bare
+    /// shell is the fallback; runnable tools come below the shells, because they are the
+    /// specific case. Only applicable tools are rows — a macOS-only row on Windows is not
+    /// offered. Each separator is a row like any other, and there is none when there is
+    /// nothing above it to separate — an empty agent list degrades to exactly the menu a
+    /// window with no harnesses installed showed before agents existed.
     pub fn new_pane_rows(&self, has_project: bool) -> Vec<NewPaneRow> {
         let mut rows = Vec::new();
         if has_project {
@@ -475,6 +489,17 @@ impl WorkbenchState {
             }
             rows.extend((0..self.shells.len()).map(NewPaneRow::Shell));
             if !self.shells.is_empty() {
+                rows.push(NewPaneRow::Separator);
+            }
+            let tools: Vec<usize> = self
+                .tools
+                .iter()
+                .enumerate()
+                .filter(|(_, tool)| tool.applicable)
+                .map(|(index, _)| index)
+                .collect();
+            rows.extend(tools.into_iter().map(NewPaneRow::Tool));
+            if self.tools.iter().any(|tool| tool.applicable) {
                 rows.push(NewPaneRow::Separator);
             }
         }

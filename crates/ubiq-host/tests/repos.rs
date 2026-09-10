@@ -29,6 +29,7 @@ fn record(id: ProjectId, path: &Path, temporary: bool) -> ProjectRecord {
         last_opened_at: None,
         search_excludes: Vec::new(),
         index: None,
+        tools: Vec::new(),
     }
 }
 

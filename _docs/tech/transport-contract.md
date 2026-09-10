@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/wire.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -74,6 +74,8 @@ The control path. Lower volume, request-and-response.
 | `DetachFromSession` | UI → coordinator | `session_id` | — |
 | `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args` | `WorkspaceSpawned` or `ProjectError` |
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
+| `RunTool` | UI → coordinator | `session_id`, `project_id`, `scope`, `id` | `WorkspaceSpawned` or `ToolError` |
+| `ToolError` | coordinator → UI | `project_id?`, `error` | — |
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
 | `CheckAgentCommand` | UI → coordinator | `agent_type`, `command` | `AgentCommandChecked` |
 | `ListHarnessCatalogue` | UI → coordinator | `agent_type`, `account?` | `HarnessCatalogue` |
@@ -114,7 +116,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -133,6 +135,8 @@ recolour and a move on disk.
 | `HostInfo` | host → UI | `config_root`, `is_default` | — |
 | `ListShells` | UI → host | — | `ShellList` |
 | `ShellList` | host → UI | `shells` | — |
+| `ListTools` | UI → host | `project_id?` | `ToolsListed` |
+| `ToolsListed` | host → UI | `system[]`, `project[]` | — |
 | `ListStats` | UI → host | — | `Stats` |
 | `Stats` | host → UI | `stats` | — |
 
@@ -219,6 +223,17 @@ along as the cache key's identity leg; the probe itself is per harness. `last_mo
 ever went out — the same convention the host's own `chosen_model` follows — and they are a
 preselection, never a promise: a model gone since simply preselects nothing. The answer goes to
 the asking client only, because a form is one window's question.
+
+**Runnable tools are shells the user wrote.** `ListTools` names the project whose rows are wanted —
+absent for none — and the host answers `ToolsListed` with the machine-wide rows and that
+project's own, each carrying whether it runs on the answering host's platform. The menu offers
+the applicable ones below the shells; a run is `RunTool` with the row's scope and id, and the
+coordinator spawns the row's command, arguments and environment in the project's folder,
+answering `WorkspaceSpawned` with the row's name as the tab's title seed. A run refused before a
+pane exists — unknown row, wrong platform, empty command — answers `ToolError`, which is a log
+line rather than a tab to close, the standing a refused spawn's `PaneError` has. The machine-wide
+rows ride `HostSettings.tools` through `SetSettings` whole, and a project's own ride
+`UpdateProject.tools`, replaced whole like its `search_excludes`.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
@@ -849,15 +864,17 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Forty-three records travel inside payloads.
+Forty-five records travel inside payloads.
 
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
-| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running` |
+| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit` |
 | `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?`, `keeps_sessions` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?` |
+| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit` |
+| `ListedTool` | `scope`, `tool`, `applicable` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |
@@ -930,8 +947,11 @@ it.
 `SettingsLayer` — `Ui` or `Host` — says which half owns a settings blob. The Ui layer is opaque
 the same way a preference is. The Host layer is JSON on the wire of a `HostSettings` record the
 host parses; a schema this build does not understand is `SettingsError`, not a discarded default.
-`HostSettings` carries a `schema` — at 12 — and `isolate_agents`, which is whether an agent runs
-confined, the one setting the host acts on rather than stores, read again at every spawn.
+`HostSettings` carries a `schema` — at 15 — and `isolate_agents`, which is whether an agent runs
+confined, the one setting the host acts on rather than stores, read again at every spawn. `tools`
+is the machine-wide runnable rows — `ToolDef` records with a name, a command, arguments,
+environment, platforms and a wait flag — written by the interface through `Settings::set`
+unchanged like the fields above it.
 `agent_home` and `extra_grants` are the confined run's other two answers: an `AgentHome` of
 `Inherit`, `Ephemeral` or `Named(String)`, defaulting to `Inherit`, and a list of `Grant` — a
 `path` the user typed, absolute or `~`-prefixed, and whether the agent may `write` there,

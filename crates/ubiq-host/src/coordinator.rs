@@ -18,10 +18,11 @@ use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
 use ubiq_proto::files::FileError;
-use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SuggestId};
+use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SuggestId, ToolId};
 use ubiq_proto::messages::{CatalogueModel, Message, WorkspaceInfo};
-use ubiq_proto::projects::{IndexLevel, ProjectHealth};
+use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::stats::{HostStats, UsageRow};
+use ubiq_proto::tools::{ListedTool, ToolDef};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, ConverseOptions, PendingLogin};
@@ -1078,6 +1079,21 @@ impl Coordinator {
                     },
                 );
             }
+            Message::ListTools { project_id } => {
+                self.host.send(
+                    To::Client(client),
+                    Message::ToolsListed {
+                        system: self.system_tools(),
+                        project: self.project_tools(project_id),
+                    },
+                );
+            }
+            Message::RunTool {
+                session_id,
+                project_id,
+                scope,
+                id,
+            } => self.run_tool(client, session_id, project_id, scope, id),
 
             // ── the notification family ─────────────────────────────
             // The centre decides everything: whether a rule silences the request, whether the
@@ -1153,6 +1169,7 @@ impl Coordinator {
                 custom_colour,
                 search_excludes,
                 index,
+                tools,
             } => {
                 let replies = self.projects.update(
                     project_id,
@@ -1161,6 +1178,7 @@ impl Coordinator {
                     custom_colour,
                     search_excludes,
                     index,
+                    tools,
                 );
                 self.answer(client, replies);
                 // A level the user just changed takes effect now, not at the next open: turning
@@ -3473,6 +3491,184 @@ impl Coordinator {
                 cols: INITIAL_COLS,
                 rows: INITIAL_ROWS,
                 running: true,
+                wait_on_exit: false,
+            },
+        });
+    }
+
+    /// The machine-wide tools as the new-pane menu offers them, stamped with whether each
+    /// runs on this host's own platform.
+    fn system_tools(&self) -> Vec<ListedTool> {
+        let os = std::env::consts::OS;
+        self.settings
+            .host()
+            .tools
+            .into_iter()
+            .map(|tool| {
+                let applicable = tool.applies(os);
+                ListedTool {
+                    scope: Scope::Interface,
+                    tool,
+                    applicable,
+                }
+            })
+            .collect()
+    }
+
+    /// One project's own tools, or nothing when no project was named or it is unknown.
+    fn project_tools(&self, project_id: Option<ProjectId>) -> Vec<ListedTool> {
+        let os = std::env::consts::OS;
+        project_id
+            .and_then(|id| self.projects.record(id))
+            .map(|record| {
+                record
+                    .tools
+                    .iter()
+                    .cloned()
+                    .map(|tool| {
+                        let applicable = tool.applies(os);
+                        ListedTool {
+                            scope: Scope::Project(record.id),
+                            tool,
+                            applicable,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The tool a run names, from whichever list holds it.
+    fn find_tool(&self, scope: &Scope, id: &ToolId) -> Option<ToolDef> {
+        match scope {
+            Scope::Interface => self
+                .settings
+                .host()
+                .tools
+                .into_iter()
+                .find(|tool| &tool.id == id),
+            Scope::Project(project_id) => self
+                .projects
+                .record(*project_id)
+                .map(|record| record.tools.clone())
+                .unwrap_or_default()
+                .into_iter()
+                .find(|tool| &tool.id == id),
+        }
+    }
+
+    /// Tell the window that asked that its tool never started. Like [`Self::refuse_pane`],
+    /// the interface was never told of a pane, so this answers `ToolError` rather than
+    /// `PaneError`: there is nothing on screen to mark stopped.
+    fn tool_error(&self, client: ClientId, project_id: Option<ProjectId>, error: String) {
+        self.host
+            .send(To::Client(client), Message::ToolError { project_id, error });
+    }
+
+    /// Run a configured tool: a named command in the project's folder, with its environment.
+    ///
+    /// Straight where [`Self::spawn_workspace`] branches: a tool is never composed and never
+    /// confined — it is a program name with arguments, which is what a shell is, plus the
+    /// environment its row carries. The answer names the tool rather than the program, which
+    /// is what puts the tool's own title on the tab.
+    fn run_tool(
+        &mut self,
+        client: ClientId,
+        session_id: SessionId,
+        project_id: ProjectId,
+        scope: Scope,
+        id: ToolId,
+    ) {
+        let tool = match self.find_tool(&scope, &id) {
+            Some(tool) => tool,
+            None => {
+                self.tool_error(client, Some(project_id), "no such tool".to_string());
+                return;
+            }
+        };
+        if !tool.applies(std::env::consts::OS) {
+            self.tool_error(
+                client,
+                Some(project_id),
+                format!("{} is not for {}", tool.name, std::env::consts::OS),
+            );
+            return;
+        }
+        let mut words = crate::agent::split_command(&format!("{} {}", tool.command, tool.args));
+        if words.is_empty() {
+            self.tool_error(
+                client,
+                Some(project_id),
+                format!("{} has nothing to run", tool.name),
+            );
+            return;
+        }
+        let program_name = crate::agent::resolve_bare(&words.remove(0));
+
+        // A pane runs in a project's folder, so everything about that folder is settled before
+        // a pseudo-terminal exists — the same gate a shell spawn walks through, which refuses
+        // with `ProjectError` itself when the folder is gone.
+        let cwd = match self.resolve_cwd(client, project_id, None) {
+            Some(cwd) => cwd,
+            None => return,
+        };
+
+        let pane_id = PaneId::generate();
+        let name = tool.name.clone();
+        let program = pty::Program {
+            program: program_name,
+            args: words,
+            env: tool
+                .env
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            ..Default::default()
+        };
+
+        let spawned = pty::spawn(&program, Some(cwd.as_path()), INITIAL_COLS, INITIAL_ROWS);
+        let (mut pane, mut child) = match spawned {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                tracing::error!("pane {pane_id}: starting tool {name} failed: {error:#}");
+                self.refuse_pane(client, pane_id, error.to_string());
+                return;
+            }
+        };
+        tracing::info!("pane {pane_id}: started tool {name} in session {session_id} for {client}");
+
+        self.owners.insert(pane_id, client);
+        let mailbox = self.host.mailbox(To::Client(client));
+
+        if let Err(error) = pane.forward_output(pane_id, mailbox.clone(), false) {
+            self.owners.remove(&pane_id);
+            pane.kill();
+            let _ = child.wait();
+            mailbox.send(Message::PaneError {
+                pane_id,
+                error: error.to_string(),
+            });
+            return;
+        }
+        pty::reap(pane_id, child, mailbox.clone());
+        self.panes.insert(pane_id, pane);
+
+        self.pane_projects.insert(pane_id, project_id);
+        self.pane_sessions.insert(pane_id, session_id);
+        let replies = self.projects.pane_opened(project_id);
+        self.answer(client, replies);
+
+        mailbox.send(Message::WorkspaceSpawned {
+            workspace: WorkspaceInfo {
+                id: pane_id,
+                session_id,
+                agent_type: name,
+                project_id,
+                rel_path: None,
+                cols: INITIAL_COLS,
+                rows: INITIAL_ROWS,
+                running: true,
+                wait_on_exit: tool.wait_on_exit,
             },
         });
     }

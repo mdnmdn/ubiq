@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{IndexChange, ProjectRecord, ProjectSnapshot, Scope};
+use ubiq_proto::tools::ToolDef;
 
 use crate::gc;
 use crate::health::probe;
@@ -261,7 +262,7 @@ impl Projects {
             // twice, or added for real twice — is answered exactly as before.
             if existing.temporary && !temporary {
                 let id = existing.id;
-                return self.promote(id, name, colour, custom_colour, None, None);
+                return self.promote(id, name, colour, custom_colour, None, None, None);
             }
             // The path is a uniqueness key, not an identity: this is the project that is there.
             return vec![Reply::Asker(ubiq_proto::messages::Message::ProjectAdded {
@@ -286,6 +287,7 @@ impl Projects {
             last_opened_at: None,
             search_excludes: Vec::new(),
             index: None,
+            tools: Vec::new(),
         };
 
         let snapshot = self.snapshot(&record);
@@ -300,6 +302,8 @@ impl Projects {
     ///
     /// Naming a temporary project in the settings dialog is what keeps it, and both the settings
     /// path (`update`) and re-adding a dropped folder through the picker (`add`) end up here.
+    // The same mirror as `update` above: one argument per field of `Message::UpdateProject`.
+    #[allow(clippy::too_many_arguments)]
     fn promote(
         &mut self,
         id: ProjectId,
@@ -308,6 +312,7 @@ impl Projects {
         custom_colour: Option<u32>,
         search_excludes: Option<Vec<String>>,
         index: Option<IndexChange>,
+        tools: Option<Vec<ToolDef>>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -326,6 +331,9 @@ impl Projects {
         }
         if let Some(index) = index {
             record.index = index.resolve();
+        }
+        if let Some(tools) = tools {
+            record.tools = tools;
         }
 
         let snapshot = self.snapshot(&record);
@@ -389,6 +397,9 @@ impl Projects {
     /// Rename, recolour, or change what a project's searches skip. Touches no filesystem and
     /// cannot fail beyond "no such project": `search_excludes` and `index` are display
     /// state exactly like the rest — `None` leaves a field as it is, `Some` replaces it.
+    // One argument per field of `Message::UpdateProject` plus the id: the mirror is the
+    // point, and the same shape `Coordinator::start_conversation` keeps for its message.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         id: ProjectId,
@@ -397,6 +408,7 @@ impl Projects {
         custom_colour: Option<u32>,
         search_excludes: Option<Vec<String>>,
         index: Option<IndexChange>,
+        tools: Option<Vec<ToolDef>>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -404,7 +416,15 @@ impl Projects {
         // Naming a temporary project in the settings dialog is what keeps it, and this is where
         // that happens — there is deliberately no separate promote message.
         if record.temporary {
-            return self.promote(id, name, colour, custom_colour, search_excludes, index);
+            return self.promote(
+                id,
+                name,
+                colour,
+                custom_colour,
+                search_excludes,
+                index,
+                tools,
+            );
         }
         let mut record = record.clone();
         if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
@@ -419,6 +439,9 @@ impl Projects {
         }
         if let Some(index) = index {
             record.index = index.resolve();
+        }
+        if let Some(tools) = tools {
+            record.tools = tools;
         }
 
         let snapshot = self.snapshot(&record);

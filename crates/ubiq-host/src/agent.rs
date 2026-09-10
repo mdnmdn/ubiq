@@ -1285,7 +1285,10 @@ fn expand_home(path: &str) -> PathBuf {
 /// Split a command line into words: whitespace-separated, with `"` and `'` grouping a run of
 /// words into one. No backslash escaping — a Windows path (`C:\tools\claude.exe`) must reach the
 /// far side with its backslashes untouched, not eaten as escapes.
-fn split_command(command: &str) -> Vec<String> {
+///
+/// Shared with tool runs, which split a command textbox and a parameters textbox by the same
+/// rule a harness override is split by.
+pub(crate) fn split_command(command: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut current = String::new();
     let mut in_word = false;
@@ -1326,7 +1329,9 @@ fn split_command(command: &str) -> Vec<String> {
 /// already names a path (it contains a `/` or a `\`), otherwise looked up on the login shell's
 /// `PATH` exactly as a harness's own bare program is — so `claudex` resolves the same way
 /// `claude` does.
-fn resolve_bare(word: &str) -> String {
+///
+/// Shared with tool runs, so a bare `cargo` in a tool row finds the same binary a shell would.
+pub(crate) fn resolve_bare(word: &str) -> String {
     if word.contains('/') || word.contains('\\') {
         return word.to_string();
     }

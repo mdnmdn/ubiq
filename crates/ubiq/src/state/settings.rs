@@ -11,7 +11,9 @@ use ubiq_proto::assist::{
     AiModelList, AiProviderInfo, AiProviderKind, AssistLimits, AssistReason, ModelRole,
 };
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
-use ubiq_proto::ids::{AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, SuggestId};
+use ubiq_proto::ids::{
+    AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SuggestId, ToolId,
+};
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
 use ubiq_proto::settings::HostSettings;
 
@@ -38,6 +40,7 @@ pub enum SettingsSection {
     Assist,
     Connectors,
     Hosts,
+    Tools,
     CommandLine,
 }
 
@@ -53,6 +56,7 @@ impl SettingsSection {
             SettingsSection::Assist,
             SettingsSection::Connectors,
             SettingsSection::Hosts,
+            SettingsSection::Tools,
             SettingsSection::CommandLine,
         ]
     }
@@ -68,6 +72,7 @@ impl SettingsSection {
             SettingsSection::Assist => "Assistance",
             SettingsSection::Connectors => "Connectors",
             SettingsSection::Hosts => "Hosts",
+            SettingsSection::Tools => "Tools",
             SettingsSection::CommandLine => "Command line",
         }
     }
@@ -534,6 +539,32 @@ pub struct SettingsState {
     /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
     /// user acts: opens a dialog, starts a login, or dismisses it.
     pub error: Option<String>,
+    /// The tool row being added or edited, in either tools panel. The four textboxes live on
+    /// `AppState` — one set, shared by both panels, which never stand open together — and this
+    /// carries the rest of the form: which list it writes, which row, and the two choices.
+    pub tool_editor: Option<ToolEditor>,
+}
+
+/// Which tools list a tool editor writes: the machine-wide rows, or one project's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ToolEditScope {
+    /// The machine-wide rows in the Host settings layer.
+    #[default]
+    System,
+    /// One project's own rows in its record.
+    Project(ProjectId),
+}
+
+/// The tool row being added or edited. `id` is `None` for a row not yet saved; the textboxes
+/// themselves live on `AppState` beside the other settings fields.
+#[derive(Clone, Debug, Default)]
+pub struct ToolEditor {
+    pub scope: ToolEditScope,
+    pub id: Option<ToolId>,
+    /// The platforms picked, as [`ubiq_proto::tools::TOOL_PLATFORMS`] spells them. Empty runs
+    /// everywhere.
+    pub platforms: Vec<String>,
+    pub wait_on_exit: bool,
 }
 
 /// One saved host the interface is trying to get back to without being asked again.
@@ -601,6 +632,7 @@ impl Default for SettingsState {
             failed_hosts: HashSet::new(),
             reconnects: HashMap::new(),
             error: None,
+            tool_editor: None,
         }
     }
 }

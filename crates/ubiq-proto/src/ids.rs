@@ -225,3 +225,10 @@ ulid_id! {
     /// reference.
     HostSaveId
 }
+
+ulid_id! {
+    /// One runnable tool in the machine-wide settings or a project record. Minted UI-side when
+    /// the row is added, stable across a rename — the name is what the tab says, this is what
+    /// a run names.
+    ToolId
+}

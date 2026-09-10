@@ -58,6 +58,21 @@ impl AppState {
         });
     }
 
+    /// Run a configured tool in this project's folder. The pane appears when the coordinator
+    /// answers, so a tool that fails to start leaves no empty tab behind — the same standing
+    /// `spawn_pane` gives a harness.
+    pub fn run_tool(&mut self, scope: Scope, id: ToolId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::RunTool {
+            session_id: self.session,
+            project_id,
+            scope,
+            id,
+        });
+    }
+
     /// End a pane: the harness is killed, the emulator dropped, and the panel taken out of the
     /// dock.
     ///
@@ -382,7 +397,15 @@ impl AppState {
                         full: true,
                     });
                 }
-                self.close_pane(pane_id, cx);
+                // A tool run with "wait on exit" stays readable: the command is over but its
+                // output is what the pane was opened for, so the tab keeps it until it is
+                // closed. The dot reports the stop; closing still goes through `close_pane`.
+                if self.pane_wait_on_exit(pane_id) {
+                    self.pane_stopped(pane_id);
+                    cx.notify();
+                } else {
+                    self.close_pane(pane_id, cx);
+                }
             }
 
             Message::PaneError { pane_id, error } => {
@@ -1418,6 +1441,21 @@ impl AppState {
                 cx.notify();
             }
 
+            // The runnable tools for the new-pane menu: the machine-wide rows, then the
+            // project's. Replaced whole, same as the shell list — a tool deleted in the
+            // settings has to leave the menu.
+            Message::ToolsListed { system, project } => {
+                self.workbench.tools = system.into_iter().chain(project).collect();
+                cx.notify();
+            }
+
+            // A tool run was refused before a pane existed: nothing was announced, so there is
+            // no tab to close and no dot to dim. A log line, the way a refused spawn's
+            // `PaneError` is one.
+            Message::ToolError { project_id, error } => {
+                tracing::error!("tool for project {project_id:?} was not run: {error}");
+            }
+
             // What a harness offers, for whichever start form asked. Dropped unless it matches
             // the form's harness *and* identity as they stand now: a probe is slow exactly once
             // and a slow answer for a harness the user has since changed away from would
@@ -2077,6 +2115,14 @@ impl AppState {
         }
     }
 
+    /// Whether the pane runs a tool with "wait on exit": the exit closes the process, not the tab.
+    fn pane_wait_on_exit(&self, pane_id: PaneId) -> bool {
+        self.projects
+            .values()
+            .flat_map(|open| open.panes.iter())
+            .any(|pane| pane.id == pane_id && pane.wait_on_exit)
+    }
+
     /// Draw a workspace the coordinator started: a tab, and an emulator on the pane's stream.
     ///
     /// The workspace names its project, which is what makes an answer that arrives after the user
@@ -2173,6 +2219,7 @@ impl AppState {
                 cols: workspace.cols,
                 title,
                 running: workspace.running,
+                wait_on_exit: workspace.wait_on_exit,
             });
             // A pane in a background project becomes that project's focused one only if it had
             // none: the keyboard belongs to whatever is on screen.

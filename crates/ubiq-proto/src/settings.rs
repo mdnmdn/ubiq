@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::assist::{AiProvider, AssistProvider};
 use crate::connectors::{Connection, OauthApp, TrustedCert};
 use crate::projects::IndexLevel;
+use crate::tools::ToolDef;
 
 /// Which half owns the schema of a settings blob.
 ///
@@ -83,6 +84,14 @@ pub struct HostSettings {
     /// the library composed. An id with no entry resolves exactly as before.
     #[serde(default)]
     pub agent_commands: BTreeMap<String, String>,
+    /// Runnable tools defined for this machine — named commands the new-pane menu offers and
+    /// [`Message::RunTool`] runs in a project's folder. Rides `SetSettings` whole like
+    /// `search_excludes` above: nothing runs unattended from this list, so there is no
+    /// concurrent writer for a UI write to clobber.
+    ///
+    /// [`Message::RunTool`]: crate::messages::Message::RunTool
+    #[serde(default)]
+    pub tools: Vec<ToolDef>,
     /// Globs every project search and every filename index skip, whatever a project record says.
     /// How many days a conversation nobody marked persistent is kept before its record is
     /// collected. Thirty by default — long enough that last month's work is still there to go
@@ -289,7 +298,10 @@ pub enum RemoteScheme {
 /// Fourteen widens [`SavedRemoteHost`] with `id`, `scheme` and `trust_insecure`. An older build
 /// drops all three on its next write — saved hosts lose their keychain linkage, scheme and
 /// trust flag — so the bump refuses rather than silently downgrading them.
-pub const HOST_SETTINGS_SCHEMA: u32 = 14;
+///
+/// Fifteen adds [`HostSettings::tools`]. An older build drops the rows on its next write, and
+/// the new-pane menu goes back to offering shells and harnesses only until they are set again.
+pub const HOST_SETTINGS_SCHEMA: u32 = 15;
 
 fn isolate_agents_default() -> bool {
     true
@@ -339,6 +351,7 @@ impl Default for HostSettings {
             agent_home: AgentHome::default(),
             extra_grants: Vec::new(),
             agent_commands: BTreeMap::new(),
+            tools: Vec::new(),
             retain_conversations_days: retain_conversations_days_default(),
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),

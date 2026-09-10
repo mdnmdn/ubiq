@@ -350,7 +350,16 @@ impl AppState {
     }
 
     pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
-        if self.workbench.project_settings.is_some() {
+        // The live dialog keeps its own nav on `ProjectSettings`: the sink page must not
+        // reopen wherever the dialog was left. Only an existing project can carry tools, so
+        // Tools is the one other nav a live dialog answers to — a folder not yet in the
+        // catalogue stays on General.
+        if let Some(settings) = self.workbench.project_settings.as_mut() {
+            let editing = matches!(settings.mode, ProjectSettingsMode::Edit { .. });
+            if nav == ProjectNav::General || (nav == ProjectNav::Tools && editing) {
+                settings.nav = nav;
+                cx.notify();
+            }
             return;
         }
         self.sink.project.nav = nav;

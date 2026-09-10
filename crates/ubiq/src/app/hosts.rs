@@ -837,6 +837,7 @@ mod tests {
             cols: 80,
             rows: 24,
             running: true,
+            wait_on_exit: false,
         };
         bus.note_pane(workspace.id, HostRef::Remote(remote));
 
